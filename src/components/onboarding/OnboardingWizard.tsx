@@ -1,0 +1,410 @@
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { 
+  ChevronRight, 
+  ChevronLeft, 
+  User,
+  BookOpen,
+  Briefcase,
+  Sparkles,
+  Check
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
+import { cn } from '@/lib/utils';
+import { CourseUploader } from './CourseUploader';
+import { DreamJobSelector } from './DreamJobSelector';
+import { toast } from '@/hooks/use-toast';
+
+type OnboardingStep = 'profile' | 'courses' | 'dream-jobs' | 'complete';
+
+interface ProfileData {
+  fullName: string;
+  university: string;
+  major: string;
+  graduationYear: string;
+  studentLevel: string;
+}
+
+interface Course {
+  name: string;
+  code?: string;
+  university?: string;
+  semester?: string;
+  syllabusText?: string;
+}
+
+interface DreamJob {
+  id: string;
+  jobQuery: string;
+  targetCompanyType?: string;
+  targetLocation?: string;
+}
+
+const steps = [
+  { id: 'profile', label: 'Your Profile', icon: User },
+  { id: 'courses', label: 'Add Courses', icon: BookOpen },
+  { id: 'dream-jobs', label: 'Dream Jobs', icon: Briefcase },
+  { id: 'complete', label: 'Complete', icon: Sparkles },
+];
+
+const studentLevels = [
+  { value: 'freshman', label: 'Freshman' },
+  { value: 'sophomore', label: 'Sophomore' },
+  { value: 'junior', label: 'Junior' },
+  { value: 'senior', label: 'Senior' },
+  { value: 'graduate', label: 'Graduate Student' },
+];
+
+const currentYear = new Date().getFullYear();
+const graduationYears = Array.from({ length: 6 }, (_, i) => currentYear + i);
+
+export function OnboardingWizard() {
+  const navigate = useNavigate();
+  const [currentStep, setCurrentStep] = useState<OnboardingStep>('profile');
+  const [profile, setProfile] = useState<ProfileData>({
+    fullName: '',
+    university: '',
+    major: '',
+    graduationYear: '',
+    studentLevel: '',
+  });
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [dreamJobs, setDreamJobs] = useState<DreamJob[]>([]);
+
+  const stepIndex = steps.findIndex(s => s.id === currentStep);
+  const progress = ((stepIndex + 1) / steps.length) * 100;
+
+  const canProceed = () => {
+    switch (currentStep) {
+      case 'profile':
+        return profile.fullName && profile.university && profile.studentLevel;
+      case 'courses':
+        return courses.length > 0;
+      case 'dream-jobs':
+        return dreamJobs.length > 0;
+      default:
+        return true;
+    }
+  };
+
+  const nextStep = () => {
+    switch (currentStep) {
+      case 'profile':
+        setCurrentStep('courses');
+        break;
+      case 'courses':
+        setCurrentStep('dream-jobs');
+        break;
+      case 'dream-jobs':
+        setCurrentStep('complete');
+        break;
+      case 'complete':
+        navigate('/dashboard');
+        break;
+    }
+  };
+
+  const prevStep = () => {
+    switch (currentStep) {
+      case 'courses':
+        setCurrentStep('profile');
+        break;
+      case 'dream-jobs':
+        setCurrentStep('courses');
+        break;
+      case 'complete':
+        setCurrentStep('dream-jobs');
+        break;
+    }
+  };
+
+  const handleCourseAdded = (course: Course) => {
+    setCourses(prev => [...prev, course]);
+    toast({
+      title: "Course added!",
+      description: `${course.name} has been added to your profile.`,
+    });
+  };
+
+  return (
+    <div className="min-h-screen bg-background">
+      {/* Header */}
+      <header className="border-b border-border bg-background/95 backdrop-blur sticky top-0 z-40">
+        <div className="max-w-3xl mx-auto px-4 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
+              <Sparkles className="h-4 w-4 text-primary-foreground" />
+            </div>
+            <span className="font-bold">EduThree</span>
+          </div>
+          <div className="text-sm text-muted-foreground">
+            Step {stepIndex + 1} of {steps.length}
+          </div>
+        </div>
+      </header>
+
+      {/* Progress */}
+      <div className="border-b border-border">
+        <div className="max-w-3xl mx-auto px-4 py-4">
+          <Progress value={progress} className="h-2" />
+          
+          {/* Step Indicators */}
+          <div className="flex justify-between mt-4">
+            {steps.map((step, index) => {
+              const Icon = step.icon;
+              const isActive = step.id === currentStep;
+              const isComplete = index < stepIndex;
+              
+              return (
+                <div 
+                  key={step.id}
+                  className={cn(
+                    "flex items-center gap-2",
+                    index < steps.length - 1 && "flex-1"
+                  )}
+                >
+                  <div className={cn(
+                    "w-8 h-8 rounded-full flex items-center justify-center transition-colors",
+                    isComplete && "bg-primary text-primary-foreground",
+                    isActive && "bg-primary/20 text-primary border-2 border-primary",
+                    !isActive && !isComplete && "bg-muted text-muted-foreground"
+                  )}>
+                    {isComplete ? (
+                      <Check className="h-4 w-4" />
+                    ) : (
+                      <Icon className="h-4 w-4" />
+                    )}
+                  </div>
+                  <span className={cn(
+                    "text-sm hidden sm:block",
+                    isActive && "font-medium text-foreground",
+                    !isActive && "text-muted-foreground"
+                  )}>
+                    {step.label}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Content */}
+      <main className="max-w-3xl mx-auto px-4 py-8">
+        {/* Profile Step */}
+        {currentStep === 'profile' && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Tell us about yourself</CardTitle>
+              <CardDescription>
+                This helps us personalize your career analysis
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Full Name *</label>
+                <Input
+                  value={profile.fullName}
+                  onChange={(e) => setProfile(p => ({ ...p, fullName: e.target.value }))}
+                  placeholder="Your name"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">University *</label>
+                  <Input
+                    value={profile.university}
+                    onChange={(e) => setProfile(p => ({ ...p, university: e.target.value }))}
+                    placeholder="Your university"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Major</label>
+                  <Input
+                    value={profile.major}
+                    onChange={(e) => setProfile(p => ({ ...p, major: e.target.value }))}
+                    placeholder="Your major"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Student Level *</label>
+                  <Select 
+                    value={profile.studentLevel}
+                    onValueChange={(value) => setProfile(p => ({ ...p, studentLevel: value }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select level" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {studentLevels.map((level) => (
+                        <SelectItem key={level.value} value={level.value}>
+                          {level.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Graduation Year</label>
+                  <Select 
+                    value={profile.graduationYear}
+                    onValueChange={(value) => setProfile(p => ({ ...p, graduationYear: value }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select year" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {graduationYears.map((year) => (
+                        <SelectItem key={year} value={year.toString()}>
+                          {year}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Courses Step */}
+        {currentStep === 'courses' && (
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Add your courses</CardTitle>
+                <CardDescription>
+                  Upload syllabi or paste content so we can analyze your capabilities.
+                  You've added {courses.length} course{courses.length !== 1 ? 's' : ''}.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <CourseUploader onSuccess={handleCourseAdded} />
+              </CardContent>
+            </Card>
+
+            {/* Added Courses List */}
+            {courses.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Added Courses</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    {courses.map((course, index) => (
+                      <div 
+                        key={index}
+                        className="flex items-center justify-between p-3 bg-muted/50 rounded-lg"
+                      >
+                        <div className="flex items-center gap-3">
+                          <BookOpen className="h-4 w-4 text-primary" />
+                          <span className="font-medium text-sm">{course.name}</span>
+                          {course.code && (
+                            <span className="text-xs text-muted-foreground">
+                              ({course.code})
+                            </span>
+                          )}
+                        </div>
+                        <Check className="h-4 w-4 text-green-500" />
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        )}
+
+        {/* Dream Jobs Step */}
+        {currentStep === 'dream-jobs' && (
+          <Card>
+            <CardHeader>
+              <CardTitle>What roles are you targeting?</CardTitle>
+              <CardDescription>
+                Tell us your dream jobs and we'll analyze what they actually require.
+                Add up to 5 target roles.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <DreamJobSelector onJobsChange={setDreamJobs} />
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Complete Step */}
+        {currentStep === 'complete' && (
+          <Card className="text-center">
+            <CardContent className="pt-8 pb-8">
+              <div className="w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center mx-auto mb-6">
+                <Check className="h-8 w-8 text-green-600 dark:text-green-400" />
+              </div>
+              <h2 className="text-2xl font-bold mb-2">You're all set!</h2>
+              <p className="text-muted-foreground mb-6 max-w-md mx-auto">
+                We've captured your profile, {courses.length} course{courses.length !== 1 ? 's' : ''}, 
+                and {dreamJobs.length} dream job{dreamJobs.length !== 1 ? 's' : ''}. 
+                Your personalized gap analysis is ready.
+              </p>
+              <div className="grid grid-cols-3 gap-4 max-w-sm mx-auto mb-8">
+                <div className="bg-muted rounded-lg p-3">
+                  <div className="text-2xl font-bold text-primary">{courses.length}</div>
+                  <div className="text-xs text-muted-foreground">Courses</div>
+                </div>
+                <div className="bg-muted rounded-lg p-3">
+                  <div className="text-2xl font-bold text-primary">{dreamJobs.length}</div>
+                  <div className="text-xs text-muted-foreground">Dream Jobs</div>
+                </div>
+                <div className="bg-muted rounded-lg p-3">
+                  <div className="text-2xl font-bold text-primary">Ready</div>
+                  <div className="text-xs text-muted-foreground">Analysis</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Navigation */}
+        <div className="flex justify-between mt-8">
+          <Button
+            variant="outline"
+            onClick={prevStep}
+            disabled={currentStep === 'profile'}
+          >
+            <ChevronLeft className="h-4 w-4 mr-2" />
+            Back
+          </Button>
+
+          <Button
+            onClick={nextStep}
+            disabled={!canProceed()}
+          >
+            {currentStep === 'complete' ? (
+              <>
+                Go to Dashboard
+                <Sparkles className="h-4 w-4 ml-2" />
+              </>
+            ) : (
+              <>
+                Continue
+                <ChevronRight className="h-4 w-4 ml-2" />
+              </>
+            )}
+          </Button>
+        </div>
+      </main>
+    </div>
+  );
+}
