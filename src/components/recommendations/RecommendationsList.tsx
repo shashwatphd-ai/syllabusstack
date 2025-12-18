@@ -2,31 +2,72 @@ import { useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { 
-  RecommendationCard, 
-  mockRecommendations 
+  RecommendationCard
 } from "./RecommendationCard";
 import { ProgressTracker } from "./ProgressTracker";
-import { Filter, SortAsc } from "lucide-react";
+import { useRecommendations, useUpdateRecommendationStatus } from "@/hooks/useRecommendations";
+import { Lightbulb } from "lucide-react";
 
-type FilterType = "all" | "course" | "project" | "certification" | "networking" | "resource";
+type FilterType = "all" | "course" | "project" | "certification" | "skill" | "experience";
 
-export function RecommendationsList() {
+interface RecommendationsListProps {
+  dreamJobId?: string;
+}
+
+export function RecommendationsList({ dreamJobId }: RecommendationsListProps) {
   const [filter, setFilter] = useState<FilterType>("all");
-  const [recommendations, setRecommendations] = useState(mockRecommendations);
+  const { data: recommendations = [], isLoading } = useRecommendations(dreamJobId);
+  const updateStatus = useUpdateRecommendationStatus();
 
   const filteredRecommendations = filter === "all" 
     ? recommendations 
     : recommendations.filter((r) => r.type === filter);
 
-  const pendingCount = recommendations.filter((r) => !r.isCompleted).length;
-  const completedCount = recommendations.filter((r) => r.isCompleted).length;
+  const pendingCount = recommendations.filter((r) => r.status !== 'completed').length;
+  const completedCount = recommendations.filter((r) => r.status === 'completed').length;
 
-  const handleComplete = (id: string) => {
-    setRecommendations((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, isCompleted: true } : r))
-    );
+  const handleComplete = async (id: string) => {
+    await updateStatus.mutateAsync({ id, status: 'completed' });
   };
+
+  // Transform database recommendations to component format
+  const transformedRecs = filteredRecommendations.map(rec => ({
+    id: rec.id,
+    title: rec.title,
+    description: rec.description || '',
+    type: (rec.type as "course" | "project" | "certification" | "networking" | "resource") || 'resource',
+    priority: (rec.priority as "high" | "medium" | "low") || 'medium',
+    estimatedTime: rec.duration || 'Varies',
+    provider: rec.provider || undefined,
+    url: rec.url || undefined,
+    isCompleted: rec.status === 'completed',
+    relatedGap: 'Skill Gap',
+  }));
+
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <Skeleton className="h-8 w-48" />
+            <Skeleton className="h-4 w-64 mt-2" />
+          </div>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          {[1, 2, 3, 4].map((i) => (
+            <Card key={i}>
+              <CardContent className="p-6">
+                <Skeleton className="h-24 w-full" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -44,74 +85,99 @@ export function RecommendationsList() {
         </div>
       </div>
 
-      <Tabs defaultValue="recommendations" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="recommendations">Action Items</TabsTrigger>
-          <TabsTrigger value="progress">Progress Tracker</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="recommendations" className="space-y-4">
-          {/* Filters */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <Button
-              variant={filter === "all" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setFilter("all")}
-            >
-              All
-            </Button>
-            <Button
-              variant={filter === "course" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setFilter("course")}
-            >
-              Courses
-            </Button>
-            <Button
-              variant={filter === "project" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setFilter("project")}
-            >
-              Projects
-            </Button>
-            <Button
-              variant={filter === "certification" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setFilter("certification")}
-            >
-              Certifications
-            </Button>
-            <Button
-              variant={filter === "networking" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setFilter("networking")}
-            >
-              Networking
-            </Button>
-          </div>
-
-          {/* Recommendations Grid */}
-          <div className="grid gap-4 md:grid-cols-2">
-            {filteredRecommendations.map((rec) => (
-              <RecommendationCard
-                key={rec.id}
-                recommendation={rec}
-                onComplete={handleComplete}
-              />
-            ))}
-          </div>
-
-          {filteredRecommendations.length === 0 && (
-            <div className="text-center py-12">
-              <p className="text-muted-foreground">No recommendations in this category</p>
+      {recommendations.length === 0 ? (
+        <Card className="p-12 text-center">
+          <div className="flex flex-col items-center gap-4">
+            <div className="p-4 rounded-full bg-accent/10">
+              <Lightbulb className="h-8 w-8 text-accent" />
             </div>
-          )}
-        </TabsContent>
+            <div>
+              <h3 className="text-lg font-semibold">No recommendations yet</h3>
+              <p className="text-muted-foreground">
+                Add dream jobs and run gap analysis to get personalized recommendations
+              </p>
+            </div>
+          </div>
+        </Card>
+      ) : (
+        <Tabs defaultValue="recommendations" className="space-y-4">
+          <TabsList>
+            <TabsTrigger value="recommendations">Action Items</TabsTrigger>
+            <TabsTrigger value="progress">Progress Tracker</TabsTrigger>
+          </TabsList>
 
-        <TabsContent value="progress">
-          <ProgressTracker />
-        </TabsContent>
-      </Tabs>
+          <TabsContent value="recommendations" className="space-y-4">
+            {/* Filters */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button
+                variant={filter === "all" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setFilter("all")}
+              >
+                All
+              </Button>
+              <Button
+                variant={filter === "course" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setFilter("course")}
+              >
+                Courses
+              </Button>
+              <Button
+                variant={filter === "project" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setFilter("project")}
+              >
+                Projects
+              </Button>
+              <Button
+                variant={filter === "certification" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setFilter("certification")}
+              >
+                Certifications
+              </Button>
+              <Button
+                variant={filter === "skill" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setFilter("skill")}
+              >
+                Skills
+              </Button>
+            </div>
+
+            {/* Recommendations Grid */}
+            <div className="grid gap-4 md:grid-cols-2">
+              {transformedRecs.map((rec) => (
+                <RecommendationCard
+                  key={rec.id}
+                  recommendation={rec}
+                  onComplete={handleComplete}
+                />
+              ))}
+            </div>
+
+            {filteredRecommendations.length === 0 && recommendations.length > 0 && (
+              <div className="text-center py-12">
+                <p className="text-muted-foreground">No recommendations in this category</p>
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="progress">
+            <ProgressTracker 
+              currentProgress={Math.round((completedCount / recommendations.length) * 100)}
+              milestones={recommendations.slice(0, 8).map((rec, i) => ({
+                id: rec.id,
+                title: rec.title,
+                description: rec.description || '',
+                isCompleted: rec.status === 'completed',
+                completedDate: rec.status === 'completed' ? rec.updated_at : undefined,
+              }))}
+            />
+          </TabsContent>
+        </Tabs>
+      )}
     </div>
   );
 }
