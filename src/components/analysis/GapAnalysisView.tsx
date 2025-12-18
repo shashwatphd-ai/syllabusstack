@@ -1,16 +1,26 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { HonestAssessment } from "./HonestAssessment";
 import { GapsList } from "./GapsList";
+import { OverlapsList } from "./OverlapsList";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { 
   Target, 
   TrendingUp, 
   AlertTriangle,
   CheckCircle2,
-  BarChart3
+  BarChart3,
+  RefreshCw,
+  Loader2
 } from "lucide-react";
+import { useGapAnalysis } from "@/hooks/useAnalysis";
+import { performGapAnalysis } from "@/lib/api";
+import { useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/query-keys";
+import { useState } from "react";
+import { useToast } from "@/hooks/use-toast";
 
 interface GapAnalysisViewProps {
   dreamJobId?: string;
@@ -20,9 +30,60 @@ interface GapAnalysisViewProps {
 
 export function GapAnalysisView({ 
   dreamJobId, 
-  dreamJobTitle = "Data Scientist",
-  isLoading 
+  dreamJobTitle = "Dream Job",
 }: GapAnalysisViewProps) {
+  const { data: analysis, isLoading } = useGapAnalysis(dreamJobId || '');
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    if (!dreamJobId) return;
+    setIsRefreshing(true);
+    try {
+      await performGapAnalysis(dreamJobId);
+      queryClient.invalidateQueries({ queryKey: queryKeys.gapAnalysis(dreamJobId) });
+      toast({
+        title: "Analysis refreshed",
+        description: "Gap analysis has been updated.",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to refresh analysis",
+        variant: "destructive",
+      });
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  const matchScore = analysis?.match_score || 0;
+  const overlapsCount = analysis?.overlaps?.length || 0;
+  const gapsCount = analysis?.gaps?.length || 0;
+
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <Skeleton className="h-8 w-48" />
+            <Skeleton className="h-4 w-64 mt-2" />
+          </div>
+        </div>
+        <div className="grid gap-4 md:grid-cols-3">
+          {[1, 2, 3].map((i) => (
+            <Card key={i}>
+              <CardContent className="pt-6">
+                <Skeleton className="h-16 w-full" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -33,10 +94,25 @@ export function GapAnalysisView({
             Detailed analysis for {dreamJobTitle}
           </p>
         </div>
-        <Badge variant="outline" className="text-base px-4 py-2">
-          <Target className="h-4 w-4 mr-2" />
-          68% Ready
-        </Badge>
+        <div className="flex items-center gap-3">
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={handleRefresh}
+            disabled={isRefreshing || !dreamJobId}
+          >
+            {isRefreshing ? (
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            ) : (
+              <RefreshCw className="h-4 w-4 mr-2" />
+            )}
+            Refresh
+          </Button>
+          <Badge variant="outline" className="text-base px-4 py-2">
+            <Target className="h-4 w-4 mr-2" />
+            {matchScore}% Ready
+          </Badge>
+        </div>
       </div>
 
       {/* Summary Cards */}
@@ -48,7 +124,7 @@ export function GapAnalysisView({
                 <CheckCircle2 className="h-6 w-6 text-green-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold">18</p>
+                <p className="text-2xl font-bold">{overlapsCount}</p>
                 <p className="text-sm text-muted-foreground">Skills Aligned</p>
               </div>
             </div>
@@ -62,7 +138,7 @@ export function GapAnalysisView({
                 <AlertTriangle className="h-6 w-6 text-yellow-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold">5</p>
+                <p className="text-2xl font-bold">{gapsCount}</p>
                 <p className="text-sm text-muted-foreground">Gaps Identified</p>
               </div>
             </div>
@@ -76,7 +152,7 @@ export function GapAnalysisView({
                 <TrendingUp className="h-6 w-6 text-accent" />
               </div>
               <div>
-                <p className="text-2xl font-bold">3-6 mo</p>
+                <p className="text-2xl font-bold">{matchScore >= 80 ? '1-2' : matchScore >= 50 ? '3-6' : '6+'} mo</p>
                 <p className="text-sm text-muted-foreground">Est. Time to Ready</p>
               </div>
             </div>
@@ -93,55 +169,82 @@ export function GapAnalysisView({
         </TabsList>
 
         <TabsContent value="assessment">
-          <HonestAssessment isLoading={isLoading} />
+          {analysis ? (
+            <HonestAssessment 
+              dreamJobTitle={dreamJobTitle}
+              matchScore={matchScore}
+              strengths={analysis.top_strengths || []}
+              weaknesses={analysis.critical_gaps || []}
+              honestFeedback={analysis.honest_assessment || "Run a gap analysis to get personalized feedback."}
+            />
+          ) : (
+            <Card className="p-8 text-center">
+              <p className="text-muted-foreground mb-4">
+                No analysis available. Click "Refresh" to generate insights.
+              </p>
+              <Button onClick={handleRefresh} disabled={isRefreshing || !dreamJobId}>
+                {isRefreshing ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                )}
+                Run Gap Analysis
+              </Button>
+            </Card>
+          )}
         </TabsContent>
 
         <TabsContent value="gaps">
-          <GapsList isLoading={isLoading} />
+          {analysis?.gaps && analysis.gaps.length > 0 ? (
+            <GapsList 
+              gaps={analysis.gaps.map((g, i) => ({
+                id: String(i),
+                skill: g.requirement,
+                currentLevel: 20,
+                requiredLevel: g.importance === 'critical' ? 90 : g.importance === 'important' ? 70 : 50,
+                severity: g.importance === 'critical' ? 'critical' : g.importance === 'important' ? 'important' : 'nice-to-have',
+                category: 'technical',
+                estimatedTimeToClose: g.time_to_close,
+                description: g.suggested_action || `Develop ${g.requirement} skills`,
+              }))}
+            />
+          ) : (
+            <Card className="p-8 text-center">
+              <p className="text-muted-foreground">
+                No skill gaps identified yet. Run a gap analysis to discover areas for improvement.
+              </p>
+            </Card>
+          )}
         </TabsContent>
 
         <TabsContent value="comparison">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <BarChart3 className="h-5 w-5" />
-                Skills Comparison
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {[
-                  { skill: "Python", current: 75, required: 80 },
-                  { skill: "Machine Learning", current: 30, required: 70 },
-                  { skill: "SQL", current: 45, required: 80 },
-                  { skill: "Statistics", current: 65, required: 70 },
-                  { skill: "Data Visualization", current: 70, required: 65 },
-                  { skill: "Communication", current: 50, required: 75 },
-                ].map((item) => (
-                  <div key={item.skill} className="space-y-2">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="font-medium">{item.skill}</span>
-                      <span className={item.current >= item.required ? "text-green-500" : "text-yellow-500"}>
-                        {item.current}% / {item.required}%
-                      </span>
-                    </div>
-                    <div className="relative h-3 bg-muted rounded-full overflow-hidden">
-                      <div
-                        className="absolute h-full bg-muted-foreground/20 rounded-full"
-                        style={{ width: `${item.required}%` }}
-                      />
-                      <div
-                        className={`absolute h-full rounded-full ${
-                          item.current >= item.required ? "bg-green-500" : "bg-accent"
-                        }`}
-                        style={{ width: `${item.current}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+          {analysis?.overlaps && analysis.overlaps.length > 0 ? (
+            <OverlapsList 
+              overlaps={analysis.overlaps.map((o, i) => ({
+                id: String(i),
+                studentCapability: o.capability,
+                jobRequirement: o.requirement,
+                strength: o.strength,
+                strengthScore: o.strength === 'strong' ? 90 : o.strength === 'moderate' ? 70 : 50,
+                assessment: o.notes || '',
+                source: 'Your Courses',
+              }))}
+            />
+          ) : (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <BarChart3 className="h-5 w-5" />
+                  Skills Comparison
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-muted-foreground text-center py-8">
+                  No skill comparisons available. Add courses and run gap analysis.
+                </p>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
       </Tabs>
     </div>

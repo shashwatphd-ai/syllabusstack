@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   Form,
   FormControl,
@@ -23,16 +24,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { toast } from '@/hooks/use-toast';
-import { useState } from 'react';
+import { useProfile, useUpdateProfile } from '@/hooks/useProfile';
+import { useEffect } from 'react';
 
 const profileSchema = z.object({
-  fullName: z.string().min(2, 'Name must be at least 2 characters').max(100),
+  full_name: z.string().min(2, 'Name must be at least 2 characters').max(100),
   email: z.string().email('Invalid email address'),
   university: z.string().optional(),
-  graduationYear: z.string().optional(),
+  graduation_year: z.number().optional().nullable(),
   major: z.string().optional(),
-  studentLevel: z.enum(['freshman', 'sophomore', 'junior', 'senior', 'graduate', '']).optional(),
+  student_level: z.string().optional().nullable(),
 });
 
 type ProfileFormValues = z.infer<typeof profileSchema>;
@@ -45,51 +46,74 @@ const studentLevels = [
   { value: 'graduate', label: 'Graduate Student' },
 ];
 
-// Mock user data
-const mockUserData: ProfileFormValues = {
-  fullName: 'Student User',
-  email: 'student@university.edu',
-  university: 'State University',
-  graduationYear: '2025',
-  major: 'Business Administration',
-  studentLevel: 'junior',
-};
-
 export default function ProfilePage() {
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const { data: profile, isLoading } = useProfile();
+  const updateProfile = useUpdateProfile();
 
   const form = useForm<ProfileFormValues>({
     resolver: zodResolver(profileSchema),
-    defaultValues: mockUserData,
+    defaultValues: {
+      full_name: '',
+      email: '',
+      university: '',
+      graduation_year: null,
+      major: '',
+      student_level: null,
+    },
   });
 
-  const onSubmit = async (data: ProfileFormValues) => {
-    setIsSubmitting(true);
-    
-    try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      toast({
-        title: "Profile updated",
-        description: "Your changes have been saved successfully.",
+  // Update form when profile data loads
+  useEffect(() => {
+    if (profile) {
+      form.reset({
+        full_name: profile.full_name || '',
+        email: profile.email || '',
+        university: profile.university || '',
+        graduation_year: profile.graduation_year,
+        major: profile.major || '',
+        student_level: profile.student_level,
       });
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to update profile. Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsSubmitting(false);
     }
+  }, [profile, form]);
+
+  const onSubmit = async (data: ProfileFormValues) => {
+    await updateProfile.mutateAsync({
+      full_name: data.full_name,
+      university: data.university || null,
+      graduation_year: data.graduation_year,
+      major: data.major || null,
+      student_level: data.student_level,
+    });
   };
 
   // Calculate profile completion
   const values = form.watch();
-  const totalFields = Object.keys(profileSchema.shape).length;
-  const filledFields = Object.values(values).filter(v => v && v.length > 0).length;
-  const completionPercentage = Math.round((filledFields / totalFields) * 100);
+  const fields = ['full_name', 'email', 'university', 'graduation_year', 'major', 'student_level'];
+  const filledFields = fields.filter(f => {
+    const value = values[f as keyof ProfileFormValues];
+    return value !== null && value !== undefined && value !== '';
+  }).length;
+  const completionPercentage = Math.round((filledFields / fields.length) * 100);
+
+  if (isLoading) {
+    return (
+      <AppShell>
+        <div className="max-w-2xl mx-auto space-y-6">
+          <div>
+            <Skeleton className="h-8 w-48" />
+            <Skeleton className="h-4 w-72 mt-2" />
+          </div>
+          <Card>
+            <CardContent className="p-6 space-y-4">
+              {[1, 2, 3, 4].map((i) => (
+                <Skeleton key={i} className="h-10 w-full" />
+              ))}
+            </CardContent>
+          </Card>
+        </div>
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell>
@@ -137,7 +161,7 @@ export default function ProfilePage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <FormField
                     control={form.control}
-                    name="fullName"
+                    name="full_name"
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Full Name</FormLabel>
@@ -189,14 +213,21 @@ export default function ProfilePage() {
 
                   <FormField
                     control={form.control}
-                    name="graduationYear"
+                    name="graduation_year"
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Graduation Year</FormLabel>
                         <FormControl>
                           <div className="relative">
                             <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                            <Input placeholder="e.g., 2025" className="pl-10" {...field} />
+                            <Input 
+                              type="number"
+                              placeholder="e.g., 2025" 
+                              className="pl-10" 
+                              {...field}
+                              value={field.value ?? ''}
+                              onChange={(e) => field.onChange(e.target.value ? parseInt(e.target.value) : null)}
+                            />
                           </div>
                         </FormControl>
                         <FormMessage />
@@ -223,11 +254,11 @@ export default function ProfilePage() {
 
                   <FormField
                     control={form.control}
-                    name="studentLevel"
+                    name="student_level"
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Student Level</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <Select onValueChange={field.onChange} value={field.value || ''}>
                           <FormControl>
                             <SelectTrigger>
                               <SelectValue placeholder="Select your level" />
@@ -248,8 +279,8 @@ export default function ProfilePage() {
                 </div>
 
                 <div className="flex justify-end">
-                  <Button type="submit" disabled={isSubmitting}>
-                    {isSubmitting ? (
+                  <Button type="submit" disabled={updateProfile.isPending}>
+                    {updateProfile.isPending ? (
                       <>
                         <Loader2 className="h-4 w-4 animate-spin mr-2" />
                         Saving...
@@ -261,29 +292,6 @@ export default function ProfilePage() {
                 </div>
               </form>
             </Form>
-          </CardContent>
-        </Card>
-
-        {/* Danger Zone */}
-        <Card className="border-destructive/50">
-          <CardHeader>
-            <CardTitle className="text-destructive">Danger Zone</CardTitle>
-            <CardDescription>
-              Irreversible actions for your account
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-medium">Delete Account</p>
-                <p className="text-sm text-muted-foreground">
-                  Permanently delete your account and all associated data
-                </p>
-              </div>
-              <Button variant="destructive" size="sm">
-                Delete Account
-              </Button>
-            </div>
           </CardContent>
         </Card>
       </div>

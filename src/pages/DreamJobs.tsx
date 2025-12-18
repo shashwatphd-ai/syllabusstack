@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { AppShell } from "@/components/layout";
-import { DreamJobSelector } from "@/components/onboarding";
+import { AddDreamJobForm } from "@/components/forms";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
 import { 
   Target, 
   MapPin, 
@@ -12,7 +13,8 @@ import {
   MoreVertical,
   Trash2,
   BarChart3,
-  Plus
+  Plus,
+  Briefcase
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -21,55 +23,98 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useNavigate } from "react-router-dom";
-
-interface DreamJob {
-  id: string;
-  title: string;
-  company?: string;
-  location?: string;
-  salaryRange?: string;
-  matchScore: number;
-  gapsCount: number;
-  status: "active" | "achieved" | "paused";
-}
-
-const mockJobs: DreamJob[] = [
-  {
-    id: "1",
-    title: "Data Scientist",
-    company: "Tech Companies",
-    location: "Remote / San Francisco",
-    salaryRange: "$120k - $180k",
-    matchScore: 68,
-    gapsCount: 4,
-    status: "active",
-  },
-  {
-    id: "2",
-    title: "Machine Learning Engineer",
-    company: "AI Startups",
-    location: "New York / Remote",
-    salaryRange: "$140k - $200k",
-    matchScore: 45,
-    gapsCount: 7,
-    status: "active",
-  },
-  {
-    id: "3",
-    title: "Product Analyst",
-    company: "Product Companies",
-    location: "Flexible",
-    salaryRange: "$90k - $130k",
-    matchScore: 82,
-    gapsCount: 2,
-    status: "active",
-  },
-];
+import { useDreamJobs, useCreateDreamJob, useDeleteDreamJob } from "@/hooks/useDreamJobs";
+import { analyzeDreamJob } from "@/lib/api";
+import { useToast } from "@/hooks/use-toast";
 
 export default function DreamJobsPage() {
-  const [jobs, setJobs] = useState(mockJobs);
-  const [showSelector, setShowSelector] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const navigate = useNavigate();
+  const { toast } = useToast();
+  
+  const { data: jobs = [], isLoading } = useDreamJobs();
+  const createDreamJob = useCreateDreamJob();
+  const deleteDreamJob = useDeleteDreamJob();
+
+  const handleAddJob = async (data: { jobQuery: string; targetCompanyType?: string; targetLocation?: string }) => {
+    setIsAnalyzing(true);
+    try {
+      // Create dream job in database
+      const newJob = await createDreamJob.mutateAsync({
+        title: data.jobQuery,
+        company_type: data.targetCompanyType || null,
+        location: data.targetLocation || null,
+      });
+
+      // Trigger AI analysis
+      await analyzeDreamJob(
+        data.jobQuery,
+        data.targetCompanyType,
+        data.targetLocation,
+        newJob.id
+      );
+
+      toast({
+        title: "Dream job added",
+        description: "AI is analyzing requirements for this role.",
+      });
+      setShowForm(false);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to add dream job",
+        variant: "destructive",
+      });
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const handleDeleteJob = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await deleteDreamJob.mutateAsync(id);
+    } catch (error) {
+      // Error is handled by the hook
+    }
+  };
+
+  const getMatchColor = (score: number): string => {
+    if (score >= 80) return "text-green-500";
+    if (score >= 60) return "text-accent";
+    if (score >= 40) return "text-yellow-500";
+    return "text-red-500";
+  };
+
+  if (isLoading) {
+    return (
+      <AppShell>
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold font-display">Dream Jobs</h1>
+              <p className="text-muted-foreground">Track your career aspirations</p>
+            </div>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {[1, 2, 3].map((i) => (
+              <Card key={i}>
+                <CardHeader className="pb-2">
+                  <Skeleton className="h-5 w-3/4" />
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <Skeleton className="h-4 w-1/2" />
+                  <Skeleton className="h-2 w-full" />
+                  <Skeleton className="h-4 w-1/4" />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell>
@@ -82,8 +127,8 @@ export default function DreamJobsPage() {
               Track your career aspirations
             </p>
           </div>
-          <Button onClick={() => setShowSelector(!showSelector)}>
-            {showSelector ? "View Jobs" : (
+          <Button onClick={() => setShowForm(!showForm)}>
+            {showForm ? "View Jobs" : (
               <>
                 <Plus className="h-4 w-4 mr-2" />
                 Add Dream Job
@@ -92,8 +137,30 @@ export default function DreamJobsPage() {
           </Button>
         </div>
 
-        {showSelector ? (
-          <DreamJobSelector />
+        {showForm ? (
+          <AddDreamJobForm 
+            onSubmit={handleAddJob}
+            onCancel={() => setShowForm(false)}
+            isSubmitting={isAnalyzing}
+          />
+        ) : jobs.length === 0 ? (
+          <Card className="p-12 text-center">
+            <div className="flex flex-col items-center gap-4">
+              <div className="p-4 rounded-full bg-accent/10">
+                <Briefcase className="h-8 w-8 text-accent" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold">No dream jobs yet</h3>
+                <p className="text-muted-foreground">
+                  Add your first dream job to get personalized gap analysis
+                </p>
+              </div>
+              <Button onClick={() => setShowForm(true)}>
+                <Plus className="h-4 w-4 mr-2" />
+                Add Your First Dream Job
+              </Button>
+            </div>
+          </Card>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {jobs.map((job) => (
@@ -110,8 +177,8 @@ export default function DreamJobsPage() {
                       </div>
                       <div>
                         <CardTitle className="text-base">{job.title}</CardTitle>
-                        {job.company && (
-                          <p className="text-xs text-muted-foreground">{job.company}</p>
+                        {job.company_type && (
+                          <p className="text-xs text-muted-foreground capitalize">{job.company_type}</p>
                         )}
                       </div>
                     </div>
@@ -129,7 +196,10 @@ export default function DreamJobsPage() {
                           <BarChart3 className="h-4 w-4 mr-2" />
                           View Analysis
                         </DropdownMenuItem>
-                        <DropdownMenuItem className="text-destructive" onClick={(e) => e.stopPropagation()}>
+                        <DropdownMenuItem 
+                          className="text-destructive" 
+                          onClick={(e) => handleDeleteJob(job.id, e)}
+                        >
                           <Trash2 className="h-4 w-4 mr-2" />
                           Remove
                         </DropdownMenuItem>
@@ -145,10 +215,10 @@ export default function DreamJobsPage() {
                         {job.location}
                       </span>
                     )}
-                    {job.salaryRange && (
+                    {job.salary_range && (
                       <span className="flex items-center gap-1">
                         <DollarSign className="h-3 w-3" />
-                        {job.salaryRange}
+                        {job.salary_range}
                       </span>
                     )}
                   </div>
@@ -156,22 +226,19 @@ export default function DreamJobsPage() {
                   <div className="space-y-2">
                     <div className="flex items-center justify-between text-sm">
                       <span>Match Score</span>
-                      <span className={`font-semibold ${
-                        job.matchScore >= 80 ? "text-green-500" :
-                        job.matchScore >= 60 ? "text-accent" : "text-yellow-500"
-                      }`}>
-                        {job.matchScore}%
+                      <span className={`font-semibold ${getMatchColor(job.match_score || 0)}`}>
+                        {job.match_score || 0}%
                       </span>
                     </div>
-                    <Progress value={job.matchScore} className="h-2" />
+                    <Progress value={job.match_score || 0} className="h-2" />
                   </div>
 
                   <div className="flex items-center justify-between pt-2 border-t">
-                    <Badge variant={job.status === "active" ? "default" : "secondary"}>
-                      {job.status}
+                    <Badge variant={job.is_primary ? "default" : "secondary"}>
+                      {job.is_primary ? "Primary" : "Active"}
                     </Badge>
                     <span className="text-sm text-muted-foreground">
-                      {job.gapsCount} gaps
+                      Added {new Date(job.created_at).toLocaleDateString()}
                     </span>
                   </div>
                 </CardContent>
