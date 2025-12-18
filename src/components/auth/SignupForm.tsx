@@ -1,19 +1,10 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
+import { useForm } from '@tanstack/react-form';
 import { z } from 'zod';
 import { Eye, EyeOff, GraduationCap, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from '@/components/ui/form';
 import {
   Select,
   SelectContent,
@@ -22,6 +13,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from '@/hooks/use-toast';
+import { getFieldError, FormFieldWrapper } from '@/lib/tanstack-form';
 
 const signupSchema = z.object({
   fullName: z.string().min(2, 'Name must be at least 2 characters'),
@@ -35,8 +27,6 @@ const signupSchema = z.object({
   path: ["confirmPassword"],
 });
 
-type SignupFormValues = z.infer<typeof signupSchema>;
-
 const studentLevels = [
   { value: 'freshman', label: 'Freshman' },
   { value: 'sophomore', label: 'Sophomore' },
@@ -47,10 +37,8 @@ const studentLevels = [
 
 export function SignupForm() {
   const [showPassword, setShowPassword] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
 
-  const form = useForm<SignupFormValues>({
-    resolver: zodResolver(signupSchema),
+  const form = useForm({
     defaultValues: {
       fullName: '',
       email: '',
@@ -59,26 +47,26 @@ export function SignupForm() {
       university: '',
       studentLevel: '',
     },
+    onSubmit: async ({ value }) => {
+      const result = signupSchema.safeParse(value);
+      if (!result.success) {
+        return;
+      }
+      try {
+        console.log('Signup attempt:', value.email);
+        toast({
+          title: "Account created",
+          description: "Authentication will be connected when Lovable Cloud is enabled.",
+        });
+      } catch (error) {
+        toast({
+          title: "Error",
+          description: "Something went wrong. Please try again.",
+          variant: "destructive",
+        });
+      }
+    },
   });
-
-  const onSubmit = async (data: SignupFormValues) => {
-    setIsLoading(true);
-    try {
-      console.log('Signup attempt:', data.email);
-      toast({
-        title: "Account created",
-        description: "Authentication will be connected when Lovable Cloud is enabled.",
-      });
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Something went wrong. Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   return (
     <div className="min-h-screen flex">
@@ -117,80 +105,185 @@ export function SignupForm() {
           <h1 className="text-2xl font-bold text-foreground mb-2">Create your account</h1>
           <p className="text-muted-foreground mb-8">Join thousands of students navigating their careers</p>
 
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <FormField control={form.control} name="fullName" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Full Name</FormLabel>
-                  <FormControl><Input placeholder="John Doe" {...field} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              form.handleSubmit();
+            }}
+            className="space-y-4"
+          >
+            <form.Field
+              name="fullName"
+              validators={{
+                onBlur: z.string().min(2, 'Name must be at least 2 characters'),
+              }}
+            >
+              {(field) => (
+                <FormFieldWrapper
+                  label="Full Name"
+                  htmlFor="fullName"
+                  error={getFieldError(field.state.meta.errors)}
+                  touched={field.state.meta.isTouched}
+                >
+                  <Input
+                    id="fullName"
+                    placeholder="John Doe"
+                    value={field.state.value}
+                    onBlur={field.handleBlur}
+                    onChange={(e) => field.handleChange(e.target.value)}
+                  />
+                </FormFieldWrapper>
+              )}
+            </form.Field>
 
-              <FormField control={form.control} name="email" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Email</FormLabel>
-                  <FormControl><Input type="email" placeholder="you@university.edu" {...field} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
+            <form.Field
+              name="email"
+              validators={{
+                onBlur: z.string().email('Please enter a valid email address'),
+              }}
+            >
+              {(field) => (
+                <FormFieldWrapper
+                  label="Email"
+                  htmlFor="email"
+                  error={getFieldError(field.state.meta.errors)}
+                  touched={field.state.meta.isTouched}
+                >
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="you@university.edu"
+                    value={field.state.value}
+                    onBlur={field.handleBlur}
+                    onChange={(e) => field.handleChange(e.target.value)}
+                  />
+                </FormFieldWrapper>
+              )}
+            </form.Field>
 
-              <div className="grid grid-cols-2 gap-4">
-                <FormField control={form.control} name="university" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>University</FormLabel>
-                    <FormControl><Input placeholder="Your university" {...field} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
+            <div className="grid grid-cols-2 gap-4">
+              <form.Field name="university">
+                {(field) => (
+                  <FormFieldWrapper
+                    label="University"
+                    htmlFor="university"
+                    error={getFieldError(field.state.meta.errors)}
+                    touched={field.state.meta.isTouched}
+                  >
+                    <Input
+                      id="university"
+                      placeholder="Your university"
+                      value={field.state.value}
+                      onBlur={field.handleBlur}
+                      onChange={(e) => field.handleChange(e.target.value)}
+                    />
+                  </FormFieldWrapper>
+                )}
+              </form.Field>
 
-                <FormField control={form.control} name="studentLevel" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Level</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
-                        <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
-                      </FormControl>
+              <form.Field name="studentLevel">
+                {(field) => (
+                  <FormFieldWrapper
+                    label="Level"
+                    htmlFor="studentLevel"
+                    error={getFieldError(field.state.meta.errors)}
+                    touched={field.state.meta.isTouched}
+                  >
+                    <Select 
+                      onValueChange={(value) => field.handleChange(value)} 
+                      value={field.state.value}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select" />
+                      </SelectTrigger>
                       <SelectContent>
                         {studentLevels.map((level) => (
-                          <SelectItem key={level.value} value={level.value}>{level.label}</SelectItem>
+                          <SelectItem key={level.value} value={level.value}>
+                            {level.label}
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-              </div>
+                  </FormFieldWrapper>
+                )}
+              </form.Field>
+            </div>
 
-              <FormField control={form.control} name="password" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Password</FormLabel>
-                  <FormControl>
-                    <div className="relative">
-                      <Input type={showPassword ? 'text' : 'password'} placeholder="Create a password" {...field} />
-                      <Button type="button" variant="ghost" size="icon" className="absolute right-0 top-0 h-full px-3 hover:bg-transparent" onClick={() => setShowPassword(!showPassword)}>
-                        {showPassword ? <EyeOff className="h-4 w-4 text-muted-foreground" /> : <Eye className="h-4 w-4 text-muted-foreground" />}
-                      </Button>
-                    </div>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
+            <form.Field
+              name="password"
+              validators={{
+                onBlur: z.string().min(8, 'Password must be at least 8 characters'),
+              }}
+            >
+              {(field) => (
+                <FormFieldWrapper
+                  label="Password"
+                  htmlFor="password"
+                  error={getFieldError(field.state.meta.errors)}
+                  touched={field.state.meta.isTouched}
+                >
+                  <div className="relative">
+                    <Input
+                      id="password"
+                      type={showPassword ? 'text' : 'password'}
+                      placeholder="Create a password"
+                      value={field.state.value}
+                      onBlur={field.handleBlur}
+                      onChange={(e) => field.handleChange(e.target.value)}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                      onClick={() => setShowPassword(!showPassword)}
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-4 w-4 text-muted-foreground" />
+                      ) : (
+                        <Eye className="h-4 w-4 text-muted-foreground" />
+                      )}
+                    </Button>
+                  </div>
+                </FormFieldWrapper>
+              )}
+            </form.Field>
 
-              <FormField control={form.control} name="confirmPassword" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Confirm Password</FormLabel>
-                  <FormControl><Input type="password" placeholder="Confirm your password" {...field} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
+            <form.Field
+              name="confirmPassword"
+              validators={{
+                onBlur: z.string().min(1, 'Please confirm your password'),
+              }}
+            >
+              {(field) => (
+                <FormFieldWrapper
+                  label="Confirm Password"
+                  htmlFor="confirmPassword"
+                  error={getFieldError(field.state.meta.errors)}
+                  touched={field.state.meta.isTouched}
+                >
+                  <Input
+                    id="confirmPassword"
+                    type="password"
+                    placeholder="Confirm your password"
+                    value={field.state.value}
+                    onBlur={field.handleBlur}
+                    onChange={(e) => field.handleChange(e.target.value)}
+                  />
+                </FormFieldWrapper>
+              )}
+            </form.Field>
 
-              <Button type="submit" className="w-full" disabled={isLoading}>
-                {isLoading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-                Create Account
-              </Button>
-            </form>
-          </Form>
+            <form.Subscribe selector={(state) => [state.canSubmit, state.isSubmitting]}>
+              {([canSubmit, isSubmitting]) => (
+                <Button type="submit" className="w-full" disabled={!canSubmit || isSubmitting}>
+                  {isSubmitting && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                  Create Account
+                </Button>
+              )}
+            </form.Subscribe>
+          </form>
 
           <p className="mt-8 text-center text-sm text-muted-foreground">
             Already have an account?{' '}

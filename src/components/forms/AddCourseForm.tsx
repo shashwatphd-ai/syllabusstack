@@ -1,7 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
+import { useForm } from '@tanstack/react-form';
 import { z } from 'zod';
 import { 
   Upload, 
@@ -15,15 +14,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-  FormDescription,
-} from '@/components/ui/form';
-import {
   Tabs,
   TabsContent,
   TabsList,
@@ -32,6 +22,7 @@ import {
 import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
+import { getFieldError, FormFieldWrapper } from '@/lib/tanstack-form';
 
 export const addCourseSchema = z.object({
   name: z.string().min(1, 'Course name is required').max(200),
@@ -56,14 +47,47 @@ export function AddCourseForm({ onSubmit, onCancel, isSubmitting = false }: AddC
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [analysisStatus, setAnalysisStatus] = useState<'idle' | 'extracting' | 'analyzing' | 'complete'>('idle');
 
-  const form = useForm<AddCourseFormValues>({
-    resolver: zodResolver(addCourseSchema),
+  const form = useForm({
     defaultValues: {
       name: '',
       code: '',
       university: '',
       semester: '',
       syllabusText: '',
+    },
+    onSubmit: async ({ value }) => {
+      const result = addCourseSchema.safeParse(value);
+      if (!result.success) {
+        return;
+      }
+      setAnalysisStatus('extracting');
+
+      try {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        setAnalysisStatus('analyzing');
+        
+        if (onSubmit) {
+          await onSubmit(value);
+        }
+        
+        setAnalysisStatus('complete');
+        
+        toast({
+          title: "Course added!",
+          description: "AI analysis will be performed when Lovable Cloud is enabled.",
+        });
+
+        form.reset();
+        setUploadedFile(null);
+      } catch (error) {
+        toast({
+          title: "Error",
+          description: "Failed to add course. Please try again.",
+          variant: "destructive",
+        });
+      } finally {
+        setAnalysisStatus('idle');
+      }
     },
   });
 
@@ -72,7 +96,7 @@ export function AddCourseForm({ onSubmit, onCancel, isSubmitting = false }: AddC
     if (file) {
       setUploadedFile(file);
       const nameWithoutExt = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
-      form.setValue('name', nameWithoutExt);
+      form.setFieldValue('name', nameWithoutExt);
       
       toast({
         title: "File uploaded",
@@ -92,37 +116,6 @@ export function AddCourseForm({ onSubmit, onCancel, isSubmitting = false }: AddC
     maxSize: 10 * 1024 * 1024,
   });
 
-  const handleSubmit = async (data: AddCourseFormValues) => {
-    setAnalysisStatus('extracting');
-
-    try {
-      await new Promise(resolve => setTimeout(resolve, 500));
-      setAnalysisStatus('analyzing');
-      
-      if (onSubmit) {
-        await onSubmit(data);
-      }
-      
-      setAnalysisStatus('complete');
-      
-      toast({
-        title: "Course added!",
-        description: "AI analysis will be performed when Lovable Cloud is enabled.",
-      });
-
-      form.reset();
-      setUploadedFile(null);
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to add course. Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setAnalysisStatus('idle');
-    }
-  };
-
   const removeFile = () => {
     setUploadedFile(null);
   };
@@ -130,187 +123,220 @@ export function AddCourseForm({ onSubmit, onCancel, isSubmitting = false }: AddC
   const isProcessing = isSubmitting || analysisStatus !== 'idle';
 
   return (
-    <Form {...form}>
-      <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <FormField
-            control={form.control}
-            name="name"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Course Name *</FormLabel>
-                <FormControl>
-                  <Input placeholder="e.g., Introduction to Marketing" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="code"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Course Code</FormLabel>
-                <FormControl>
-                  <Input placeholder="e.g., MKT 101" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="university"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>University</FormLabel>
-                <FormControl>
-                  <Input placeholder="e.g., State University" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="semester"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Semester</FormLabel>
-                <FormControl>
-                  <Input placeholder="e.g., Fall 2024" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </div>
-
-        <div className="space-y-4">
-          <FormLabel>Syllabus Content *</FormLabel>
-          <Tabs defaultValue="upload" className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="upload">Upload File</TabsTrigger>
-              <TabsTrigger value="paste">Paste Text</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="upload" className="mt-4">
-              {uploadedFile ? (
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                          <FileText className="h-5 w-5 text-primary" />
-                        </div>
-                        <div>
-                          <p className="font-medium text-sm">{uploadedFile.name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {(uploadedFile.size / 1024).toFixed(1)} KB
-                          </p>
-                        </div>
-                      </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={removeFile}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ) : (
-                <div
-                  {...getRootProps()}
-                  className={cn(
-                    "border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors",
-                    isDragActive 
-                      ? "border-primary bg-primary/5" 
-                      : "border-muted-foreground/25 hover:border-primary/50"
-                  )}
-                >
-                  <input {...getInputProps()} />
-                  <Upload className="h-10 w-10 mx-auto text-muted-foreground mb-4" />
-                  <p className="text-sm font-medium mb-1">
-                    {isDragActive ? "Drop your syllabus here" : "Drag & drop your syllabus"}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    PDF, DOCX, or TXT (max 10MB)
-                  </p>
-                </div>
-              )}
-            </TabsContent>
-
-            <TabsContent value="paste" className="mt-4">
-              <FormField
-                control={form.control}
-                name="syllabusText"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormControl>
-                      <Textarea
-                        placeholder="Paste your syllabus content here..."
-                        className="min-h-[250px] resize-y"
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      The more detail you include, the better we can analyze your capabilities.
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        form.handleSubmit();
+      }}
+      className="space-y-6"
+    >
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <form.Field
+          name="name"
+          validators={{
+            onBlur: z.string().min(1, 'Course name is required').max(200),
+          }}
+        >
+          {(field) => (
+            <FormFieldWrapper
+              label="Course Name *"
+              htmlFor="name"
+              error={getFieldError(field.state.meta.errors)}
+              touched={field.state.meta.isTouched}
+            >
+              <Input
+                id="name"
+                placeholder="e.g., Introduction to Marketing"
+                value={field.state.value}
+                onBlur={field.handleBlur}
+                onChange={(e) => field.handleChange(e.target.value)}
               />
-            </TabsContent>
-          </Tabs>
-        </div>
+            </FormFieldWrapper>
+          )}
+        </form.Field>
 
-        {isProcessing && (
-          <Card className="bg-muted/50">
-            <CardContent className="p-4">
-              <div className="space-y-3">
-                <AnalysisStep
-                  label="Extracting syllabus content"
-                  status={analysisStatus === 'extracting' ? 'loading' : analysisStatus !== 'idle' ? 'complete' : 'pending'}
-                />
-                <AnalysisStep
-                  label="Analyzing capabilities with AI"
-                  status={analysisStatus === 'analyzing' ? 'loading' : analysisStatus === 'complete' ? 'complete' : 'pending'}
-                />
-                <AnalysisStep
-                  label="Generating capability profile"
-                  status={analysisStatus === 'complete' ? 'complete' : 'pending'}
-                />
+        <form.Field name="code">
+          {(field) => (
+            <FormFieldWrapper
+              label="Course Code"
+              htmlFor="code"
+              error={getFieldError(field.state.meta.errors)}
+              touched={field.state.meta.isTouched}
+            >
+              <Input
+                id="code"
+                placeholder="e.g., MKT 101"
+                value={field.state.value}
+                onBlur={field.handleBlur}
+                onChange={(e) => field.handleChange(e.target.value)}
+              />
+            </FormFieldWrapper>
+          )}
+        </form.Field>
+
+        <form.Field name="university">
+          {(field) => (
+            <FormFieldWrapper
+              label="University"
+              htmlFor="university"
+              error={getFieldError(field.state.meta.errors)}
+              touched={field.state.meta.isTouched}
+            >
+              <Input
+                id="university"
+                placeholder="e.g., State University"
+                value={field.state.value}
+                onBlur={field.handleBlur}
+                onChange={(e) => field.handleChange(e.target.value)}
+              />
+            </FormFieldWrapper>
+          )}
+        </form.Field>
+
+        <form.Field name="semester">
+          {(field) => (
+            <FormFieldWrapper
+              label="Semester"
+              htmlFor="semester"
+              error={getFieldError(field.state.meta.errors)}
+              touched={field.state.meta.isTouched}
+            >
+              <Input
+                id="semester"
+                placeholder="e.g., Fall 2024"
+                value={field.state.value}
+                onBlur={field.handleBlur}
+                onChange={(e) => field.handleChange(e.target.value)}
+              />
+            </FormFieldWrapper>
+          )}
+        </form.Field>
+      </div>
+
+      <div className="space-y-4">
+        <label className="text-sm font-medium">Syllabus Content *</label>
+        <Tabs defaultValue="upload" className="w-full">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="upload">Upload File</TabsTrigger>
+            <TabsTrigger value="paste">Paste Text</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="upload" className="mt-4">
+            {uploadedFile ? (
+              <Card>
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                        <FileText className="h-5 w-5 text-primary" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-sm">{uploadedFile.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {(uploadedFile.size / 1024).toFixed(1)} KB
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={removeFile}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : (
+              <div
+                {...getRootProps()}
+                className={cn(
+                  "border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors",
+                  isDragActive 
+                    ? "border-primary bg-primary/5" 
+                    : "border-muted-foreground/25 hover:border-primary/50"
+                )}
+              >
+                <input {...getInputProps()} />
+                <Upload className="h-10 w-10 mx-auto text-muted-foreground mb-4" />
+                <p className="text-sm font-medium mb-1">
+                  {isDragActive ? "Drop your syllabus here" : "Drag & drop your syllabus"}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  PDF, DOCX, or TXT (max 10MB)
+                </p>
               </div>
-            </CardContent>
-          </Card>
-        )}
+            )}
+          </TabsContent>
 
-        <div className="flex gap-3 justify-end">
-          {onCancel && (
-            <Button type="button" variant="outline" onClick={onCancel}>
-              Cancel
+          <TabsContent value="paste" className="mt-4">
+            <form.Field name="syllabusText">
+              {(field) => (
+                <FormFieldWrapper
+                  error={getFieldError(field.state.meta.errors)}
+                  touched={field.state.meta.isTouched}
+                  description="The more detail you include, the better we can analyze your capabilities."
+                >
+                  <Textarea
+                    id="syllabusText"
+                    placeholder="Paste your syllabus content here..."
+                    className="min-h-[250px] resize-y"
+                    value={field.state.value}
+                    onBlur={field.handleBlur}
+                    onChange={(e) => field.handleChange(e.target.value)}
+                  />
+                </FormFieldWrapper>
+              )}
+            </form.Field>
+          </TabsContent>
+        </Tabs>
+      </div>
+
+      {isProcessing && (
+        <Card className="bg-muted/50">
+          <CardContent className="p-4">
+            <div className="space-y-3">
+              <AnalysisStep
+                label="Extracting syllabus content"
+                status={analysisStatus === 'extracting' ? 'loading' : analysisStatus !== 'idle' ? 'complete' : 'pending'}
+              />
+              <AnalysisStep
+                label="Analyzing capabilities with AI"
+                status={analysisStatus === 'analyzing' ? 'loading' : analysisStatus === 'complete' ? 'complete' : 'pending'}
+              />
+              <AnalysisStep
+                label="Generating capability profile"
+                status={analysisStatus === 'complete' ? 'complete' : 'pending'}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="flex gap-3 justify-end">
+        {onCancel && (
+          <Button type="button" variant="outline" onClick={onCancel}>
+            Cancel
+          </Button>
+        )}
+        <form.Subscribe selector={(state) => [state.canSubmit, state.isSubmitting]}>
+          {([canSubmit, formIsSubmitting]) => (
+            <Button type="submit" disabled={!canSubmit || isProcessing || formIsSubmitting}>
+              {isProcessing ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Analyzing...
+                </>
+              ) : (
+                'Add Course'
+              )}
             </Button>
           )}
-          <Button type="submit" disabled={isProcessing}>
-            {isProcessing ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                Analyzing...
-              </>
-            ) : (
-              'Add Course'
-            )}
-          </Button>
-        </div>
-      </form>
-    </Form>
+        </form.Subscribe>
+      </div>
+    </form>
   );
 }
 

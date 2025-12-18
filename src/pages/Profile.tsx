@@ -1,5 +1,5 @@
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
+import { useEffect } from 'react';
+import { useForm } from '@tanstack/react-form';
 import { z } from 'zod';
 import { User, Mail, GraduationCap, Calendar, Building2, Loader2, Check } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
@@ -9,15 +9,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-  FormDescription,
-} from '@/components/ui/form';
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -25,7 +16,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useProfile, useUpdateProfile } from '@/hooks/useProfile';
-import { useEffect } from 'react';
+import { getFieldError, FormFieldWrapper } from '@/lib/tanstack-form';
 
 const profileSchema = z.object({
   full_name: z.string().min(2, 'Name must be at least 2 characters').max(100),
@@ -50,50 +41,41 @@ export default function ProfilePage() {
   const { data: profile, isLoading } = useProfile();
   const updateProfile = useUpdateProfile();
 
-  const form = useForm<ProfileFormValues>({
-    resolver: zodResolver(profileSchema),
+  const form = useForm({
     defaultValues: {
-      full_name: '',
-      email: '',
-      university: '',
-      graduation_year: null,
-      major: '',
-      student_level: null,
+      full_name: profile?.full_name || '',
+      email: profile?.email || '',
+      university: profile?.university || '',
+      graduation_year: profile?.graduation_year ?? null,
+      major: profile?.major || '',
+      student_level: profile?.student_level ?? null,
+    },
+    onSubmit: async ({ value }) => {
+      const result = profileSchema.safeParse(value);
+      if (!result.success) {
+        return;
+      }
+      await updateProfile.mutateAsync({
+        full_name: value.full_name,
+        university: value.university || null,
+        graduation_year: value.graduation_year,
+        major: value.major || null,
+        student_level: value.student_level,
+      });
     },
   });
 
   // Update form when profile data loads
   useEffect(() => {
     if (profile) {
-      form.reset({
-        full_name: profile.full_name || '',
-        email: profile.email || '',
-        university: profile.university || '',
-        graduation_year: profile.graduation_year,
-        major: profile.major || '',
-        student_level: profile.student_level,
-      });
+      form.setFieldValue('full_name', profile.full_name || '');
+      form.setFieldValue('email', profile.email || '');
+      form.setFieldValue('university', profile.university || '');
+      form.setFieldValue('graduation_year', profile.graduation_year ?? null);
+      form.setFieldValue('major', profile.major || '');
+      form.setFieldValue('student_level', profile.student_level ?? null);
     }
-  }, [profile, form]);
-
-  const onSubmit = async (data: ProfileFormValues) => {
-    await updateProfile.mutateAsync({
-      full_name: data.full_name,
-      university: data.university || null,
-      graduation_year: data.graduation_year,
-      major: data.major || null,
-      student_level: data.student_level,
-    });
-  };
-
-  // Calculate profile completion
-  const values = form.watch();
-  const fields = ['full_name', 'email', 'university', 'graduation_year', 'major', 'student_level'];
-  const filledFields = fields.filter(f => {
-    const value = values[f as keyof ProfileFormValues];
-    return value !== null && value !== undefined && value !== '';
-  }).length;
-  const completionPercentage = Math.round((filledFields / fields.length) * 100);
+  }, [profile]);
 
   if (isLoading) {
     return (
@@ -156,142 +138,181 @@ export default function ProfilePage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="full_name"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Full Name</FormLabel>
-                        <FormControl>
-                          <div className="relative">
-                            <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                            <Input placeholder="Your name" className="pl-10" {...field} />
-                          </div>
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                form.handleSubmit();
+              }}
+              className="space-y-6"
+            >
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <form.Field
+                  name="full_name"
+                  validators={{
+                    onBlur: z.string().min(2, 'Name must be at least 2 characters').max(100),
+                  }}
+                >
+                  {(field) => (
+                    <FormFieldWrapper
+                      label="Full Name"
+                      htmlFor="full_name"
+                      error={getFieldError(field.state.meta.errors)}
+                      touched={field.state.meta.isTouched}
+                    >
+                      <div className="relative">
+                        <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          id="full_name"
+                          placeholder="Your name"
+                          className="pl-10"
+                          value={field.state.value}
+                          onBlur={field.handleBlur}
+                          onChange={(e) => field.handleChange(e.target.value)}
+                        />
+                      </div>
+                    </FormFieldWrapper>
+                  )}
+                </form.Field>
 
-                  <FormField
-                    control={form.control}
-                    name="email"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Email</FormLabel>
-                        <FormControl>
-                          <div className="relative">
-                            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                            <Input placeholder="your@email.com" className="pl-10" {...field} disabled />
-                          </div>
-                        </FormControl>
-                        <FormDescription>Email cannot be changed</FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                <form.Field name="email">
+                  {(field) => (
+                    <FormFieldWrapper
+                      label="Email"
+                      htmlFor="email"
+                      error={getFieldError(field.state.meta.errors)}
+                      touched={field.state.meta.isTouched}
+                      description="Email cannot be changed"
+                    >
+                      <div className="relative">
+                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          id="email"
+                          placeholder="your@email.com"
+                          className="pl-10"
+                          value={field.state.value}
+                          disabled
+                        />
+                      </div>
+                    </FormFieldWrapper>
+                  )}
+                </form.Field>
 
-                  <FormField
-                    control={form.control}
-                    name="university"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>University</FormLabel>
-                        <FormControl>
-                          <div className="relative">
-                            <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                            <Input placeholder="Your university" className="pl-10" {...field} />
-                          </div>
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                <form.Field name="university">
+                  {(field) => (
+                    <FormFieldWrapper
+                      label="University"
+                      htmlFor="university"
+                      error={getFieldError(field.state.meta.errors)}
+                      touched={field.state.meta.isTouched}
+                    >
+                      <div className="relative">
+                        <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          id="university"
+                          placeholder="Your university"
+                          className="pl-10"
+                          value={field.state.value}
+                          onBlur={field.handleBlur}
+                          onChange={(e) => field.handleChange(e.target.value)}
+                        />
+                      </div>
+                    </FormFieldWrapper>
+                  )}
+                </form.Field>
 
-                  <FormField
-                    control={form.control}
-                    name="graduation_year"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Graduation Year</FormLabel>
-                        <FormControl>
-                          <div className="relative">
-                            <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                            <Input 
-                              type="number"
-                              placeholder="e.g., 2025" 
-                              className="pl-10" 
-                              {...field}
-                              value={field.value ?? ''}
-                              onChange={(e) => field.onChange(e.target.value ? parseInt(e.target.value) : null)}
-                            />
-                          </div>
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                <form.Field name="graduation_year">
+                  {(field) => (
+                    <FormFieldWrapper
+                      label="Graduation Year"
+                      htmlFor="graduation_year"
+                      error={getFieldError(field.state.meta.errors)}
+                      touched={field.state.meta.isTouched}
+                    >
+                      <div className="relative">
+                        <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          id="graduation_year"
+                          type="number"
+                          placeholder="e.g., 2025"
+                          className="pl-10"
+                          value={field.state.value ?? ''}
+                          onBlur={field.handleBlur}
+                          onChange={(e) => field.handleChange(e.target.value ? parseInt(e.target.value) : null)}
+                        />
+                      </div>
+                    </FormFieldWrapper>
+                  )}
+                </form.Field>
 
-                  <FormField
-                    control={form.control}
-                    name="major"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Major</FormLabel>
-                        <FormControl>
-                          <div className="relative">
-                            <GraduationCap className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                            <Input placeholder="Your major" className="pl-10" {...field} />
-                          </div>
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                <form.Field name="major">
+                  {(field) => (
+                    <FormFieldWrapper
+                      label="Major"
+                      htmlFor="major"
+                      error={getFieldError(field.state.meta.errors)}
+                      touched={field.state.meta.isTouched}
+                    >
+                      <div className="relative">
+                        <GraduationCap className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          id="major"
+                          placeholder="Your major"
+                          className="pl-10"
+                          value={field.state.value}
+                          onBlur={field.handleBlur}
+                          onChange={(e) => field.handleChange(e.target.value)}
+                        />
+                      </div>
+                    </FormFieldWrapper>
+                  )}
+                </form.Field>
 
-                  <FormField
-                    control={form.control}
-                    name="student_level"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Student Level</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value || ''}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select your level" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {studentLevels.map((level) => (
-                              <SelectItem key={level.value} value={level.value}>
-                                {level.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
+                <form.Field name="student_level">
+                  {(field) => (
+                    <FormFieldWrapper
+                      label="Student Level"
+                      htmlFor="student_level"
+                      error={getFieldError(field.state.meta.errors)}
+                      touched={field.state.meta.isTouched}
+                    >
+                      <Select 
+                        onValueChange={(value) => field.handleChange(value)} 
+                        value={field.state.value || ''}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select your level" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {studentLevels.map((level) => (
+                            <SelectItem key={level.value} value={level.value}>
+                              {level.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </FormFieldWrapper>
+                  )}
+                </form.Field>
+              </div>
 
-                <div className="flex justify-end">
-                  <Button type="submit" disabled={updateProfile.isPending}>
-                    {updateProfile.isPending ? (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                        Saving...
-                      </>
-                    ) : (
-                      'Save Changes'
-                    )}
-                  </Button>
-                </div>
-              </form>
-            </Form>
+              <div className="flex justify-end">
+                <form.Subscribe selector={(state) => [state.canSubmit, state.isSubmitting]}>
+                  {([canSubmit, isSubmitting]) => (
+                    <Button type="submit" disabled={!canSubmit || isSubmitting || updateProfile.isPending}>
+                      {(isSubmitting || updateProfile.isPending) ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                          Saving...
+                        </>
+                      ) : (
+                        'Save Changes'
+                      )}
+                    </Button>
+                  )}
+                </form.Subscribe>
+              </div>
+            </form>
           </CardContent>
         </Card>
       </div>
