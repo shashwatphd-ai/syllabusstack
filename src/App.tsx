@@ -3,10 +3,11 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { AuthProvider } from "@/contexts/AuthContext";
+import { AuthGuard, GuestGuard } from "@/components/auth/AuthGuard";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
-import LoginPage from "./pages/Login";
-import SignupPage from "./pages/Signup";
+import Auth from "./pages/Auth";
 import OnboardingPage from "./pages/Onboarding";
 import DashboardPage from "./pages/Dashboard";
 import CoursesPage from "./pages/Courses";
@@ -22,29 +23,36 @@ const queryClient = new QueryClient();
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Index />} />
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/signup" element={<SignupPage />} />
-          <Route path="/onboarding" element={<OnboardingPage />} />
-          <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/courses" element={<CoursesPage />} />
-          <Route path="/dream-jobs" element={<DreamJobsPage />} />
-          <Route path="/dream-jobs/:jobId" element={<DreamJobDetailPage />} />
-          <Route path="/analysis" element={<AnalysisPage />} />
-          <Route path="/recommendations" element={<RecommendationsPage />} />
-          <Route path="/profile" element={<ProfilePage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-          <Route path="/scanner" element={<SyllabusScannerPage />} />
-          {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </BrowserRouter>
-    </TooltipProvider>
+    <AuthProvider>
+      <TooltipProvider>
+        <Toaster />
+        <Sonner />
+        <BrowserRouter>
+          <Routes>
+            {/* Public routes */}
+            <Route path="/" element={<Index />} />
+            <Route path="/scanner" element={<SyllabusScannerPage />} />
+            
+            {/* Auth routes (redirect if logged in) */}
+            <Route path="/auth" element={<GuestGuard><Auth /></GuestGuard>} />
+            
+            {/* Protected routes */}
+            <Route path="/onboarding" element={<AuthGuard><OnboardingPage /></AuthGuard>} />
+            <Route path="/dashboard" element={<AuthGuard><DashboardPage /></AuthGuard>} />
+            <Route path="/courses" element={<AuthGuard><CoursesPage /></AuthGuard>} />
+            <Route path="/dream-jobs" element={<AuthGuard><DreamJobsPage /></AuthGuard>} />
+            <Route path="/dream-jobs/:jobId" element={<AuthGuard><DreamJobDetailPage /></AuthGuard>} />
+            <Route path="/analysis" element={<AuthGuard><AnalysisPage /></AuthGuard>} />
+            <Route path="/recommendations" element={<AuthGuard><RecommendationsPage /></AuthGuard>} />
+            <Route path="/profile" element={<AuthGuard><ProfilePage /></AuthGuard>} />
+            <Route path="/settings" element={<AuthGuard><SettingsPage /></AuthGuard>} />
+            
+            {/* Catch-all */}
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </BrowserRouter>
+      </TooltipProvider>
+    </AuthProvider>
   </QueryClientProvider>
 );
 

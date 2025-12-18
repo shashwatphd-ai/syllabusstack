@@ -1,22 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
+import { Tables, TablesInsert } from '@/integrations/supabase/types';
 import { queryKeys } from '@/lib/query-keys';
 import { toast } from '@/hooks/use-toast';
-import type { AddCourseFormValues } from '@/components/forms/AddCourseForm';
 
-// Types
-export interface Course {
-  id: string;
-  user_id: string;
-  name: string;
-  code?: string;
-  university?: string;
-  semester?: string;
-  syllabus_text?: string;
-  syllabus_file_url?: string;
-  status: 'pending' | 'analyzing' | 'complete' | 'error';
-  created_at: string;
-  updated_at: string;
-}
+// Types from database
+export type Course = Tables<'courses'>;
+export type CourseInsert = TablesInsert<'courses'>;
 
 export interface CourseCapability {
   id: string;
@@ -27,69 +17,60 @@ export interface CourseCapability {
   category: string;
 }
 
-// Mock data
-const mockCourses: Course[] = [
-  {
-    id: '1',
-    user_id: 'mock-user',
-    name: 'Business Analytics',
-    code: 'BUS 301',
-    university: 'State University',
-    semester: 'Fall 2024',
-    status: 'complete',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  },
-  {
-    id: '2',
-    user_id: 'mock-user',
-    name: 'Marketing Fundamentals',
-    code: 'MKT 201',
-    university: 'State University',
-    semester: 'Spring 2024',
-    status: 'complete',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  },
-];
+// Fetch all courses for the current user
+async function fetchCourses(): Promise<Course[]> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
 
-// API functions (will be replaced with Supabase calls)
-const fetchCourses = async (): Promise<Course[]> => {
-  // Simulate API delay
-  await new Promise(resolve => setTimeout(resolve, 500));
-  return mockCourses;
-};
+  const { data, error } = await supabase
+    .from('courses')
+    .select('*')
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: false });
 
-const fetchCourseById = async (id: string): Promise<Course | null> => {
-  await new Promise(resolve => setTimeout(resolve, 300));
-  return mockCourses.find(c => c.id === id) || null;
-};
+  if (error) throw error;
+  return data || [];
+}
 
-const createCourse = async (data: AddCourseFormValues): Promise<Course> => {
-  await new Promise(resolve => setTimeout(resolve, 1000));
-  const newCourse: Course = {
-    id: Date.now().toString(),
-    user_id: 'mock-user',
-    name: data.name,
-    code: data.code,
-    university: data.university,
-    semester: data.semester,
-    syllabus_text: data.syllabusText,
-    status: 'complete',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  };
-  mockCourses.push(newCourse);
-  return newCourse;
-};
+// Fetch a single course by ID
+async function fetchCourseById(id: string): Promise<Course | null> {
+  const { data, error } = await supabase
+    .from('courses')
+    .select('*')
+    .eq('id', id)
+    .single();
 
-const deleteCourse = async (id: string): Promise<void> => {
-  await new Promise(resolve => setTimeout(resolve, 500));
-  const index = mockCourses.findIndex(c => c.id === id);
-  if (index > -1) {
-    mockCourses.splice(index, 1);
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    throw error;
   }
-};
+  return data;
+}
+
+// Create a new course
+async function createCourse(course: Omit<CourseInsert, 'user_id'>): Promise<Course> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+
+  const { data, error } = await supabase
+    .from('courses')
+    .insert({ ...course, user_id: user.id })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+// Delete a course
+async function deleteCourse(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('courses')
+    .delete()
+    .eq('id', id);
+
+  if (error) throw error;
+}
 
 // Hooks
 export function useCourses() {
@@ -109,20 +90,20 @@ export function useCourse(id: string) {
 
 export function useCreateCourse() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: createCourse,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.coursesList() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.courses });
       toast({
         title: 'Course added',
         description: 'Your course has been added successfully.',
       });
     },
-    onError: (error: Error) => {
+    onError: (error) => {
       toast({
         title: 'Error',
-        description: error.message || 'Failed to add course.',
+        description: error instanceof Error ? error.message : 'Failed to add course',
         variant: 'destructive',
       });
     },
@@ -131,20 +112,20 @@ export function useCreateCourse() {
 
 export function useDeleteCourse() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: deleteCourse,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.coursesList() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.courses });
       toast({
         title: 'Course deleted',
         description: 'Your course has been removed.',
       });
     },
-    onError: (error: Error) => {
+    onError: (error) => {
       toast({
         title: 'Error',
-        description: error.message || 'Failed to delete course.',
+        description: error instanceof Error ? error.message : 'Failed to delete course',
         variant: 'destructive',
       });
     },

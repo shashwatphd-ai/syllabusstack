@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   Menu, 
   Bell, 
@@ -22,9 +22,9 @@ import {
 import {
   Sheet,
   SheetContent,
-  SheetTrigger,
 } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface AppHeaderProps {
   onMenuClick?: () => void;
@@ -34,6 +34,8 @@ interface AppHeaderProps {
 export function AppHeader({ onMenuClick, showSearch = true }: AppHeaderProps) {
   const [searchOpen, setSearchOpen] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
+  const { user, profile, signOut } = useAuth();
 
   // Get current page title
   const getPageTitle = () => {
@@ -44,7 +46,13 @@ export function AppHeader({ onMenuClick, showSearch = true }: AppHeaderProps) {
     if (path.startsWith('/analysis')) return 'Gap Analysis';
     if (path.startsWith('/recommendations')) return 'Recommendations';
     if (path.startsWith('/settings')) return 'Settings';
+    if (path.startsWith('/profile')) return 'Profile';
     return 'EduThree';
+  };
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate('/');
   };
 
   return (
@@ -111,12 +119,12 @@ export function AppHeader({ onMenuClick, showSearch = true }: AppHeaderProps) {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
               <div className="px-2 py-1.5">
-                <p className="text-sm font-medium">Student User</p>
-                <p className="text-xs text-muted-foreground">student@university.edu</p>
+                <p className="text-sm font-medium">{profile?.full_name || 'Student User'}</p>
+                <p className="text-xs text-muted-foreground">{user?.email || 'No email'}</p>
               </div>
               <DropdownMenuSeparator />
               <DropdownMenuItem asChild>
-                <Link to="/settings" className="cursor-pointer">
+                <Link to="/profile" className="cursor-pointer">
                   <User className="h-4 w-4 mr-2" />
                   Profile
                 </Link>
@@ -128,7 +136,10 @@ export function AppHeader({ onMenuClick, showSearch = true }: AppHeaderProps) {
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-destructive cursor-pointer">
+              <DropdownMenuItem 
+                className="text-destructive cursor-pointer"
+                onClick={handleSignOut}
+              >
                 <LogOut className="h-4 w-4 mr-2" />
                 Log out
               </DropdownMenuItem>
@@ -165,6 +176,7 @@ export function MobileNav({ open, onClose }: { open: boolean; onClose: () => voi
     { name: 'Dream Jobs', href: '/dream-jobs' },
     { name: 'Gap Analysis', href: '/analysis' },
     { name: 'Recommendations', href: '/recommendations' },
+    { name: 'Profile', href: '/profile' },
     { name: 'Settings', href: '/settings' },
   ];
 
