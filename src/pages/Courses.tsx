@@ -1,16 +1,18 @@
 import { useState } from "react";
 import { AppShell } from "@/components/layout";
-import { CourseUploader } from "@/components/onboarding";
+import { AddCourseForm, AddCourseFormValues } from "@/components/forms/AddCourseForm";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { 
   BookOpen, 
   Calendar, 
   Clock, 
   MoreVertical,
   Trash2,
-  Eye
+  Eye,
+  Plus
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -18,62 +20,104 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-
-interface Course {
-  id: string;
-  name: string;
-  code: string;
-  semester: string;
-  credits: number;
-  status: "analyzed" | "pending" | "error";
-  skillsExtracted: number;
-}
-
-const mockCourses: Course[] = [
-  {
-    id: "1",
-    name: "Introduction to Machine Learning",
-    code: "CS 229",
-    semester: "Fall 2023",
-    credits: 4,
-    status: "analyzed",
-    skillsExtracted: 12,
-  },
-  {
-    id: "2",
-    name: "Data Structures and Algorithms",
-    code: "CS 161",
-    semester: "Spring 2023",
-    credits: 4,
-    status: "analyzed",
-    skillsExtracted: 8,
-  },
-  {
-    id: "3",
-    name: "Database Systems",
-    code: "CS 145",
-    semester: "Fall 2023",
-    credits: 3,
-    status: "analyzed",
-    skillsExtracted: 6,
-  },
-  {
-    id: "4",
-    name: "Statistical Methods",
-    code: "STATS 101",
-    semester: "Spring 2024",
-    credits: 3,
-    status: "pending",
-    skillsExtracted: 0,
-  },
-];
+import { useCourses, useCreateCourse, useDeleteCourse } from "@/hooks/useCourses";
+import { useCapabilities } from "@/hooks/useCapabilities";
+import { analyzeSyllabus } from "@/lib/api";
+import { toast } from "@/hooks/use-toast";
 
 export default function CoursesPage() {
-  const [courses, setCourses] = useState(mockCourses);
   const [showUploader, setShowUploader] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  
+  const { data: courses, isLoading: coursesLoading } = useCourses();
+  const { data: capabilities } = useCapabilities();
+  const createCourse = useCreateCourse();
+  const deleteCourse = useDeleteCourse();
 
-  const analyzedCount = courses.filter((c) => c.status === "analyzed").length;
-  const totalSkills = courses.reduce((acc, c) => acc + c.skillsExtracted, 0);
+  const analyzedCourseIds = new Set(capabilities?.map(c => c.course_id).filter(Boolean) || []);
+  const analyzedCount = courses?.filter(c => analyzedCourseIds.has(c.id)).length || 0;
+  const totalSkills = capabilities?.length || 0;
+
+  const handleAddCourse = async (data: AddCourseFormValues) => {
+    setIsAnalyzing(true);
+    try {
+      // Create course in database
+      const course = await createCourse.mutateAsync({
+        title: data.name,
+        code: data.code || null,
+        semester: data.semester || null,
+      });
+
+      // Analyze syllabus with AI
+      if (data.syllabusText) {
+        await analyzeSyllabus(data.syllabusText, course.id);
+        toast({
+          title: "Course analyzed!",
+          description: "Skills have been extracted from your syllabus.",
+        });
+      }
+
+      setShowUploader(false);
+    } catch (error) {
+      console.error('Error adding course:', error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to add course",
+        variant: "destructive",
+      });
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const handleDeleteCourse = (courseId: string) => {
+    deleteCourse.mutate(courseId);
+  };
+
+  const getCourseStatus = (courseId: string) => {
+    return analyzedCourseIds.has(courseId) ? "analyzed" : "pending";
+  };
+
+  const getCourseSkillCount = (courseId: string) => {
+    return capabilities?.filter(c => c.course_id === courseId).length || 0;
+  };
+
+  if (coursesLoading) {
+    return (
+      <AppShell>
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <Skeleton className="h-9 w-48 mb-2" />
+              <Skeleton className="h-5 w-64" />
+            </div>
+            <Skeleton className="h-10 w-32" />
+          </div>
+          <div className="grid gap-4 md:grid-cols-3">
+            {[1, 2, 3].map(i => (
+              <Card key={i}>
+                <CardContent className="pt-6">
+                  <Skeleton className="h-16 w-full" />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            {[1, 2, 3, 4].map(i => (
+              <Card key={i}>
+                <CardHeader>
+                  <Skeleton className="h-6 w-48" />
+                </CardHeader>
+                <CardContent>
+                  <Skeleton className="h-8 w-full" />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell>
@@ -87,7 +131,12 @@ export default function CoursesPage() {
             </p>
           </div>
           <Button onClick={() => setShowUploader(!showUploader)}>
-            {showUploader ? "View Courses" : "Upload Syllabus"}
+            {showUploader ? "View Courses" : (
+              <>
+                <Plus className="h-4 w-4 mr-2" />
+                Add Course
+              </>
+            )}
           </Button>
         </div>
 
@@ -98,7 +147,7 @@ export default function CoursesPage() {
               <div className="flex items-center gap-4">
                 <BookOpen className="h-8 w-8 text-accent" />
                 <div>
-                  <p className="text-2xl font-bold">{courses.length}</p>
+                  <p className="text-2xl font-bold">{courses?.length || 0}</p>
                   <p className="text-sm text-muted-foreground">Total Courses</p>
                 </div>
               </div>
@@ -129,60 +178,93 @@ export default function CoursesPage() {
         </div>
 
         {showUploader ? (
-          <CourseUploader />
-        ) : (
+          <Card>
+            <CardHeader>
+              <CardTitle>Add New Course</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <AddCourseForm 
+                onSubmit={handleAddCourse}
+                onCancel={() => setShowUploader(false)}
+                isSubmitting={isAnalyzing}
+              />
+            </CardContent>
+          </Card>
+        ) : courses && courses.length > 0 ? (
           <div className="grid gap-4 md:grid-cols-2">
-            {courses.map((course) => (
-              <Card key={course.id}>
-                <CardHeader className="pb-2">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <CardTitle className="text-base">{course.name}</CardTitle>
-                      <p className="text-sm text-muted-foreground">
-                        {course.code} • {course.semester}
-                      </p>
+            {courses.map((course) => {
+              const status = getCourseStatus(course.id);
+              const skillCount = getCourseSkillCount(course.id);
+              
+              return (
+                <Card key={course.id}>
+                  <CardHeader className="pb-2">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <CardTitle className="text-base">{course.title}</CardTitle>
+                        <p className="text-sm text-muted-foreground">
+                          {course.code && `${course.code} • `}{course.semester || 'No semester'}
+                        </p>
+                      </div>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="sm">
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem>
+                            <Eye className="h-4 w-4 mr-2" />
+                            View Details
+                          </DropdownMenuItem>
+                          <DropdownMenuItem 
+                            className="text-destructive"
+                            onClick={() => handleDeleteCourse(course.id)}
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Remove
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm">
-                          <MoreVertical className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem>
-                          <Eye className="h-4 w-4 mr-2" />
-                          View Details
-                        </DropdownMenuItem>
-                        <DropdownMenuItem className="text-destructive">
-                          <Trash2 className="h-4 w-4 mr-2" />
-                          Remove
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Badge
-                        variant={course.status === "analyzed" ? "default" : "secondary"}
-                      >
-                        {course.status}
-                      </Badge>
-                      <span className="text-sm text-muted-foreground">
-                        {course.credits} credits
-                      </span>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Badge
+                          variant={status === "analyzed" ? "default" : "secondary"}
+                        >
+                          {status}
+                        </Badge>
+                        <span className="text-sm text-muted-foreground">
+                          {course.credits || 3} credits
+                        </span>
+                      </div>
+                      {skillCount > 0 && (
+                        <span className="text-sm text-accent">
+                          {skillCount} skills
+                        </span>
+                      )}
                     </div>
-                    {course.skillsExtracted > 0 && (
-                      <span className="text-sm text-accent">
-                        {course.skillsExtracted} skills
-                      </span>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
+        ) : (
+          <Card>
+            <CardContent className="flex flex-col items-center justify-center py-12">
+              <BookOpen className="h-12 w-12 text-muted-foreground mb-4" />
+              <h3 className="text-lg font-semibold mb-2">No courses yet</h3>
+              <p className="text-muted-foreground text-center mb-4">
+                Add your first course to start building your capability profile.
+              </p>
+              <Button onClick={() => setShowUploader(true)}>
+                <Plus className="h-4 w-4 mr-2" />
+                Add Your First Course
+              </Button>
+            </CardContent>
+          </Card>
         )}
       </div>
     </AppShell>

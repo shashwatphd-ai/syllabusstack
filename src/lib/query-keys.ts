@@ -4,6 +4,9 @@ export const queryKeys = {
   user: ['user'] as const,
   userProfile: () => [...queryKeys.user, 'profile'] as const,
   
+  // Capabilities
+  capabilities: ['capabilities'] as const,
+  
   // Courses
   courses: ['courses'] as const,
   coursesList: () => [...queryKeys.courses, 'list'] as const,
