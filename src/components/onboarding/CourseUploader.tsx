@@ -32,6 +32,8 @@ import {
 import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
+import { useCreateCourse } from '@/hooks/useCourses';
+import { analyzeSyllabus } from '@/lib/api';
 
 const courseSchema = z.object({
   name: z.string().min(1, 'Course name is required').max(200),
@@ -46,15 +48,21 @@ const courseSchema = z.object({
 
 type CourseFormValues = z.infer<typeof courseSchema>;
 
+export interface CourseData extends CourseFormValues {
+  id?: string;
+}
+
 interface CourseUploaderProps {
-  onSuccess?: (course: CourseFormValues) => void;
+  onSuccess?: (course: CourseData) => void;
   onCancel?: () => void;
 }
 
 export function CourseUploader({ onSuccess, onCancel }: CourseUploaderProps) {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisStatus, setAnalysisStatus] = useState<'idle' | 'extracting' | 'analyzing' | 'complete'>('idle');
+  const [analysisStatus, setAnalysisStatus] = useState<'idle' | 'saving' | 'extracting' | 'analyzing' | 'complete'>('idle');
+
+  const createCourse = useCreateCourse();
 
   const form = useForm<CourseFormValues>({
     resolver: zodResolver(courseSchema),
@@ -75,11 +83,20 @@ export function CourseUploader({ onSuccess, onCancel }: CourseUploaderProps) {
       const nameWithoutExt = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
       form.setValue('name', nameWithoutExt);
       
-      // TODO: Extract text from PDF/DOCX when backend is connected
-      toast({
-        title: "File uploaded",
-        description: "Text extraction will work when Lovable Cloud is enabled.",
-      });
+      // Read text file content
+      if (file.type === 'text/plain') {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const text = e.target?.result as string;
+          form.setValue('syllabusText', text);
+        };
+        reader.readAsText(file);
+      } else {
+        toast({
+          title: "File uploaded",
+          description: "Please paste the syllabus content in the text tab for now. PDF/DOCX parsing coming soon.",
+        });
+      }
     }
   }, [form]);
 
@@ -96,25 +113,51 @@ export function CourseUploader({ onSuccess, onCancel }: CourseUploaderProps) {
 
   const onSubmit = async (data: CourseFormValues) => {
     setIsAnalyzing(true);
-    setAnalysisStatus('extracting');
+    setAnalysisStatus('saving');
 
     try {
-      // Simulate AI analysis steps
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      setAnalysisStatus('analyzing');
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      // Step 1: Create course in database
+      const course = await createCourse.mutateAsync({
+        title: data.name,
+        code: data.code || null,
+        semester: data.semester || null,
+      });
+
+      setAnalysisStatus('extracting');
+
+      // Step 2: Call AI analysis with syllabus text
+      if (data.syllabusText) {
+        setAnalysisStatus('analyzing');
+        try {
+          await analyzeSyllabus(data.syllabusText, course.id);
+        } catch (aiError) {
+          console.error('AI analysis error:', aiError);
+          // Don't fail the whole flow if AI analysis fails
+          toast({
+            title: "Course saved",
+            description: "Course was added but AI analysis encountered an issue. You can retry later.",
+            variant: "default",
+          });
+        }
+      }
+
       setAnalysisStatus('complete');
       
       toast({
         title: "Course added!",
-        description: "AI analysis will be performed when Lovable Cloud is enabled.",
+        description: `${data.name} has been added and analyzed.`,
       });
 
-      onSuccess?.(data);
+      // Reset form
+      form.reset();
+      setUploadedFile(null);
+
+      onSuccess?.({ ...data, id: course.id });
     } catch (error) {
+      console.error('Course creation error:', error);
       toast({
         title: "Error",
-        description: "Failed to analyze course. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to add course. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -193,7 +236,7 @@ export function CourseUploader({ onSuccess, onCancel }: CourseUploaderProps) {
           {/* Syllabus Upload */}
           <div className="space-y-4">
             <FormLabel>Syllabus Content *</FormLabel>
-            <Tabs defaultValue="upload" className="w-full">
+            <Tabs defaultValue="paste" className="w-full">
               <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="upload">Upload File</TabsTrigger>
                 <TabsTrigger value="paste">Paste Text</TabsTrigger>
@@ -285,8 +328,12 @@ Include:
               <CardContent className="p-4">
                 <div className="space-y-3">
                   <AnalysisStep
+                    label="Saving course to your profile"
+                    status={analysisStatus === 'saving' ? 'loading' : analysisStatus !== 'idle' ? 'complete' : 'pending'}
+                  />
+                  <AnalysisStep
                     label="Extracting syllabus content"
-                    status={analysisStatus === 'extracting' ? 'loading' : analysisStatus !== 'idle' ? 'complete' : 'pending'}
+                    status={analysisStatus === 'extracting' ? 'loading' : ['analyzing', 'complete'].includes(analysisStatus) ? 'complete' : 'pending'}
                   />
                   <AnalysisStep
                     label="Analyzing capabilities with AI"
