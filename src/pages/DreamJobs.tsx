@@ -100,7 +100,7 @@ export default function DreamJobsPage() {
               <Card 
                 key={job.id} 
                 className="hover:shadow-md transition-shadow cursor-pointer"
-                onClick={() => navigate("/analysis")}
+                onClick={() => navigate(`/dream-jobs/${job.id}`)}
               >
                 <CardHeader className="pb-2">
                   <div className="flex items-start justify-between">
@@ -124,7 +124,7 @@ export default function DreamJobsPage() {
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem onClick={(e) => {
                           e.stopPropagation();
-                          navigate("/analysis");
+                          navigate(`/dream-jobs/${job.id}`);
                         }}>
                           <BarChart3 className="h-4 w-4 mr-2" />
                           View Analysis

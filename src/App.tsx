@@ -15,6 +15,8 @@ import DreamJobDetailPage from "./pages/DreamJobDetail";
 import AnalysisPage from "./pages/Analysis";
 import RecommendationsPage from "./pages/Recommendations";
 import ProfilePage from "./pages/Profile";
+import SettingsPage from "./pages/Settings";
+import SyllabusScannerPage from "./pages/SyllabusScanner";
 
 const queryClient = new QueryClient();
 
@@ -36,6 +38,8 @@ const App = () => (
           <Route path="/analysis" element={<AnalysisPage />} />
           <Route path="/recommendations" element={<RecommendationsPage />} />
           <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/scanner" element={<SyllabusScannerPage />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
