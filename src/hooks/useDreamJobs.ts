@@ -1,20 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
+import { Tables, TablesInsert } from '@/integrations/supabase/types';
 import { queryKeys } from '@/lib/query-keys';
 import { toast } from '@/hooks/use-toast';
-import type { AddDreamJobFormValues } from '@/components/forms/AddDreamJobForm';
 
-// Types
-export interface DreamJob {
-  id: string;
-  user_id: string;
-  job_query: string;
-  target_company_type?: string;
-  target_location?: string;
-  status: 'pending' | 'analyzing' | 'complete' | 'error';
-  match_score?: number;
-  created_at: string;
-  updated_at: string;
-}
+// Types from database
+export type DreamJob = Tables<'dream_jobs'>;
+export type DreamJobInsert = TablesInsert<'dream_jobs'>;
 
 export interface JobRequirement {
   id: string;
@@ -25,67 +17,61 @@ export interface JobRequirement {
   description: string;
 }
 
-// Mock data
-const mockDreamJobs: DreamJob[] = [
-  {
-    id: '1',
-    user_id: 'mock-user',
-    job_query: 'Product Manager',
-    target_company_type: 'tech',
-    target_location: 'San Francisco, CA',
-    status: 'complete',
-    match_score: 72,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  },
-  {
-    id: '2',
-    user_id: 'mock-user',
-    job_query: 'Business Analyst',
-    target_company_type: 'consulting',
-    target_location: 'New York, NY',
-    status: 'complete',
-    match_score: 65,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  },
-];
+// Fetch all dream jobs for the current user
+async function fetchDreamJobs(): Promise<DreamJob[]> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
 
-// API functions (will be replaced with Supabase calls)
-const fetchDreamJobs = async (): Promise<DreamJob[]> => {
-  await new Promise(resolve => setTimeout(resolve, 500));
-  return mockDreamJobs;
-};
+  const { data, error } = await supabase
+    .from('dream_jobs')
+    .select('*')
+    .eq('user_id', user.id)
+    .order('is_primary', { ascending: false })
+    .order('created_at', { ascending: false });
 
-const fetchDreamJobById = async (id: string): Promise<DreamJob | null> => {
-  await new Promise(resolve => setTimeout(resolve, 300));
-  return mockDreamJobs.find(j => j.id === id) || null;
-};
+  if (error) throw error;
+  return data || [];
+}
 
-const createDreamJob = async (data: AddDreamJobFormValues): Promise<DreamJob> => {
-  await new Promise(resolve => setTimeout(resolve, 1500));
-  const newJob: DreamJob = {
-    id: Date.now().toString(),
-    user_id: 'mock-user',
-    job_query: data.jobQuery,
-    target_company_type: data.targetCompanyType,
-    target_location: data.targetLocation,
-    status: 'complete',
-    match_score: Math.floor(Math.random() * 30) + 50, // Random 50-80
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  };
-  mockDreamJobs.push(newJob);
-  return newJob;
-};
+// Fetch a single dream job by ID
+async function fetchDreamJobById(id: string): Promise<DreamJob | null> {
+  const { data, error } = await supabase
+    .from('dream_jobs')
+    .select('*')
+    .eq('id', id)
+    .single();
 
-const deleteDreamJob = async (id: string): Promise<void> => {
-  await new Promise(resolve => setTimeout(resolve, 500));
-  const index = mockDreamJobs.findIndex(j => j.id === id);
-  if (index > -1) {
-    mockDreamJobs.splice(index, 1);
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    throw error;
   }
-};
+  return data;
+}
+
+// Create a new dream job
+async function createDreamJob(job: Omit<DreamJobInsert, 'user_id'>): Promise<DreamJob> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+
+  const { data, error } = await supabase
+    .from('dream_jobs')
+    .insert({ ...job, user_id: user.id })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+// Delete a dream job
+async function deleteDreamJob(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('dream_jobs')
+    .delete()
+    .eq('id', id);
+
+  if (error) throw error;
+}
 
 // Hooks
 export function useDreamJobs() {
@@ -105,20 +91,20 @@ export function useDreamJob(id: string) {
 
 export function useCreateDreamJob() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: createDreamJob,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.dreamJobsList() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dreamJobs });
       toast({
         title: 'Dream job added',
-        description: 'AI analysis has been completed.',
+        description: 'Your dream job has been saved.',
       });
     },
-    onError: (error: Error) => {
+    onError: (error) => {
       toast({
         title: 'Error',
-        description: error.message || 'Failed to add dream job.',
+        description: error instanceof Error ? error.message : 'Failed to add dream job',
         variant: 'destructive',
       });
     },
@@ -127,20 +113,20 @@ export function useCreateDreamJob() {
 
 export function useDeleteDreamJob() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: deleteDreamJob,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.dreamJobsList() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dreamJobs });
       toast({
         title: 'Dream job removed',
-        description: 'The dream job has been removed from your list.',
+        description: 'The dream job has been deleted.',
       });
     },
-    onError: (error: Error) => {
+    onError: (error) => {
       toast({
         title: 'Error',
-        description: error.message || 'Failed to remove dream job.',
+        description: error instanceof Error ? error.message : 'Failed to delete dream job',
         variant: 'destructive',
       });
     },

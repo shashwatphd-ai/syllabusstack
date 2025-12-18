@@ -1,20 +1,12 @@
 import { ReactNode } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
+import { Loader2 } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface AuthGuardProps {
   children: ReactNode;
   requireOnboarding?: boolean;
 }
-
-// Mock auth state - will be replaced with real auth when Lovable Cloud is enabled
-const useAuth = () => {
-  // TODO: Replace with actual Supabase auth
-  return {
-    user: null, // Set to mock user for development
-    isLoading: false,
-    isOnboarded: false,
-  };
-};
 
 export function AuthGuard({ children, requireOnboarding = false }: AuthGuardProps) {
   const { user, isLoading, isOnboarded } = useAuth();
@@ -23,23 +15,18 @@ export function AuthGuard({ children, requireOnboarding = false }: AuthGuardProp
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
   }
 
-  // For development, allow access without auth
-  // In production, uncomment the redirect logic below
-  
-  /*
   if (!user) {
-    return <Navigate to="/login" state={{ from: location }} replace />;
+    return <Navigate to="/auth" state={{ from: location }} replace />;
   }
 
   if (requireOnboarding && !isOnboarded) {
     return <Navigate to="/onboarding" replace />;
   }
-  */
 
   return <>{children}</>;
 }
@@ -51,19 +38,14 @@ export function GuestGuard({ children }: { children: ReactNode }) {
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
   }
 
-  // For development, show auth pages
-  // In production, redirect to dashboard if already logged in
-  
-  /*
   if (user) {
     return <Navigate to="/dashboard" replace />;
   }
-  */
 
   return <>{children}</>;
 }
