@@ -7,7 +7,8 @@ import {
   BookOpen,
   Briefcase,
   Sparkles,
-  Check
+  Check,
+  Loader2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,9 +22,11 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
-import { CourseUploader } from './CourseUploader';
-import { DreamJobSelector } from './DreamJobSelector';
+import { CourseUploader, CourseData } from './CourseUploader';
+import { DreamJobSelector, DreamJob } from './DreamJobSelector';
 import { toast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
+import { useUpdateProfile, useCompleteOnboarding } from '@/hooks/useProfile';
 
 type OnboardingStep = 'profile' | 'courses' | 'dream-jobs' | 'complete';
 
@@ -33,21 +36,6 @@ interface ProfileData {
   major: string;
   graduationYear: string;
   studentLevel: string;
-}
-
-interface Course {
-  name: string;
-  code?: string;
-  university?: string;
-  semester?: string;
-  syllabusText?: string;
-}
-
-interface DreamJob {
-  id: string;
-  jobQuery: string;
-  targetCompanyType?: string;
-  targetLocation?: string;
 }
 
 const steps = [
@@ -70,7 +58,12 @@ const graduationYears = Array.from({ length: 6 }, (_, i) => currentYear + i);
 
 export function OnboardingWizard() {
   const navigate = useNavigate();
+  const { refreshProfile } = useAuth();
+  const updateProfile = useUpdateProfile();
+  const completeOnboarding = useCompleteOnboarding();
+  
   const [currentStep, setCurrentStep] = useState<OnboardingStep>('profile');
+  const [isSaving, setIsSaving] = useState(false);
   const [profile, setProfile] = useState<ProfileData>({
     fullName: '',
     university: '',
@@ -78,7 +71,7 @@ export function OnboardingWizard() {
     graduationYear: '',
     studentLevel: '',
   });
-  const [courses, setCourses] = useState<Course[]>([]);
+  const [courses, setCourses] = useState<CourseData[]>([]);
   const [dreamJobs, setDreamJobs] = useState<DreamJob[]>([]);
 
   const stepIndex = steps.findIndex(s => s.id === currentStep);
@@ -97,20 +90,67 @@ export function OnboardingWizard() {
     }
   };
 
-  const nextStep = () => {
-    switch (currentStep) {
-      case 'profile':
-        setCurrentStep('courses');
-        break;
-      case 'courses':
-        setCurrentStep('dream-jobs');
-        break;
-      case 'dream-jobs':
-        setCurrentStep('complete');
-        break;
-      case 'complete':
-        navigate('/dashboard');
-        break;
+  const saveProfileData = async () => {
+    try {
+      await updateProfile.mutateAsync({
+        full_name: profile.fullName,
+        university: profile.university,
+        major: profile.major || null,
+        graduation_year: profile.graduationYear ? parseInt(profile.graduationYear) : null,
+        student_level: profile.studentLevel,
+      });
+      return true;
+    } catch (error) {
+      console.error('Failed to save profile:', error);
+      toast({
+        title: "Error",
+        description: "Failed to save profile. Please try again.",
+        variant: "destructive",
+      });
+      return false;
+    }
+  };
+
+  const nextStep = async () => {
+    setIsSaving(true);
+    
+    try {
+      switch (currentStep) {
+        case 'profile':
+          // Save profile data before moving to next step
+          const saved = await saveProfileData();
+          if (saved) {
+            setCurrentStep('courses');
+          }
+          break;
+        case 'courses':
+          // Courses are already saved via CourseUploader
+          setCurrentStep('dream-jobs');
+          break;
+        case 'dream-jobs':
+          // Dream jobs are already saved via DreamJobSelector
+          setCurrentStep('complete');
+          break;
+        case 'complete':
+          // Mark onboarding as complete and redirect
+          await completeOnboarding.mutateAsync();
+          await refreshProfile();
+          toast({
+            title: "Welcome to EduThree!",
+            description: "Your profile is set up. Let's explore your gap analysis.",
+          });
+          navigate('/dashboard');
+          break;
+      }
+    } catch (error) {
+      console.error('Navigation error:', error);
+      toast({
+        title: "Error",
+        description: "Something went wrong. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -128,12 +168,8 @@ export function OnboardingWizard() {
     }
   };
 
-  const handleCourseAdded = (course: Course) => {
+  const handleCourseAdded = (course: CourseData) => {
     setCourses(prev => [...prev, course]);
-    toast({
-      title: "Course added!",
-      description: `${course.name} has been added to your profile.`,
-    });
   };
 
   return (
@@ -307,7 +343,7 @@ export function OnboardingWizard() {
                   <div className="space-y-2">
                     {courses.map((course, index) => (
                       <div 
-                        key={index}
+                        key={course.id || index}
                         className="flex items-center justify-between p-3 bg-muted/50 rounded-lg"
                       >
                         <div className="flex items-center gap-3">
@@ -381,7 +417,7 @@ export function OnboardingWizard() {
           <Button
             variant="outline"
             onClick={prevStep}
-            disabled={currentStep === 'profile'}
+            disabled={currentStep === 'profile' || isSaving}
           >
             <ChevronLeft className="h-4 w-4 mr-2" />
             Back
@@ -389,9 +425,14 @@ export function OnboardingWizard() {
 
           <Button
             onClick={nextStep}
-            disabled={!canProceed()}
+            disabled={!canProceed() || isSaving}
           >
-            {currentStep === 'complete' ? (
+            {isSaving ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                Saving...
+              </>
+            ) : currentStep === 'complete' ? (
               <>
                 Go to Dashboard
                 <Sparkles className="h-4 w-4 ml-2" />

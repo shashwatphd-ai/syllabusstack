@@ -34,6 +34,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
+import { useCreateDreamJob } from '@/hooks/useDreamJobs';
+import { analyzeDreamJob } from '@/lib/api';
 
 const dreamJobSchema = z.object({
   jobQuery: z.string().min(3, 'Please enter a job title or role'),
@@ -43,7 +45,7 @@ const dreamJobSchema = z.object({
 
 type DreamJobFormValues = z.infer<typeof dreamJobSchema>;
 
-interface DreamJob {
+export interface DreamJob {
   id: string;
   jobQuery: string;
   targetCompanyType?: string;
@@ -85,6 +87,8 @@ export function DreamJobSelector({
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [showForm, setShowForm] = useState(true);
 
+  const createDreamJob = useCreateDreamJob();
+
   const form = useForm<DreamJobFormValues>({
     resolver: zodResolver(dreamJobSchema),
     defaultValues: {
@@ -107,11 +111,34 @@ export function DreamJobSelector({
     setIsAnalyzing(true);
 
     try {
-      // Simulate AI analysis
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      // Step 1: Create dream job in database
+      const dreamJob = await createDreamJob.mutateAsync({
+        title: data.jobQuery,
+        company_type: data.targetCompanyType || null,
+        location: data.targetLocation || null,
+        is_primary: jobs.length === 0, // First job is primary
+      });
+
+      // Step 2: Call AI analysis
+      try {
+        await analyzeDreamJob(
+          data.jobQuery,
+          data.targetCompanyType,
+          data.targetLocation,
+          dreamJob.id
+        );
+      } catch (aiError) {
+        console.error('AI analysis error:', aiError);
+        // Don't fail the whole flow if AI analysis fails
+        toast({
+          title: "Job saved",
+          description: "Dream job was added but AI analysis encountered an issue. You can retry later.",
+          variant: "default",
+        });
+      }
 
       const newJob: DreamJob = {
-        id: Date.now().toString(),
+        id: dreamJob.id,
         jobQuery: data.jobQuery,
         targetCompanyType: data.targetCompanyType,
         targetLocation: data.targetLocation,
@@ -125,16 +152,17 @@ export function DreamJobSelector({
       
       toast({
         title: "Dream job added!",
-        description: "AI requirements analysis will run when Lovable Cloud is enabled.",
+        description: `${data.jobQuery} has been added and analyzed.`,
       });
 
       if (updatedJobs.length >= maxJobs) {
         setShowForm(false);
       }
     } catch (error) {
+      console.error('Dream job creation error:', error);
       toast({
         title: "Error",
-        description: "Failed to add dream job. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to add dream job. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -337,10 +365,10 @@ export function DreamJobSelector({
                 <Sparkles className="h-4 w-4 text-primary" />
               </div>
               <div>
-                <h4 className="font-medium text-sm">AI Analysis Ready</h4>
+                <h4 className="font-medium text-sm">AI Analysis Complete</h4>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Once you complete onboarding, we'll analyze what these roles 
-                  actually require and compare them to your capabilities.
+                  We've analyzed what these roles require and saved the requirements 
+                  to compare with your capabilities.
                 </p>
               </div>
             </div>
