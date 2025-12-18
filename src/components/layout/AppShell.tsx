@@ -37,7 +37,7 @@ export function AppShell({ children, showSearch = true }: AppShellProps) {
           onMenuClick={() => setMobileNavOpen(true)}
           showSearch={showSearch}
         />
-        <main className="flex-1">
+        <main className="flex-1 p-6">
           {children}
         </main>
       </div>
