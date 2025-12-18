@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
 import { queryKeys } from '@/lib/query-keys';
 
 // Types
@@ -34,48 +35,101 @@ export interface DashboardStats {
   goalsCompleted: number;
 }
 
-// Mock data
-const mockDashboardOverview: DashboardOverview = {
-  totalCourses: 4,
-  totalDreamJobs: 2,
-  totalCapabilities: 12,
-  averageMatchScore: 68,
-  topGaps: [
-    { skill: 'Product Strategy', severity: 'critical', dreamJob: 'Product Manager' },
-    { skill: 'Technical Knowledge', severity: 'important', dreamJob: 'Product Manager' },
-    { skill: 'Financial Modeling', severity: 'important', dreamJob: 'Business Analyst' },
-  ],
-  recentRecommendations: [
-    { id: '1', title: 'Complete Product Management Course', type: 'course', priority: 'high' },
-    { id: '2', title: 'Build a Side Project', type: 'project', priority: 'medium' },
-    { id: '3', title: 'Get Google Analytics Certified', type: 'certification', priority: 'medium' },
-  ],
-  progressSummary: {
-    completedRecommendations: 3,
-    totalRecommendations: 12,
-    hoursInvested: 24,
-  },
-};
+// Fetch dashboard overview from database
+async function fetchDashboardOverview(): Promise<DashboardOverview> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
 
-const mockDashboardStats: DashboardStats = {
-  readinessScore: 68,
-  readinessTrend: 'up',
-  skillsGained: 12,
-  skillsGainedThisMonth: 2,
-  activeGoals: 5,
-  goalsCompleted: 3,
-};
+  // Fetch all data in parallel
+  const [
+    { data: courses },
+    { data: dreamJobs },
+    { data: capabilities },
+    { data: recommendations }
+  ] = await Promise.all([
+    supabase.from('courses').select('id').eq('user_id', user.id),
+    supabase.from('dream_jobs').select('id, title, match_score').eq('user_id', user.id),
+    supabase.from('capabilities').select('id, name').eq('user_id', user.id),
+    supabase.from('recommendations').select('id, title, type, status, priority').eq('user_id', user.id).order('created_at', { ascending: false }).limit(10)
+  ]);
 
-// API functions
-const fetchDashboardOverview = async (): Promise<DashboardOverview> => {
-  await new Promise(resolve => setTimeout(resolve, 600));
-  return mockDashboardOverview;
-};
+  const jobs = dreamJobs || [];
+  const recs = recommendations || [];
 
-const fetchDashboardStats = async (): Promise<DashboardStats> => {
-  await new Promise(resolve => setTimeout(resolve, 400));
-  return mockDashboardStats;
-};
+  // Calculate average match score
+  const matchScores = jobs.map(j => j.match_score || 0).filter(s => s > 0);
+  const averageMatchScore = matchScores.length > 0 
+    ? Math.round(matchScores.reduce((a, b) => a + b, 0) / matchScores.length)
+    : 0;
+
+  // Progress summary
+  const completedRecs = recs.filter(r => r.status === 'completed').length;
+
+  return {
+    totalCourses: courses?.length || 0,
+    totalDreamJobs: jobs.length,
+    totalCapabilities: capabilities?.length || 0,
+    averageMatchScore,
+    topGaps: [], // Would be populated from gap analysis
+    recentRecommendations: recs.slice(0, 3).map(r => ({
+      id: r.id,
+      title: r.title,
+      type: r.type || 'skill',
+      priority: (r.priority as 'high' | 'medium' | 'low') || 'medium'
+    })),
+    progressSummary: {
+      completedRecommendations: completedRecs,
+      totalRecommendations: recs.length,
+      hoursInvested: completedRecs * 5 // Estimate 5 hours per completed recommendation
+    }
+  };
+}
+
+// Fetch dashboard stats from database
+async function fetchDashboardStats(): Promise<DashboardStats> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+
+  const [
+    { data: capabilities },
+    { data: dreamJobs },
+    { data: recommendations }
+  ] = await Promise.all([
+    supabase.from('capabilities').select('id, created_at').eq('user_id', user.id),
+    supabase.from('dream_jobs').select('match_score').eq('user_id', user.id),
+    supabase.from('recommendations').select('status').eq('user_id', user.id)
+  ]);
+
+  const caps = capabilities || [];
+  const jobs = dreamJobs || [];
+  const recs = recommendations || [];
+
+  // Skills gained this month
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const skillsGainedThisMonth = caps.filter(c => 
+    new Date(c.created_at) >= startOfMonth
+  ).length;
+
+  // Readiness score (average of match scores or 0)
+  const matchScores = jobs.map(j => j.match_score || 0).filter(s => s > 0);
+  const readinessScore = matchScores.length > 0
+    ? Math.round(matchScores.reduce((a, b) => a + b, 0) / matchScores.length)
+    : 0;
+
+  // Goals
+  const completedCount = recs.filter(r => r.status === 'completed').length;
+  const activeCount = recs.filter(r => r.status === 'in_progress' || r.status === 'pending').length;
+
+  return {
+    readinessScore,
+    readinessTrend: 'stable',
+    skillsGained: caps.length,
+    skillsGainedThisMonth,
+    activeGoals: activeCount,
+    goalsCompleted: completedCount
+  };
+}
 
 // Hooks
 export function useDashboardOverview() {
