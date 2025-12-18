@@ -11,8 +11,10 @@ import OnboardingPage from "./pages/Onboarding";
 import DashboardPage from "./pages/Dashboard";
 import CoursesPage from "./pages/Courses";
 import DreamJobsPage from "./pages/DreamJobs";
+import DreamJobDetailPage from "./pages/DreamJobDetail";
 import AnalysisPage from "./pages/Analysis";
 import RecommendationsPage from "./pages/Recommendations";
+import ProfilePage from "./pages/Profile";
 
 const queryClient = new QueryClient();
 
@@ -30,8 +32,10 @@ const App = () => (
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/courses" element={<CoursesPage />} />
           <Route path="/dream-jobs" element={<DreamJobsPage />} />
+          <Route path="/dream-jobs/:jobId" element={<DreamJobDetailPage />} />
           <Route path="/analysis" element={<AnalysisPage />} />
           <Route path="/recommendations" element={<RecommendationsPage />} />
+          <Route path="/profile" element={<ProfilePage />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
