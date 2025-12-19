@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { MASTER_SYSTEM_PROMPT, JOB_REQUIREMENTS_PROMPT, createJobRequirementsCacheKey } from "../_shared/prompts.ts";
 import { getCachedResponse, setCachedResponse, trackAIUsage, createServiceClient, CACHE_TTL } from "../_shared/ai-cache.ts";
 import { JOB_REQUIREMENTS_SCHEMA, createToolDefinition, createToolChoice } from "../_shared/schemas.ts";
+import { generateKeywordVector } from "../_shared/ai-orchestrator.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -37,6 +38,7 @@ serve(async (req) => {
     const cachedData = await getCachedResponse(serviceClient, cacheKey);
 
     let requirements, description, salaryRange, dayOneCapabilities, differentiators, commonMisconceptions, realisticBar;
+    let requirementsKeywords: string[] = [];
 
     if (cachedData) {
       console.log("Using cached job requirements");
@@ -47,6 +49,7 @@ serve(async (req) => {
       differentiators = cachedData.differentiators;
       commonMisconceptions = cachedData.common_misconceptions;
       realisticBar = cachedData.realistic_bar;
+      requirementsKeywords = cachedData.requirements_keywords || [];
     } else {
       // Check job_requirements_cache table for common queries
       const normalizedQuery = jobTitle.toLowerCase().trim();
@@ -74,6 +77,7 @@ serve(async (req) => {
         differentiators = tableCache.differentiators;
         commonMisconceptions = tableCache.common_misconceptions;
         realisticBar = tableCache.realistic_bar;
+        requirementsKeywords = tableCache.keywords || [];
       } else {
         // No cache - call AI
         const systemPrompt = `${MASTER_SYSTEM_PROMPT}
@@ -152,6 +156,29 @@ Be specific to this role and company type. Use real industry knowledge.`
         commonMisconceptions = parsed.common_misconceptions || [];
         realisticBar = parsed.realistic_bar || null;
 
+        // Generate keywords from all job-related text for similarity matching
+        const titleKeywords = generateKeywordVector(jobTitle);
+        const descKeywords = description ? generateKeywordVector(description) : [];
+        const reqKeywords = requirements.flatMap((r: any) => 
+          generateKeywordVector(`${r.skill_name} ${r.category || ''}`)
+        );
+        const dayOneKeywords = dayOneCapabilities.flatMap((d: any) => 
+          generateKeywordVector(d.requirement || d)
+        );
+        const diffKeywords = differentiators.flatMap((d: any) => 
+          generateKeywordVector(d.skill || d)
+        );
+        
+        requirementsKeywords = [...new Set([
+          ...titleKeywords,
+          ...descKeywords,
+          ...reqKeywords,
+          ...dayOneKeywords,
+          ...diffKeywords
+        ])];
+
+        console.log(`Generated ${requirementsKeywords.length} keywords for job: ${jobTitle}`);
+
         // Save to job_requirements_cache table for future queries
         await serviceClient.from("job_requirements_cache").upsert({
           job_query_normalized: normalizedQuery,
@@ -160,6 +187,7 @@ Be specific to this role and company type. Use real industry knowledge.`
           differentiators: differentiators,
           common_misconceptions: commonMisconceptions,
           realistic_bar: realisticBar,
+          keywords: requirementsKeywords, // Store keywords for similarity matching
           query_count: 1,
           last_queried_at: new Date().toISOString()
         }, { onConflict: "job_query_normalized" });
@@ -176,7 +204,8 @@ Be specific to this role and company type. Use real industry knowledge.`
             day_one_capabilities: dayOneCapabilities,
             differentiators,
             common_misconceptions: commonMisconceptions,
-            realistic_bar: realisticBar
+            realistic_bar: realisticBar,
+            requirements_keywords: requirementsKeywords
           },
           "google/gemini-2.5-flash",
           CACHE_TTL.job_requirements
@@ -196,7 +225,7 @@ Be specific to this role and company type. Use real industry knowledge.`
 
         const { data: { user } } = await supabase.auth.getUser();
 
-        // Update dream job with all new fields
+        // Update dream job with all new fields including keywords
         const { error: updateError } = await supabase
           .from("dream_jobs")
           .update({ 
@@ -205,12 +234,15 @@ Be specific to this role and company type. Use real industry knowledge.`
             day_one_capabilities: dayOneCapabilities,
             differentiators: differentiators,
             common_misconceptions: commonMisconceptions,
-            realistic_bar: realisticBar
+            realistic_bar: realisticBar,
+            requirements_keywords: requirementsKeywords // Store for gap analysis
           })
           .eq("id", dreamJobId);
 
         if (updateError) {
           console.error("Error updating dream job:", updateError);
+        } else {
+          console.log(`Updated dream job ${dreamJobId} with ${requirementsKeywords.length} keywords`);
         }
 
         // Delete existing requirements
@@ -257,7 +289,8 @@ Be specific to this role and company type. Use real industry knowledge.`
         day_one_capabilities: dayOneCapabilities,
         differentiators,
         common_misconceptions: commonMisconceptions,
-        realistic_bar: realisticBar
+        realistic_bar: realisticBar,
+        keywords_count: requirementsKeywords.length
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
