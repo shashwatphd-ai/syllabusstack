@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { MASTER_SYSTEM_PROMPT, RECOMMENDATIONS_PROMPT, ANTI_RECOMMENDATIONS_PROMPT } from "../_shared/prompts.ts";
 import { trackAIUsage, createServiceClient } from "../_shared/ai-cache.ts";
+import { RECOMMENDATIONS_SCHEMA, createToolDefinition, createToolChoice } from "../_shared/schemas.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -153,76 +154,8 @@ PRIORITIZE:
 - Quick wins alongside longer-term investments`
           }
         ],
-        tools: [
-          {
-            type: "function",
-            function: {
-              name: "generate_recommendations",
-              description: "Generate comprehensive, actionable learning recommendations",
-              parameters: {
-                type: "object",
-                properties: {
-                  recommendations: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      properties: {
-                        title: { type: "string", description: "Clear, specific action title" },
-                        type: { 
-                          type: "string", 
-                          enum: ["project", "course", "certification", "action", "reading"]
-                        },
-                        description: { type: "string", description: "What they'll learn/do" },
-                        why_this_matters: { type: "string", description: "How this connects to the job requirement" },
-                        gap_addressed: { type: "string", description: "Which specific gap this closes" },
-                        steps: {
-                          type: "array",
-                          items: {
-                            type: "object",
-                            properties: {
-                              order: { type: "number" },
-                              description: { type: "string" },
-                              estimated_time: { type: "string" }
-                            },
-                            required: ["order", "description"]
-                          },
-                          description: "Concrete steps to complete this recommendation"
-                        },
-                        provider: { type: "string", description: "Platform or resource provider" },
-                        url: { type: "string", description: "Direct link if available" },
-                        duration: { type: "string", description: "Estimated time to complete" },
-                        effort_hours: { type: "number", description: "Estimated hours of effort" },
-                        cost: { type: "number", description: "Cost in USD (0 for free)" },
-                        priority: { type: "string", enum: ["high", "medium", "low"] },
-                        evidence_created: { type: "string", description: "What tangible evidence they'll have" },
-                        how_to_demonstrate: { type: "string", description: "How to present this to employers" }
-                      },
-                      required: ["title", "type", "description", "why_this_matters", "priority"]
-                    }
-                  },
-                  anti_recommendations: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      properties: {
-                        action: { type: "string", description: "What NOT to do" },
-                        reason: { type: "string", description: "Why this is a waste of time/money" }
-                      },
-                      required: ["action", "reason"]
-                    },
-                    description: "Things the student should AVOID doing"
-                  },
-                  learning_path_summary: {
-                    type: "string",
-                    description: "Brief summary of the recommended path forward"
-                  }
-                },
-                required: ["recommendations"]
-              }
-            }
-          }
-        ],
-        tool_choice: { type: "function", function: { name: "generate_recommendations" } }
+        tools: [createToolDefinition(RECOMMENDATIONS_SCHEMA)],
+        tool_choice: createToolChoice(RECOMMENDATIONS_SCHEMA)
       }),
     });
 

@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { MASTER_SYSTEM_PROMPT, GAP_ANALYSIS_PROMPT } from "../_shared/prompts.ts";
 import { trackAIUsage, createServiceClient } from "../_shared/ai-cache.ts";
+import { GAP_ANALYSIS_SCHEMA, createToolDefinition, createToolChoice } from "../_shared/schemas.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -140,100 +141,8 @@ Focus on:
 5. Specific priority gaps to address first`
           }
         ],
-        tools: [
-          {
-            type: "function",
-            function: {
-              name: "gap_analysis_result",
-              description: "Return the comprehensive gap analysis results",
-              parameters: {
-                type: "object",
-                properties: {
-                  match_score: { 
-                    type: "number", 
-                    description: "Overall match percentage 0-100. Be realistic - most students are 30-60%" 
-                  },
-                  strong_overlaps: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      properties: {
-                        student_capability: { type: "string", description: "What the student can do" },
-                        job_requirement: { type: "string", description: "The requirement it matches" },
-                        assessment: { type: "string", description: "How well it matches" }
-                      },
-                      required: ["student_capability", "job_requirement", "assessment"]
-                    },
-                    description: "Clear matches between capabilities and requirements"
-                  },
-                  critical_gaps: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      properties: {
-                        job_requirement: { type: "string", description: "The missing requirement" },
-                        student_status: { type: "string", description: "What the student currently has (or lacks)" },
-                        impact: { type: "string", description: "Why this gap matters" }
-                      },
-                      required: ["job_requirement", "student_status", "impact"]
-                    },
-                    description: "Requirements the student is missing - especially CRITICAL ones"
-                  },
-                  partial_overlaps: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      properties: {
-                        area: { type: "string", description: "The skill area" },
-                        foundation: { type: "string", description: "What foundation the student has" },
-                        missing: { type: "string", description: "What's still needed" }
-                      },
-                      required: ["area", "foundation", "missing"]
-                    },
-                    description: "Areas where student has related but incomplete experience"
-                  },
-                  honest_assessment: { 
-                    type: "string", 
-                    description: "Candid, direct feedback on their readiness. Be honest but constructive." 
-                  },
-                  readiness_level: {
-                    type: "string",
-                    enum: ["ready_to_apply", "3_months_away", "6_months_away", "1_year_away", "needs_significant_development"],
-                    description: "How ready are they to apply for this role?"
-                  },
-                  interview_readiness: {
-                    type: "string",
-                    description: "Would they pass a typical interview loop? What would trip them up?"
-                  },
-                  job_success_prediction: {
-                    type: "string",
-                    description: "If hired today, would they succeed? What would be hardest?"
-                  },
-                  priority_gaps: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      properties: {
-                        gap: { type: "string" },
-                        priority: { type: "number", description: "1 = highest priority" },
-                        reason: { type: "string", description: "Why this should be addressed first" }
-                      },
-                      required: ["gap", "priority", "reason"]
-                    },
-                    description: "Top 3-5 gaps ranked by impact if closed"
-                  },
-                  anti_recommendations: { 
-                    type: "array", 
-                    items: { type: "string" },
-                    description: "Things the student should NOT pursue or avoid" 
-                  }
-                },
-                required: ["match_score", "strong_overlaps", "critical_gaps", "honest_assessment", "readiness_level", "priority_gaps"]
-              }
-            }
-          }
-        ],
-        tool_choice: { type: "function", function: { name: "gap_analysis_result" } }
+        tools: [createToolDefinition(GAP_ANALYSIS_SCHEMA)],
+        tool_choice: createToolChoice(GAP_ANALYSIS_SCHEMA)
       }),
     });
 
