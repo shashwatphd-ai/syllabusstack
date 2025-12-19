@@ -1,3 +1,4 @@
+import * as React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
@@ -25,16 +26,19 @@ const mockCapabilities: Capability[] = [
   { name: "Project Management", level: 35, maxLevel: 100, trend: "down", category: "Professional" },
 ];
 
-const TrendIcon = ({ trend }: { trend: "up" | "down" | "stable" }) => {
-  switch (trend) {
-    case "up":
-      return <TrendingUp className="h-4 w-4 text-green-500" />;
-    case "down":
-      return <TrendingDown className="h-4 w-4 text-red-500" />;
-    default:
-      return <Minus className="h-4 w-4 text-muted-foreground" />;
+const TrendIcon = React.forwardRef<SVGSVGElement, { trend: "up" | "down" | "stable" }>(
+  ({ trend }, ref) => {
+    switch (trend) {
+      case "up":
+        return <TrendingUp ref={ref} className="h-4 w-4 text-green-500" />;
+      case "down":
+        return <TrendingDown ref={ref} className="h-4 w-4 text-red-500" />;
+      default:
+        return <Minus ref={ref} className="h-4 w-4 text-muted-foreground" />;
+    }
   }
-};
+);
+TrendIcon.displayName = "TrendIcon";
 
 const getLevelLabel = (level: number): string => {
   if (level >= 80) return "Advanced";
