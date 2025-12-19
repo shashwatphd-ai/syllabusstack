@@ -1,33 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { queryKeys } from '@/lib/query-keys';
-import { performGapAnalysis, generateRecommendations } from '@/lib/api';
+import { performGapAnalysis, generateRecommendations, GapAnalysisResponse, SkillGap, SkillOverlap } from '@/lib/api';
 
-// Types
-export interface GapAnalysisResponse {
-  match_score: number;
-  overlaps: SkillOverlap[];
-  gaps: SkillGap[];
-  honest_assessment: string;
-  top_strengths?: string[];
-  critical_gaps?: string[];
-  anti_recommendations?: string[];
-}
-
-export interface SkillGap {
-  requirement: string;
-  importance: 'critical' | 'important' | 'nice_to_have';
-  difficulty: 'easy' | 'moderate' | 'challenging';
-  time_to_close: string;
-  suggested_action?: string;
-}
-
-export interface SkillOverlap {
-  capability: string;
-  requirement: string;
-  strength: 'strong' | 'moderate' | 'partial';
-  notes?: string;
-}
+// Re-export types from api.ts
+export type { GapAnalysisResponse, SkillGap, SkillOverlap };
 
 export interface CapabilityProfile {
   totalCapabilities: number;

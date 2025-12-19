@@ -173,9 +173,13 @@ export function GapAnalysisView({
             <HonestAssessment 
               dreamJobTitle={dreamJobTitle}
               matchScore={matchScore}
-              strengths={analysis.top_strengths || []}
-              weaknesses={analysis.critical_gaps || []}
-              honestFeedback={analysis.honest_assessment || "Run a gap analysis to get personalized feedback."}
+              readinessLevel={analysis.readiness_level as any}
+              honestAssessment={analysis.honest_assessment || "Run a gap analysis to get personalized feedback."}
+              interviewReadiness={analysis.interview_readiness}
+              jobSuccessPrediction={analysis.job_success_prediction}
+              strongOverlaps={analysis.strong_overlaps as any}
+              criticalGaps={analysis.critical_gaps as any}
+              priorityGaps={analysis.priority_gaps as any}
             />
           ) : (
             <Card className="p-8 text-center">
