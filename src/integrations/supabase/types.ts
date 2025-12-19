@@ -185,43 +185,61 @@ export type Database = {
       }
       courses: {
         Row: {
+          ai_cost_usd: number | null
+          ai_model_used: string | null
+          capability_text: string | null
           code: string | null
           created_at: string
           credits: number | null
+          evidence_types: Json | null
           grade: string | null
           id: string
           instructor: string | null
+          key_capabilities: Json | null
           semester: string | null
           syllabus_url: string | null
           title: string
+          tools_methods: Json | null
           updated_at: string
           user_id: string
           year: number | null
         }
         Insert: {
+          ai_cost_usd?: number | null
+          ai_model_used?: string | null
+          capability_text?: string | null
           code?: string | null
           created_at?: string
           credits?: number | null
+          evidence_types?: Json | null
           grade?: string | null
           id?: string
           instructor?: string | null
+          key_capabilities?: Json | null
           semester?: string | null
           syllabus_url?: string | null
           title: string
+          tools_methods?: Json | null
           updated_at?: string
           user_id: string
           year?: number | null
         }
         Update: {
+          ai_cost_usd?: number | null
+          ai_model_used?: string | null
+          capability_text?: string | null
           code?: string | null
           created_at?: string
           credits?: number | null
+          evidence_types?: Json | null
           grade?: string | null
           id?: string
           instructor?: string | null
+          key_capabilities?: Json | null
           semester?: string | null
           syllabus_url?: string | null
           title?: string
+          tools_methods?: Json | null
           updated_at?: string
           user_id?: string
           year?: number | null
@@ -385,6 +403,45 @@ export type Database = {
           },
         ]
       }
+      job_requirements_cache: {
+        Row: {
+          common_misconceptions: Json | null
+          created_at: string | null
+          day_one_capabilities: Json | null
+          differentiators: Json | null
+          id: string
+          job_query_normalized: string
+          last_queried_at: string | null
+          query_count: number | null
+          realistic_bar: string | null
+          requirements_text: string
+        }
+        Insert: {
+          common_misconceptions?: Json | null
+          created_at?: string | null
+          day_one_capabilities?: Json | null
+          differentiators?: Json | null
+          id?: string
+          job_query_normalized: string
+          last_queried_at?: string | null
+          query_count?: number | null
+          realistic_bar?: string | null
+          requirements_text: string
+        }
+        Update: {
+          common_misconceptions?: Json | null
+          created_at?: string | null
+          day_one_capabilities?: Json | null
+          differentiators?: Json | null
+          id?: string
+          job_query_normalized?: string
+          last_queried_at?: string | null
+          query_count?: number | null
+          realistic_bar?: string | null
+          requirements_text?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -439,6 +496,7 @@ export type Database = {
           duration: string | null
           effort_hours: number | null
           evidence_created: string | null
+          gap_addressed: string | null
           gap_analysis_id: string | null
           how_to_demonstrate: string | null
           id: string
@@ -461,6 +519,7 @@ export type Database = {
           duration?: string | null
           effort_hours?: number | null
           evidence_created?: string | null
+          gap_addressed?: string | null
           gap_analysis_id?: string | null
           how_to_demonstrate?: string | null
           id?: string
@@ -483,6 +542,7 @@ export type Database = {
           duration?: string | null
           effort_hours?: number | null
           evidence_created?: string | null
+          gap_addressed?: string | null
           gap_analysis_id?: string | null
           how_to_demonstrate?: string | null
           id?: string

@@ -32,14 +32,23 @@ export async function analyzeSyllabus(
 
 export interface JobRequirement {
   skill_name: string;
-  importance: 'required' | 'preferred' | 'nice_to_have';
+  importance: 'critical' | 'important' | 'nice_to_have';
   category: string;
+}
+
+export interface DayOneCapability {
+  requirement: string;
+  importance: 'critical' | 'important' | 'nice_to_have';
 }
 
 export interface AnalyzeDreamJobResponse {
   requirements: JobRequirement[];
   description?: string;
   salary_range?: string;
+  day_one_capabilities?: DayOneCapability[];
+  differentiators?: string[];
+  common_misconceptions?: string[];
+  realistic_bar?: string;
   error?: string;
 }
 
