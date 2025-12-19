@@ -3,6 +3,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { MASTER_SYSTEM_PROMPT, SYLLABUS_EXTRACTION_PROMPT } from "../_shared/prompts.ts";
 import { trackAIUsage, createServiceClient } from "../_shared/ai-cache.ts";
 import { SYLLABUS_EXTRACTION_SCHEMA, createToolDefinition, createToolChoice } from "../_shared/schemas.ts";
+import { updateCourseKeywords } from "../_shared/similarity.ts";
+import { generateKeywordVector } from "../_shared/ai-orchestrator.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -128,6 +130,12 @@ For each capability, provide:
             .filter((c: any) => c.evidence_type)
             .map((c: any) => ({ capability: c.name, evidence: c.evidence_type }));
 
+          // Generate keywords from capabilities and tools
+          const capabilityKeywords = generateKeywordVector(capabilityText);
+          const toolKeywords = toolsLearned.flatMap((t: string) => generateKeywordVector(t));
+          const themeKeywords = courseThemes.flatMap((t: string) => generateKeywordVector(t));
+          const allKeywords = [...new Set([...capabilityKeywords, ...toolKeywords, ...themeKeywords])];
+
           await supabase
             .from("courses")
             .update({
@@ -135,9 +143,12 @@ For each capability, provide:
               key_capabilities: capabilities,
               evidence_types: evidenceTypes,
               tools_methods: toolsLearned,
+              capability_keywords: allKeywords, // Store extracted keywords
               ai_model_used: "google/gemini-2.5-flash"
             })
             .eq("id", courseId);
+
+          console.log(`Updated course ${courseId} with ${allKeywords.length} keywords`);
 
           // Insert capabilities
           const capabilitiesToInsert = capabilities.map((cap: any) => ({

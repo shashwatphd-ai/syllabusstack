@@ -3,6 +3,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { MASTER_SYSTEM_PROMPT, GAP_ANALYSIS_PROMPT } from "../_shared/prompts.ts";
 import { trackAIUsage, createServiceClient } from "../_shared/ai-cache.ts";
 import { GAP_ANALYSIS_SCHEMA, createToolDefinition, createToolChoice } from "../_shared/schemas.ts";
+import { analyzeRequirementCoverage, buildUserCapabilityKeywords } from "../_shared/similarity.ts";
+import { generateKeywordVector, calculateSimilarity } from "../_shared/ai-orchestrator.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -76,6 +78,51 @@ serve(async (req) => {
 
     console.log(`Gap analysis: ${capabilities?.length || 0} capabilities vs ${requirements?.length || 0} requirements`);
 
+    // --- PHASE 5: Pre-compute keyword-based similarity analysis ---
+    const serviceClient = createServiceClient();
+    
+    // Build user's capability keywords
+    const userKeywords = await buildUserCapabilityKeywords(supabase, user.id);
+    console.log(`User has ${userKeywords.length} aggregated capability keywords`);
+
+    // Analyze requirement coverage using similarity functions
+    const coverageAnalysis = await analyzeRequirementCoverage(supabase, dreamJobId, user.id);
+    console.log(`Keyword coverage: ${coverageAnalysis.coverage_percentage}% (${coverageAnalysis.covered_requirements.length} covered, ${coverageAnalysis.uncovered_requirements.length} uncovered)`);
+
+    // Calculate keyword-based match score
+    const jobKeywords = dreamJob.requirements_keywords || generateKeywordVector(
+      `${dreamJob.title} ${dreamJob.description || ''} ${(requirements || []).map((r: any) => r.skill_name).join(' ')}`
+    );
+    const keywordMatchScore = calculateSimilarity(userKeywords, jobKeywords) * 100;
+    console.log(`Keyword-based match score: ${Math.round(keywordMatchScore)}%`);
+
+    // Build pre-analysis context from similarity matching
+    const preAnalysisContext = {
+      keywordMatchScore: Math.round(keywordMatchScore),
+      coveragePercentage: coverageAnalysis.coverage_percentage,
+      strongMatches: coverageAnalysis.covered_requirements
+        .filter(r => r.coverage_score > 50)
+        .map(r => ({
+          requirement: r.skill_name,
+          matchedCapabilities: r.matched_capabilities,
+          score: Math.round(r.coverage_score)
+        })),
+      partialMatches: coverageAnalysis.covered_requirements
+        .filter(r => r.coverage_score >= 20 && r.coverage_score <= 50)
+        .map(r => ({
+          requirement: r.skill_name,
+          matchedCapabilities: r.matched_capabilities,
+          score: Math.round(r.coverage_score)
+        })),
+      uncoveredCritical: coverageAnalysis.uncovered_requirements
+        .filter(r => r.importance === 'critical')
+        .map(r => r.skill_name),
+      uncoveredImportant: coverageAnalysis.uncovered_requirements
+        .filter(r => r.importance === 'important')
+        .map(r => r.skill_name)
+    };
+    // --- END PHASE 5 PRE-ANALYSIS ---
+
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
       throw new Error("LOVABLE_API_KEY is not configured");
@@ -95,6 +142,26 @@ serve(async (req) => {
     const dayOneList = (dreamJob.day_one_capabilities || []).map((d: any) => 
       `- ${d.requirement} [${d.importance?.toUpperCase()}]`
     ).join("\n");
+
+    // Build pre-analysis summary for AI prompt
+    const preAnalysisSummary = `
+PRE-COMPUTED KEYWORD ANALYSIS (use as baseline, adjust based on deeper understanding):
+- Keyword Match Score: ${preAnalysisContext.keywordMatchScore}%
+- Requirement Coverage: ${preAnalysisContext.coveragePercentage}%
+- Strong Matches (>50% similarity): ${preAnalysisContext.strongMatches.length > 0 
+    ? preAnalysisContext.strongMatches.map(m => `${m.requirement} (matched by: ${m.matchedCapabilities.join(', ')})`).join('; ')
+    : 'None'}
+- Partial Matches (20-50% similarity): ${preAnalysisContext.partialMatches.length > 0
+    ? preAnalysisContext.partialMatches.map(m => `${m.requirement} (partial match with: ${m.matchedCapabilities.join(', ')})`).join('; ')
+    : 'None'}
+- Critical Gaps (no keyword match): ${preAnalysisContext.uncoveredCritical.length > 0 
+    ? preAnalysisContext.uncoveredCritical.join(', ')
+    : 'None detected'}
+- Important Gaps: ${preAnalysisContext.uncoveredImportant.length > 0 
+    ? preAnalysisContext.uncoveredImportant.join(', ')
+    : 'None detected'}
+
+Note: This is keyword-based analysis. Use your judgment to refine - some capabilities may transfer even without exact keyword matches.`;
 
     const systemPrompt = `${MASTER_SYSTEM_PROMPT}
 
@@ -132,7 +199,13 @@ ${dayOneList}` : ""}
 
 ${dreamJob.realistic_bar ? `REALISTIC HIRING BAR: ${dreamJob.realistic_bar}` : ""}
 
-Provide an honest assessment. If the student is far from ready, say so clearly. False hope is cruel.
+${preAnalysisSummary}
+
+Provide an honest assessment. The keyword analysis gives you a starting point - refine it based on your understanding of:
+1. Transferable skills that may not match keywords exactly
+2. The actual depth of capability vs surface-level keyword matches
+3. Whether partial matches truly demonstrate competence
+
 Focus on:
 1. What they CAN do that matches requirements (strong overlaps)
 2. What they CANNOT yet do (critical gaps)
@@ -173,13 +246,21 @@ Focus on:
 
     const analysis = JSON.parse(toolCall.function.arguments);
 
+    // Blend keyword-based score with AI analysis for final score
+    // Weight: 30% keyword, 70% AI assessment
+    const blendedMatchScore = Math.round(
+      (preAnalysisContext.keywordMatchScore * 0.3) + (analysis.match_score * 0.7)
+    );
+    analysis.match_score = blendedMatchScore;
+    console.log(`Final blended match score: ${blendedMatchScore}% (keyword: ${preAnalysisContext.keywordMatchScore}%, AI: ${analysis.match_score}%)`);
+
     // Update dream job with match score
     await supabase
       .from("dream_jobs")
       .update({ match_score: analysis.match_score })
       .eq("id", dreamJobId);
 
-    // Persist gap analysis to database
+    // Persist gap analysis to database with keyword analysis metadata
     const { data: gapAnalysisRecord, error: insertError } = await supabase
       .from("gap_analyses")
       .insert({
@@ -226,7 +307,6 @@ Focus on:
     }
 
     // Track AI usage
-    const serviceClient = createServiceClient();
     await trackAIUsage(
       serviceClient,
       user.id,
@@ -241,7 +321,8 @@ Focus on:
     return new Response(
       JSON.stringify({
         ...analysis,
-        gap_analysis_id: gapAnalysisRecord?.id
+        gap_analysis_id: gapAnalysisRecord?.id,
+        keyword_analysis: preAnalysisContext // Include for transparency
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
