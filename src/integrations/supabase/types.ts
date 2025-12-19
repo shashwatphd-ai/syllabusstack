@@ -14,6 +14,104 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_cache: {
+        Row: {
+          cache_key: string
+          cache_type: string
+          created_at: string
+          expires_at: string | null
+          id: string
+          model_used: string | null
+          response_data: Json
+        }
+        Insert: {
+          cache_key: string
+          cache_type: string
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          model_used?: string | null
+          response_data: Json
+        }
+        Update: {
+          cache_key?: string
+          cache_type?: string
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          model_used?: string | null
+          response_data?: Json
+        }
+        Relationships: []
+      }
+      ai_usage: {
+        Row: {
+          cost_usd: number | null
+          created_at: string
+          function_name: string
+          id: string
+          input_tokens: number | null
+          model_used: string
+          output_tokens: number | null
+          user_id: string
+        }
+        Insert: {
+          cost_usd?: number | null
+          created_at?: string
+          function_name: string
+          id?: string
+          input_tokens?: number | null
+          model_used: string
+          output_tokens?: number | null
+          user_id: string
+        }
+        Update: {
+          cost_usd?: number | null
+          created_at?: string
+          function_name?: string
+          id?: string
+          input_tokens?: number | null
+          model_used?: string
+          output_tokens?: number | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      anti_recommendations: {
+        Row: {
+          action: string
+          created_at: string
+          dream_job_id: string
+          id: string
+          reason: string
+          user_id: string
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          dream_job_id: string
+          id?: string
+          reason: string
+          user_id: string
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          dream_job_id?: string
+          id?: string
+          reason?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "anti_recommendations_dream_job_id_fkey"
+            columns: ["dream_job_id"]
+            isOneToOne: false
+            referencedRelation: "dream_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       capabilities: {
         Row: {
           category: string | null
@@ -54,6 +152,36 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      capability_profiles: {
+        Row: {
+          capabilities_by_theme: Json | null
+          combined_capability_text: string | null
+          course_count: number | null
+          created_at: string
+          id: string
+          last_updated: string
+          user_id: string
+        }
+        Insert: {
+          capabilities_by_theme?: Json | null
+          combined_capability_text?: string | null
+          course_count?: number | null
+          created_at?: string
+          id?: string
+          last_updated?: string
+          user_id: string
+        }
+        Update: {
+          capabilities_by_theme?: Json | null
+          combined_capability_text?: string | null
+          course_count?: number | null
+          created_at?: string
+          id?: string
+          last_updated?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       courses: {
         Row: {
@@ -102,45 +230,125 @@ export type Database = {
       }
       dream_jobs: {
         Row: {
+          common_misconceptions: Json | null
           company_type: string | null
           created_at: string
+          day_one_capabilities: Json | null
           description: string | null
+          differentiators: Json | null
           id: string
           is_primary: boolean | null
           location: string | null
           match_score: number | null
+          realistic_bar: string | null
           salary_range: string | null
           title: string
           updated_at: string
           user_id: string
         }
         Insert: {
+          common_misconceptions?: Json | null
           company_type?: string | null
           created_at?: string
+          day_one_capabilities?: Json | null
           description?: string | null
+          differentiators?: Json | null
           id?: string
           is_primary?: boolean | null
           location?: string | null
           match_score?: number | null
+          realistic_bar?: string | null
           salary_range?: string | null
           title: string
           updated_at?: string
           user_id: string
         }
         Update: {
+          common_misconceptions?: Json | null
           company_type?: string | null
           created_at?: string
+          day_one_capabilities?: Json | null
           description?: string | null
+          differentiators?: Json | null
           id?: string
           is_primary?: boolean | null
           location?: string | null
           match_score?: number | null
+          realistic_bar?: string | null
           salary_range?: string | null
           title?: string
           updated_at?: string
           user_id?: string
         }
         Relationships: []
+      }
+      gap_analyses: {
+        Row: {
+          ai_cost_usd: number | null
+          ai_model_used: string | null
+          analysis_text: string | null
+          created_at: string
+          critical_gaps: Json | null
+          dream_job_id: string
+          honest_assessment: string | null
+          id: string
+          interview_readiness: string | null
+          job_success_prediction: string | null
+          match_score: number | null
+          partial_overlaps: Json | null
+          priority_gaps: Json | null
+          readiness_level: string | null
+          strong_overlaps: Json | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          ai_cost_usd?: number | null
+          ai_model_used?: string | null
+          analysis_text?: string | null
+          created_at?: string
+          critical_gaps?: Json | null
+          dream_job_id: string
+          honest_assessment?: string | null
+          id?: string
+          interview_readiness?: string | null
+          job_success_prediction?: string | null
+          match_score?: number | null
+          partial_overlaps?: Json | null
+          priority_gaps?: Json | null
+          readiness_level?: string | null
+          strong_overlaps?: Json | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          ai_cost_usd?: number | null
+          ai_model_used?: string | null
+          analysis_text?: string | null
+          created_at?: string
+          critical_gaps?: Json | null
+          dream_job_id?: string
+          honest_assessment?: string | null
+          id?: string
+          interview_readiness?: string | null
+          job_success_prediction?: string | null
+          match_score?: number | null
+          partial_overlaps?: Json | null
+          priority_gaps?: Json | null
+          readiness_level?: string | null
+          strong_overlaps?: Json | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gap_analyses_dream_job_id_fkey"
+            columns: ["dream_job_id"]
+            isOneToOne: false
+            referencedRelation: "dream_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       job_requirements: {
         Row: {
@@ -224,49 +432,70 @@ export type Database = {
       }
       recommendations: {
         Row: {
+          cost_usd: number | null
           created_at: string
           description: string | null
           dream_job_id: string | null
           duration: string | null
+          effort_hours: number | null
+          evidence_created: string | null
+          gap_analysis_id: string | null
+          how_to_demonstrate: string | null
           id: string
           priority: string | null
           provider: string | null
           status: string | null
+          steps: Json | null
           title: string
           type: string | null
           updated_at: string
           url: string | null
           user_id: string
+          why_this_matters: string | null
         }
         Insert: {
+          cost_usd?: number | null
           created_at?: string
           description?: string | null
           dream_job_id?: string | null
           duration?: string | null
+          effort_hours?: number | null
+          evidence_created?: string | null
+          gap_analysis_id?: string | null
+          how_to_demonstrate?: string | null
           id?: string
           priority?: string | null
           provider?: string | null
           status?: string | null
+          steps?: Json | null
           title: string
           type?: string | null
           updated_at?: string
           url?: string | null
           user_id: string
+          why_this_matters?: string | null
         }
         Update: {
+          cost_usd?: number | null
           created_at?: string
           description?: string | null
           dream_job_id?: string | null
           duration?: string | null
+          effort_hours?: number | null
+          evidence_created?: string | null
+          gap_analysis_id?: string | null
+          how_to_demonstrate?: string | null
           id?: string
           priority?: string | null
           provider?: string | null
           status?: string | null
+          steps?: Json | null
           title?: string
           type?: string | null
           updated_at?: string
           url?: string | null
           user_id?: string
+          why_this_matters?: string | null
         }
         Relationships: [
           {
@@ -274,6 +503,13 @@ export type Database = {
             columns: ["dream_job_id"]
             isOneToOne: false
             referencedRelation: "dream_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recommendations_gap_analysis_id_fkey"
+            columns: ["gap_analysis_id"]
+            isOneToOne: false
+            referencedRelation: "gap_analyses"
             referencedColumns: ["id"]
           },
         ]

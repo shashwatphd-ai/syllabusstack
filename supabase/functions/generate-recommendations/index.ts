@@ -1,5 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { MASTER_SYSTEM_PROMPT, RECOMMENDATIONS_PROMPT, ANTI_RECOMMENDATIONS_PROMPT } from "../_shared/prompts.ts";
+import { trackAIUsage, createServiceClient } from "../_shared/ai-cache.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -12,7 +14,7 @@ serve(async (req) => {
   }
 
   try {
-    const { dreamJobId, gaps } = await req.json();
+    const { dreamJobId, gaps, gapAnalysisId } = await req.json();
     
     if (!dreamJobId) {
       return new Response(
@@ -57,6 +59,26 @@ serve(async (req) => {
       .from("capabilities")
       .select("name, category, proficiency_level");
 
+    // Get latest gap analysis if not provided
+    let gapAnalysis = null;
+    if (gapAnalysisId) {
+      const { data } = await supabase
+        .from("gap_analyses")
+        .select("*")
+        .eq("id", gapAnalysisId)
+        .single();
+      gapAnalysis = data;
+    } else {
+      const { data } = await supabase
+        .from("gap_analyses")
+        .select("*")
+        .eq("dream_job_id", dreamJobId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
+      gapAnalysis = data;
+    }
+
     console.log(`Generating recommendations for ${dreamJob.title}`);
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
@@ -64,8 +86,26 @@ serve(async (req) => {
       throw new Error("LOVABLE_API_KEY is not configured");
     }
 
-    const gapsText = gaps?.map((g: any) => `- ${g.requirement} (${g.importance}, estimated ${g.time_to_close})`).join("\n") || "No gaps provided";
-    const capabilitiesText = capabilities?.map((c: any) => `- ${c.name}`).join("\n") || "No current capabilities";
+    // Format gaps - prefer from gap analysis if available
+    const gapsToUse = gapAnalysis?.priority_gaps || gaps || [];
+    const gapsText = gapsToUse.map((g: any) => 
+      `- ${g.gap || g.requirement} (Priority: ${g.priority || 'unknown'}, ${g.reason || g.time_to_close || ''})`
+    ).join("\n") || "No specific gaps identified";
+
+    const capabilitiesText = capabilities?.map((c: any) => 
+      `- ${c.name} (${c.proficiency_level})`
+    ).join("\n") || "No current capabilities";
+
+    // Include critical gaps from analysis
+    const criticalGapsText = gapAnalysis?.critical_gaps?.map((g: any) => 
+      `- ${g.job_requirement}: ${g.student_status} → Impact: ${g.impact}`
+    ).join("\n") || "";
+
+    const systemPrompt = `${MASTER_SYSTEM_PROMPT}
+
+${RECOMMENDATIONS_PROMPT}
+
+${ANTI_RECOMMENDATIONS_PROMPT}`;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -78,35 +118,39 @@ serve(async (req) => {
         messages: [
           {
             role: "system",
-            content: `You are an expert career advisor generating personalized learning recommendations.
-
-Generate specific, actionable recommendations to help a student close their skill gaps and prepare for their dream job.
-
-For each recommendation, provide:
-1. A clear title
-2. Type (course, certification, project, experience, skill)
-3. Description of what they'll learn
-4. Provider/platform (Coursera, edX, LinkedIn Learning, etc.)
-5. Estimated duration
-6. Priority (high, medium, low)
-7. Direct URL if possible
-
-Focus on high-quality, reputable resources. Prioritize free or affordable options when possible.`
+            content: systemPrompt
           },
           {
             role: "user",
-            content: `Generate learning recommendations for this student:
+            content: `Generate SPECIFIC, ACTIONABLE recommendations for this student:
 
 DREAM JOB: ${dreamJob.title}
 ${dreamJob.company_type ? `Company Type: ${dreamJob.company_type}` : ""}
+${dreamJob.realistic_bar ? `Hiring Bar: ${dreamJob.realistic_bar}` : ""}
 
 CURRENT CAPABILITIES:
 ${capabilitiesText}
 
-SKILL GAPS TO ADDRESS:
+PRIORITY GAPS TO ADDRESS (in order):
 ${gapsText}
 
-Generate 5-10 specific, actionable recommendations to help close these gaps. Prioritize the most critical gaps first.`
+${criticalGapsText ? `CRITICAL GAPS (deal-breakers):
+${criticalGapsText}` : ""}
+
+${gapAnalysis?.honest_assessment ? `OVERALL ASSESSMENT: ${gapAnalysis.honest_assessment}` : ""}
+
+Generate 5-10 specific recommendations with:
+1. Exact resource names (specific Coursera courses, not just "take a course")
+2. Clear steps to complete
+3. Estimated time and cost
+4. What evidence they'll have to show employers
+5. How to demonstrate this in interviews
+
+PRIORITIZE:
+- Critical gaps first
+- Free or low-cost options
+- Things that create demonstrable evidence
+- Quick wins alongside longer-term investments`
           }
         ],
         tools: [
@@ -114,7 +158,7 @@ Generate 5-10 specific, actionable recommendations to help close these gaps. Pri
             type: "function",
             function: {
               name: "generate_recommendations",
-              description: "Generate learning recommendations",
+              description: "Generate comprehensive, actionable learning recommendations",
               parameters: {
                 type: "object",
                 properties: {
@@ -123,19 +167,54 @@ Generate 5-10 specific, actionable recommendations to help close these gaps. Pri
                     items: {
                       type: "object",
                       properties: {
-                        title: { type: "string" },
+                        title: { type: "string", description: "Clear, specific action title" },
                         type: { 
                           type: "string", 
-                          enum: ["course", "certification", "project", "experience", "skill"]
+                          enum: ["project", "course", "certification", "action", "reading"]
                         },
-                        description: { type: "string" },
-                        provider: { type: "string" },
-                        url: { type: "string" },
-                        duration: { type: "string" },
-                        priority: { type: "string", enum: ["high", "medium", "low"] }
+                        description: { type: "string", description: "What they'll learn/do" },
+                        why_this_matters: { type: "string", description: "How this connects to the job requirement" },
+                        gap_addressed: { type: "string", description: "Which specific gap this closes" },
+                        steps: {
+                          type: "array",
+                          items: {
+                            type: "object",
+                            properties: {
+                              order: { type: "number" },
+                              description: { type: "string" },
+                              estimated_time: { type: "string" }
+                            },
+                            required: ["order", "description"]
+                          },
+                          description: "Concrete steps to complete this recommendation"
+                        },
+                        provider: { type: "string", description: "Platform or resource provider" },
+                        url: { type: "string", description: "Direct link if available" },
+                        duration: { type: "string", description: "Estimated time to complete" },
+                        effort_hours: { type: "number", description: "Estimated hours of effort" },
+                        cost: { type: "number", description: "Cost in USD (0 for free)" },
+                        priority: { type: "string", enum: ["high", "medium", "low"] },
+                        evidence_created: { type: "string", description: "What tangible evidence they'll have" },
+                        how_to_demonstrate: { type: "string", description: "How to present this to employers" }
                       },
-                      required: ["title", "type", "description", "priority"]
+                      required: ["title", "type", "description", "why_this_matters", "priority"]
                     }
+                  },
+                  anti_recommendations: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        action: { type: "string", description: "What NOT to do" },
+                        reason: { type: "string", description: "Why this is a waste of time/money" }
+                      },
+                      required: ["action", "reason"]
+                    },
+                    description: "Things the student should AVOID doing"
+                  },
+                  learning_path_summary: {
+                    type: "string",
+                    description: "Brief summary of the recommended path forward"
                   }
                 },
                 required: ["recommendations"]
@@ -174,6 +253,8 @@ Generate 5-10 specific, actionable recommendations to help close these gaps. Pri
 
     const parsed = JSON.parse(toolCall.function.arguments);
     const recommendations = parsed.recommendations || [];
+    const antiRecommendations = parsed.anti_recommendations || [];
+    const learningPathSummary = parsed.learning_path_summary;
 
     // Delete existing recommendations for this dream job
     await supabase
@@ -181,17 +262,24 @@ Generate 5-10 specific, actionable recommendations to help close these gaps. Pri
       .delete()
       .eq("dream_job_id", dreamJobId);
 
-    // Insert new recommendations
-    const recsToInsert = recommendations.map((rec: any) => ({
+    // Insert new recommendations with all fields
+    const recsToInsert = recommendations.map((rec: any, index: number) => ({
       user_id: user.id,
       dream_job_id: dreamJobId,
+      gap_analysis_id: gapAnalysis?.id || null,
       title: rec.title,
       type: rec.type,
       description: rec.description,
+      why_this_matters: rec.why_this_matters,
+      steps: rec.steps || [],
       provider: rec.provider || null,
       url: rec.url || null,
       duration: rec.duration || null,
+      effort_hours: rec.effort_hours || null,
+      cost_usd: rec.cost || 0,
       priority: rec.priority,
+      evidence_created: rec.evidence_created || null,
+      how_to_demonstrate: rec.how_to_demonstrate || null,
       status: "pending"
     }));
 
@@ -204,10 +292,45 @@ Generate 5-10 specific, actionable recommendations to help close these gaps. Pri
       throw new Error("Failed to save recommendations");
     }
 
+    // Save anti-recommendations
+    if (antiRecommendations.length > 0) {
+      // First delete existing
+      await supabase
+        .from("anti_recommendations")
+        .delete()
+        .eq("dream_job_id", dreamJobId);
+
+      const antiRecsToInsert = antiRecommendations.map((ar: any) => ({
+        user_id: user.id,
+        dream_job_id: dreamJobId,
+        action: ar.action,
+        reason: ar.reason
+      }));
+
+      await supabase
+        .from("anti_recommendations")
+        .insert(antiRecsToInsert);
+    }
+
+    // Track AI usage
+    const serviceClient = createServiceClient();
+    await trackAIUsage(
+      serviceClient,
+      user.id,
+      "generate-recommendations",
+      "google/gemini-2.5-flash",
+      data.usage?.prompt_tokens,
+      data.usage?.completion_tokens
+    );
+
     console.log(`Generated ${recommendations.length} recommendations`);
 
     return new Response(
-      JSON.stringify({ recommendations }),
+      JSON.stringify({ 
+        recommendations,
+        anti_recommendations: antiRecommendations,
+        learning_path_summary: learningPathSummary
+      }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {

@@ -1,5 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { MASTER_SYSTEM_PROMPT, SYLLABUS_EXTRACTION_PROMPT } from "../_shared/prompts.ts";
+import { trackAIUsage, createServiceClient } from "../_shared/ai-cache.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -28,6 +30,10 @@ serve(async (req) => {
 
     console.log("Analyzing syllabus for course:", courseId);
 
+    const systemPrompt = `${MASTER_SYSTEM_PROMPT}
+
+${SYLLABUS_EXTRACTION_PROMPT}`;
+
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -39,31 +45,27 @@ serve(async (req) => {
         messages: [
           {
             role: "system",
-            content: `You are an expert academic advisor and career counselor. Analyze course syllabi to extract marketable skills and capabilities that employers value.
-
-For each capability you identify, determine:
-1. The skill name (use industry-standard terminology)
-2. Category (one of: technical, analytical, communication, leadership, creative, research, interpersonal)
-3. Proficiency level based on course depth (beginner, intermediate, advanced, expert)
-
-Focus on skills that are transferable and valued in the job market. Be specific - instead of "communication skills", say "technical writing" or "presentation skills".`
+            content: systemPrompt
           },
           {
             role: "user",
-            content: `Analyze this course syllabus and extract the key capabilities/skills a student would develop:
+            content: `Analyze this course syllabus and extract ALL marketable capabilities a student would develop.
 
+SYLLABUS CONTENT:
 ${syllabusText}
 
-Return a JSON array of capabilities in this exact format:
-[
-  {
-    "name": "Skill Name",
-    "category": "technical|analytical|communication|leadership|creative|research|interpersonal",
-    "proficiency_level": "beginner|intermediate|advanced|expert"
-  }
-]
+EXTRACTION REQUIREMENTS:
+1. Extract 5-15 distinct, marketable capabilities
+2. Use the "Can do X" format for each capability name
+3. Be specific - use industry terminology
+4. Include both technical and soft skills
+5. Consider what employers would actually value
 
-Extract 5-15 distinct, marketable capabilities.`
+For each capability, provide:
+- name: Specific skill using "Can do X" format
+- category: technical, analytical, communication, leadership, creative, research, or interpersonal
+- proficiency_level: beginner, intermediate, advanced, or expert
+- evidence_type: How a student could demonstrate this skill`
           }
         ],
         tools: [
@@ -80,7 +82,7 @@ Extract 5-15 distinct, marketable capabilities.`
                     items: {
                       type: "object",
                       properties: {
-                        name: { type: "string", description: "The skill or capability name" },
+                        name: { type: "string", description: "Capability using 'Can do X' format" },
                         category: { 
                           type: "string", 
                           enum: ["technical", "analytical", "communication", "leadership", "creative", "research", "interpersonal"]
@@ -88,10 +90,24 @@ Extract 5-15 distinct, marketable capabilities.`
                         proficiency_level: { 
                           type: "string", 
                           enum: ["beginner", "intermediate", "advanced", "expert"]
+                        },
+                        evidence_type: {
+                          type: "string",
+                          description: "How this skill can be demonstrated to employers"
                         }
                       },
                       required: ["name", "category", "proficiency_level"]
                     }
+                  },
+                  course_themes: {
+                    type: "array",
+                    items: { type: "string" },
+                    description: "Main themes or focus areas of this course"
+                  },
+                  tools_learned: {
+                    type: "array",
+                    items: { type: "string" },
+                    description: "Specific tools, software, or technologies covered"
                   }
                 },
                 required: ["capabilities"]
@@ -133,6 +149,8 @@ Extract 5-15 distinct, marketable capabilities.`
 
     const parsed = JSON.parse(toolCall.function.arguments);
     const capabilities = parsed.capabilities || [];
+    const courseThemes = parsed.course_themes || [];
+    const toolsLearned = parsed.tools_learned || [];
 
     // If courseId provided, save capabilities to database
     if (courseId) {
@@ -168,12 +186,30 @@ Extract 5-15 distinct, marketable capabilities.`
           } else {
             console.log(`Inserted ${capabilities.length} capabilities for course ${courseId}`);
           }
+
+          // Update capability profile
+          await updateCapabilityProfile(supabase, user.id);
+
+          // Track AI usage
+          const serviceClient = createServiceClient();
+          await trackAIUsage(
+            serviceClient,
+            user.id,
+            "analyze-syllabus",
+            "google/gemini-2.5-flash",
+            data.usage?.prompt_tokens,
+            data.usage?.completion_tokens
+          );
         }
       }
     }
 
     return new Response(
-      JSON.stringify({ capabilities }),
+      JSON.stringify({ 
+        capabilities,
+        course_themes: courseThemes,
+        tools_learned: toolsLearned
+      }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
@@ -184,3 +220,49 @@ Extract 5-15 distinct, marketable capabilities.`
     );
   }
 });
+
+// Helper function to update aggregated capability profile
+async function updateCapabilityProfile(supabase: any, userId: string) {
+  try {
+    // Get all user capabilities
+    const { data: capabilities } = await supabase
+      .from("capabilities")
+      .select("name, category, proficiency_level")
+      .eq("user_id", userId);
+
+    if (!capabilities || capabilities.length === 0) return;
+
+    // Group by theme/category
+    const byTheme: Record<string, string[]> = {};
+    capabilities.forEach((cap: any) => {
+      if (!byTheme[cap.category]) {
+        byTheme[cap.category] = [];
+      }
+      byTheme[cap.category].push(cap.name);
+    });
+
+    // Count courses
+    const { count: courseCount } = await supabase
+      .from("courses")
+      .select("id", { count: "exact" })
+      .eq("user_id", userId);
+
+    // Combine all capabilities into text
+    const combinedText = capabilities.map((c: any) => c.name).join("; ");
+
+    // Upsert capability profile
+    await supabase
+      .from("capability_profiles")
+      .upsert({
+        user_id: userId,
+        combined_capability_text: combinedText,
+        capabilities_by_theme: byTheme,
+        course_count: courseCount || 0,
+        last_updated: new Date().toISOString()
+      }, { onConflict: "user_id" });
+
+    console.log("Updated capability profile for user:", userId);
+  } catch (e) {
+    console.error("Error updating capability profile:", e);
+  }
+}
