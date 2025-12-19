@@ -134,14 +134,14 @@ async function fetchDashboardStats(): Promise<DashboardStats> {
 // Hooks
 export function useDashboardOverview() {
   return useQuery({
-    queryKey: queryKeys.dashboardOverview(),
+    queryKey: queryKeys.dashboard.overview,
     queryFn: fetchDashboardOverview,
   });
 }
 
 export function useDashboardStats() {
   return useQuery({
-    queryKey: queryKeys.dashboardStats(),
+    queryKey: queryKeys.dashboard.stats,
     queryFn: fetchDashboardStats,
   });
 }

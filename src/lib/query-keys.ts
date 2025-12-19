@@ -34,7 +34,9 @@ export const queryKeys = {
   recommendationDetail: (id: string) => [...queryKeys.recommendations, 'detail', id] as const,
   
   // Dashboard
-  dashboard: ['dashboard'] as const,
-  dashboardOverview: () => [...queryKeys.dashboard, 'overview'] as const,
-  dashboardStats: () => [...queryKeys.dashboard, 'stats'] as const,
+  dashboard: {
+    all: ['dashboard'] as const,
+    overview: ['dashboard', 'overview'] as const,
+    stats: ['dashboard', 'stats'] as const,
+  },
 };
