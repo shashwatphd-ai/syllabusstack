@@ -19,6 +19,7 @@ import RecommendationsPage from "./pages/Recommendations";
 import ProfilePage from "./pages/Profile";
 import SettingsPage from "./pages/Settings";
 import SyllabusScannerPage from "./pages/SyllabusScanner";
+import UsagePage from "./pages/Usage";
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -45,6 +46,7 @@ const App = () => (
             <Route path="/recommendations" element={<AuthGuard><RecommendationsPage /></AuthGuard>} />
             <Route path="/profile" element={<AuthGuard><ProfilePage /></AuthGuard>} />
             <Route path="/settings" element={<AuthGuard><SettingsPage /></AuthGuard>} />
+            <Route path="/usage" element={<AuthGuard><UsagePage /></AuthGuard>} />
             
             {/* Catch-all */}
             <Route path="*" element={<NotFound />} />

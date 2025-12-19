@@ -10,7 +10,8 @@ import {
   ChevronLeft,
   LogOut,
   User,
-  GraduationCap
+  GraduationCap,
+  BarChart3
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -36,6 +37,7 @@ const navigation = [
 
 const secondaryNavigation = [
   { name: 'Profile', href: '/profile', icon: User },
+  { name: 'AI Usage', href: '/usage', icon: BarChart3 },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
 
