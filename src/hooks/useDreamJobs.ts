@@ -96,6 +96,8 @@ export function useCreateDreamJob() {
     mutationFn: createDreamJob,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.dreamJobs });
+      queryClient.invalidateQueries({ queryKey: queryKeys.analysis });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
       toast({
         title: 'Dream job added',
         description: 'Your dream job has been saved.',
@@ -111,6 +113,83 @@ export function useCreateDreamJob() {
   });
 }
 
+export function useUpdateDreamJob() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, updates }: { id: string; updates: Partial<DreamJob> }) => {
+      const { data, error } = await supabase
+        .from('dream_jobs')
+        .update(updates)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.dreamJobs });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dreamJobDetail(variables.id) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.analysis });
+      toast({
+        title: 'Dream job updated',
+        description: 'Your dream job has been updated.',
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to update dream job',
+        variant: 'destructive',
+      });
+    },
+  });
+}
+
+export function useSetPrimaryDreamJob() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      // First, set all jobs to not primary
+      await supabase
+        .from('dream_jobs')
+        .update({ is_primary: false })
+        .eq('user_id', user.id);
+
+      // Then set the selected one as primary
+      const { data, error } = await supabase
+        .from('dream_jobs')
+        .update({ is_primary: true })
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.dreamJobs });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
+      toast({
+        title: 'Primary job updated',
+        description: 'Your primary dream job has been set.',
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to set primary job',
+        variant: 'destructive',
+      });
+    },
+  });
+}
+
 export function useDeleteDreamJob() {
   const queryClient = useQueryClient();
 
@@ -118,6 +197,9 @@ export function useDeleteDreamJob() {
     mutationFn: deleteDreamJob,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.dreamJobs });
+      queryClient.invalidateQueries({ queryKey: queryKeys.analysis });
+      queryClient.invalidateQueries({ queryKey: queryKeys.recommendations });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
       toast({
         title: 'Dream job removed',
         description: 'The dream job has been deleted.',

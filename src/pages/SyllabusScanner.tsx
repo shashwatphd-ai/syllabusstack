@@ -22,6 +22,7 @@ import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import { useSEO, pageSEO } from '@/hooks/useSEO';
 
 interface AnalysisResult {
   capabilities: string[];
@@ -76,6 +77,8 @@ function recordScan(): boolean {
 }
 
 export default function SyllabusScannerPage() {
+  useSEO(pageSEO.syllabusScanner);
+  
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [syllabusText, setSyllabusText] = useState('');
   const [courseName, setCourseName] = useState('');

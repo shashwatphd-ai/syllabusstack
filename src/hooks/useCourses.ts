@@ -94,7 +94,11 @@ export function useCreateCourse() {
   return useMutation({
     mutationFn: createCourse,
     onSuccess: () => {
+      // Invalidate related queries for cache consistency
       queryClient.invalidateQueries({ queryKey: queryKeys.courses });
+      queryClient.invalidateQueries({ queryKey: queryKeys.capabilities });
+      queryClient.invalidateQueries({ queryKey: queryKeys.analysis });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
       toast({
         title: 'Course added',
         description: 'Your course has been added successfully.',
@@ -110,6 +114,41 @@ export function useCreateCourse() {
   });
 }
 
+export function useUpdateCourse() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, updates }: { id: string; updates: Partial<Course> }) => {
+      const { data, error } = await supabase
+        .from('courses')
+        .update(updates)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.courses });
+      queryClient.invalidateQueries({ queryKey: queryKeys.courseDetail(variables.id) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.capabilities });
+      queryClient.invalidateQueries({ queryKey: queryKeys.analysis });
+      toast({
+        title: 'Course updated',
+        description: 'Your course has been updated.',
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to update course',
+        variant: 'destructive',
+      });
+    },
+  });
+}
+
 export function useDeleteCourse() {
   const queryClient = useQueryClient();
 
@@ -117,6 +156,9 @@ export function useDeleteCourse() {
     mutationFn: deleteCourse,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.courses });
+      queryClient.invalidateQueries({ queryKey: queryKeys.capabilities });
+      queryClient.invalidateQueries({ queryKey: queryKeys.analysis });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
       toast({
         title: 'Course deleted',
         description: 'Your course has been removed.',
