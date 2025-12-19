@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, 
   BookOpen, 
@@ -19,6 +19,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useAuth } from '@/contexts/AuthContext';
 
 interface SidebarProps {
   collapsed?: boolean;
@@ -40,12 +41,19 @@ const secondaryNavigation = [
 
 export function Sidebar({ collapsed = false, onCollapse }: SidebarProps) {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { user, profile, signOut } = useAuth();
   const [isCollapsed, setIsCollapsed] = useState(collapsed);
 
   const handleCollapse = () => {
     const newState = !isCollapsed;
     setIsCollapsed(newState);
     onCollapse?.(newState);
+  };
+
+  const handleLogout = async () => {
+    await signOut();
+    navigate('/');
   };
 
   const NavItem = ({ item }: { item: typeof navigation[0] }) => {
@@ -166,21 +174,29 @@ export function Sidebar({ collapsed = false, onCollapse }: SidebarProps) {
           {!isCollapsed && (
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-sidebar-foreground truncate">
-                Student User
+                {profile?.full_name || 'Student'}
               </p>
               <p className="text-xs text-sidebar-foreground/60 truncate">
-                student@university.edu
+                {user?.email || 'student@university.edu'}
               </p>
             </div>
           )}
           {!isCollapsed && (
-            <Button 
-              variant="ghost" 
-              size="icon"
-              className="text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent"
-            >
-              <LogOut className="h-4 w-4" />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button 
+                  variant="ghost" 
+                  size="icon"
+                  onClick={handleLogout}
+                  className="text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent"
+                >
+                  <LogOut className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                Sign out
+              </TooltipContent>
+            </Tooltip>
           )}
         </div>
       </div>

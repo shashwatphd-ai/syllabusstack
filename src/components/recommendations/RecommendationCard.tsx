@@ -1,4 +1,5 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState } from "react";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { 
@@ -9,28 +10,47 @@ import {
   ExternalLink,
   Clock,
   Star,
-  CheckCircle2
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  DollarSign,
+  PlayCircle,
+  SkipForward
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
-type RecommendationType = "course" | "project" | "certification" | "networking" | "resource";
-type Priority = "high" | "medium" | "low";
+type RecommendationType = "course" | "project" | "certification" | "action" | "reading" | "skill" | "experience" | "resource" | "networking";
+type Priority = "high" | "medium" | "low" | "critical" | "important" | "nice_to_have";
+type Status = "pending" | "in_progress" | "completed" | "skipped" | "not_started";
 
-interface Recommendation {
+interface Step {
+  step: string;
+  order?: number;
+}
+
+export interface Recommendation {
   id: string;
   title: string;
   description: string;
   type: RecommendationType;
   priority: Priority;
-  estimatedTime: string;
+  estimatedTime?: string;
+  effort_hours?: number;
+  cost_usd?: number;
   provider?: string;
   url?: string;
-  isCompleted: boolean;
-  relatedGap: string;
+  status: Status;
+  relatedGap?: string;
+  gap_addressed?: string;
+  why_this_matters?: string;
+  steps?: Step[] | string[];
+  evidence_created?: string;
+  how_to_demonstrate?: string;
 }
 
 interface RecommendationCardProps {
   recommendation: Recommendation;
-  onComplete?: (id: string) => void;
+  onStatusChange?: (id: string, status: Status) => void;
   onView?: (id: string) => void;
 }
 
@@ -44,145 +64,200 @@ const getTypeIcon = (type: RecommendationType) => {
       return <Star className="h-5 w-5" />;
     case "networking":
       return <Users className="h-5 w-5" />;
+    case "reading":
     case "resource":
       return <Video className="h-5 w-5" />;
+    case "action":
+      return <PlayCircle className="h-5 w-5" />;
+    default:
+      return <Star className="h-5 w-5" />;
   }
 };
 
 const getPriorityColor = (priority: Priority): string => {
   switch (priority) {
     case "high":
-      return "bg-red-500/10 text-red-500 border-red-500/20";
+    case "critical":
+      return "bg-destructive/10 text-destructive border-destructive/20";
     case "medium":
-      return "bg-yellow-500/10 text-yellow-500 border-yellow-500/20";
+    case "important":
+      return "bg-yellow-500/10 text-yellow-600 border-yellow-500/20";
     case "low":
-      return "bg-blue-500/10 text-blue-500 border-blue-500/20";
+    case "nice_to_have":
+      return "bg-blue-500/10 text-blue-600 border-blue-500/20";
+    default:
+      return "bg-muted text-muted-foreground";
   }
 };
 
-export function RecommendationCard({ recommendation, onComplete, onView }: RecommendationCardProps) {
-  const { id, title, description, type, priority, estimatedTime, provider, url, isCompleted, relatedGap } = recommendation;
+const getStatusColor = (status: Status): string => {
+  switch (status) {
+    case "completed":
+      return "bg-green-500/10 text-green-600";
+    case "in_progress":
+      return "bg-blue-500/10 text-blue-600";
+    case "skipped":
+      return "bg-muted text-muted-foreground";
+    default:
+      return "bg-muted text-muted-foreground";
+  }
+};
+
+export function RecommendationCard({ recommendation, onStatusChange }: RecommendationCardProps) {
+  const [expanded, setExpanded] = useState(false);
+  const { 
+    id, 
+    title, 
+    description, 
+    type, 
+    priority, 
+    estimatedTime,
+    effort_hours,
+    cost_usd,
+    provider, 
+    url, 
+    status,
+    gap_addressed,
+    relatedGap,
+    why_this_matters,
+    steps,
+    evidence_created,
+    how_to_demonstrate
+  } = recommendation;
+
+  const isCompleted = status === "completed";
+  const displayGap = gap_addressed || relatedGap;
+  
+  // Parse steps - can be array of strings or array of objects
+  const parsedSteps = steps?.map((step, i) => {
+    if (typeof step === 'string') return step;
+    if (typeof step === 'object' && step !== null) {
+      return (step as Step).step || String(step);
+    }
+    return String(step);
+  }) || [];
 
   return (
-    <Card className={`transition-all ${isCompleted ? "opacity-60" : "hover:shadow-md"}`}>
-      <CardHeader className="pb-2">
+    <Card className={cn(
+      "transition-all",
+      isCompleted ? "opacity-60" : "hover:shadow-md"
+    )}>
+      <CardHeader 
+        className="pb-2 cursor-pointer" 
+        onClick={() => setExpanded(!expanded)}
+      >
         <div className="flex items-start justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-lg ${isCompleted ? "bg-green-500/10" : "bg-accent/10"}`}>
-              {isCompleted ? (
-                <CheckCircle2 className="h-5 w-5 text-green-500" />
-              ) : (
-                <span className="text-accent">{getTypeIcon(type)}</span>
-              )}
-            </div>
-            <div>
-              <CardTitle className={`text-base ${isCompleted ? "line-through" : ""}`}>
+          <div className="flex items-start gap-3">
+            <Badge variant="outline" className={cn(
+              "px-2 py-1 text-xs font-medium",
+              getPriorityColor(priority)
+            )}>
+              #{priority === 'critical' || priority === 'high' ? '1' : priority === 'important' || priority === 'medium' ? '2' : '3'}
+            </Badge>
+            <div className="flex-1">
+              <h4 className={cn(
+                "font-medium",
+                isCompleted && "line-through text-muted-foreground"
+              )}>
                 {title}
-              </CardTitle>
-              {provider && (
-                <p className="text-xs text-muted-foreground">{provider}</p>
+              </h4>
+              {displayGap && (
+                <p className="text-sm text-muted-foreground mt-1">
+                  Addresses: {displayGap}
+                </p>
               )}
             </div>
           </div>
-          <Badge variant="outline" className={getPriorityColor(priority)}>
-            {priority}
-          </Badge>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="flex items-center gap-1">
+              <Clock className="h-3 w-3" />
+              {effort_hours ? `${effort_hours}h` : estimatedTime || 'Varies'}
+            </span>
+            <span className="flex items-center gap-1">
+              <DollarSign className="h-3 w-3" />
+              {cost_usd === 0 || !cost_usd ? 'Free' : `$${cost_usd}`}
+            </span>
+            {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </div>
+        </div>
+
+        {/* Status buttons */}
+        <div className="mt-3 flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
+          {(['pending', 'in_progress', 'completed', 'skipped'] as Status[]).map((s) => (
+            <button
+              key={s}
+              onClick={() => onStatusChange?.(id, s)}
+              className={cn(
+                "px-2 py-1 text-xs rounded-full transition-colors",
+                status === s 
+                  ? getStatusColor(s) + " font-medium"
+                  : "bg-muted/50 hover:bg-muted text-muted-foreground"
+              )}
+            >
+              {s === 'in_progress' ? 'in progress' : s.replace('_', ' ')}
+            </button>
+          ))}
         </div>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <p className="text-sm text-muted-foreground">{description}</p>
 
-        <div className="flex items-center gap-4 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1">
-            <Clock className="h-3 w-3" />
-            {estimatedTime}
-          </span>
-          <span className="capitalize">{type}</span>
-        </div>
+      {expanded && (
+        <CardContent className="border-t bg-muted/30 space-y-4 pt-4">
+          {/* Description */}
+          <div>
+            <h5 className="text-sm font-medium mb-1">What To Do</h5>
+            <p className="text-sm text-muted-foreground">{description}</p>
+          </div>
 
-        <div className="text-xs">
-          <span className="text-muted-foreground">Addresses: </span>
-          <Badge variant="secondary" className="text-xs">
-            {relatedGap}
-          </Badge>
-        </div>
-
-        <div className="flex items-center gap-2 pt-2">
-          {!isCompleted && (
-            <Button size="sm" onClick={() => onComplete?.(id)}>
-              Mark Complete
-            </Button>
+          {/* Why This Matters */}
+          {why_this_matters && (
+            <div className="bg-primary/5 border border-primary/20 rounded-lg p-3">
+              <h5 className="text-sm font-medium text-primary mb-1">Why This Matters</h5>
+              <p className="text-sm text-primary/80">{why_this_matters}</p>
+            </div>
           )}
+
+          {/* Steps */}
+          {parsedSteps.length > 0 && (
+            <div>
+              <h5 className="text-sm font-medium mb-2">Steps</h5>
+              <ol className="list-decimal list-inside space-y-1">
+                {parsedSteps.map((step, i) => (
+                  <li key={i} className="text-sm text-muted-foreground">{step}</li>
+                ))}
+              </ol>
+            </div>
+          )}
+
+          {/* Evidence Created */}
+          {evidence_created && (
+            <div>
+              <h5 className="text-sm font-medium mb-1">Evidence Created</h5>
+              <p className="text-sm text-muted-foreground">{evidence_created}</p>
+            </div>
+          )}
+
+          {/* How to Demonstrate */}
+          {how_to_demonstrate && (
+            <div>
+              <h5 className="text-sm font-medium mb-1">How to Demonstrate in Interviews</h5>
+              <p className="text-sm text-muted-foreground italic">"{how_to_demonstrate}"</p>
+            </div>
+          )}
+
+          {/* Action Button */}
           {url && (
-            <Button size="sm" variant="outline" asChild>
-              <a href={url} target="_blank" rel="noopener noreferrer">
-                <ExternalLink className="h-4 w-4 mr-2" />
-                View Resource
-              </a>
-            </Button>
+            <a 
+              href={url} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm rounded-md hover:bg-primary/90 transition-colors"
+            >
+              Start: {provider || 'Resource'}
+              <ExternalLink className="h-4 w-4" />
+            </a>
           )}
-        </div>
-      </CardContent>
+        </CardContent>
+      )}
     </Card>
   );
 }
-
-// Mock recommendations for demo
-export const mockRecommendations: Recommendation[] = [
-  {
-    id: "1",
-    title: "Machine Learning Specialization",
-    description: "Comprehensive course covering ML fundamentals, neural networks, and practical applications with hands-on projects.",
-    type: "course",
-    priority: "high",
-    estimatedTime: "3 months",
-    provider: "Coursera - Andrew Ng",
-    url: "https://coursera.org",
-    isCompleted: false,
-    relatedGap: "Machine Learning",
-  },
-  {
-    id: "2",
-    title: "Build End-to-End ML Pipeline Project",
-    description: "Create a complete ML project from data collection to deployment. Include data preprocessing, model training, and API deployment.",
-    type: "project",
-    priority: "high",
-    estimatedTime: "4-6 weeks",
-    isCompleted: false,
-    relatedGap: "Real-world Experience",
-  },
-  {
-    id: "3",
-    title: "Advanced SQL for Data Analysis",
-    description: "Master complex queries, window functions, CTEs, and query optimization techniques.",
-    type: "course",
-    priority: "high",
-    estimatedTime: "4 weeks",
-    provider: "DataCamp",
-    url: "https://datacamp.com",
-    isCompleted: false,
-    relatedGap: "SQL & Database",
-  },
-  {
-    id: "4",
-    title: "AWS Cloud Practitioner Certification",
-    description: "Get certified in cloud fundamentals to demonstrate familiarity with AWS services.",
-    type: "certification",
-    priority: "medium",
-    estimatedTime: "6 weeks",
-    provider: "AWS",
-    url: "https://aws.amazon.com/certification",
-    isCompleted: false,
-    relatedGap: "Cloud Platforms",
-  },
-  {
-    id: "5",
-    title: "Join Data Science Community",
-    description: "Attend local meetups and join online communities to network with professionals and learn from their experiences.",
-    type: "networking",
-    priority: "medium",
-    estimatedTime: "Ongoing",
-    isCompleted: true,
-    relatedGap: "Professional Network",
-  },
-];

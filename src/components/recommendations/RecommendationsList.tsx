@@ -29,8 +29,8 @@ export function RecommendationsList({ dreamJobId }: RecommendationsListProps) {
   const pendingCount = recommendations.filter((r) => r.status !== 'completed').length;
   const completedCount = recommendations.filter((r) => r.status === 'completed').length;
 
-  const handleComplete = async (id: string) => {
-    await updateStatus.mutateAsync({ id, status: 'completed' });
+  const handleStatusChange = async (id: string, status: 'pending' | 'in_progress' | 'completed' | 'skipped') => {
+    await updateStatus.mutateAsync({ id, status });
   };
 
   // Transform database recommendations to component format
@@ -38,13 +38,20 @@ export function RecommendationsList({ dreamJobId }: RecommendationsListProps) {
     id: rec.id,
     title: rec.title,
     description: rec.description || '',
-    type: (rec.type as "course" | "project" | "certification" | "networking" | "resource") || 'resource',
-    priority: (rec.priority as "high" | "medium" | "low") || 'medium',
+    type: (rec.type as "course" | "project" | "certification" | "action" | "reading" | "skill" | "experience" | "resource" | "networking") || 'resource',
+    priority: (rec.priority as "high" | "medium" | "low" | "critical" | "important" | "nice_to_have") || 'medium',
     estimatedTime: rec.duration || 'Varies',
+    effort_hours: rec.effort_hours,
+    cost_usd: rec.cost_usd,
     provider: rec.provider || undefined,
     url: rec.url || undefined,
-    isCompleted: rec.status === 'completed',
-    relatedGap: 'Skill Gap',
+    status: (rec.status as "pending" | "in_progress" | "completed" | "skipped" | "not_started") || 'pending',
+    relatedGap: rec.gap_addressed || 'Skill Gap',
+    gap_addressed: rec.gap_addressed,
+    why_this_matters: rec.why_this_matters,
+    steps: rec.steps as any[],
+    evidence_created: rec.evidence_created,
+    how_to_demonstrate: rec.how_to_demonstrate,
   }));
 
   if (isLoading) {
@@ -146,13 +153,12 @@ export function RecommendationsList({ dreamJobId }: RecommendationsListProps) {
               </Button>
             </div>
 
-            {/* Recommendations Grid */}
             <div className="grid gap-4 md:grid-cols-2">
               {transformedRecs.map((rec) => (
                 <RecommendationCard
                   key={rec.id}
                   recommendation={rec}
-                  onComplete={handleComplete}
+                  onStatusChange={handleStatusChange}
                 />
               ))}
             </div>

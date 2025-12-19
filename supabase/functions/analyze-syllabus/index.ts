@@ -167,6 +167,23 @@ For each capability, provide:
         if (userError) {
           console.error("Auth error:", userError);
         } else if (user) {
+          // Update course with AI-generated fields
+          const capabilityText = capabilities.map((c: any) => c.name).join("; ");
+          const evidenceTypes = capabilities
+            .filter((c: any) => c.evidence_type)
+            .map((c: any) => ({ capability: c.name, evidence: c.evidence_type }));
+
+          await supabase
+            .from("courses")
+            .update({
+              capability_text: capabilityText,
+              key_capabilities: capabilities,
+              evidence_types: evidenceTypes,
+              tools_methods: toolsLearned,
+              ai_model_used: "google/gemini-2.5-flash"
+            })
+            .eq("id", courseId);
+
           // Insert capabilities
           const capabilitiesToInsert = capabilities.map((cap: any) => ({
             user_id: user.id,
