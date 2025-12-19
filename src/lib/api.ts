@@ -93,8 +93,29 @@ export interface GapAnalysisResponse {
   overlaps: SkillOverlap[];
   gaps: SkillGap[];
   honest_assessment: string;
-  top_strengths?: string[];
-  critical_gaps?: string[];
+  readiness_level?: 'ready_to_apply' | '3_months_away' | '6_months_away' | '1_year_away' | 'needs_significant_development';
+  interview_readiness?: string;
+  job_success_prediction?: string;
+  strong_overlaps?: Array<{
+    student_capability: string;
+    job_requirement: string;
+    assessment: string;
+  }>;
+  partial_overlaps?: Array<{
+    student_capability: string;
+    job_requirement: string;
+    assessment: string;
+  }>;
+  critical_gaps?: Array<{
+    job_requirement: string;
+    student_status: string;
+    impact: string;
+  }>;
+  priority_gaps?: Array<{
+    gap: string;
+    priority: number;
+    reason: string;
+  }>;
   anti_recommendations?: string[];
   error?: string;
 }
