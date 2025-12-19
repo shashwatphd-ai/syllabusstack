@@ -41,6 +41,20 @@ export default function ProfilePage() {
   const { data: profile, isLoading } = useProfile();
   const updateProfile = useUpdateProfile();
 
+  // Calculate profile completion percentage
+  const completionPercentage = profile ? (() => {
+    const fields = [
+      profile.full_name,
+      profile.email,
+      profile.university,
+      profile.graduation_year,
+      profile.major,
+      profile.student_level,
+    ];
+    const filledFields = fields.filter((field) => field !== null && field !== undefined && field !== '').length;
+    return Math.round((filledFields / fields.length) * 100);
+  })() : 0;
+
   const form = useForm({
     defaultValues: {
       full_name: profile?.full_name || '',
