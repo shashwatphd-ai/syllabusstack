@@ -1,7 +1,7 @@
 project_id = "fapxxswgdfomqtugibgf"
 
 [functions.analyze-syllabus]
-verify_jwt = true
+verify_jwt = false
 
 [functions.analyze-dream-job]
 verify_jwt = false

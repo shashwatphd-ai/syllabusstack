@@ -180,13 +180,18 @@ export default function SyllabusScannerPage() {
       if (error) throw error;
 
       if (data?.capabilities) {
+        // Map capability objects to strings, handle both string[] and object[] formats
+        const capNames = data.capabilities.slice(0, 5).map((c: any) => 
+          typeof c === 'string' ? c : c.name
+        );
+        
         setAnalysisResult({
-          capabilities: data.capabilities.slice(0, 5) || [],
-          tools: data.tools_methods?.slice(0, 5)?.map((t: string) => ({ 
+          capabilities: capNames || [],
+          tools: (data.tools_learned || data.tools_methods || []).slice(0, 5).map((t: string) => ({ 
             name: t, 
             level: 'Covered' 
-          })) || [],
-          artifacts: data.evidence_types?.slice(0, 5) || [],
+          })),
+          artifacts: (data.course_themes || data.evidence_types || []).slice(0, 5),
         });
       } else {
         throw new Error('Invalid response from AI');
