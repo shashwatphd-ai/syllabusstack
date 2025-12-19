@@ -1,5 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { MASTER_SYSTEM_PROMPT, JOB_REQUIREMENTS_PROMPT, createJobRequirementsCacheKey } from "../_shared/prompts.ts";
+import { getCachedResponse, setCachedResponse, trackAIUsage, createServiceClient, CACHE_TTL } from "../_shared/ai-cache.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -28,107 +30,178 @@ serve(async (req) => {
 
     console.log("Analyzing dream job:", jobTitle);
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          {
-            role: "system",
-            content: `You are an expert career advisor with deep knowledge of job market requirements. Analyze job titles to identify the key skills and qualifications employers typically require.
+    // Check cache first
+    const serviceClient = createServiceClient();
+    const cacheKey = createJobRequirementsCacheKey(jobTitle, companyType);
+    const cachedData = await getCachedResponse(serviceClient, cacheKey);
 
-For each requirement, determine:
-1. The skill name (use industry-standard terminology)
-2. Importance level (required, preferred, or nice_to_have)
-3. Category (technical, analytical, communication, leadership, creative, research, interpersonal, certification, education)
+    let requirements, description, salaryRange, dayOneCapabilities, differentiators, commonMisconceptions, realisticBar;
 
-Be realistic about what employers actually look for. Consider the company type and location context if provided.`
-          },
-          {
-            role: "user",
-            content: `Analyze this dream job and identify the typical requirements:
+    if (cachedData) {
+      console.log("Using cached job requirements");
+      requirements = cachedData.requirements;
+      description = cachedData.description;
+      salaryRange = cachedData.salary_range;
+      dayOneCapabilities = cachedData.day_one_capabilities;
+      differentiators = cachedData.differentiators;
+      commonMisconceptions = cachedData.common_misconceptions;
+      realisticBar = cachedData.realistic_bar;
+    } else {
+      // No cache - call AI
+      const systemPrompt = `${MASTER_SYSTEM_PROMPT}
 
-Job Title: ${jobTitle}
-${companyType ? `Company Type: ${companyType}` : ""}
-${location ? `Location: ${location}` : ""}
+${JOB_REQUIREMENTS_PROMPT}`;
 
-Return the key requirements employers typically look for in this role. Include a mix of hard skills, soft skills, certifications, and educational requirements where relevant.`
-          }
-        ],
-        tools: [
-          {
-            type: "function",
-            function: {
-              name: "extract_requirements",
-              description: "Extract job requirements for a dream job",
-              parameters: {
-                type: "object",
-                properties: {
-                  requirements: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      properties: {
-                        skill_name: { type: "string", description: "The skill or requirement name" },
-                        importance: { 
-                          type: "string", 
-                          enum: ["required", "preferred", "nice_to_have"]
+      const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash",
+          messages: [
+            {
+              role: "system",
+              content: systemPrompt
+            },
+            {
+              role: "user",
+              content: `Analyze this dream job and provide REALISTIC requirements that employers actually look for:
+
+JOB TITLE: ${jobTitle}
+${companyType ? `COMPANY TYPE: ${companyType}` : ""}
+${location ? `LOCATION: ${location}` : ""}
+
+Provide a comprehensive analysis including:
+1. All requirements categorized by importance (critical, important, nice_to_have)
+2. Day-one capabilities - what must they do on their FIRST DAY
+3. Differentiators - what sets top candidates apart
+4. Common misconceptions - what students think matters but doesn't
+5. Realistic bar - the minimum viable candidate profile
+
+Be specific to this role and company type. Use real industry knowledge.`
+            }
+          ],
+          tools: [
+            {
+              type: "function",
+              function: {
+                name: "extract_requirements",
+                description: "Extract comprehensive job requirements",
+                parameters: {
+                  type: "object",
+                  properties: {
+                    requirements: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          skill_name: { type: "string", description: "The skill or requirement name" },
+                          importance: { 
+                            type: "string", 
+                            enum: ["critical", "important", "nice_to_have"]
+                          },
+                          category: { 
+                            type: "string", 
+                            enum: ["technical", "analytical", "communication", "leadership", "creative", "research", "interpersonal", "certification", "education"]
+                          }
                         },
-                        category: { 
-                          type: "string", 
-                          enum: ["technical", "analytical", "communication", "leadership", "creative", "research", "interpersonal", "certification", "education"]
-                        }
+                        required: ["skill_name", "importance", "category"]
+                      }
+                    },
+                    description: { type: "string", description: "Brief description of this role" },
+                    salary_range: { type: "string", description: "Typical salary range for this role" },
+                    day_one_capabilities: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          requirement: { type: "string" },
+                          importance: { type: "string", enum: ["critical", "important", "nice_to_have"] }
+                        },
+                        required: ["requirement", "importance"]
                       },
-                      required: ["skill_name", "importance", "category"]
+                      description: "What someone needs to be productive on day one"
+                    },
+                    differentiators: {
+                      type: "array",
+                      items: { type: "string" },
+                      description: "What sets top candidates apart"
+                    },
+                    common_misconceptions: {
+                      type: "array",
+                      items: { type: "string" },
+                      description: "What students wrongly think matters"
+                    },
+                    realistic_bar: {
+                      type: "string",
+                      description: "Honest description of minimum viable candidate"
                     }
                   },
-                  description: { type: "string", description: "Brief description of this role" },
-                  salary_range: { type: "string", description: "Typical salary range for this role" }
-                },
-                required: ["requirements"]
+                  required: ["requirements", "day_one_capabilities"]
+                }
               }
             }
-          }
-        ],
-        tool_choice: { type: "function", function: { name: "extract_requirements" } }
-      }),
-    });
+          ],
+          tool_choice: { type: "function", function: { name: "extract_requirements" } }
+        }),
+      });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("AI gateway error:", response.status, errorText);
-      
-      if (response.status === 429) {
-        return new Response(
-          JSON.stringify({ error: "Rate limit exceeded. Please try again later." }),
-          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("AI gateway error:", response.status, errorText);
+        
+        if (response.status === 429) {
+          return new Response(
+            JSON.stringify({ error: "Rate limit exceeded. Please try again later." }),
+            { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        if (response.status === 402) {
+          return new Response(
+            JSON.stringify({ error: "AI credits exhausted. Please add credits to continue." }),
+            { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        throw new Error(`AI gateway error: ${response.status}`);
       }
-      if (response.status === 402) {
-        return new Response(
-          JSON.stringify({ error: "AI credits exhausted. Please add credits to continue." }),
-          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+
+      const data = await response.json();
+      console.log("AI response received");
+
+      const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
+      if (!toolCall?.function?.arguments) {
+        throw new Error("Invalid AI response format");
       }
-      throw new Error(`AI gateway error: ${response.status}`);
+
+      const parsed = JSON.parse(toolCall.function.arguments);
+      requirements = parsed.requirements || [];
+      description = parsed.description || null;
+      salaryRange = parsed.salary_range || null;
+      dayOneCapabilities = parsed.day_one_capabilities || [];
+      differentiators = parsed.differentiators || [];
+      commonMisconceptions = parsed.common_misconceptions || [];
+      realisticBar = parsed.realistic_bar || null;
+
+      // Cache the response
+      await setCachedResponse(
+        serviceClient,
+        cacheKey,
+        "job_requirements",
+        {
+          requirements,
+          description,
+          salary_range: salaryRange,
+          day_one_capabilities: dayOneCapabilities,
+          differentiators,
+          common_misconceptions: commonMisconceptions,
+          realistic_bar: realisticBar
+        },
+        "google/gemini-2.5-flash",
+        CACHE_TTL.job_requirements
+      );
     }
-
-    const data = await response.json();
-    console.log("AI response received");
-
-    const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
-    if (!toolCall?.function?.arguments) {
-      throw new Error("Invalid AI response format");
-    }
-
-    const parsed = JSON.parse(toolCall.function.arguments);
-    const requirements = parsed.requirements || [];
-    const description = parsed.description || null;
-    const salaryRange = parsed.salary_range || null;
 
     // If dreamJobId provided, save requirements to database
     if (dreamJobId) {
@@ -140,12 +213,18 @@ Return the key requirements employers typically look for in this role. Include a
           { global: { headers: { Authorization: authHeader } } }
         );
 
-        // Update dream job with description and salary range
+        const { data: { user } } = await supabase.auth.getUser();
+
+        // Update dream job with all new fields
         const { error: updateError } = await supabase
           .from("dream_jobs")
           .update({ 
             description: description,
-            salary_range: salaryRange
+            salary_range: salaryRange,
+            day_one_capabilities: dayOneCapabilities,
+            differentiators: differentiators,
+            common_misconceptions: commonMisconceptions,
+            realistic_bar: realisticBar
           })
           .eq("id", dreamJobId);
 
@@ -176,11 +255,29 @@ Return the key requirements employers typically look for in this role. Include a
         } else {
           console.log(`Inserted ${requirements.length} requirements for job ${dreamJobId}`);
         }
+
+        // Track AI usage if we made a new AI call
+        if (!cachedData && user) {
+          await trackAIUsage(
+            serviceClient,
+            user.id,
+            "analyze-dream-job",
+            "google/gemini-2.5-flash"
+          );
+        }
       }
     }
 
     return new Response(
-      JSON.stringify({ requirements, description, salary_range: salaryRange }),
+      JSON.stringify({ 
+        requirements, 
+        description, 
+        salary_range: salaryRange,
+        day_one_capabilities: dayOneCapabilities,
+        differentiators,
+        common_misconceptions: commonMisconceptions,
+        realistic_bar: realisticBar
+      }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {

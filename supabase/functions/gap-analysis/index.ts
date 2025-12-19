@@ -1,5 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { MASTER_SYSTEM_PROMPT, GAP_ANALYSIS_PROMPT } from "../_shared/prompts.ts";
+import { trackAIUsage, createServiceClient } from "../_shared/ai-cache.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -34,6 +36,12 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_ANON_KEY") ?? "",
       { global: { headers: { Authorization: authHeader } } }
     );
+
+    // Get user
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
+      throw new Error("Failed to get user");
+    }
 
     // Get user's capabilities
     const { data: capabilities, error: capError } = await supabase
@@ -72,8 +80,24 @@ serve(async (req) => {
       throw new Error("LOVABLE_API_KEY is not configured");
     }
 
-    const capabilitiesList = (capabilities || []).map(c => `- ${c.name} (${c.proficiency_level}, ${c.category})`).join("\n");
-    const requirementsList = (requirements || []).map(r => `- ${r.skill_name} (${r.importance}, ${r.category})`).join("\n");
+    // Format capabilities with proficiency info
+    const capabilitiesList = (capabilities || []).map(c => 
+      `- ${c.name} (${c.proficiency_level || 'unknown'} level, category: ${c.category || 'general'})`
+    ).join("\n");
+
+    // Format requirements with importance
+    const requirementsList = (requirements || []).map(r => 
+      `- ${r.skill_name} [${r.importance?.toUpperCase() || 'UNKNOWN'}] (${r.category || 'general'})`
+    ).join("\n");
+
+    // Include day-one capabilities if available
+    const dayOneList = (dreamJob.day_one_capabilities || []).map((d: any) => 
+      `- ${d.requirement} [${d.importance?.toUpperCase()}]`
+    ).join("\n");
+
+    const systemPrompt = `${MASTER_SYSTEM_PROMPT}
+
+${GAP_ANALYSIS_PROMPT}`;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -86,31 +110,34 @@ serve(async (req) => {
         messages: [
           {
             role: "system",
-            content: `You are an expert career advisor performing a gap analysis between a student's capabilities and job requirements.
-
-Your job is to:
-1. Identify overlaps where the student's skills match job requirements
-2. Identify gaps where the student lacks required skills
-3. Calculate a match score (0-100)
-4. Provide an honest, constructive assessment
-5. Highlight anti-recommendations (things the student should NOT do)
-
-Be honest but encouraging. Focus on actionable insights.`
+            content: systemPrompt
           },
           {
             role: "user",
-            content: `Perform a gap analysis for this dream job:
+            content: `Perform a BRUTALLY HONEST gap analysis for this student:
 
 DREAM JOB: ${dreamJob.title}
-${dreamJob.description ? `Description: ${dreamJob.description}` : ""}
+${dreamJob.company_type ? `Company Type: ${dreamJob.company_type}` : ""}
+${dreamJob.description ? `Role Description: ${dreamJob.description}` : ""}
 
 STUDENT'S CURRENT CAPABILITIES:
-${capabilitiesList || "No capabilities recorded yet"}
+${capabilitiesList || "No capabilities recorded yet - student has NOT demonstrated any relevant skills"}
 
 JOB REQUIREMENTS:
 ${requirementsList || "No requirements analyzed yet"}
 
-Analyze the match and provide detailed feedback.`
+${dayOneList ? `DAY-ONE REQUIREMENTS (must have on first day):
+${dayOneList}` : ""}
+
+${dreamJob.realistic_bar ? `REALISTIC HIRING BAR: ${dreamJob.realistic_bar}` : ""}
+
+Provide an honest assessment. If the student is far from ready, say so clearly. False hope is cruel.
+Focus on:
+1. What they CAN do that matches requirements (strong overlaps)
+2. What they CANNOT yet do (critical gaps)
+3. Where they have partial foundations to build on
+4. A brutally honest overall assessment
+5. Specific priority gaps to address first`
           }
         ],
         tools: [
@@ -118,48 +145,90 @@ Analyze the match and provide detailed feedback.`
             type: "function",
             function: {
               name: "gap_analysis_result",
-              description: "Return the gap analysis results",
+              description: "Return the comprehensive gap analysis results",
               parameters: {
                 type: "object",
                 properties: {
-                  match_score: { type: "number", description: "Overall match percentage 0-100" },
-                  overlaps: {
+                  match_score: { 
+                    type: "number", 
+                    description: "Overall match percentage 0-100. Be realistic - most students are 30-60%" 
+                  },
+                  strong_overlaps: {
                     type: "array",
                     items: {
                       type: "object",
                       properties: {
-                        capability: { type: "string" },
-                        requirement: { type: "string" },
-                        strength: { type: "string", enum: ["strong", "moderate", "partial"] },
-                        notes: { type: "string" }
+                        student_capability: { type: "string", description: "What the student can do" },
+                        job_requirement: { type: "string", description: "The requirement it matches" },
+                        assessment: { type: "string", description: "How well it matches" }
                       },
-                      required: ["capability", "requirement", "strength"]
-                    }
+                      required: ["student_capability", "job_requirement", "assessment"]
+                    },
+                    description: "Clear matches between capabilities and requirements"
                   },
-                  gaps: {
+                  critical_gaps: {
                     type: "array",
                     items: {
                       type: "object",
                       properties: {
-                        requirement: { type: "string" },
-                        importance: { type: "string", enum: ["critical", "important", "nice_to_have"] },
-                        difficulty: { type: "string", enum: ["easy", "moderate", "challenging"] },
-                        time_to_close: { type: "string" },
-                        suggested_action: { type: "string" }
+                        job_requirement: { type: "string", description: "The missing requirement" },
+                        student_status: { type: "string", description: "What the student currently has (or lacks)" },
+                        impact: { type: "string", description: "Why this gap matters" }
                       },
-                      required: ["requirement", "importance", "difficulty", "time_to_close"]
-                    }
+                      required: ["job_requirement", "student_status", "impact"]
+                    },
+                    description: "Requirements the student is missing - especially CRITICAL ones"
                   },
-                  honest_assessment: { type: "string", description: "Candid feedback on readiness" },
-                  top_strengths: { type: "array", items: { type: "string" } },
-                  critical_gaps: { type: "array", items: { type: "string" } },
+                  partial_overlaps: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        area: { type: "string", description: "The skill area" },
+                        foundation: { type: "string", description: "What foundation the student has" },
+                        missing: { type: "string", description: "What's still needed" }
+                      },
+                      required: ["area", "foundation", "missing"]
+                    },
+                    description: "Areas where student has related but incomplete experience"
+                  },
+                  honest_assessment: { 
+                    type: "string", 
+                    description: "Candid, direct feedback on their readiness. Be honest but constructive." 
+                  },
+                  readiness_level: {
+                    type: "string",
+                    enum: ["ready_to_apply", "3_months_away", "6_months_away", "1_year_away", "needs_significant_development"],
+                    description: "How ready are they to apply for this role?"
+                  },
+                  interview_readiness: {
+                    type: "string",
+                    description: "Would they pass a typical interview loop? What would trip them up?"
+                  },
+                  job_success_prediction: {
+                    type: "string",
+                    description: "If hired today, would they succeed? What would be hardest?"
+                  },
+                  priority_gaps: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        gap: { type: "string" },
+                        priority: { type: "number", description: "1 = highest priority" },
+                        reason: { type: "string", description: "Why this should be addressed first" }
+                      },
+                      required: ["gap", "priority", "reason"]
+                    },
+                    description: "Top 3-5 gaps ranked by impact if closed"
+                  },
                   anti_recommendations: { 
                     type: "array", 
                     items: { type: "string" },
                     description: "Things the student should NOT pursue or avoid" 
                   }
                 },
-                required: ["match_score", "overlaps", "gaps", "honest_assessment"]
+                required: ["match_score", "strong_overlaps", "critical_gaps", "honest_assessment", "readiness_level", "priority_gaps"]
               }
             }
           }
@@ -201,10 +270,70 @@ Analyze the match and provide detailed feedback.`
       .update({ match_score: analysis.match_score })
       .eq("id", dreamJobId);
 
+    // Persist gap analysis to database
+    const { data: gapAnalysisRecord, error: insertError } = await supabase
+      .from("gap_analyses")
+      .insert({
+        user_id: user.id,
+        dream_job_id: dreamJobId,
+        analysis_text: analysis.honest_assessment,
+        strong_overlaps: analysis.strong_overlaps,
+        critical_gaps: analysis.critical_gaps,
+        partial_overlaps: analysis.partial_overlaps || [],
+        honest_assessment: analysis.honest_assessment,
+        readiness_level: analysis.readiness_level,
+        interview_readiness: analysis.interview_readiness,
+        job_success_prediction: analysis.job_success_prediction,
+        priority_gaps: analysis.priority_gaps,
+        match_score: analysis.match_score,
+        ai_model_used: "google/gemini-2.5-flash"
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      console.error("Error saving gap analysis:", insertError);
+    } else {
+      console.log("Saved gap analysis with ID:", gapAnalysisRecord?.id);
+    }
+
+    // Save anti-recommendations if any
+    if (analysis.anti_recommendations?.length > 0) {
+      const antiRecsToInsert = analysis.anti_recommendations.map((ar: string) => ({
+        user_id: user.id,
+        dream_job_id: dreamJobId,
+        action: ar,
+        reason: "Identified during gap analysis"
+      }));
+
+      await supabase
+        .from("anti_recommendations")
+        .delete()
+        .eq("dream_job_id", dreamJobId);
+
+      await supabase
+        .from("anti_recommendations")
+        .insert(antiRecsToInsert);
+    }
+
+    // Track AI usage
+    const serviceClient = createServiceClient();
+    await trackAIUsage(
+      serviceClient,
+      user.id,
+      "gap-analysis",
+      "google/gemini-2.5-flash",
+      data.usage?.prompt_tokens,
+      data.usage?.completion_tokens
+    );
+
     console.log(`Gap analysis complete. Match score: ${analysis.match_score}%`);
 
     return new Response(
-      JSON.stringify(analysis),
+      JSON.stringify({
+        ...analysis,
+        gap_analysis_id: gapAnalysisRecord?.id
+      }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
