@@ -190,6 +190,7 @@ export type Database = {
         Row: {
           ai_cost_usd: number | null
           ai_model_used: string | null
+          capability_keywords: string[] | null
           capability_text: string | null
           code: string | null
           created_at: string
@@ -210,6 +211,7 @@ export type Database = {
         Insert: {
           ai_cost_usd?: number | null
           ai_model_used?: string | null
+          capability_keywords?: string[] | null
           capability_text?: string | null
           code?: string | null
           created_at?: string
@@ -230,6 +232,7 @@ export type Database = {
         Update: {
           ai_cost_usd?: number | null
           ai_model_used?: string | null
+          capability_keywords?: string[] | null
           capability_text?: string | null
           code?: string | null
           created_at?: string
@@ -262,6 +265,7 @@ export type Database = {
           location: string | null
           match_score: number | null
           realistic_bar: string | null
+          requirements_keywords: string[] | null
           salary_range: string | null
           title: string
           updated_at: string
@@ -279,6 +283,7 @@ export type Database = {
           location?: string | null
           match_score?: number | null
           realistic_bar?: string | null
+          requirements_keywords?: string[] | null
           salary_range?: string | null
           title: string
           updated_at?: string
@@ -296,6 +301,7 @@ export type Database = {
           location?: string | null
           match_score?: number | null
           realistic_bar?: string | null
+          requirements_keywords?: string[] | null
           salary_range?: string | null
           title?: string
           updated_at?: string
@@ -414,6 +420,7 @@ export type Database = {
           differentiators: Json | null
           id: string
           job_query_normalized: string
+          keywords: string[] | null
           last_queried_at: string | null
           query_count: number | null
           realistic_bar: string | null
@@ -427,6 +434,7 @@ export type Database = {
           differentiators?: Json | null
           id?: string
           job_query_normalized: string
+          keywords?: string[] | null
           last_queried_at?: string | null
           query_count?: number | null
           realistic_bar?: string | null
@@ -440,6 +448,7 @@ export type Database = {
           differentiators?: Json | null
           id?: string
           job_query_normalized?: string
+          keywords?: string[] | null
           last_queried_at?: string | null
           query_count?: number | null
           realistic_bar?: string | null
@@ -588,7 +597,23 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      find_similar_capabilities: {
+        Args: {
+          result_limit?: number
+          target_keywords: string[]
+          user_uuid: string
+        }
+        Returns: {
+          capability_id: string
+          capability_name: string
+          course_title: string
+          similarity_score: number
+        }[]
+      }
+      keyword_similarity: {
+        Args: { arr1: string[]; arr2: string[] }
+        Returns: number
+      }
     }
     Enums: {
       [_ in never]: never
