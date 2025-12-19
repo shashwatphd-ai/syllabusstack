@@ -4,8 +4,11 @@ import { useDashboardOverview, useDashboardStats } from "@/hooks/useDashboard";
 import { useDreamJobs } from "@/hooks/useDreamJobs";
 import { useCapabilities } from "@/hooks/useCapabilities";
 import { useNavigate } from "react-router-dom";
+import { useSEO, pageSEO } from "@/hooks/useSEO";
 
 export default function DashboardPage() {
+  useSEO(pageSEO.dashboard);
+  
   const navigate = useNavigate();
   const { data: overview, isLoading: overviewLoading } = useDashboardOverview();
   const { data: stats, isLoading: statsLoading } = useDashboardStats();
