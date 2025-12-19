@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { MASTER_SYSTEM_PROMPT, SYLLABUS_EXTRACTION_PROMPT } from "../_shared/prompts.ts";
 import { trackAIUsage, createServiceClient } from "../_shared/ai-cache.ts";
+import { SYLLABUS_EXTRACTION_SCHEMA, createToolDefinition, createToolChoice } from "../_shared/schemas.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -68,54 +69,8 @@ For each capability, provide:
 - evidence_type: How a student could demonstrate this skill`
           }
         ],
-        tools: [
-          {
-            type: "function",
-            function: {
-              name: "extract_capabilities",
-              description: "Extract capabilities from a course syllabus",
-              parameters: {
-                type: "object",
-                properties: {
-                  capabilities: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      properties: {
-                        name: { type: "string", description: "Capability using 'Can do X' format" },
-                        category: { 
-                          type: "string", 
-                          enum: ["technical", "analytical", "communication", "leadership", "creative", "research", "interpersonal"]
-                        },
-                        proficiency_level: { 
-                          type: "string", 
-                          enum: ["beginner", "intermediate", "advanced", "expert"]
-                        },
-                        evidence_type: {
-                          type: "string",
-                          description: "How this skill can be demonstrated to employers"
-                        }
-                      },
-                      required: ["name", "category", "proficiency_level"]
-                    }
-                  },
-                  course_themes: {
-                    type: "array",
-                    items: { type: "string" },
-                    description: "Main themes or focus areas of this course"
-                  },
-                  tools_learned: {
-                    type: "array",
-                    items: { type: "string" },
-                    description: "Specific tools, software, or technologies covered"
-                  }
-                },
-                required: ["capabilities"]
-              }
-            }
-          }
-        ],
-        tool_choice: { type: "function", function: { name: "extract_capabilities" } }
+        tools: [createToolDefinition(SYLLABUS_EXTRACTION_SCHEMA)],
+        tool_choice: createToolChoice(SYLLABUS_EXTRACTION_SCHEMA)
       }),
     });
 

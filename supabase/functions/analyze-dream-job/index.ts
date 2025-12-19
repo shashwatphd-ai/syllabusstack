@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { MASTER_SYSTEM_PROMPT, JOB_REQUIREMENTS_PROMPT, createJobRequirementsCacheKey } from "../_shared/prompts.ts";
 import { getCachedResponse, setCachedResponse, trackAIUsage, createServiceClient, CACHE_TTL } from "../_shared/ai-cache.ts";
+import { JOB_REQUIREMENTS_SCHEMA, createToolDefinition, createToolChoice } from "../_shared/schemas.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -110,68 +111,8 @@ Provide a comprehensive analysis including:
 Be specific to this role and company type. Use real industry knowledge.`
               }
             ],
-            tools: [
-              {
-                type: "function",
-                function: {
-                  name: "extract_requirements",
-                  description: "Extract comprehensive job requirements",
-                  parameters: {
-                    type: "object",
-                    properties: {
-                      requirements: {
-                        type: "array",
-                        items: {
-                          type: "object",
-                          properties: {
-                            skill_name: { type: "string", description: "The skill or requirement name" },
-                            importance: { 
-                              type: "string", 
-                              enum: ["critical", "important", "nice_to_have"]
-                            },
-                            category: { 
-                              type: "string", 
-                              enum: ["technical", "analytical", "communication", "leadership", "creative", "research", "interpersonal", "certification", "education"]
-                            }
-                          },
-                          required: ["skill_name", "importance", "category"]
-                        }
-                      },
-                      description: { type: "string", description: "Brief description of this role" },
-                      salary_range: { type: "string", description: "Typical salary range for this role" },
-                      day_one_capabilities: {
-                        type: "array",
-                        items: {
-                          type: "object",
-                          properties: {
-                            requirement: { type: "string" },
-                            importance: { type: "string", enum: ["critical", "important", "nice_to_have"] }
-                          },
-                          required: ["requirement", "importance"]
-                        },
-                        description: "What someone needs to be productive on day one"
-                      },
-                      differentiators: {
-                        type: "array",
-                        items: { type: "string" },
-                        description: "What sets top candidates apart"
-                      },
-                      common_misconceptions: {
-                        type: "array",
-                        items: { type: "string" },
-                        description: "What students wrongly think matters"
-                      },
-                      realistic_bar: {
-                        type: "string",
-                        description: "Honest description of minimum viable candidate"
-                      }
-                    },
-                    required: ["requirements", "day_one_capabilities"]
-                  }
-                }
-              }
-            ],
-            tool_choice: { type: "function", function: { name: "extract_requirements" } }
+            tools: [createToolDefinition(JOB_REQUIREMENTS_SCHEMA)],
+            tool_choice: createToolChoice(JOB_REQUIREMENTS_SCHEMA)
           }),
         });
 
