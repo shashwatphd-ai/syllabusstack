@@ -13,8 +13,41 @@ This document outlines the implementation plan to bridge the gap between the Edu
 | Phase 1 | Centralized Schema Definitions | ✅ Complete |
 | Phase 2 | Enhanced AI Orchestrator with Fallback | ✅ Complete |
 | Phase 3 | Keyword-Based Similarity Search | ✅ Complete |
-| Phase 4 | Usage & Cost Tracking Enhancement | ⏳ Pending |
-| Phase 5 | Semantic Search Integration | ⏳ Pending |
+| Phase 4 | Usage & Cost Tracking Enhancement | ✅ Complete |
+| Phase 5 | Semantic Search Integration | ✅ Complete |
+
+---
+
+## Technical Constraints & Decisions
+
+### TanStack Router vs React Router DOM
+**Decision: Using React Router DOM v6**
+
+TanStack Router requires `strictNullChecks: true` in tsconfig.json. The tsconfig files are read-only in Lovable projects, making TanStack Router incompatible. React Router DOM v6 provides equivalent functionality:
+- ✅ Nested routes with layout components
+- ✅ Protected routes via AuthGuard/GuestGuard wrappers  
+- ✅ Dynamic route params (`/dream-jobs/:jobId`)
+- ✅ Programmatic navigation with `useNavigate`
+- ❌ No type-safe search params validation (manual implementation possible)
+
+This is a **platform constraint**, not a design choice.
+
+### Vector Embeddings vs Keyword Similarity
+**Decision: Using Keyword-Based Similarity**
+
+Lovable AI Gateway does NOT provide an embeddings API endpoint. The spec's OpenAI embeddings approach would require:
+- External API key from user (poor UX)
+- Additional cost tracking complexity
+- Dependency on third-party service
+
+Keyword similarity provides:
+- ✅ Zero additional cost per query
+- ✅ Works entirely within Lovable Cloud
+- ✅ SQL-level optimization with GIN indexes
+- ✅ Jaccard coefficient similarity (industry-standard)
+- ⚠️ Less semantic understanding than true embeddings
+
+This is the **highest quality alternative** given platform constraints.
 
 ---
 
