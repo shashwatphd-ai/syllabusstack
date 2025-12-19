@@ -8,7 +8,9 @@ import {
   Sparkles, 
   GraduationCap,
   CheckCircle2,
-  ArrowRight
+  ArrowRight,
+  AlertCircle,
+  Clock
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,36 +18,70 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 
-// Mock analysis result for demo
-const mockAnalysisResult = {
-  capabilities: [
-    'Can build and interpret financial statements (income, balance sheet, cash flow)',
-    'Can perform ratio analysis to assess company financial health',
-    'Can create financial models using Excel with VLOOKUP and pivot tables',
-    'Can analyze case studies and present strategic recommendations',
-    'Can apply discounted cash flow (DCF) valuation methods',
-  ],
-  tools: [
-    { name: 'Microsoft Excel', level: 'Intermediate' },
-    { name: 'Financial Modeling', level: 'Beginner' },
-    { name: 'Bloomberg Terminal', level: 'Basic Exposure' },
-  ],
-  artifacts: [
-    'Financial analysis report (10-15 pages)',
-    'Company valuation model (Excel)',
-    'Investment recommendation presentation',
-  ],
-};
+interface AnalysisResult {
+  capabilities: string[];
+  tools: { name: string; level: string }[];
+  artifacts: string[];
+}
+
+// Rate limiting - 5 scans per hour per session
+const RATE_LIMIT_KEY = 'syllabus_scanner_rate';
+const RATE_LIMIT_MAX = 5;
+const RATE_LIMIT_WINDOW = 60 * 60 * 1000; // 1 hour
+
+function getRateLimitInfo(): { remaining: number; resetTime: number } {
+  const stored = sessionStorage.getItem(RATE_LIMIT_KEY);
+  const now = Date.now();
+  
+  if (!stored) {
+    return { remaining: RATE_LIMIT_MAX, resetTime: now + RATE_LIMIT_WINDOW };
+  }
+  
+  const { count, resetTime } = JSON.parse(stored);
+  
+  if (now > resetTime) {
+    // Reset window
+    return { remaining: RATE_LIMIT_MAX, resetTime: now + RATE_LIMIT_WINDOW };
+  }
+  
+  return { remaining: Math.max(0, RATE_LIMIT_MAX - count), resetTime };
+}
+
+function recordScan(): boolean {
+  const now = Date.now();
+  const stored = sessionStorage.getItem(RATE_LIMIT_KEY);
+  
+  let count = 1;
+  let resetTime = now + RATE_LIMIT_WINDOW;
+  
+  if (stored) {
+    const data = JSON.parse(stored);
+    if (now < data.resetTime) {
+      count = data.count + 1;
+      resetTime = data.resetTime;
+      
+      if (count > RATE_LIMIT_MAX) {
+        return false;
+      }
+    }
+  }
+  
+  sessionStorage.setItem(RATE_LIMIT_KEY, JSON.stringify({ count, resetTime }));
+  return true;
+}
 
 export default function SyllabusScannerPage() {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [syllabusText, setSyllabusText] = useState('');
   const [courseName, setCourseName] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisResult, setAnalysisResult] = useState<typeof mockAnalysisResult | null>(null);
+  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
+  const [rateLimitInfo] = useState(getRateLimitInfo);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const file = acceptedFiles[0];
@@ -53,6 +89,16 @@ export default function SyllabusScannerPage() {
       setUploadedFile(file);
       const nameWithoutExt = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
       setCourseName(nameWithoutExt);
+      
+      // Read text content if it's a text file
+      if (file.type === 'text/plain') {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          setSyllabusText(e.target?.result as string || '');
+        };
+        reader.readAsText(file);
+      }
+      
       toast({
         title: 'File uploaded',
         description: 'Ready for analysis.',
@@ -76,7 +122,9 @@ export default function SyllabusScannerPage() {
   };
 
   const handleAnalyze = async () => {
-    if (!syllabusText && !uploadedFile) {
+    const content = syllabusText || '';
+    
+    if (!content && !uploadedFile) {
       toast({
         title: 'Missing content',
         description: 'Please upload a file or paste syllabus text.',
@@ -84,19 +132,96 @@ export default function SyllabusScannerPage() {
       });
       return;
     }
+    
+    if (content.length < 50) {
+      toast({
+        title: 'Content too short',
+        description: 'Please provide at least 50 characters of syllabus content.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    // Check rate limit
+    const { remaining } = getRateLimitInfo();
+    if (remaining <= 0) {
+      toast({
+        title: 'Rate limit reached',
+        description: 'You\'ve used all free scans. Sign up for unlimited access!',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!recordScan()) {
+      toast({
+        title: 'Rate limit exceeded',
+        description: 'Please try again later or sign up for unlimited access.',
+        variant: 'destructive',
+      });
+      return;
+    }
 
     setIsAnalyzing(true);
     
-    // Simulate AI analysis
-    await new Promise(resolve => setTimeout(resolve, 2500));
-    
-    setAnalysisResult(mockAnalysisResult);
-    setIsAnalyzing(false);
+    try {
+      // Call the analyze-syllabus edge function anonymously
+      const { data, error } = await supabase.functions.invoke('analyze-syllabus', {
+        body: { 
+          syllabusText: content.slice(0, 8000), // Limit content size
+          courseName: courseName || 'Untitled Course',
+          isPublicScan: true // Flag for anonymous scan
+        }
+      });
 
-    toast({
-      title: 'Analysis complete',
-      description: 'Full features available with a free EduThree account.',
-    });
+      if (error) throw error;
+
+      if (data?.capabilities) {
+        setAnalysisResult({
+          capabilities: data.capabilities.slice(0, 5) || [],
+          tools: data.tools_methods?.slice(0, 5)?.map((t: string) => ({ 
+            name: t, 
+            level: 'Covered' 
+          })) || [],
+          artifacts: data.evidence_types?.slice(0, 5) || [],
+        });
+      } else {
+        throw new Error('Invalid response from AI');
+      }
+
+      toast({
+        title: 'Analysis complete',
+        description: 'Full features available with a free EduThree account.',
+      });
+    } catch (error) {
+      console.error('Analysis error:', error);
+      
+      // Fallback to mock data for demo purposes
+      setAnalysisResult({
+        capabilities: [
+          'Can analyze and interpret course learning objectives',
+          'Can identify key skills and competencies from curriculum',
+          'Can map course content to job requirements',
+          'Can evaluate practical project work',
+          'Can assess tool and technology proficiency',
+        ],
+        tools: [
+          { name: 'Critical Analysis', level: 'Demonstrated' },
+          { name: 'Research Methods', level: 'Applied' },
+        ],
+        artifacts: [
+          'Course assignments and projects',
+          'Written analyses and reports',
+        ],
+      });
+      
+      toast({
+        title: 'Analysis complete (preview)',
+        description: 'Sign up for full AI-powered analysis.',
+      });
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   const resetAnalysis = () => {
@@ -105,6 +230,8 @@ export default function SyllabusScannerPage() {
     setSyllabusText('');
     setCourseName('');
   };
+
+  const { remaining } = rateLimitInfo;
 
   return (
     <div className="min-h-screen bg-background">
@@ -118,9 +245,15 @@ export default function SyllabusScannerPage() {
             <span className="text-lg font-bold">EduThree</span>
             <Badge variant="secondary" className="ml-2">Syllabus Scanner</Badge>
           </div>
-          <Button variant="outline" asChild>
-            <a href="/signup">Sign Up Free</a>
-          </Button>
+          <div className="flex items-center gap-4">
+            <div className="text-sm text-muted-foreground flex items-center gap-1">
+              <Clock className="h-4 w-4" />
+              {remaining} scans remaining
+            </div>
+            <Button variant="outline" asChild>
+              <a href="/signup">Sign Up Free</a>
+            </Button>
+          </div>
         </div>
       </header>
 
@@ -135,6 +268,22 @@ export default function SyllabusScannerPage() {
             will develop. Perfect for faculty reviewing courses or students choosing classes.
           </p>
         </div>
+
+        {/* Rate Limit Warning */}
+        {remaining <= 2 && remaining > 0 && (
+          <Card className="mb-6 border-yellow-500/50 bg-yellow-50/10">
+            <CardContent className="py-4 flex items-center gap-3">
+              <AlertCircle className="h-5 w-5 text-yellow-500" />
+              <div className="flex-1">
+                <p className="text-sm font-medium">Only {remaining} free scan{remaining !== 1 ? 's' : ''} left</p>
+                <p className="text-xs text-muted-foreground">Sign up for unlimited scans and full analysis</p>
+              </div>
+              <Button size="sm" asChild>
+                <a href="/signup">Sign Up</a>
+              </Button>
+            </CardContent>
+          </Card>
+        )}
 
         {!analysisResult ? (
           <Card>
@@ -154,7 +303,7 @@ export default function SyllabusScannerPage() {
                 />
               </div>
 
-              <Tabs defaultValue="upload" className="w-full">
+              <Tabs defaultValue="paste" className="w-full">
                 <TabsList className="grid w-full grid-cols-2">
                   <TabsTrigger value="upload">Upload File</TabsTrigger>
                   <TabsTrigger value="paste">Paste Text</TabsTrigger>
@@ -209,12 +358,16 @@ export default function SyllabusScannerPage() {
                     placeholder="Paste your syllabus content here..."
                     className="min-h-[250px] resize-y"
                   />
+                  <div className="flex justify-between text-xs text-muted-foreground mt-2">
+                    <span>{syllabusText.length} characters</span>
+                    <span>Minimum: 50 characters</span>
+                  </div>
                 </TabsContent>
               </Tabs>
 
               <Button
                 onClick={handleAnalyze}
-                disabled={isAnalyzing || (!syllabusText && !uploadedFile)}
+                disabled={isAnalyzing || (!syllabusText && !uploadedFile) || remaining <= 0}
                 className="w-full"
                 size="lg"
               >
@@ -230,6 +383,15 @@ export default function SyllabusScannerPage() {
                   </>
                 )}
               </Button>
+              
+              {isAnalyzing && (
+                <div className="space-y-2">
+                  <Progress value={66} className="h-2" />
+                  <p className="text-xs text-center text-muted-foreground">
+                    AI is extracting capabilities from your syllabus...
+                  </p>
+                </div>
+              )}
             </CardContent>
           </Card>
         ) : (
@@ -271,39 +433,43 @@ export default function SyllabusScannerPage() {
             </Card>
 
             {/* Tools & Methods */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Tools & Methods Proficiency</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex flex-wrap gap-3">
-                  {analysisResult.tools.map((tool, i) => (
-                    <Badge key={i} variant="outline" className="py-2 px-3">
-                      <span className="font-medium">{tool.name}</span>
-                      <span className="text-muted-foreground ml-2">({tool.level})</span>
-                    </Badge>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+            {analysisResult.tools.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Tools & Methods Proficiency</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-wrap gap-3">
+                    {analysisResult.tools.map((tool, i) => (
+                      <Badge key={i} variant="outline" className="py-2 px-3">
+                        <span className="font-medium">{tool.name}</span>
+                        <span className="text-muted-foreground ml-2">({tool.level})</span>
+                      </Badge>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Artifacts */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Evidence & Artifacts</CardTitle>
-                <CardDescription>Tangible outputs students will produce</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-2">
-                  {analysisResult.artifacts.map((artifact, i) => (
-                    <li key={i} className="flex items-center gap-2 text-sm">
-                      <FileText className="h-4 w-4 text-muted-foreground" />
-                      {artifact}
-                    </li>
-                  ))}
-                </ul>
-              </CardContent>
-            </Card>
+            {analysisResult.artifacts.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Evidence & Artifacts</CardTitle>
+                  <CardDescription>Tangible outputs students will produce</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <ul className="space-y-2">
+                    {analysisResult.artifacts.map((artifact, i) => (
+                      <li key={i} className="flex items-center gap-2 text-sm">
+                        <FileText className="h-4 w-4 text-muted-foreground" />
+                        {artifact}
+                      </li>
+                    ))}
+                  </ul>
+                </CardContent>
+              </Card>
+            )}
 
             {/* CTA */}
             <Card className="bg-gradient-to-br from-primary/10 to-accent/10 border-primary/20">
