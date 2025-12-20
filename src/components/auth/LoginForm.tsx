@@ -130,10 +130,10 @@ export function LoginForm() {
               )}
             </form.Field>
 
-            <div className="flex items-center justify-between">
-              <Link to="/forgot-password" className="text-sm text-primary hover:underline">
+            <div className="flex items-center justify-end">
+              <button type="button" className="text-sm text-primary hover:underline">
                 Forgot password?
-              </Link>
+              </button>
             </div>
 
             <form.Subscribe selector={(state) => [state.canSubmit, state.isSubmitting]}>
@@ -148,7 +148,7 @@ export function LoginForm() {
 
           <p className="mt-8 text-center text-sm text-muted-foreground">
             Don't have an account?{' '}
-            <Link to="/signup" className="text-primary font-medium hover:underline">
+            <Link to="/auth" className="text-primary font-medium hover:underline">
               Sign up for free
             </Link>
           </p>

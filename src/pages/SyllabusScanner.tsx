@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { useDropzone } from 'react-dropzone';
 import { 
   Upload, 
@@ -259,7 +260,7 @@ export default function SyllabusScannerPage() {
               {remaining} scans remaining
             </div>
             <Button variant="outline" asChild>
-              <a href="/signup">Sign Up Free</a>
+              <Link to="/auth">Sign Up Free</Link>
             </Button>
           </div>
         </div>
@@ -491,10 +492,10 @@ export default function SyllabusScannerPage() {
                     </p>
                   </div>
                   <Button asChild>
-                    <a href="/signup">
+                    <Link to="/auth">
                       Get Started Free
                       <ArrowRight className="h-4 w-4 ml-2" />
-                    </a>
+                    </Link>
                   </Button>
                 </div>
               </CardContent>

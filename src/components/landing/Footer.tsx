@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { GraduationCap, Twitter, Linkedin, Mail } from "lucide-react";
 
 export function Footer() {
@@ -7,14 +8,14 @@ export function Footer() {
         <div className="grid md:grid-cols-4 gap-12">
           {/* Brand */}
           <div className="md:col-span-1">
-            <a href="/" className="flex items-center gap-2 mb-4">
+            <Link to="/" className="flex items-center gap-2 mb-4">
               <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center shadow-lg shadow-teal-500/25">
                 <GraduationCap className="w-5 h-5 text-primary-foreground" />
               </div>
               <span className="text-xl font-bold text-primary-foreground">
                 Edu<span className="text-teal-400">Three</span>
               </span>
-            </a>
+            </Link>
             <p className="text-primary-foreground/50 text-sm mb-4">
               AI-powered career intelligence for students who want honest answers, not empty encouragement.
             </p>
