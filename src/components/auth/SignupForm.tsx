@@ -292,8 +292,8 @@ export function SignupForm() {
 
           <p className="mt-4 text-center text-xs text-muted-foreground">
             By creating an account, you agree to our{' '}
-            <span className="underline cursor-pointer">Terms</span> and{' '}
-            <span className="underline cursor-pointer">Privacy Policy</span>
+            <Link to="/legal#terms" className="underline">Terms</Link> and{' '}
+            <Link to="/legal#privacy" className="underline">Privacy Policy</Link>
           </p>
         </div>
       </div>

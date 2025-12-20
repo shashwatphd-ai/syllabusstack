@@ -288,7 +288,7 @@ export default function SyllabusScannerPage() {
                 <p className="text-xs text-muted-foreground">Sign up for unlimited scans and full analysis</p>
               </div>
               <Button size="sm" asChild>
-                <a href="/signup">Sign Up</a>
+                <Link to="/auth">Sign Up</Link>
               </Button>
             </CardContent>
           </Card>

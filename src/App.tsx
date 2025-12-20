@@ -22,6 +22,9 @@ import SettingsPage from "./pages/Settings";
 import SyllabusScannerPage from "./pages/SyllabusScanner";
 import UsagePage from "./pages/Usage";
 import TestResultsPage from "./pages/TestResults";
+import ResourcesPage from "./pages/Resources";
+import LegalPage from "./pages/Legal";
+import UniversitiesPage from "./pages/Universities";
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -35,10 +38,13 @@ const App = () => (
             <Route path="/" element={<Index />} />
             <Route path="/scanner" element={<SyllabusScannerPage />} />
             <Route path="/test-results" element={<TestResultsPage />} />
-            
+            <Route path="/resources" element={<ResourcesPage />} />
+            <Route path="/legal" element={<LegalPage />} />
+            <Route path="/universities" element={<UniversitiesPage />} />
+
             {/* Auth routes (redirect if logged in) */}
             <Route path="/auth" element={<GuestGuard><Auth /></GuestGuard>} />
-            
+
             {/* Protected routes */}
             <Route path="/onboarding" element={<AuthGuard><OnboardingPage /></AuthGuard>} />
             <Route path="/dashboard" element={<AuthGuard><DashboardPage /></AuthGuard>} />
@@ -51,7 +57,7 @@ const App = () => (
             <Route path="/profile" element={<AuthGuard><ProfilePage /></AuthGuard>} />
             <Route path="/settings" element={<AuthGuard><SettingsPage /></AuthGuard>} />
             <Route path="/usage" element={<AuthGuard><UsagePage /></AuthGuard>} />
-            
+
             {/* Catch-all */}
             <Route path="*" element={<NotFound />} />
           </Routes>
