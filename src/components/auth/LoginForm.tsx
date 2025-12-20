@@ -131,9 +131,9 @@ export function LoginForm() {
             </form.Field>
 
             <div className="flex items-center justify-end">
-              <button type="button" className="text-sm text-primary hover:underline">
+              <Link to="/forgot-password" className="text-sm text-primary hover:underline">
                 Forgot password?
-              </button>
+              </Link>
             </div>
 
             <form.Subscribe selector={(state) => [state.canSubmit, state.isSubmitting]}>
