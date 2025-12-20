@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   ChevronRight, 
@@ -8,7 +8,8 @@ import {
   Briefcase,
   Sparkles,
   Check,
-  Loader2
+  Loader2,
+  Gift
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,9 +25,11 @@ import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
 import { CourseUploader, CourseData } from './CourseUploader';
 import { DreamJobSelector, DreamJob } from './DreamJobSelector';
+import { AIProcessingIndicator } from './AIProcessingIndicator';
 import { toast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { useUpdateProfile, useCompleteOnboarding } from '@/hooks/useProfile';
+import { getPendingResults, clearPendingResults } from '@/lib/pending-results';
 
 type OnboardingStep = 'profile' | 'courses' | 'dream-jobs' | 'complete';
 
@@ -64,6 +67,9 @@ export function OnboardingWizard() {
   
   const [currentStep, setCurrentStep] = useState<OnboardingStep>('profile');
   const [isSaving, setIsSaving] = useState(false);
+  const [isAIProcessing, setIsAIProcessing] = useState(false);
+  const [aiProcessingType, setAIProcessingType] = useState<'syllabus' | 'dreamJob' | 'gap'>('syllabus');
+  const [pendingResults, setPendingResults] = useState(getPendingResults());
   const [profile, setProfile] = useState<ProfileData>({
     fullName: '',
     university: '',
@@ -73,6 +79,16 @@ export function OnboardingWizard() {
   });
   const [courses, setCourses] = useState<CourseData[]>([]);
   const [dreamJobs, setDreamJobs] = useState<DreamJob[]>([]);
+
+  // Check for pending results from syllabus scanner
+  useEffect(() => {
+    if (pendingResults) {
+      toast({
+        title: 'Welcome back!',
+        description: `Your "${pendingResults.courseName}" analysis is saved. Complete signup to access it.`,
+      });
+    }
+  }, []);
 
   const stepIndex = steps.findIndex(s => s.id === currentStep);
   const progress = ((stepIndex + 1) / steps.length) * 100;
@@ -170,6 +186,21 @@ export function OnboardingWizard() {
 
   const handleCourseAdded = (course: CourseData) => {
     setCourses(prev => [...prev, course]);
+    setIsAIProcessing(false);
+  };
+
+  const handleCourseProcessing = () => {
+    setAIProcessingType('syllabus');
+    setIsAIProcessing(true);
+  };
+
+  const handleDreamJobProcessing = () => {
+    setAIProcessingType('dreamJob');
+    setIsAIProcessing(true);
+  };
+
+  const handleDreamJobAdded = () => {
+    setIsAIProcessing(false);
   };
 
   return (
@@ -320,6 +351,36 @@ export function OnboardingWizard() {
         {/* Courses Step */}
         {currentStep === 'courses' && (
           <div className="space-y-6">
+            {/* Pending Results Banner */}
+            {pendingResults && (
+              <Card className="border-green-500/30 bg-green-50/10">
+                <CardContent className="py-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-green-500/10 flex items-center justify-center">
+                      <Gift className="h-5 w-5 text-green-600" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium">Saved Analysis Found</p>
+                      <p className="text-xs text-muted-foreground">
+                        "{pendingResults.courseName}" with {pendingResults.capabilities.length} capabilities detected
+                      </p>
+                    </div>
+                    <Button 
+                      size="sm" 
+                      variant="outline"
+                      onClick={() => {
+                        clearPendingResults();
+                        setPendingResults(null);
+                        toast({ title: 'Cleared', description: 'Pending results removed.' });
+                      }}
+                    >
+                      Dismiss
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             <Card>
               <CardHeader>
                 <CardTitle>Add your courses</CardTitle>
@@ -328,8 +389,17 @@ export function OnboardingWizard() {
                   You've added {courses.length} course{courses.length !== 1 ? 's' : ''}.
                 </CardDescription>
               </CardHeader>
-              <CardContent>
-                <CourseUploader onSuccess={handleCourseAdded} />
+              <CardContent className="space-y-4">
+                <CourseUploader 
+                  onSuccess={handleCourseAdded} 
+                  onProcessingStart={handleCourseProcessing}
+                />
+                
+                {/* AI Processing Indicator */}
+                <AIProcessingIndicator 
+                  isProcessing={isAIProcessing && aiProcessingType === 'syllabus'} 
+                  type="syllabus" 
+                />
               </CardContent>
             </Card>
 

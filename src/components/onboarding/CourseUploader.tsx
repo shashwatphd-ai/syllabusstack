@@ -55,9 +55,10 @@ export interface CourseData extends CourseFormValues {
 interface CourseUploaderProps {
   onSuccess?: (course: CourseData) => void;
   onCancel?: () => void;
+  onProcessingStart?: () => void;
 }
 
-export function CourseUploader({ onSuccess, onCancel }: CourseUploaderProps) {
+export function CourseUploader({ onSuccess, onCancel, onProcessingStart }: CourseUploaderProps) {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisStatus, setAnalysisStatus] = useState<'idle' | 'saving' | 'extracting' | 'analyzing' | 'complete'>('idle');
@@ -114,6 +115,7 @@ export function CourseUploader({ onSuccess, onCancel }: CourseUploaderProps) {
   const onSubmit = async (data: CourseFormValues) => {
     setIsAnalyzing(true);
     setAnalysisStatus('saving');
+    onProcessingStart?.();
 
     try {
       // Step 1: Create course in database

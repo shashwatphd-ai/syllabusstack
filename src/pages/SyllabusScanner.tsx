@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useDropzone } from 'react-dropzone';
 import { 
   Upload, 
@@ -11,7 +11,8 @@ import {
   CheckCircle2,
   ArrowRight,
   AlertCircle,
-  Clock
+  Clock,
+  Save
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,6 +25,7 @@ import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useSEO, pageSEO } from '@/hooks/useSEO';
+import { savePendingResults } from '@/lib/pending-results';
 
 interface AnalysisResult {
   capabilities: string[];
@@ -79,6 +81,7 @@ function recordScan(): boolean {
 
 export default function SyllabusScannerPage() {
   useSEO(pageSEO.syllabusScanner);
+  const navigate = useNavigate();
   
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [syllabusText, setSyllabusText] = useState('');
@@ -86,6 +89,25 @@ export default function SyllabusScannerPage() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [rateLimitInfo] = useState(getRateLimitInfo);
+
+  const handleSaveResults = () => {
+    if (!analysisResult) return;
+    
+    savePendingResults({
+      courseName: courseName || 'Analyzed Course',
+      capabilities: analysisResult.capabilities,
+      tools: analysisResult.tools,
+      artifacts: analysisResult.artifacts,
+      scannedAt: new Date().toISOString(),
+    });
+    
+    toast({
+      title: 'Results saved!',
+      description: 'Create an account to access your analysis anytime.',
+    });
+    
+    navigate('/auth?from=scanner');
+  };
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const file = acceptedFiles[0];
@@ -480,7 +502,29 @@ export default function SyllabusScannerPage() {
               </Card>
             )}
 
-            {/* CTA */}
+            {/* Save Results CTA */}
+            <Card className="bg-gradient-to-br from-green-500/10 to-emerald-500/10 border-green-500/20">
+              <CardContent className="p-6">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                  <div className="w-12 h-12 rounded-full bg-green-500/10 flex items-center justify-center shrink-0">
+                    <Save className="h-6 w-6 text-green-600" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="font-semibold mb-1">Save These Results</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Don't lose this analysis! Create a free account to save it permanently 
+                      and compare against real job requirements.
+                    </p>
+                  </div>
+                  <Button onClick={handleSaveResults} className="shrink-0 gap-2">
+                    <Save className="h-4 w-4" />
+                    Save & Sign Up
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Full Analysis CTA */}
             <Card className="bg-gradient-to-br from-primary/10 to-accent/10 border-primary/20">
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
@@ -491,7 +535,7 @@ export default function SyllabusScannerPage() {
                       personalized recommendations.
                     </p>
                   </div>
-                  <Button asChild>
+                  <Button asChild variant="outline">
                     <Link to="/auth">
                       Get Started Free
                       <ArrowRight className="h-4 w-4 ml-2" />
