@@ -12,6 +12,7 @@ import Auth from "./pages/Auth";
 import OnboardingPage from "./pages/Onboarding";
 import DashboardPage from "./pages/Dashboard";
 import CoursesPage from "./pages/Courses";
+import CourseDetailPage from "./pages/CourseDetail";
 import DreamJobsPage from "./pages/DreamJobs";
 import DreamJobDetailPage from "./pages/DreamJobDetail";
 import AnalysisPage from "./pages/Analysis";
@@ -42,6 +43,7 @@ const App = () => (
             <Route path="/onboarding" element={<AuthGuard><OnboardingPage /></AuthGuard>} />
             <Route path="/dashboard" element={<AuthGuard><DashboardPage /></AuthGuard>} />
             <Route path="/courses" element={<AuthGuard><CoursesPage /></AuthGuard>} />
+            <Route path="/courses/:id" element={<AuthGuard><CourseDetailPage /></AuthGuard>} />
             <Route path="/dream-jobs" element={<AuthGuard><DreamJobsPage /></AuthGuard>} />
             <Route path="/dream-jobs/:jobId" element={<AuthGuard><DreamJobDetailPage /></AuthGuard>} />
             <Route path="/analysis" element={<AuthGuard><AnalysisPage /></AuthGuard>} />
