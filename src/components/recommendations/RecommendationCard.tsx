@@ -15,7 +15,9 @@ import {
   ChevronUp,
   DollarSign,
   PlayCircle,
-  SkipForward
+  SkipForward,
+  Circle,
+  Loader2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -50,8 +52,9 @@ export interface Recommendation {
 
 interface RecommendationCardProps {
   recommendation: Recommendation;
-  onStatusChange?: (id: string, status: Status) => void;
+  onStatusChange?: (id: string, status: Status) => Promise<void>;
   onView?: (id: string) => void;
+  isUpdating?: boolean;
 }
 
 const getTypeIcon = (type: RecommendationType) => {
@@ -90,21 +93,39 @@ const getPriorityColor = (priority: Priority): string => {
   }
 };
 
-const getStatusColor = (status: Status): string => {
+const getStatusInfo = (status: Status) => {
   switch (status) {
     case "completed":
-      return "bg-green-500/10 text-green-600";
+      return { 
+        color: "bg-green-500/10 text-green-600 border-green-500/30",
+        icon: CheckCircle2,
+        label: "Completed"
+      };
     case "in_progress":
-      return "bg-blue-500/10 text-blue-600";
+      return { 
+        color: "bg-blue-500/10 text-blue-600 border-blue-500/30",
+        icon: PlayCircle,
+        label: "In Progress"
+      };
     case "skipped":
-      return "bg-muted text-muted-foreground";
+      return { 
+        color: "bg-muted text-muted-foreground border-muted",
+        icon: SkipForward,
+        label: "Skipped"
+      };
     default:
-      return "bg-muted text-muted-foreground";
+      return { 
+        color: "bg-muted/50 text-muted-foreground border-muted",
+        icon: Circle,
+        label: "Not Started"
+      };
   }
 };
 
-export function RecommendationCard({ recommendation, onStatusChange }: RecommendationCardProps) {
+export function RecommendationCard({ recommendation, onStatusChange, isUpdating }: RecommendationCardProps) {
   const [expanded, setExpanded] = useState(false);
+  const [updatingStatus, setUpdatingStatus] = useState<Status | null>(null);
+  
   const { 
     id, 
     title, 
@@ -126,7 +147,10 @@ export function RecommendationCard({ recommendation, onStatusChange }: Recommend
   } = recommendation;
 
   const isCompleted = status === "completed";
+  const isSkipped = status === "skipped";
   const displayGap = gap_addressed || relatedGap;
+  const statusInfo = getStatusInfo(status);
+  const StatusIcon = statusInfo.icon;
   
   // Parse steps - can be array of strings or array of objects
   const parsedSteps = steps?.map((step, i) => {
@@ -137,38 +161,56 @@ export function RecommendationCard({ recommendation, onStatusChange }: Recommend
     return String(step);
   }) || [];
 
+  const handleStatusChange = async (newStatus: Status) => {
+    if (!onStatusChange || status === newStatus) return;
+    setUpdatingStatus(newStatus);
+    try {
+      await onStatusChange(id, newStatus);
+    } finally {
+      setUpdatingStatus(null);
+    }
+  };
+
   return (
     <Card className={cn(
       "transition-all",
-      isCompleted ? "opacity-60" : "hover:shadow-md"
+      isCompleted ? "opacity-70 border-green-500/30" : isSkipped ? "opacity-50" : "hover:shadow-md"
     )}>
-      <CardHeader 
-        className="pb-2 cursor-pointer" 
-        onClick={() => setExpanded(!expanded)}
-      >
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex items-start gap-3">
+      <CardHeader className="pb-2">
+        {/* Header row */}
+        <div 
+          className="flex items-start justify-between gap-4 cursor-pointer" 
+          onClick={() => setExpanded(!expanded)}
+        >
+          <div className="flex items-start gap-3 flex-1">
             <Badge variant="outline" className={cn(
-              "px-2 py-1 text-xs font-medium",
+              "px-2 py-1 text-xs font-medium shrink-0",
               getPriorityColor(priority)
             )}>
               #{priority === 'critical' || priority === 'high' ? '1' : priority === 'important' || priority === 'medium' ? '2' : '3'}
             </Badge>
-            <div className="flex-1">
-              <h4 className={cn(
-                "font-medium",
-                isCompleted && "line-through text-muted-foreground"
-              )}>
-                {title}
-              </h4>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <h4 className={cn(
+                  "font-medium",
+                  isCompleted && "line-through text-muted-foreground",
+                  isSkipped && "text-muted-foreground"
+                )}>
+                  {title}
+                </h4>
+                <Badge variant="outline" className={cn("text-xs shrink-0", statusInfo.color)}>
+                  <StatusIcon className="h-3 w-3 mr-1" />
+                  {statusInfo.label}
+                </Badge>
+              </div>
               {displayGap && (
-                <p className="text-sm text-muted-foreground mt-1">
+                <p className="text-sm text-muted-foreground mt-1 truncate">
                   Addresses: {displayGap}
                 </p>
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground shrink-0">
             <span className="flex items-center gap-1">
               <Clock className="h-3 w-3" />
               {effort_hours ? `${effort_hours}h` : estimatedTime || 'Varies'}
@@ -181,22 +223,115 @@ export function RecommendationCard({ recommendation, onStatusChange }: Recommend
           </div>
         </div>
 
-        {/* Status buttons */}
-        <div className="mt-3 flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
-          {(['pending', 'in_progress', 'completed', 'skipped'] as Status[]).map((s) => (
-            <button
-              key={s}
-              onClick={() => onStatusChange?.(id, s)}
-              className={cn(
-                "px-2 py-1 text-xs rounded-full transition-colors",
-                status === s 
-                  ? getStatusColor(s) + " font-medium"
-                  : "bg-muted/50 hover:bg-muted text-muted-foreground"
-              )}
+        {/* Action buttons */}
+        <div className="mt-4 flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
+          {status === 'pending' || status === 'not_started' ? (
+            <>
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => handleStatusChange('in_progress')}
+                disabled={!!updatingStatus}
+                className="gap-1.5"
+              >
+                {updatingStatus === 'in_progress' ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <PlayCircle className="h-3.5 w-3.5" />
+                )}
+                Start This
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleStatusChange('skipped')}
+                disabled={!!updatingStatus}
+                className="gap-1.5 text-muted-foreground"
+              >
+                {updatingStatus === 'skipped' ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <SkipForward className="h-3.5 w-3.5" />
+                )}
+                Skip
+              </Button>
+            </>
+          ) : status === 'in_progress' ? (
+            <>
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => handleStatusChange('completed')}
+                disabled={!!updatingStatus}
+                className="gap-1.5 bg-green-600 hover:bg-green-700"
+              >
+                {updatingStatus === 'completed' ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                )}
+                Mark Complete
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleStatusChange('pending')}
+                disabled={!!updatingStatus}
+                className="gap-1.5 text-muted-foreground"
+              >
+                {updatingStatus === 'pending' ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Circle className="h-3.5 w-3.5" />
+                )}
+                Pause
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleStatusChange('skipped')}
+                disabled={!!updatingStatus}
+                className="gap-1.5 text-muted-foreground"
+              >
+                {updatingStatus === 'skipped' ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <SkipForward className="h-3.5 w-3.5" />
+                )}
+                Skip
+              </Button>
+            </>
+          ) : status === 'completed' ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleStatusChange('pending')}
+              disabled={!!updatingStatus}
+              className="gap-1.5"
             >
-              {s === 'in_progress' ? 'in progress' : s.replace('_', ' ')}
-            </button>
-          ))}
+              {updatingStatus === 'pending' ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Circle className="h-3.5 w-3.5" />
+              )}
+              Mark Incomplete
+            </Button>
+          ) : status === 'skipped' ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleStatusChange('pending')}
+              disabled={!!updatingStatus}
+              className="gap-1.5"
+            >
+              {updatingStatus === 'pending' ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Circle className="h-3.5 w-3.5" />
+              )}
+              Restore
+            </Button>
+          ) : null}
         </div>
       </CardHeader>
 
