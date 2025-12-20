@@ -20,6 +20,7 @@ import ProfilePage from "./pages/Profile";
 import SettingsPage from "./pages/Settings";
 import SyllabusScannerPage from "./pages/SyllabusScanner";
 import UsagePage from "./pages/Usage";
+import TestResultsPage from "./pages/TestResults";
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -32,6 +33,7 @@ const App = () => (
             {/* Public routes */}
             <Route path="/" element={<Index />} />
             <Route path="/scanner" element={<SyllabusScannerPage />} />
+            <Route path="/test-results" element={<TestResultsPage />} />
             
             {/* Auth routes (redirect if logged in) */}
             <Route path="/auth" element={<GuestGuard><Auth /></GuestGuard>} />
