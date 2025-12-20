@@ -1,5 +1,5 @@
 import { AppShell } from "@/components/layout";
-import { DashboardOverview, CapabilitySnapshot, DreamJobCards } from "@/components/dashboard";
+import { DashboardOverview, CapabilitySnapshot, DreamJobCards, NextActionBanner, ProgressWidget } from "@/components/dashboard";
 import { useDashboardOverview, useDashboardStats } from "@/hooks/useDashboard";
 import { useDreamJobs } from "@/hooks/useDreamJobs";
 import { useCapabilities } from "@/hooks/useCapabilities";
@@ -49,6 +49,23 @@ export default function DashboardPage() {
     overallReadiness: overview?.averageMatchScore || 0,
   };
 
+  // Stats for NextActionBanner
+  const nextActionStats = {
+    totalCourses: overview?.totalCourses || 0,
+    totalDreamJobs: overview?.totalDreamJobs || 0,
+    hasGapAnalysis: overview?.hasGapAnalysis || false,
+    pendingRecommendations: overview?.progressSummary?.pendingRecommendations || 0,
+    topRecommendation: overview?.topRecommendation,
+  };
+
+  // Stats for ProgressWidget
+  const progressStats = {
+    pending: overview?.progressSummary?.pendingRecommendations || 0,
+    in_progress: overview?.progressSummary?.inProgressRecommendations || 0,
+    completed: overview?.progressSummary?.completedRecommendations || 0,
+    skipped: overview?.progressSummary?.skippedRecommendations || 0,
+  };
+
   return (
     <AppShell>
       <div className="space-y-8">
@@ -58,6 +75,12 @@ export default function DashboardPage() {
             Welcome back! Here's your career progress overview.
           </p>
         </div>
+
+        {/* Smart Next Action Banner */}
+        <NextActionBanner 
+          stats={nextActionStats}
+          isLoading={overviewLoading}
+        />
 
         <DashboardOverview 
           stats={overviewStats}
@@ -73,7 +96,12 @@ export default function DashboardPage() {
               onAddJob={() => navigate('/dream-jobs')}
             />
           </div>
-          <div>
+          <div className="space-y-6">
+            {/* Progress Widget */}
+            <ProgressWidget 
+              recommendations={progressStats}
+              isLoading={overviewLoading}
+            />
             <CapabilitySnapshot 
               capabilities={transformedCapabilities.length > 0 ? transformedCapabilities : undefined}
               isLoading={capsLoading}
