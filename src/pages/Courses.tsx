@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/layout";
 import { AddCourseForm, AddCourseFormValues } from "@/components/forms/AddCourseForm";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,6 +29,7 @@ import { toast } from "@/hooks/use-toast";
 export default function CoursesPage() {
   const [showUploader, setShowUploader] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const navigate = useNavigate();
   
   const { data: courses, isLoading: coursesLoading } = useCourses();
   const { data: capabilities } = useCapabilities();
@@ -213,7 +215,7 @@ export default function CoursesPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => navigate(`/courses/${course.id}`)}>
                             <Eye className="h-4 w-4 mr-2" />
                             View Details
                           </DropdownMenuItem>
