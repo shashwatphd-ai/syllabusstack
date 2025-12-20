@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/select';
 import { useProfile, useUpdateProfile } from '@/hooks/useProfile';
 import { getFieldError, FormFieldWrapper } from '@/lib/tanstack-form';
+import { ExportButtons } from '@/components/common/ExportButtons';
 
 const profileSchema = z.object({
   full_name: z.string().min(2, 'Name must be at least 2 characters').max(100),
@@ -114,11 +115,14 @@ export default function ProfilePage() {
   return (
     <AppShell>
       <div className="max-w-2xl mx-auto space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Profile Settings</h1>
-          <p className="text-muted-foreground mt-1">
-            Manage your account information and preferences
-          </p>
+        <div className="flex items-start justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">Profile Settings</h1>
+            <p className="text-muted-foreground mt-1">
+              Manage your account information and preferences
+            </p>
+          </div>
+          <ExportButtons />
         </div>
 
         {/* Profile Completion */}
