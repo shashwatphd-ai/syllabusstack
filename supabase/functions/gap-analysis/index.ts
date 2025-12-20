@@ -17,7 +17,7 @@ serve(async (req) => {
   }
 
   try {
-    const { dreamJobId } = await req.json();
+    const { dreamJobId, userId: testUserId } = await req.json();
     
     if (!dreamJobId) {
       return new Response(
@@ -27,23 +27,32 @@ serve(async (req) => {
     }
 
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
+    
+    let supabase;
+    let userId: string;
+    
+    if (authHeader) {
+      // Normal authenticated flow
+      supabase = createClient(
+        Deno.env.get("SUPABASE_URL") ?? "",
+        Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+        { global: { headers: { Authorization: authHeader } } }
+      );
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) {
+        throw new Error("Failed to get user");
+      }
+      userId = user.id;
+    } else if (testUserId) {
+      // Testing mode with service client
+      console.log("Running in test mode with userId:", testUserId);
+      supabase = createServiceClient();
+      userId = testUserId;
+    } else {
       return new Response(
         JSON.stringify({ error: "Authorization required" }),
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
-    }
-
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_ANON_KEY") ?? "",
-      { global: { headers: { Authorization: authHeader } } }
-    );
-
-    // Get user
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    if (userError || !user) {
-      throw new Error("Failed to get user");
     }
 
     // Get user's capabilities
@@ -82,11 +91,11 @@ serve(async (req) => {
     const serviceClient = createServiceClient();
     
     // Build user's capability keywords
-    const userKeywords = await buildUserCapabilityKeywords(supabase, user.id);
+    const userKeywords = await buildUserCapabilityKeywords(supabase, userId);
     console.log(`User has ${userKeywords.length} aggregated capability keywords`);
 
     // Analyze requirement coverage using similarity functions
-    const coverageAnalysis = await analyzeRequirementCoverage(supabase, dreamJobId, user.id);
+    const coverageAnalysis = await analyzeRequirementCoverage(supabase, dreamJobId, userId);
     console.log(`Keyword coverage: ${coverageAnalysis.coverage_percentage}% (${coverageAnalysis.covered_requirements.length} covered, ${coverageAnalysis.uncovered_requirements.length} uncovered)`);
 
     // Calculate keyword-based match score
@@ -264,7 +273,7 @@ Focus on:
     const { data: gapAnalysisRecord, error: insertError } = await supabase
       .from("gap_analyses")
       .insert({
-        user_id: user.id,
+        user_id: userId,
         dream_job_id: dreamJobId,
         analysis_text: analysis.honest_assessment,
         strong_overlaps: analysis.strong_overlaps,
@@ -290,7 +299,7 @@ Focus on:
     // Save anti-recommendations if any
     if (analysis.anti_recommendations?.length > 0) {
       const antiRecsToInsert = analysis.anti_recommendations.map((ar: string) => ({
-        user_id: user.id,
+        user_id: userId,
         dream_job_id: dreamJobId,
         action: ar,
         reason: "Identified during gap analysis"
@@ -309,7 +318,7 @@ Focus on:
     // Track AI usage
     await trackAIUsage(
       serviceClient,
-      user.id,
+      userId,
       "gap-analysis",
       "google/gemini-2.5-flash",
       data.usage?.prompt_tokens,

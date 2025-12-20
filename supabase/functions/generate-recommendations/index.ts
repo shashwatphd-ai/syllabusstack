@@ -15,7 +15,7 @@ serve(async (req) => {
   }
 
   try {
-    const { dreamJobId, gaps, gapAnalysisId } = await req.json();
+    const { dreamJobId, gaps, gapAnalysisId, userId: testUserId } = await req.json();
     
     if (!dreamJobId) {
       return new Response(
@@ -25,23 +25,30 @@ serve(async (req) => {
     }
 
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
+    
+    let supabase;
+    let userId: string;
+    
+    if (authHeader) {
+      supabase = createClient(
+        Deno.env.get("SUPABASE_URL") ?? "",
+        Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+        { global: { headers: { Authorization: authHeader } } }
+      );
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) {
+        throw new Error("Failed to get user");
+      }
+      userId = user.id;
+    } else if (testUserId) {
+      console.log("Running in test mode with userId:", testUserId);
+      supabase = createServiceClient();
+      userId = testUserId;
+    } else {
       return new Response(
         JSON.stringify({ error: "Authorization required" }),
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
-    }
-
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_ANON_KEY") ?? "",
-      { global: { headers: { Authorization: authHeader } } }
-    );
-
-    // Get user
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    if (userError || !user) {
-      throw new Error("Failed to get user");
     }
 
     // Get dream job details
@@ -197,7 +204,7 @@ PRIORITIZE:
 
     // Insert new recommendations with all fields
     const recsToInsert = recommendations.map((rec: any, index: number) => ({
-      user_id: user.id,
+      user_id: userId,
       dream_job_id: dreamJobId,
       gap_analysis_id: gapAnalysis?.id || null,
       title: rec.title,
@@ -234,7 +241,7 @@ PRIORITIZE:
         .eq("dream_job_id", dreamJobId);
 
       const antiRecsToInsert = antiRecommendations.map((ar: any) => ({
-        user_id: user.id,
+        user_id: userId,
         dream_job_id: dreamJobId,
         action: ar.action,
         reason: ar.reason
@@ -249,7 +256,7 @@ PRIORITIZE:
     const serviceClient = createServiceClient();
     await trackAIUsage(
       serviceClient,
-      user.id,
+      userId,
       "generate-recommendations",
       "google/gemini-2.5-flash",
       data.usage?.prompt_tokens,
