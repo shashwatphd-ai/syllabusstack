@@ -48,10 +48,17 @@ const getLevelLabel = (level: number): string => {
 };
 
 const getLevelColor = (level: number): string => {
-  if (level >= 80) return "bg-green-500";
+  if (level >= 80) return "bg-success";
   if (level >= 60) return "bg-accent";
-  if (level >= 40) return "bg-yellow-500";
-  return "bg-red-500";
+  if (level >= 40) return "bg-warning";
+  return "bg-destructive";
+};
+
+const getLevelBadgeStyle = (level: number): string => {
+  if (level >= 80) return "bg-success/10 text-success border-success/20";
+  if (level >= 60) return "bg-accent/10 text-accent border-accent/20";
+  if (level >= 40) return "bg-warning/10 text-warning border-warning/20";
+  return "bg-destructive/10 text-destructive border-destructive/20";
 };
 
 export function CapabilitySnapshot({ capabilities = mockCapabilities, isLoading }: CapabilitySnapshotProps) {
@@ -63,7 +70,7 @@ export function CapabilitySnapshot({ capabilities = mockCapabilities, isLoading 
 
   if (isLoading) {
     return (
-      <Card>
+      <Card className="border-0 shadow-md">
         <CardHeader>
           <CardTitle>Your Capabilities</CardTitle>
         </CardHeader>
@@ -82,11 +89,14 @@ export function CapabilitySnapshot({ capabilities = mockCapabilities, isLoading 
   }
 
   return (
-    <Card>
-      <CardHeader>
+    <Card className="border-0 shadow-md bg-card">
+      <CardHeader className="pb-4">
         <CardTitle className="flex items-center justify-between">
-          Your Capabilities
-          <Badge variant="secondary" className="font-normal">
+          <span className="text-lg font-semibold">Your Capabilities</span>
+          <Badge 
+            variant="secondary" 
+            className="font-medium bg-accent/10 text-accent border border-accent/20"
+          >
             {capabilities.length} skills tracked
           </Badge>
         </CardTitle>
@@ -94,23 +104,25 @@ export function CapabilitySnapshot({ capabilities = mockCapabilities, isLoading 
       <CardContent className="space-y-6">
         {Object.entries(groupedCapabilities).map(([category, caps]) => (
           <div key={category} className="space-y-3">
-            <h4 className="text-sm font-medium text-muted-foreground">{category}</h4>
-            <div className="space-y-3">
+            <h4 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">{category}</h4>
+            <div className="space-y-4">
               {caps.map((cap) => (
-                <div key={cap.name} className="space-y-1.5">
+                <div key={cap.name} className="space-y-2">
                   <div className="flex items-center justify-between text-sm">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium">{cap.name}</span>
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <span className="font-medium text-foreground truncate">{cap.name}</span>
                       <TrendIcon trend={cap.trend} />
                     </div>
-                    <Badge variant="outline" className="text-xs">
+                    <Badge 
+                      variant="outline" 
+                      className={`text-xs border flex-shrink-0 ml-2 ${getLevelBadgeStyle(cap.level)}`}
+                    >
                       {getLevelLabel(cap.level)}
                     </Badge>
                   </div>
-                  <div className="relative">
-                    <Progress value={cap.level} className="h-2" />
+                  <div className="relative h-2 w-full overflow-hidden rounded-full bg-muted">
                     <div
-                      className={`absolute top-0 left-0 h-2 rounded-full ${getLevelColor(cap.level)} transition-all`}
+                      className={`h-full rounded-full transition-all duration-500 ${getLevelColor(cap.level)}`}
                       style={{ width: `${cap.level}%` }}
                     />
                   </div>
