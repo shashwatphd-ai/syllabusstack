@@ -8,6 +8,7 @@ export interface DashboardOverview {
   totalDreamJobs: number;
   totalCapabilities: number;
   averageMatchScore: number;
+  hasGapAnalysis: boolean;
   topGaps: {
     skill: string;
     severity: 'critical' | 'important' | 'minor';
@@ -21,9 +22,13 @@ export interface DashboardOverview {
   }[];
   progressSummary: {
     completedRecommendations: number;
+    inProgressRecommendations: number;
+    pendingRecommendations: number;
+    skippedRecommendations: number;
     totalRecommendations: number;
     hoursInvested: number;
   };
+  topRecommendation?: string;
 }
 
 export interface DashboardStats {
@@ -45,12 +50,14 @@ async function fetchDashboardOverview(): Promise<DashboardOverview> {
     { data: courses },
     { data: dreamJobs },
     { data: capabilities },
-    { data: recommendations }
+    { data: recommendations },
+    { data: gapAnalyses }
   ] = await Promise.all([
     supabase.from('courses').select('id').eq('user_id', user.id),
     supabase.from('dream_jobs').select('id, title, match_score').eq('user_id', user.id),
     supabase.from('capabilities').select('id, name').eq('user_id', user.id),
-    supabase.from('recommendations').select('id, title, type, status, priority').eq('user_id', user.id).order('created_at', { ascending: false }).limit(10)
+    supabase.from('recommendations').select('id, title, type, status, priority').eq('user_id', user.id).order('created_at', { ascending: false }),
+    supabase.from('gap_analyses').select('id').eq('user_id', user.id).limit(1)
   ]);
 
   const jobs = dreamJobs || [];
@@ -62,14 +69,23 @@ async function fetchDashboardOverview(): Promise<DashboardOverview> {
     ? Math.round(matchScores.reduce((a, b) => a + b, 0) / matchScores.length)
     : 0;
 
-  // Progress summary
+  // Progress summary by status
   const completedRecs = recs.filter(r => r.status === 'completed').length;
+  const inProgressRecs = recs.filter(r => r.status === 'in_progress').length;
+  const pendingRecs = recs.filter(r => r.status === 'pending' || !r.status).length;
+  const skippedRecs = recs.filter(r => r.status === 'skipped').length;
+
+  // Find top recommendation (first high priority pending item)
+  const topRec = recs.find(r => 
+    (r.status === 'pending' || !r.status) && r.priority === 'high'
+  ) || recs.find(r => r.status === 'pending' || !r.status);
 
   return {
     totalCourses: courses?.length || 0,
     totalDreamJobs: jobs.length,
     totalCapabilities: capabilities?.length || 0,
     averageMatchScore,
+    hasGapAnalysis: (gapAnalyses?.length || 0) > 0,
     topGaps: [], // Would be populated from gap analysis
     recentRecommendations: recs.slice(0, 3).map(r => ({
       id: r.id,
@@ -79,12 +95,15 @@ async function fetchDashboardOverview(): Promise<DashboardOverview> {
     })),
     progressSummary: {
       completedRecommendations: completedRecs,
+      inProgressRecommendations: inProgressRecs,
+      pendingRecommendations: pendingRecs,
+      skippedRecommendations: skippedRecs,
       totalRecommendations: recs.length,
       hoursInvested: completedRecs * 5 // Estimate 5 hours per completed recommendation
-    }
+    },
+    topRecommendation: topRec?.title
   };
 }
-
 // Fetch dashboard stats from database
 async function fetchDashboardStats(): Promise<DashboardStats> {
   const { data: { user } } = await supabase.auth.getUser();
