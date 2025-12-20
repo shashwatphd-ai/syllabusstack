@@ -20,13 +20,29 @@ export function Footer() {
               AI-powered career intelligence for students who want honest answers, not empty encouragement.
             </p>
             <div className="flex gap-3">
-              <a href="#" className="w-8 h-8 rounded-lg bg-primary-foreground/5 hover:bg-primary-foreground/10 flex items-center justify-center text-primary-foreground/50 hover:text-primary-foreground transition-colors">
+              <a
+                href="https://twitter.com/eduthree"
+                target="_blank"
+                rel="noreferrer"
+                aria-label="EduThree on Twitter"
+                className="w-8 h-8 rounded-lg bg-primary-foreground/5 hover:bg-primary-foreground/10 flex items-center justify-center text-primary-foreground/50 hover:text-primary-foreground transition-colors"
+              >
                 <Twitter className="w-4 h-4" />
               </a>
-              <a href="#" className="w-8 h-8 rounded-lg bg-primary-foreground/5 hover:bg-primary-foreground/10 flex items-center justify-center text-primary-foreground/50 hover:text-primary-foreground transition-colors">
+              <a
+                href="https://www.linkedin.com/company/eduthree"
+                target="_blank"
+                rel="noreferrer"
+                aria-label="EduThree on LinkedIn"
+                className="w-8 h-8 rounded-lg bg-primary-foreground/5 hover:bg-primary-foreground/10 flex items-center justify-center text-primary-foreground/50 hover:text-primary-foreground transition-colors"
+              >
                 <Linkedin className="w-4 h-4" />
               </a>
-              <a href="#" className="w-8 h-8 rounded-lg bg-primary-foreground/5 hover:bg-primary-foreground/10 flex items-center justify-center text-primary-foreground/50 hover:text-primary-foreground transition-colors">
+              <a
+                href="mailto:support@eduthree.app"
+                aria-label="Email EduThree support"
+                className="w-8 h-8 rounded-lg bg-primary-foreground/5 hover:bg-primary-foreground/10 flex items-center justify-center text-primary-foreground/50 hover:text-primary-foreground transition-colors"
+              >
                 <Mail className="w-4 h-4" />
               </a>
             </div>
@@ -39,7 +55,7 @@ export function Footer() {
               <li><a href="#features" className="text-sm text-primary-foreground/50 hover:text-primary-foreground transition-colors">Features</a></li>
               <li><a href="#how-it-works" className="text-sm text-primary-foreground/50 hover:text-primary-foreground transition-colors">How It Works</a></li>
               <li><a href="#pricing" className="text-sm text-primary-foreground/50 hover:text-primary-foreground transition-colors">Pricing</a></li>
-              <li><a href="#" className="text-sm text-primary-foreground/50 hover:text-primary-foreground transition-colors">For Universities</a></li>
+              <li><Link to="/universities" className="text-sm text-primary-foreground/50 hover:text-primary-foreground transition-colors">For Universities</Link></li>
             </ul>
           </div>
 
@@ -47,10 +63,10 @@ export function Footer() {
           <div>
             <h4 className="text-sm font-semibold text-primary-foreground mb-4">Resources</h4>
             <ul className="space-y-3">
-              <li><a href="#" className="text-sm text-primary-foreground/50 hover:text-primary-foreground transition-colors">Documentation</a></li>
-              <li><a href="#" className="text-sm text-primary-foreground/50 hover:text-primary-foreground transition-colors">Career Guides</a></li>
-              <li><a href="#" className="text-sm text-primary-foreground/50 hover:text-primary-foreground transition-colors">Blog</a></li>
-              <li><a href="#" className="text-sm text-primary-foreground/50 hover:text-primary-foreground transition-colors">Support</a></li>
+              <li><Link to="/resources#documentation" className="text-sm text-primary-foreground/50 hover:text-primary-foreground transition-colors">Documentation</Link></li>
+              <li><Link to="/resources#career-guides" className="text-sm text-primary-foreground/50 hover:text-primary-foreground transition-colors">Career Guides</Link></li>
+              <li><Link to="/resources#blog" className="text-sm text-primary-foreground/50 hover:text-primary-foreground transition-colors">Blog</Link></li>
+              <li><Link to="/resources#support" className="text-sm text-primary-foreground/50 hover:text-primary-foreground transition-colors">Support</Link></li>
             </ul>
           </div>
 
@@ -58,9 +74,9 @@ export function Footer() {
           <div>
             <h4 className="text-sm font-semibold text-primary-foreground mb-4">Legal</h4>
             <ul className="space-y-3">
-              <li><a href="#" className="text-sm text-primary-foreground/50 hover:text-primary-foreground transition-colors">Privacy Policy</a></li>
-              <li><a href="#" className="text-sm text-primary-foreground/50 hover:text-primary-foreground transition-colors">Terms of Service</a></li>
-              <li><a href="#" className="text-sm text-primary-foreground/50 hover:text-primary-foreground transition-colors">Cookie Policy</a></li>
+              <li><Link to="/legal#privacy" className="text-sm text-primary-foreground/50 hover:text-primary-foreground transition-colors">Privacy Policy</Link></li>
+              <li><Link to="/legal#terms" className="text-sm text-primary-foreground/50 hover:text-primary-foreground transition-colors">Terms of Service</Link></li>
+              <li><Link to="/legal#cookies" className="text-sm text-primary-foreground/50 hover:text-primary-foreground transition-colors">Cookie Policy</Link></li>
             </ul>
           </div>
         </div>
