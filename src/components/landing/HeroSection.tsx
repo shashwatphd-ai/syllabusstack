@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Sparkles, Target, BookOpen } from "lucide-react";
 
@@ -49,12 +50,14 @@ export function HeroSection() {
 
           {/* CTA buttons */}
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16 animate-fade-up" style={{ animationDelay: '0.3s' }}>
-            <Button variant="hero" size="xl" className="group">
-              Get Started Free
-              <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+            <Button asChild variant="hero" size="xl" className="group">
+              <Link to="/auth">
+                Get Started Free
+                <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+              </Link>
             </Button>
-            <Button variant="heroOutline" size="xl">
-              See How It Works
+            <Button asChild variant="heroOutline" size="xl">
+              <a href="#how-it-works">See How It Works</a>
             </Button>
           </div>
 

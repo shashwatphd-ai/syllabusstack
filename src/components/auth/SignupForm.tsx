@@ -287,13 +287,13 @@ export function SignupForm() {
 
           <p className="mt-8 text-center text-sm text-muted-foreground">
             Already have an account?{' '}
-            <Link to="/login" className="text-primary font-medium hover:underline">Sign in</Link>
+            <Link to="/auth" className="text-primary font-medium hover:underline">Sign in</Link>
           </p>
 
           <p className="mt-4 text-center text-xs text-muted-foreground">
             By creating an account, you agree to our{' '}
-            <Link to="/terms" className="underline">Terms</Link> and{' '}
-            <Link to="/privacy" className="underline">Privacy Policy</Link>
+            <span className="underline cursor-pointer">Terms</span> and{' '}
+            <span className="underline cursor-pointer">Privacy Policy</span>
           </p>
         </div>
       </div>

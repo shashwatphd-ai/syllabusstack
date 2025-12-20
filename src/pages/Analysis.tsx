@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/layout";
 import { GapAnalysisView } from "@/components/analysis";
 import { Card, CardContent } from "@/components/ui/card";
@@ -9,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { BarChart3 } from "lucide-react";
 
 export default function AnalysisPage() {
+  const navigate = useNavigate();
   const { data: dreamJobs = [], isLoading } = useDreamJobs();
   const [selectedJobId, setSelectedJobId] = useState<string>("");
 
@@ -56,7 +58,7 @@ export default function AnalysisPage() {
                   Add a dream job first to see your gap analysis
                 </p>
               </div>
-              <Button onClick={() => window.location.href = '/dream-jobs'}>
+              <Button onClick={() => navigate('/dream-jobs')}>
                 Add Dream Job
               </Button>
             </div>
