@@ -8,7 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useDreamJobs } from "@/hooks/useDreamJobs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { BarChart3 } from "lucide-react";
-
+import { ExportButtons } from "@/components/common/ExportButtons";
 export default function AnalysisPage() {
   const navigate = useNavigate();
   const { data: dreamJobs = [], isLoading } = useDreamJobs();
@@ -71,24 +71,29 @@ export default function AnalysisPage() {
   return (
     <AppShell>
       <div className="space-y-6">
-        {/* Job Selector */}
-        {dreamJobs.length > 1 && (
-          <div className="flex items-center gap-4">
-            <span className="text-sm text-muted-foreground">Analyzing for:</span>
-            <Select value={activeJobId} onValueChange={setSelectedJobId}>
-              <SelectTrigger className="w-64">
-                <SelectValue placeholder="Select a dream job" />
-              </SelectTrigger>
-              <SelectContent>
-                {dreamJobs.map((job) => (
-                  <SelectItem key={job.id} value={job.id}>
-                    {job.title}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
+        {/* Header with Job Selector and Export */}
+        <div className="flex items-center justify-between flex-wrap gap-4">
+          {dreamJobs.length > 1 ? (
+            <div className="flex items-center gap-4">
+              <span className="text-sm text-muted-foreground">Analyzing for:</span>
+              <Select value={activeJobId} onValueChange={setSelectedJobId}>
+                <SelectTrigger className="w-64">
+                  <SelectValue placeholder="Select a dream job" />
+                </SelectTrigger>
+                <SelectContent>
+                  {dreamJobs.map((job) => (
+                    <SelectItem key={job.id} value={job.id}>
+                      {job.title}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : (
+            <div />
+          )}
+          <ExportButtons />
+        </div>
 
         <GapAnalysisView 
           dreamJobId={activeJobId}
