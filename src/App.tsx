@@ -25,6 +25,8 @@ import TestResultsPage from "./pages/TestResults";
 import ResourcesPage from "./pages/Resources";
 import LegalPage from "./pages/Legal";
 import UniversitiesPage from "./pages/Universities";
+import ForgotPasswordPage from "./pages/ForgotPassword";
+import ResetPasswordPage from "./pages/ResetPassword";
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -44,6 +46,8 @@ const App = () => (
 
             {/* Auth routes (redirect if logged in) */}
             <Route path="/auth" element={<GuestGuard><Auth /></GuestGuard>} />
+            <Route path="/forgot-password" element={<GuestGuard><ForgotPasswordPage /></GuestGuard>} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
 
             {/* Protected routes */}
             <Route path="/onboarding" element={<AuthGuard><OnboardingPage /></AuthGuard>} />
