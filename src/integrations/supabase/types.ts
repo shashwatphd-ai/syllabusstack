@@ -462,9 +462,11 @@ export type Database = {
           avatar_url: string | null
           created_at: string
           email: string | null
+          email_preferences: Json | null
           full_name: string | null
           graduation_year: number | null
           id: string
+          last_active_at: string | null
           major: string | null
           onboarding_completed: boolean | null
           onboarding_step: number | null
@@ -477,9 +479,11 @@ export type Database = {
           avatar_url?: string | null
           created_at?: string
           email?: string | null
+          email_preferences?: Json | null
           full_name?: string | null
           graduation_year?: number | null
           id?: string
+          last_active_at?: string | null
           major?: string | null
           onboarding_completed?: boolean | null
           onboarding_step?: number | null
@@ -492,9 +496,11 @@ export type Database = {
           avatar_url?: string | null
           created_at?: string
           email?: string | null
+          email_preferences?: Json | null
           full_name?: string | null
           graduation_year?: number | null
           id?: string
+          last_active_at?: string | null
           major?: string | null
           onboarding_completed?: boolean | null
           onboarding_step?: number | null
