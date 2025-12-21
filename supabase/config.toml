@@ -14,3 +14,6 @@ verify_jwt = true
 
 [functions.get-usage-stats]
 verify_jwt = true
+
+[functions.send-digest-email]
+verify_jwt = false

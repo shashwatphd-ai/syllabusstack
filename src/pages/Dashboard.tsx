@@ -1,13 +1,16 @@
 import { AppShell } from "@/components/layout";
 import { DashboardOverview, CapabilitySnapshot, DreamJobCards, NextActionBanner, ProgressWidget } from "@/components/dashboard";
+import { WelcomeBackBanner } from "@/components/dashboard/WelcomeBackBanner";
 import { useDashboardOverview, useDashboardStats } from "@/hooks/useDashboard";
 import { useDreamJobs } from "@/hooks/useDreamJobs";
 import { useCapabilities } from "@/hooks/useCapabilities";
 import { useNavigate } from "react-router-dom";
 import { useSEO, pageSEO } from "@/hooks/useSEO";
+import { useActivityTracking } from "@/hooks/useActivityTracking";
 
 export default function DashboardPage() {
   useSEO(pageSEO.dashboard);
+  useActivityTracking(); // Track user activity for re-engagement
   
   const navigate = useNavigate();
   const { data: overview, isLoading: overviewLoading } = useDashboardOverview();
@@ -75,6 +78,9 @@ export default function DashboardPage() {
             Welcome back! Here's your career progress overview.
           </p>
         </div>
+
+        {/* Welcome Back Banner for returning users */}
+        <WelcomeBackBanner />
 
         {/* Smart Next Action Banner */}
         <NextActionBanner 

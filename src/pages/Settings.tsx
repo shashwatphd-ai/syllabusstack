@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Moon, Sun, Bell, Shield, Globe, Palette, Monitor } from 'lucide-react';
+import { Moon, Sun, Shield, Globe, Palette, Monitor } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
@@ -14,12 +14,10 @@ import {
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { toast } from '@/hooks/use-toast';
+import { EmailPreferences } from '@/components/settings/EmailPreferences';
 
 export default function SettingsPage() {
   const [darkMode, setDarkMode] = useState(false);
-  const [emailNotifications, setEmailNotifications] = useState(true);
-  const [progressReminders, setProgressReminders] = useState(true);
-  const [weeklyDigest, setWeeklyDigest] = useState(false);
 
   const handleSave = () => {
     toast({
@@ -94,65 +92,8 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
-        {/* Notifications */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Bell className="h-5 w-5" />
-              Notifications
-            </CardTitle>
-            <CardDescription>
-              Configure how you want to be notified
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <Label htmlFor="email-notifications">Email Notifications</Label>
-                <p className="text-sm text-muted-foreground">
-                  Receive updates about your progress via email
-                </p>
-              </div>
-              <Switch
-                id="email-notifications"
-                checked={emailNotifications}
-                onCheckedChange={setEmailNotifications}
-              />
-            </div>
-            
-            <Separator />
-            
-            <div className="flex items-center justify-between">
-              <div>
-                <Label htmlFor="progress-reminders">Progress Reminders</Label>
-                <p className="text-sm text-muted-foreground">
-                  Get reminded to work on your recommendations
-                </p>
-              </div>
-              <Switch
-                id="progress-reminders"
-                checked={progressReminders}
-                onCheckedChange={setProgressReminders}
-              />
-            </div>
-            
-            <Separator />
-            
-            <div className="flex items-center justify-between">
-              <div>
-                <Label htmlFor="weekly-digest">Weekly Digest</Label>
-                <p className="text-sm text-muted-foreground">
-                  Receive a weekly summary of your progress
-                </p>
-              </div>
-              <Switch
-                id="weekly-digest"
-                checked={weeklyDigest}
-                onCheckedChange={setWeeklyDigest}
-              />
-            </div>
-          </CardContent>
-        </Card>
+        {/* Email Notifications - Using new component */}
+        <EmailPreferences />
 
         {/* Privacy */}
         <Card>
