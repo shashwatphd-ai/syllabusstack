@@ -17,3 +17,12 @@ verify_jwt = true
 
 [functions.send-digest-email]
 verify_jwt = false
+
+[functions.extract-learning-objectives]
+verify_jwt = true
+
+[functions.search-youtube-content]
+verify_jwt = true
+
+[functions.track-consumption]
+verify_jwt = true
