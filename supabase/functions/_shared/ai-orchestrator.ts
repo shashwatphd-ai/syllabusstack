@@ -1,6 +1,6 @@
 // EduThree AI Orchestrator
 // Centralized AI request handling with model selection, caching, fallback logic, and cost tracking
-// Per Technical Specification v3.0 Part 4 + AI Orchestration Implementation Plan Phase 2
+// Updated to use Google Cloud API directly for cost savings
 
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getCachedResponse, setCachedResponse, CACHE_TTL, trackAIUsage } from "./ai-cache.ts";
@@ -12,60 +12,69 @@ export type AITaskType =
   | 'job_requirements'
   | 'gap_analysis'
   | 'recommendations'
-  | 'embedding';
+  | 'embedding'
+  | 'question_generation'
+  | 'answer_evaluation'
+  | 'content_search';
 
-// Lovable AI Gateway models
+// Google Gemini models (direct API)
 export const MODEL_CONFIG = {
   // Fast, cost-effective (default)
-  GEMINI_FLASH: 'google/gemini-2.5-flash',
+  GEMINI_FLASH: 'gemini-2.0-flash',
   // Fastest, cheapest
-  GEMINI_FLASH_LITE: 'google/gemini-2.5-flash-lite',
+  GEMINI_FLASH_LITE: 'gemini-2.0-flash-lite',
   // Complex reasoning
-  GEMINI_PRO: 'google/gemini-2.5-pro',
-  // Premium quality
-  GPT5: 'openai/gpt-5',
-  // Balanced cost/performance
-  GPT5_MINI: 'openai/gpt-5-mini',
-  // Fast and cheap
-  GPT5_NANO: 'openai/gpt-5-nano',
+  GEMINI_PRO: 'gemini-2.5-pro-preview-06-05',
+  // Balanced
+  GEMINI_FLASH_THINKING: 'gemini-2.0-flash-thinking-exp',
 };
 
 // Task to model mapping with primary and fallback
 export const TASK_MODEL_MAP: Record<AITaskType, { primary: string; fallback: string }> = {
   syllabus_extraction: { 
     primary: MODEL_CONFIG.GEMINI_FLASH, 
-    fallback: MODEL_CONFIG.GPT5_MINI 
+    fallback: MODEL_CONFIG.GEMINI_PRO 
   },
   capability_analysis: { 
     primary: MODEL_CONFIG.GEMINI_FLASH, 
-    fallback: MODEL_CONFIG.GPT5_MINI 
+    fallback: MODEL_CONFIG.GEMINI_PRO 
   },
   job_requirements: { 
     primary: MODEL_CONFIG.GEMINI_PRO,   // Needs reasoning for accurate requirements
-    fallback: MODEL_CONFIG.GPT5 
+    fallback: MODEL_CONFIG.GEMINI_FLASH 
   },
   gap_analysis: { 
     primary: MODEL_CONFIG.GEMINI_PRO,   // Complex comparison task
-    fallback: MODEL_CONFIG.GPT5 
+    fallback: MODEL_CONFIG.GEMINI_FLASH 
   },
   recommendations: { 
     primary: MODEL_CONFIG.GEMINI_FLASH, 
-    fallback: MODEL_CONFIG.GPT5_MINI 
+    fallback: MODEL_CONFIG.GEMINI_PRO 
   },
   embedding: { 
     primary: MODEL_CONFIG.GEMINI_FLASH_LITE, 
     fallback: MODEL_CONFIG.GEMINI_FLASH 
+  },
+  question_generation: {
+    primary: MODEL_CONFIG.GEMINI_FLASH,
+    fallback: MODEL_CONFIG.GEMINI_PRO
+  },
+  answer_evaluation: {
+    primary: MODEL_CONFIG.GEMINI_FLASH,
+    fallback: MODEL_CONFIG.GEMINI_PRO
+  },
+  content_search: {
+    primary: MODEL_CONFIG.GEMINI_FLASH_LITE,
+    fallback: MODEL_CONFIG.GEMINI_FLASH
   }
 };
 
-// Cost per 1M tokens for each model (USD)
+// Cost per 1M tokens for each model (USD) - Google Cloud pricing
 export const MODEL_COSTS: Record<string, { input: number; output: number }> = {
-  'google/gemini-2.5-flash': { input: 0.075, output: 0.30 },
-  'google/gemini-2.5-flash-lite': { input: 0.0375, output: 0.15 },
-  'google/gemini-2.5-pro': { input: 1.25, output: 5.00 },
-  'openai/gpt-5': { input: 5.00, output: 15.00 },
-  'openai/gpt-5-mini': { input: 0.15, output: 0.60 },
-  'openai/gpt-5-nano': { input: 0.10, output: 0.40 },
+  'gemini-2.0-flash': { input: 0.10, output: 0.40 },
+  'gemini-2.0-flash-lite': { input: 0.075, output: 0.30 },
+  'gemini-2.5-pro-preview-06-05': { input: 1.25, output: 5.00 },
+  'gemini-2.0-flash-thinking-exp': { input: 0.10, output: 0.40 },
 };
 
 export interface AIRequest {
@@ -93,7 +102,7 @@ export interface AIResponse {
  * Calculate cost from token counts for a specific model
  */
 export function calculateCost(model: string, inputTokens: number, outputTokens: number): number {
-  const costs = MODEL_COSTS[model] || MODEL_COSTS['google/gemini-2.5-flash'];
+  const costs = MODEL_COSTS[model] || MODEL_COSTS['gemini-2.0-flash'];
   return (inputTokens / 1_000_000) * costs.input + (outputTokens / 1_000_000) * costs.output;
 }
 
@@ -106,16 +115,124 @@ function estimateTokens(text: string): number {
 }
 
 /**
- * Make a single AI call with specified model
+ * Get API key - prefers GOOGLE_CLOUD_API_KEY, falls back to LOVABLE_API_KEY
  */
-async function makeAICall(
+function getAPIConfig(): { key: string; useGoogleDirect: boolean } {
+  const googleKey = Deno.env.get("GOOGLE_CLOUD_API_KEY");
+  if (googleKey) {
+    return { key: googleKey, useGoogleDirect: true };
+  }
+  
+  const lovableKey = Deno.env.get("LOVABLE_API_KEY");
+  if (lovableKey) {
+    return { key: lovableKey, useGoogleDirect: false };
+  }
+  
+  throw new Error("No API key configured. Set GOOGLE_CLOUD_API_KEY or LOVABLE_API_KEY.");
+}
+
+/**
+ * Make a single AI call using Google Gemini API directly
+ */
+async function makeGeminiCall(
   request: AIRequest,
   model: string,
-  LOVABLE_API_KEY: string
+  apiKey: string
 ): Promise<{ content: any; usage: { prompt_tokens: number; completion_tokens: number } }> {
-  // Build request body
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  
+  // Build request body for Gemini API
   const body: any = {
-    model,
+    contents: [
+      {
+        role: "user",
+        parts: [
+          { text: `${request.systemPrompt}\n\n${request.userPrompt}` }
+        ]
+      }
+    ],
+    generationConfig: {
+      temperature: 0.7,
+      maxOutputTokens: 8192,
+    }
+  };
+
+  // Add JSON schema for structured output
+  if (request.schema) {
+    body.generationConfig.responseMimeType = "application/json";
+    body.generationConfig.responseSchema = request.schema;
+  }
+
+  console.log(`Gemini Direct Request: task=${request.task}, model=${model}`);
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error(`Gemini API error: ${response.status}`, errorText);
+    
+    if (response.status === 429) {
+      throw new Error("RATE_LIMIT: Rate limit exceeded. Please try again later.");
+    }
+    if (response.status === 403) {
+      throw new Error("API_KEY_INVALID: Google Cloud API key is invalid or lacks permissions.");
+    }
+    throw new Error(`AI_ERROR: Gemini request failed with status ${response.status}`);
+  }
+
+  const data = await response.json();
+  
+  // Extract content from Gemini response
+  let content: any;
+  const textContent = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  
+  if (request.schema) {
+    // Parse JSON response
+    try {
+      content = JSON.parse(textContent);
+    } catch {
+      // If JSON parsing fails, return raw text
+      content = textContent;
+    }
+  } else {
+    content = textContent;
+  }
+
+  // Get usage metadata
+  const usageMetadata = data.usageMetadata || {};
+  
+  return {
+    content,
+    usage: {
+      prompt_tokens: usageMetadata.promptTokenCount || estimateTokens(request.systemPrompt + request.userPrompt),
+      completion_tokens: usageMetadata.candidatesTokenCount || estimateTokens(JSON.stringify(content))
+    }
+  };
+}
+
+/**
+ * Make a single AI call using Lovable AI Gateway (fallback)
+ */
+async function makeLovableCall(
+  request: AIRequest,
+  model: string,
+  apiKey: string
+): Promise<{ content: any; usage: { prompt_tokens: number; completion_tokens: number } }> {
+  // Map Gemini model names to Lovable gateway format
+  const lovableModel = model.includes('pro') 
+    ? 'google/gemini-2.5-pro' 
+    : model.includes('lite')
+      ? 'google/gemini-2.5-flash-lite'
+      : 'google/gemini-2.5-flash';
+
+  const body: any = {
+    model: lovableModel,
     messages: [
       { role: "system", content: request.systemPrompt },
       { role: "user", content: request.userPrompt }
@@ -137,12 +254,12 @@ async function makeAICall(
     body.tool_choice = { type: "function", function: { name: request.functionName } };
   }
 
-  console.log(`AI Request: task=${request.task}, model=${model}`);
+  console.log(`Lovable Gateway Request: task=${request.task}, model=${lovableModel}`);
 
   const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${LOVABLE_API_KEY}`,
+      Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
@@ -150,7 +267,7 @@ async function makeAICall(
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error(`AI Gateway error: ${response.status}`, errorText);
+    console.error(`Lovable Gateway error: ${response.status}`, errorText);
     
     if (response.status === 429) {
       throw new Error("RATE_LIMIT: Rate limit exceeded. Please try again later.");
@@ -166,11 +283,9 @@ async function makeAICall(
   // Extract content
   let content: any;
   if (request.schema && data.choices?.[0]?.message?.tool_calls?.[0]) {
-    // Parse function call response
     const toolCall = data.choices[0].message.tool_calls[0];
     content = JSON.parse(toolCall.function.arguments);
   } else {
-    // Plain text response
     content = data.choices?.[0]?.message?.content || '';
   }
 
@@ -184,6 +299,22 @@ async function makeAICall(
 }
 
 /**
+ * Make a single AI call with specified model - routes to appropriate API
+ */
+async function makeAICall(
+  request: AIRequest,
+  model: string
+): Promise<{ content: any; usage: { prompt_tokens: number; completion_tokens: number } }> {
+  const { key, useGoogleDirect } = getAPIConfig();
+  
+  if (useGoogleDirect) {
+    return makeGeminiCall(request, model, key);
+  } else {
+    return makeLovableCall(request, model, key);
+  }
+}
+
+/**
  * Main AI orchestration function with fallback logic
  * Tries primary model first, falls back on failure
  */
@@ -192,11 +323,6 @@ export async function callAI(
   supabase?: SupabaseClient,
   userId?: string
 ): Promise<AIResponse> {
-  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-  if (!LOVABLE_API_KEY) {
-    throw new Error("LOVABLE_API_KEY is not configured");
-  }
-
   // Check cache if key provided
   if (request.cacheKey && supabase) {
     const cached = await getCachedResponse(supabase, request.cacheKey);
@@ -217,7 +343,7 @@ export async function callAI(
   // Get model configuration
   const modelConfig = TASK_MODEL_MAP[request.task] || { 
     primary: MODEL_CONFIG.GEMINI_FLASH, 
-    fallback: MODEL_CONFIG.GPT5_MINI 
+    fallback: MODEL_CONFIG.GEMINI_PRO 
   };
   
   // Allow model override
@@ -230,15 +356,14 @@ export async function callAI(
 
   try {
     // Try primary model
-    result = await makeAICall(request, primaryModel, LOVABLE_API_KEY);
+    result = await makeAICall(request, primaryModel);
     modelUsed = primaryModel;
     console.log(`Primary model ${primaryModel} succeeded`);
   } catch (primaryError) {
     // Check if it's a non-retryable error
     const errorMessage = primaryError instanceof Error ? primaryError.message : String(primaryError);
     
-    if (errorMessage.startsWith("RATE_LIMIT:") || errorMessage.startsWith("CREDITS_EXHAUSTED:")) {
-      // Don't retry on rate limit or credits - these affect all models
+    if (errorMessage.startsWith("RATE_LIMIT:") || errorMessage.startsWith("CREDITS_EXHAUSTED:") || errorMessage.startsWith("API_KEY_INVALID:")) {
       throw primaryError;
     }
 
@@ -246,12 +371,11 @@ export async function callAI(
     
     try {
       // Try fallback model
-      result = await makeAICall(request, fallbackModel, LOVABLE_API_KEY);
+      result = await makeAICall(request, fallbackModel);
       modelUsed = fallbackModel;
       fallbackUsed = true;
       console.log(`Fallback model ${fallbackModel} succeeded`);
     } catch (fallbackError) {
-      // Both models failed
       console.error(`Both primary and fallback models failed`);
       throw fallbackError;
     }
@@ -285,7 +409,8 @@ export async function callAI(
     );
   }
 
-  console.log(`AI Response: model=${modelUsed}, tokens=${result.usage.prompt_tokens}/${result.usage.completion_tokens}, cost=$${costUsd.toFixed(6)}, fallback=${fallbackUsed}`);
+  const { useGoogleDirect } = getAPIConfig();
+  console.log(`AI Response: model=${modelUsed}, api=${useGoogleDirect ? 'Google Direct' : 'Lovable Gateway'}, tokens=${result.usage.prompt_tokens}/${result.usage.completion_tokens}, cost=$${costUsd.toFixed(6)}, fallback=${fallbackUsed}`);
 
   return {
     content: result.content,
@@ -307,35 +432,17 @@ export async function callAISimple(
   userPrompt: string,
   model?: string
 ): Promise<{ content: string; model_used: string }> {
-  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-  if (!LOVABLE_API_KEY) {
-    throw new Error("LOVABLE_API_KEY is not configured");
-  }
-
   const selectedModel = model || TASK_MODEL_MAP[task]?.primary || MODEL_CONFIG.GEMINI_FLASH;
+  
+  const result = await makeAICall({
+    task,
+    systemPrompt,
+    userPrompt,
+    model: selectedModel
+  }, selectedModel);
 
-  const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${LOVABLE_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: selectedModel,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt }
-      ],
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`AI request failed: ${response.status}`);
-  }
-
-  const data = await response.json();
   return {
-    content: data.choices?.[0]?.message?.content || '',
+    content: typeof result.content === 'string' ? result.content : JSON.stringify(result.content),
     model_used: selectedModel,
   };
 }
@@ -371,7 +478,7 @@ export function createUserClient(authHeader: string): SupabaseClient {
 export function getModelForTask(task: AITaskType): { primary: string; fallback: string } {
   return TASK_MODEL_MAP[task] || { 
     primary: MODEL_CONFIG.GEMINI_FLASH, 
-    fallback: MODEL_CONFIG.GPT5_MINI 
+    fallback: MODEL_CONFIG.GEMINI_PRO 
   };
 }
 
