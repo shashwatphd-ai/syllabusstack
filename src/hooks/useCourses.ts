@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Tables, TablesInsert } from '@/integrations/supabase/types';
 import { queryKeys } from '@/lib/query-keys';
 import { toast } from '@/hooks/use-toast';
+import { performGapAnalysis, generateRecommendations } from '@/lib/api';
 
 // Types from database
 export type Course = Tables<'courses'>;
@@ -62,6 +63,33 @@ async function createCourse(course: Omit<CourseInsert, 'user_id'>): Promise<Cour
   return data;
 }
 
+// Auto-refresh gap analyses for all dream jobs when courses change
+async function refreshAllGapAnalyses() {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return;
+
+  const { data: dreamJobs } = await supabase
+    .from('dream_jobs')
+    .select('id')
+    .eq('user_id', user.id);
+
+  if (!dreamJobs || dreamJobs.length === 0) return;
+
+  console.log('[Workflow] Refreshing gap analyses for', dreamJobs.length, 'dream jobs');
+  
+  // Refresh analyses in parallel (but don't block the main flow)
+  for (const job of dreamJobs) {
+    try {
+      const gapResult = await performGapAnalysis(job.id);
+      if (gapResult.gaps && gapResult.gaps.length > 0) {
+        await generateRecommendations(job.id, gapResult.gaps);
+      }
+    } catch (error) {
+      console.error('[Workflow] Failed to refresh analysis for job:', job.id, error);
+    }
+  }
+}
+
 // Delete a course
 async function deleteCourse(id: string): Promise<void> {
   const { error } = await supabase
@@ -99,6 +127,10 @@ export function useCreateCourse() {
       queryClient.invalidateQueries({ queryKey: queryKeys.capabilities });
       queryClient.invalidateQueries({ queryKey: queryKeys.analysis });
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
+      
+      // Auto-refresh gap analyses in background (don't block)
+      refreshAllGapAnalyses().catch(console.error);
+      
       toast({
         title: 'Course added',
         description: 'Your course has been added successfully.',
@@ -159,6 +191,10 @@ export function useDeleteCourse() {
       queryClient.invalidateQueries({ queryKey: queryKeys.capabilities });
       queryClient.invalidateQueries({ queryKey: queryKeys.analysis });
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
+      
+      // Auto-refresh gap analyses in background after course deletion
+      refreshAllGapAnalyses().catch(console.error);
+      
       toast({
         title: 'Course deleted',
         description: 'Your course has been removed.',

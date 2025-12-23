@@ -172,7 +172,7 @@ export function BulkSyllabusUploader({ onSuccess, onCancel }: BulkSyllabusUpload
     }
   };
 
-  // Save all processed courses to database
+  // Save all processed courses to database with capabilities
   const saveAllCourses = async () => {
     const completedFiles = files.filter((f) => f.status === "complete");
     if (completedFiles.length === 0) return;
@@ -180,13 +180,41 @@ export function BulkSyllabusUploader({ onSuccess, onCancel }: BulkSyllabusUpload
     setIsSaving(true);
     let savedCount = 0;
     
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      toast({
+        title: "Error",
+        description: "Not authenticated",
+        variant: "destructive",
+      });
+      setIsSaving(false);
+      return;
+    }
+    
     for (const fileItem of completedFiles) {
       try {
-        await createCourse.mutateAsync({
+        // Create course
+        const course = await createCourse.mutateAsync({
           title: fileItem.title,
           code: fileItem.code || null,
           semester: fileItem.semester || null,
+          key_capabilities: fileItem.capabilities,
         });
+        
+        // Save capabilities if extracted
+        if (fileItem.capabilities.length > 0) {
+          const capabilitiesToInsert = fileItem.capabilities.map(cap => ({
+            user_id: user.id,
+            course_id: course.id,
+            name: cap,
+            category: 'General',
+            proficiency_level: 'developing',
+            source: 'course',
+          }));
+          
+          await supabase.from('capabilities').insert(capabilitiesToInsert);
+        }
+        
         savedCount++;
       } catch (error) {
         console.error(`Failed to save ${fileItem.title}:`, error);

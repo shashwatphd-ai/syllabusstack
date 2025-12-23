@@ -4,3 +4,4 @@ export type { CourseData } from './CourseUploader';
 export { DreamJobSelector } from './DreamJobSelector';
 export type { DreamJob } from './DreamJobSelector';
 export { AIProcessingIndicator } from './AIProcessingIndicator';
+export { BulkSyllabusUploader } from './BulkSyllabusUploader';
