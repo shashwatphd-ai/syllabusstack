@@ -106,8 +106,8 @@ Return a JSON array with exactly ${num_checks} objects in this format:
 
 Return ONLY the JSON array, no other text.`;
 
-    // Use Lovable AI
-    const response = await fetch('https://api.lovable.dev/v1/chat/completions', {
+    // Use Lovable AI Gateway
+    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${lovableApiKey}`,
