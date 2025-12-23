@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { useInstructorCourse, useCreateModule } from '@/hooks/useInstructorCourses';
+import { useInstructorCourse, useModules, useCreateModule } from '@/hooks/useInstructorCourses';
 import { useLearningObjectives, useExtractLearningObjectives } from '@/hooks/useLearningObjectives';
 import { LoadingState } from '@/components/common/LoadingState';
 import { EmptyState } from '@/components/common/EmptyState';
@@ -21,7 +21,8 @@ import { ContentCurationPanel } from '@/components/instructor/ContentCurationPan
 export default function InstructorCourseDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { data: course, isLoading } = useInstructorCourse(id);
+  const { data: course, isLoading: courseLoading } = useInstructorCourse(id);
+  const { data: modules, isLoading: modulesLoading } = useModules(id);
   const { data: learningObjectives } = useLearningObjectives();
   const createModule = useCreateModule();
   const extractLOs = useExtractLearningObjectives();
@@ -32,13 +33,15 @@ export default function InstructorCourseDetailPage() {
   const [syllabusText, setSyllabusText] = useState('');
   const [selectedModuleId, setSelectedModuleId] = useState<string | null>(null);
 
+  const isLoading = courseLoading || modulesLoading;
+
   const handleCreateModule = async () => {
     if (!newModule.title.trim() || !id) return;
     await createModule.mutateAsync({
       instructor_course_id: id,
       title: newModule.title,
       description: newModule.description,
-      sequence_order: (course?.modules?.length || 0) + 1,
+      sequence_order: (modules?.length || 0) + 1,
     });
     setIsModuleDialogOpen(false);
     setNewModule({ title: '', description: '' });
@@ -57,7 +60,7 @@ export default function InstructorCourseDetailPage() {
 
   // Filter LOs for this course's modules
   const courseLOs = learningObjectives?.filter(lo => 
-    course?.modules?.some(m => m.id === lo.module_id)
+    modules?.some(m => m.id === lo.module_id)
   ) || [];
 
   if (isLoading) {
@@ -128,7 +131,7 @@ export default function InstructorCourseDetailPage() {
                     <FileText className="h-5 w-5 text-primary" />
                   </div>
                   <div>
-                    <p className="text-2xl font-bold">{course.modules?.length || 0}</p>
+                    <p className="text-2xl font-bold">{modules?.length || 0}</p>
                     <p className="text-sm text-muted-foreground">Modules</p>
                   </div>
                 </div>
@@ -202,7 +205,7 @@ export default function InstructorCourseDetailPage() {
                         </DialogDescription>
                       </DialogHeader>
                       <div className="space-y-4 py-4">
-                        {course.modules && course.modules.length > 0 && (
+                        {modules && modules.length > 0 && (
                           <div className="space-y-2">
                             <Label>Assign to Module (Optional)</Label>
                             <select 
@@ -211,7 +214,7 @@ export default function InstructorCourseDetailPage() {
                               onChange={(e) => setSelectedModuleId(e.target.value || null)}
                             >
                               <option value="">No module (course-level)</option>
-                              {course.modules.map(m => (
+                              {modules.map(m => (
                                 <option key={m.id} value={m.id}>{m.title}</option>
                               ))}
                             </select>
@@ -284,7 +287,7 @@ export default function InstructorCourseDetailPage() {
                 </div>
               </div>
 
-              {!course.modules || course.modules.length === 0 ? (
+              {!modules || modules.length === 0 ? (
                 <EmptyState
                   icon={FileText}
                   title="No modules yet"
@@ -298,7 +301,7 @@ export default function InstructorCourseDetailPage() {
                 />
               ) : (
                 <div className="space-y-4">
-                  {course.modules
+                  {modules
                     .sort((a, b) => a.sequence_order - b.sequence_order)
                     .map((module) => (
                       <ModuleCard 

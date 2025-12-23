@@ -4,7 +4,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
-import { useConsumptionTracking, ConsumptionEvent } from '@/hooks/useConsumptionTracking';
+import { useConsumptionTracking } from '@/hooks/useConsumptionTracking';
 import { MicroCheckOverlay } from './MicroCheckOverlay';
 
 interface WatchedSegment {
@@ -55,10 +55,12 @@ export function VerifiedVideoPlayer({
   const [microCheckResults, setMicroCheckResults] = useState<Array<{ id: string; is_correct: boolean; attempt_number: number }>>([]);
   const [speedViolation, setSpeedViolation] = useState(false);
 
-  const { syncConsumption, trackEvent, isVerified, engagementScore } = useConsumptionTracking(
-    contentId,
-    learningObjectiveId
-  );
+  const { 
+    syncConsumption, 
+    trackEvent, 
+    isVerified, 
+    engagementScore 
+  } = useConsumptionTracking(contentId, learningObjectiveId);
 
   // Calculate watch percentage
   const watchPercentage = useCallback(() => {

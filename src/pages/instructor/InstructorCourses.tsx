@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, BookOpen, Users, Settings2, ChevronRight } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
-import { PageContainer } from '@/components/layout/PageContainer';
+import { PageContainer, PageHeader } from '@/components/layout/PageContainer';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -19,19 +19,44 @@ export default function InstructorCoursesPage() {
   const { data: courses, isLoading } = useInstructorCourses();
   const createCourse = useCreateInstructorCourse();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [newCourse, setNewCourse] = useState({ title: '', code: '', description: '' });
+  const [newCourse, setNewCourse] = useState({ 
+    title: '', 
+    code: '', 
+    description: '',
+    curation_mode: 'guided_auto' as const,
+    verification_threshold: 70,
+    is_published: false,
+    access_code: null as string | null,
+  });
 
   const handleCreateCourse = async () => {
     if (!newCourse.title.trim()) return;
-    await createCourse.mutateAsync(newCourse);
+    await createCourse.mutateAsync({
+      title: newCourse.title,
+      code: newCourse.code || null,
+      description: newCourse.description || null,
+      curation_mode: newCourse.curation_mode,
+      verification_threshold: newCourse.verification_threshold,
+      is_published: newCourse.is_published,
+      access_code: newCourse.access_code,
+    });
     setIsCreateOpen(false);
-    setNewCourse({ title: '', code: '', description: '' });
+    setNewCourse({ 
+      title: '', 
+      code: '', 
+      description: '',
+      curation_mode: 'guided_auto',
+      verification_threshold: 70,
+      is_published: false,
+      access_code: null,
+    });
   };
 
   if (isLoading) {
     return (
       <AppShell>
-        <PageContainer title="Instructor Dashboard">
+        <PageContainer>
+          <PageHeader title="Instructor Dashboard" />
           <LoadingState message="Loading your courses..." />
         </PageContainer>
       </AppShell>
@@ -40,10 +65,11 @@ export default function InstructorCoursesPage() {
 
   return (
     <AppShell>
-      <PageContainer 
-        title="Instructor Dashboard"
-        description="Manage your courses, content, and student progress"
-      >
+      <PageContainer>
+        <PageHeader 
+          title="Instructor Dashboard"
+          description="Manage your courses, content, and student progress"
+        />
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-xl font-semibold text-foreground">Your Courses</h2>
           <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
@@ -141,11 +167,11 @@ export default function InstructorCoursesPage() {
                   <div className="flex items-center gap-4 text-sm text-muted-foreground">
                     <div className="flex items-center gap-1.5">
                       <BookOpen className="h-4 w-4" />
-                      <span>{course.modules?.length || 0} modules</span>
+                      <span>--</span>
                     </div>
                     <div className="flex items-center gap-1.5">
                       <Users className="h-4 w-4" />
-                      <span>{course.enrollments?.length || 0} students</span>
+                      <span>--</span>
                     </div>
                   </div>
                   <div className="mt-3 flex items-center gap-2">
