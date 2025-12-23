@@ -399,3 +399,50 @@ export function useMicroChecks(contentId?: string) {
     enabled: !!contentId,
   });
 }
+
+// Generate assessment questions for a learning objective using AI
+export function useGenerateAssessmentQuestions() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async ({
+      learningObjectiveId,
+      learningObjectiveText,
+      contentContext,
+    }: {
+      learningObjectiveId?: string;
+      learningObjectiveText?: string;
+      contentContext?: string;
+    }) => {
+      const { data, error } = await supabase.functions.invoke('generate-assessment-questions', {
+        body: {
+          learning_objective_id: learningObjectiveId,
+          learning_objective_text: learningObjectiveText,
+          content_context: contentContext,
+        },
+      });
+
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data, variables) => {
+      if (variables.learningObjectiveId) {
+        queryClient.invalidateQueries({ 
+          queryKey: ['assessment-questions', variables.learningObjectiveId] 
+        });
+      }
+      toast({
+        title: 'Questions Generated',
+        description: `Created ${data.count} assessment questions`,
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to generate questions',
+        variant: 'destructive',
+      });
+    },
+  });
+}

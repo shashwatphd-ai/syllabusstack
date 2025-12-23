@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, Target, Video, Search, CheckCircle2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Target, Video, Search, CheckCircle2, Sparkles, HelpCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { useSearchYouTubeContent, LearningObjective } from '@/hooks/useLearningObjectives';
+import { useGenerateAssessmentQuestions, useAssessmentQuestions } from '@/hooks/useAssessment';
 
 interface Module {
   id: string;
@@ -20,10 +21,24 @@ interface ModuleCardProps {
 
 export function ModuleCard({ module, learningObjectives }: ModuleCardProps) {
   const [isOpen, setIsOpen] = useState(true);
+  const [generatingForLO, setGeneratingForLO] = useState<string | null>(null);
   const searchContent = useSearchYouTubeContent();
+  const generateQuestions = useGenerateAssessmentQuestions();
 
   const handleSearchContent = (lo: LearningObjective) => {
     searchContent.mutate(lo);
+  };
+
+  const handleGenerateQuestions = async (lo: LearningObjective) => {
+    setGeneratingForLO(lo.id);
+    try {
+      await generateQuestions.mutateAsync({
+        learningObjectiveId: lo.id,
+        learningObjectiveText: lo.text,
+      });
+    } finally {
+      setGeneratingForLO(null);
+    }
   };
 
   const getBloomBadgeColor = (level: string | null) => {
@@ -134,6 +149,25 @@ export function ModuleCard({ module, learningObjectives }: ModuleCardProps) {
                             <>
                               <Search className="h-3 w-3" />
                               Find Content
+                            </>
+                          )}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="gap-1.5"
+                          onClick={() => handleGenerateQuestions(lo)}
+                          disabled={generatingForLO === lo.id}
+                        >
+                          {generatingForLO === lo.id ? (
+                            <>
+                              <div className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                              Generating...
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles className="h-3 w-3" />
+                              Generate Qs
                             </>
                           )}
                         </Button>
