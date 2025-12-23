@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Tables, TablesInsert } from '@/integrations/supabase/types';
 import { queryKeys } from '@/lib/query-keys';
 import { toast } from '@/hooks/use-toast';
+import { analyzeDreamJob, performGapAnalysis, generateRecommendations } from '@/lib/api';
 
 // Types from database
 export type DreamJob = Tables<'dream_jobs'>;
@@ -48,19 +49,60 @@ async function fetchDreamJobById(id: string): Promise<DreamJob | null> {
   return data;
 }
 
-// Create a new dream job
-async function createDreamJob(job: Omit<DreamJobInsert, 'user_id'>): Promise<DreamJob> {
+// Create a new dream job with automated analysis workflow
+async function createDreamJobWithWorkflow(job: Omit<DreamJobInsert, 'user_id'>): Promise<DreamJob> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
 
-  const { data, error } = await supabase
+  // 1. Create the dream job
+  const { data: newJob, error } = await supabase
     .from('dream_jobs')
     .insert({ ...job, user_id: user.id })
     .select()
     .single();
 
   if (error) throw error;
-  return data;
+
+  // 2. Auto-trigger job requirements analysis (async, don't block)
+  (async () => {
+    try {
+      console.log('[Workflow] Auto-analyzing job requirements for:', newJob.id);
+      const analysisResult = await analyzeDreamJob(
+        job.title,
+        job.company_type || undefined,
+        job.location || undefined,
+        newJob.id
+      );
+
+      if (analysisResult) {
+        await supabase
+          .from('dream_jobs')
+          .update({
+            day_one_capabilities: analysisResult.day_one_capabilities?.slice(0, 10).map(r => r.requirement) || [],
+            realistic_bar: analysisResult.realistic_bar || null,
+            differentiators: analysisResult.differentiators || [],
+            common_misconceptions: analysisResult.common_misconceptions || [],
+            requirements_keywords: analysisResult.requirements?.map(r => r.skill_name) || [],
+          })
+          .eq('id', newJob.id);
+
+        // 3. Auto-trigger gap analysis after job analysis
+        console.log('[Workflow] Auto-triggering gap analysis for:', newJob.id);
+        const gapResult = await performGapAnalysis(newJob.id);
+
+        // 4. Auto-generate recommendations based on gaps
+        if (gapResult.gaps && gapResult.gaps.length > 0) {
+          console.log('[Workflow] Auto-generating recommendations for:', newJob.id);
+          await generateRecommendations(newJob.id, gapResult.gaps);
+        }
+      }
+    } catch (workflowError) {
+      console.error('[Workflow] Background analysis failed:', workflowError);
+      // Don't throw - background task shouldn't break the main flow
+    }
+  })();
+
+  return newJob;
 }
 
 // Delete a dream job
@@ -93,14 +135,15 @@ export function useCreateDreamJob() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: createDreamJob,
+    mutationFn: createDreamJobWithWorkflow,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.dreamJobs });
       queryClient.invalidateQueries({ queryKey: queryKeys.analysis });
+      queryClient.invalidateQueries({ queryKey: queryKeys.recommendations });
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
       toast({
         title: 'Dream job added',
-        description: 'Your dream job has been saved.',
+        description: 'Analyzing requirements and generating gap analysis...',
       });
     },
     onError: (error) => {
