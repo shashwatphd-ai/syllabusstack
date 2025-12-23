@@ -1,6 +1,7 @@
-import { ReactNode } from 'react';
+import { ReactNode, ComponentType } from 'react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { LucideProps } from 'lucide-react';
 import { 
   BookOpen, 
   Briefcase, 
@@ -11,10 +12,10 @@ import {
 } from 'lucide-react';
 
 interface EmptyStateProps {
-  icon?: ReactNode;
+  icon?: ReactNode | ComponentType<LucideProps>;
   title: string;
   description: string;
-  action?: {
+  action?: ReactNode | {
     label: string;
     onClick: () => void;
   };
@@ -28,6 +29,38 @@ export function EmptyState({
   action,
   className
 }: EmptyStateProps) {
+  // Render icon - handle both ReactNode and component type
+  const renderIcon = () => {
+    if (!icon) return null;
+    
+    // If it's a function/component, render it
+    if (typeof icon === 'function') {
+      const IconComponent = icon as ComponentType<LucideProps>;
+      return <IconComponent className="h-8 w-8 text-muted-foreground" />;
+    }
+    
+    // Otherwise it's already a ReactNode
+    return icon;
+  };
+
+  // Render action - handle both ReactNode and object
+  const renderAction = () => {
+    if (!action) return null;
+    
+    // If it's an object with label/onClick, render a button
+    if (typeof action === 'object' && 'label' in action && 'onClick' in action) {
+      return (
+        <Button onClick={action.onClick}>
+          <Plus className="h-4 w-4 mr-2" />
+          {action.label}
+        </Button>
+      );
+    }
+    
+    // Otherwise it's already a ReactNode
+    return action;
+  };
+
   return (
     <div className={cn(
       "flex flex-col items-center justify-center py-12 px-6 text-center",
@@ -35,7 +68,7 @@ export function EmptyState({
     )}>
       {icon && (
         <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-6">
-          {icon}
+          {renderIcon()}
         </div>
       )}
       <h3 className="text-lg font-semibold text-foreground mb-2">
@@ -44,12 +77,7 @@ export function EmptyState({
       <p className="text-muted-foreground text-sm max-w-sm mb-6">
         {description}
       </p>
-      {action && (
-        <Button onClick={action.onClick}>
-          <Plus className="h-4 w-4 mr-2" />
-          {action.label}
-        </Button>
-      )}
+      {renderAction()}
     </div>
   );
 }
