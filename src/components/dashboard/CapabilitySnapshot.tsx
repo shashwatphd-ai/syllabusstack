@@ -101,21 +101,26 @@ export function CapabilitySnapshot({ capabilities = mockCapabilities, isLoading 
           </Badge>
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-6">
+      <CardContent className="space-y-6 max-h-96 overflow-y-auto">
         {Object.entries(groupedCapabilities).map(([category, caps]) => (
           <div key={category} className="space-y-3">
             <h4 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">{category}</h4>
             <div className="space-y-4">
               {caps.map((cap) => (
-                <div key={cap.name} className="space-y-2">
-                  <div className="flex items-center justify-between text-sm">
+                <div key={cap.name} className="space-y-2 group cursor-pointer hover:bg-muted/50 rounded-lg p-2 -mx-2 transition-colors">
+                  <div className="flex items-center justify-between text-sm gap-2">
                     <div className="flex items-center gap-2 min-w-0 flex-1">
-                      <span className="font-medium text-foreground truncate">{cap.name}</span>
+                      <span 
+                        className="font-medium text-foreground group-hover:text-accent transition-colors"
+                        title={cap.name}
+                      >
+                        {cap.name}
+                      </span>
                       <TrendIcon trend={cap.trend} />
                     </div>
                     <Badge 
                       variant="outline" 
-                      className={`text-xs border flex-shrink-0 ml-2 ${getLevelBadgeStyle(cap.level)}`}
+                      className={`text-xs border flex-shrink-0 ${getLevelBadgeStyle(cap.level)}`}
                     >
                       {getLevelLabel(cap.level)}
                     </Badge>

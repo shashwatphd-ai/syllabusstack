@@ -2,7 +2,7 @@ import { AppShell } from "@/components/layout";
 import { DashboardOverview, CapabilitySnapshot, DreamJobCards, NextActionBanner, ProgressWidget } from "@/components/dashboard";
 import { WelcomeBackBanner } from "@/components/dashboard/WelcomeBackBanner";
 import { useDashboardOverview, useDashboardStats } from "@/hooks/useDashboard";
-import { useDreamJobs } from "@/hooks/useDreamJobs";
+import { useDreamJobs, useGapAnalysesForJobs } from "@/hooks/useDreamJobs";
 import { useCapabilities } from "@/hooks/useCapabilities";
 import { useNavigate } from "react-router-dom";
 import { useSEO, pageSEO } from "@/hooks/useSEO";
@@ -17,6 +17,15 @@ export default function DashboardPage() {
   const { data: stats, isLoading: statsLoading } = useDashboardStats();
   const { data: dreamJobs = [], isLoading: jobsLoading } = useDreamJobs();
   const { data: capabilities = [], isLoading: capsLoading } = useCapabilities();
+  const { data: gapAnalyses = [], isLoading: gapsLoading } = useGapAnalysesForJobs();
+
+  // Create a map of job id to gap count
+  const gapCountsByJobId = gapAnalyses.reduce((acc, ga) => {
+    const criticalCount = Array.isArray(ga.critical_gaps) ? ga.critical_gaps.length : 0;
+    const priorityCount = Array.isArray(ga.priority_gaps) ? ga.priority_gaps.length : 0;
+    acc[ga.dream_job_id] = criticalCount + priorityCount;
+    return acc;
+  }, {} as Record<string, number>);
 
   // Transform dream jobs for DreamJobCards component
   const transformedJobs = dreamJobs.map(job => ({
@@ -26,7 +35,7 @@ export default function DashboardPage() {
     location: job.location || undefined,
     salaryRange: job.salary_range || undefined,
     matchScore: job.match_score || 0,
-    gapsCount: 0, // Would need gap analysis data
+    gapsCount: gapCountsByJobId[job.id] || 0,
     status: job.is_primary ? 'active' as const : 'active' as const,
   }));
 
