@@ -115,11 +115,32 @@ async function deleteDreamJob(id: string): Promise<void> {
   if (error) throw error;
 }
 
+// Fetch gap analyses for all user's dream jobs
+async function fetchGapAnalysesForJobs() {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const { data, error } = await supabase
+    .from('gap_analyses')
+    .select('id, dream_job_id, critical_gaps, priority_gaps, match_score')
+    .eq('user_id', user.id);
+
+  if (error) throw error;
+  return data || [];
+}
+
 // Hooks
 export function useDreamJobs() {
   return useQuery({
     queryKey: queryKeys.dreamJobsList(),
     queryFn: fetchDreamJobs,
+  });
+}
+
+export function useGapAnalysesForJobs() {
+  return useQuery({
+    queryKey: [...queryKeys.analysis, 'all-gap-analyses'],
+    queryFn: fetchGapAnalysesForJobs,
   });
 }
 
