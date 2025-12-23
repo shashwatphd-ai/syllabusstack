@@ -122,9 +122,10 @@ serve(async (req) => {
   }
 
   try {
-    const YOUTUBE_API_KEY = Deno.env.get("YOUTUBE_API_KEY");
+    // Use GOOGLE_CLOUD_API_KEY for YouTube Data API (consolidates keys)
+    const YOUTUBE_API_KEY = Deno.env.get("GOOGLE_CLOUD_API_KEY");
     if (!YOUTUBE_API_KEY) {
-      throw new Error("YOUTUBE_API_KEY is not configured");
+      throw new Error("GOOGLE_CLOUD_API_KEY is not configured (includes YouTube Data API access)");
     }
 
     const authHeader = req.headers.get("Authorization");
