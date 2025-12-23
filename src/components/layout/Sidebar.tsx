@@ -11,7 +11,9 @@ import {
   LogOut,
   User,
   GraduationCap,
-  BarChart3
+  BarChart3,
+  School,
+  PlayCircle
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -21,6 +23,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useAuth } from '@/contexts/AuthContext';
+import { useUserRoles } from '@/hooks/useUserRoles';
 
 interface SidebarProps {
   collapsed?: boolean;
@@ -35,6 +38,14 @@ const navigation = [
   { name: 'Recommendations', href: '/recommendations', icon: Sparkles },
 ];
 
+const instructorNav = [
+  { name: 'Instructor Portal', href: '/instructor/courses', icon: School },
+];
+
+const studentLearningNav = [
+  { name: 'My Learning', href: '/learn/courses', icon: PlayCircle },
+];
+
 const secondaryNavigation = [
   { name: 'Profile', href: '/profile', icon: User },
   { name: 'AI Usage', href: '/usage', icon: BarChart3 },
@@ -45,7 +56,10 @@ export function Sidebar({ collapsed = false, onCollapse }: SidebarProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, profile, signOut } = useAuth();
+  const { data: roles } = useUserRoles();
   const [isCollapsed, setIsCollapsed] = useState(collapsed);
+  
+  const isInstructor = roles?.some(r => r.role === 'instructor' || r.role === 'admin');
 
   const handleCollapse = () => {
     const newState = !isCollapsed;
@@ -152,6 +166,34 @@ export function Sidebar({ collapsed = false, onCollapse }: SidebarProps) {
         {navigation.map((item) => (
           <NavItem key={item.name} item={item} />
         ))}
+        
+        {/* Student Learning Section */}
+        {!isCollapsed && (
+          <div className="pt-4 mt-4 border-t border-sidebar-border">
+            <p className="px-3 mb-2 text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider">
+              Learning
+            </p>
+          </div>
+        )}
+        {studentLearningNav.map((item) => (
+          <NavItem key={item.name} item={item} />
+        ))}
+        
+        {/* Instructor Section */}
+        {isInstructor && (
+          <>
+            {!isCollapsed && (
+              <div className="pt-4 mt-4 border-t border-sidebar-border">
+                <p className="px-3 mb-2 text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider">
+                  Instructor
+                </p>
+              </div>
+            )}
+            {instructorNav.map((item) => (
+              <NavItem key={item.name} item={item} />
+            ))}
+          </>
+        )}
       </nav>
 
       {/* Secondary Navigation */}

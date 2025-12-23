@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, FileText, Video, CheckCircle2, Clock, AlertCircle, Settings2 } from 'lucide-react';
+import { ArrowLeft, Plus, FileText, Video, CheckCircle2, Clock, AlertCircle, Settings2, Copy, Share2, Loader2 } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { Button } from '@/components/ui/button';
@@ -11,12 +11,14 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { useInstructorCourse, useModules, useCreateModule } from '@/hooks/useInstructorCourses';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { useInstructorCourse, useModules, useCreateModule, useUpdateInstructorCourse } from '@/hooks/useInstructorCourses';
 import { useLearningObjectives, useExtractLearningObjectives } from '@/hooks/useLearningObjectives';
 import { LoadingState } from '@/components/common/LoadingState';
 import { EmptyState } from '@/components/common/EmptyState';
 import { ModuleCard } from '@/components/instructor/ModuleCard';
 import { ContentCurationPanel } from '@/components/instructor/ContentCurationPanel';
+import { toast } from '@/hooks/use-toast';
 
 export default function InstructorCourseDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -25,6 +27,7 @@ export default function InstructorCourseDetailPage() {
   const { data: modules, isLoading: modulesLoading } = useModules(id);
   const { data: learningObjectives } = useLearningObjectives();
   const createModule = useCreateModule();
+  const updateCourse = useUpdateInstructorCourse();
   const extractLOs = useExtractLearningObjectives();
 
   const [isModuleDialogOpen, setIsModuleDialogOpen] = useState(false);
@@ -92,6 +95,24 @@ export default function InstructorCourseDetailPage() {
     );
   }
 
+  const handlePublishToggle = async () => {
+    if (!id) return;
+    await updateCourse.mutateAsync({
+      courseId: id,
+      updates: { is_published: !course?.is_published }
+    });
+  };
+
+  const copyAccessCode = () => {
+    if (course?.access_code) {
+      navigator.clipboard.writeText(course.access_code);
+      toast({
+        title: "Copied!",
+        description: "Access code copied to clipboard",
+      });
+    }
+  };
+
   return (
     <AppShell>
       <PageContainer>
@@ -117,10 +138,41 @@ export default function InstructorCourseDetailPage() {
                 <p className="text-muted-foreground mt-1">{course.description}</p>
               )}
             </div>
-            <Button variant="outline" size="icon">
-              <Settings2 className="h-4 w-4" />
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button 
+                variant={course.is_published ? "outline" : "default"}
+                onClick={handlePublishToggle}
+                disabled={updateCourse.isPending}
+              >
+                {updateCourse.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : (
+                  <Share2 className="h-4 w-4 mr-2" />
+                )}
+                {course.is_published ? 'Unpublish' : 'Publish'}
+              </Button>
+              <Button variant="outline" size="icon">
+                <Settings2 className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
+
+          {/* Access Code Banner */}
+          {course.is_published && course.access_code && (
+            <Alert className="border-primary/50 bg-primary/5">
+              <Share2 className="h-4 w-4" />
+              <AlertTitle>Course Published!</AlertTitle>
+              <AlertDescription className="flex items-center justify-between">
+                <span>
+                  Share this access code with your students: <strong className="font-mono text-lg">{course.access_code}</strong>
+                </span>
+                <Button variant="outline" size="sm" onClick={copyAccessCode}>
+                  <Copy className="h-4 w-4 mr-2" />
+                  Copy
+                </Button>
+              </AlertDescription>
+            </Alert>
+          )}
 
           {/* Stats Cards */}
           <div className="grid gap-4 md:grid-cols-4">

@@ -24,7 +24,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useNavigate } from "react-router-dom";
 import { useDreamJobs, useCreateDreamJob, useDeleteDreamJob } from "@/hooks/useDreamJobs";
-import { analyzeDreamJob } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 
 export default function DreamJobsPage() {
@@ -40,24 +39,16 @@ export default function DreamJobsPage() {
   const handleAddJob = async (data: { jobQuery: string; targetCompanyType?: string; targetLocation?: string }) => {
     setIsAnalyzing(true);
     try {
-      // Create dream job in database
-      const newJob = await createDreamJob.mutateAsync({
+      // Create dream job in database - workflow automation handles analysis
+      await createDreamJob.mutateAsync({
         title: data.jobQuery,
         company_type: data.targetCompanyType || null,
         location: data.targetLocation || null,
       });
 
-      // Trigger AI analysis
-      await analyzeDreamJob(
-        data.jobQuery,
-        data.targetCompanyType,
-        data.targetLocation,
-        newJob.id
-      );
-
       toast({
         title: "Dream job added",
-        description: "AI is analyzing requirements for this role.",
+        description: "AI is analyzing requirements in the background.",
       });
       setShowForm(false);
     } catch (error) {
