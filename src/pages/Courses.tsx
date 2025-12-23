@@ -2,10 +2,12 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/layout";
 import { AddCourseForm, AddCourseFormValues } from "@/components/forms/AddCourseForm";
+import { BulkSyllabusUploader } from "@/components/onboarding/BulkSyllabusUploader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
   BookOpen, 
   Calendar, 
@@ -13,7 +15,9 @@ import {
   MoreVertical,
   Trash2,
   Eye,
-  Plus
+  Plus,
+  Upload,
+  FileText
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -23,13 +27,16 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useCourses, useCreateCourse, useDeleteCourse } from "@/hooks/useCourses";
 import { useCapabilities } from "@/hooks/useCapabilities";
+import { useQueryClient } from "@tanstack/react-query";
 import { analyzeSyllabus } from "@/lib/api";
 import { toast } from "@/hooks/use-toast";
 
 export default function CoursesPage() {
   const [showUploader, setShowUploader] = useState(false);
+  const [uploadMode, setUploadMode] = useState<"bulk" | "single">("bulk");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   
   const { data: courses, isLoading: coursesLoading } = useCourses();
   const { data: capabilities } = useCapabilities();
@@ -39,6 +46,16 @@ export default function CoursesPage() {
   const analyzedCourseIds = new Set(capabilities?.map(c => c.course_id).filter(Boolean) || []);
   const analyzedCount = courses?.filter(c => analyzedCourseIds.has(c.id)).length || 0;
   const totalSkills = capabilities?.length || 0;
+
+  const handleBulkUploadSuccess = () => {
+    queryClient.invalidateQueries({ queryKey: ["courses"] });
+    queryClient.invalidateQueries({ queryKey: ["capabilities"] });
+    setShowUploader(false);
+    toast({
+      title: "Courses added!",
+      description: "Your capability profile has been updated.",
+    });
+  };
 
   const handleAddCourse = async (data: AddCourseFormValues) => {
     setIsAnalyzing(true);
@@ -181,15 +198,38 @@ export default function CoursesPage() {
 
         {showUploader ? (
           <Card>
-            <CardHeader>
-              <CardTitle>Add New Course</CardTitle>
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2">
+                <Plus className="h-5 w-5" />
+                Add Courses
+              </CardTitle>
             </CardHeader>
             <CardContent>
-              <AddCourseForm 
-                onSubmit={handleAddCourse}
-                onCancel={() => setShowUploader(false)}
-                isSubmitting={isAnalyzing}
-              />
+              <Tabs value={uploadMode} onValueChange={(v) => setUploadMode(v as "bulk" | "single")}>
+                <TabsList className="mb-4">
+                  <TabsTrigger value="bulk" className="flex items-center gap-2">
+                    <Upload className="h-4 w-4" />
+                    Bulk Upload
+                  </TabsTrigger>
+                  <TabsTrigger value="single" className="flex items-center gap-2">
+                    <FileText className="h-4 w-4" />
+                    Single Course
+                  </TabsTrigger>
+                </TabsList>
+                <TabsContent value="bulk">
+                  <BulkSyllabusUploader
+                    onSuccess={handleBulkUploadSuccess}
+                    onCancel={() => setShowUploader(false)}
+                  />
+                </TabsContent>
+                <TabsContent value="single">
+                  <AddCourseForm 
+                    onSubmit={handleAddCourse}
+                    onCancel={() => setShowUploader(false)}
+                    isSubmitting={isAnalyzing}
+                  />
+                </TabsContent>
+              </Tabs>
             </CardContent>
           </Card>
         ) : courses && courses.length > 0 ? (
