@@ -26,3 +26,9 @@ verify_jwt = true
 
 [functions.track-consumption]
 verify_jwt = true
+
+[functions.generate-micro-checks]
+verify_jwt = true
+
+[functions.evaluate-answer]
+verify_jwt = true

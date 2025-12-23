@@ -27,6 +27,8 @@ import LegalPage from "./pages/Legal";
 import UniversitiesPage from "./pages/Universities";
 import ForgotPasswordPage from "./pages/ForgotPassword";
 import ResetPasswordPage from "./pages/ResetPassword";
+import InstructorCoursesPage from "./pages/instructor/InstructorCourses";
+import InstructorCourseDetailPage from "./pages/instructor/InstructorCourseDetail";
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -61,6 +63,10 @@ const App = () => (
             <Route path="/profile" element={<AuthGuard><ProfilePage /></AuthGuard>} />
             <Route path="/settings" element={<AuthGuard><SettingsPage /></AuthGuard>} />
             <Route path="/usage" element={<AuthGuard><UsagePage /></AuthGuard>} />
+
+            {/* Instructor routes */}
+            <Route path="/instructor/courses" element={<AuthGuard><InstructorCoursesPage /></AuthGuard>} />
+            <Route path="/instructor/courses/:id" element={<AuthGuard><InstructorCourseDetailPage /></AuthGuard>} />
 
             {/* Catch-all */}
             <Route path="*" element={<NotFound />} />
