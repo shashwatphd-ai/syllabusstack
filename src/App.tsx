@@ -29,7 +29,7 @@ import ForgotPasswordPage from "./pages/ForgotPassword";
 import ResetPasswordPage from "./pages/ResetPassword";
 import InstructorCoursesPage from "./pages/instructor/InstructorCourses";
 import InstructorCourseDetailPage from "./pages/instructor/InstructorCourseDetail";
-import { StudentCoursesPage, StudentCourseDetailPage, LearningObjectivePage } from "./pages/student";
+import { StudentCoursesPage, StudentCourseDetailPage, LearningObjectivePage, AssessmentPage } from "./pages/student";
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -68,6 +68,7 @@ const App = () => (
             {/* Student learning routes */}
             <Route path="/learn/courses" element={<AuthGuard><StudentCoursesPage /></AuthGuard>} />
             <Route path="/learn/courses/:id" element={<AuthGuard><StudentCourseDetailPage /></AuthGuard>} />
+            <Route path="/learn/objective/:loId/assess" element={<AuthGuard><AssessmentPage /></AuthGuard>} />
             <Route path="/learn/objective/:loId" element={<AuthGuard><LearningObjectivePage /></AuthGuard>} />
 
             {/* Instructor routes */}

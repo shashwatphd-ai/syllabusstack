@@ -219,7 +219,7 @@ export default function LearningObjectivePage() {
                       </div>
                       <Button 
                         className="w-full"
-                        onClick={() => navigate(`/assess/${loId}`)}
+                        onClick={() => navigate(`/learn/objective/${loId}/assess`)}
                       >
                         Start Assessment
                       </Button>
@@ -231,9 +231,9 @@ export default function LearningObjectivePage() {
               {learningObjective.verification_state === 'assessment_unlocked' && (
                 <Card className="border-primary">
                   <CardContent className="pt-6">
-                    <Button 
-                      className="w-full"
-                      onClick={() => navigate(`/assess/${loId}`)}
+                      <Button 
+                        className="w-full"
+                        onClick={() => navigate(`/learn/objective/${loId}/assess`)}
                     >
                       Continue Assessment
                     </Button>
