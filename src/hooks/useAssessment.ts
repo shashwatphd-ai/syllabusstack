@@ -43,6 +43,30 @@ export interface AssessmentAnswer {
   time_taken_seconds: number | null;
   question_served_at: string | null;
   answer_submitted_at: string | null;
+  evaluation_details?: Record<string, unknown>;
+}
+
+export interface SessionProgress {
+  questions_answered: number;
+  questions_correct: number;
+  total_questions: number;
+  current_score: number;
+  is_complete: boolean;
+}
+
+export interface PerformanceSummary {
+  total_questions: number;
+  questions_answered: number;
+  questions_correct: number;
+  questions_incorrect: number;
+  questions_skipped: number;
+  total_score: number;
+  passed: boolean;
+  passing_threshold: number;
+  total_time_seconds: number;
+  avg_time_per_question: number;
+  timing_anomalies: number;
+  attempt_number: number;
 }
 
 // Fetch assessment questions for a learning objective
@@ -92,50 +116,70 @@ export function useActiveSession(learningObjectiveId?: string) {
   });
 }
 
-// Start a new assessment session
-export function useStartSession() {
+// Fetch session history for a learning objective
+export function useSessionHistory(learningObjectiveId?: string) {
+  return useQuery({
+    queryKey: ['session-history', learningObjectiveId],
+    queryFn: async () => {
+      if (!learningObjectiveId) return [];
+
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return [];
+
+      const { data, error } = await supabase
+        .from('assessment_sessions')
+        .select('*')
+        .eq('learning_objective_id', learningObjectiveId)
+        .eq('user_id', user.id)
+        .order('started_at', { ascending: false });
+
+      if (error) throw error;
+      return data as AssessmentSession[];
+    },
+    enabled: !!learningObjectiveId,
+  });
+}
+
+// Start a new assessment session via edge function
+export function useStartAssessment() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
   return useMutation({
     mutationFn: async ({ 
       learningObjectiveId, 
-      questionIds 
+      numQuestions = 5,
     }: { 
       learningObjectiveId: string; 
-      questionIds: string[];
+      numQuestions?: number;
     }) => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Not authenticated');
-
-      // Get attempt number
-      const { count } = await supabase
-        .from('assessment_sessions')
-        .select('*', { count: 'exact', head: true })
-        .eq('learning_objective_id', learningObjectiveId)
-        .eq('user_id', user.id);
-
-      const { data, error } = await supabase
-        .from('assessment_sessions')
-        .insert({
-          user_id: user.id,
+      const { data, error } = await supabase.functions.invoke('start-assessment', {
+        body: {
           learning_objective_id: learningObjectiveId,
-          question_ids: questionIds,
-          status: 'in_progress',
-          started_at: new Date().toISOString(),
-          current_question_index: 0,
-          questions_answered: 0,
-          questions_correct: 0,
-          attempt_number: (count || 0) + 1,
-        })
-        .select()
-        .single();
+          num_questions: numQuestions,
+        },
+      });
 
       if (error) throw error;
-      return data as AssessmentSession;
+      if (data.error) throw new Error(data.error);
+      
+      return data as {
+        success: boolean;
+        session: AssessmentSession;
+        questions: AssessmentQuestion[];
+        is_resumed: boolean;
+        timeout_minutes?: number;
+      };
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['active-session', data.learning_objective_id] });
+      queryClient.invalidateQueries({ queryKey: ['active-session', data.session.learning_objective_id] });
+      
+      if (data.is_resumed) {
+        toast({
+          title: 'Assessment Resumed',
+          description: 'Continuing your previous session',
+        });
+      }
     },
     onError: (error) => {
       toast({
@@ -147,8 +191,8 @@ export function useStartSession() {
   });
 }
 
-// Submit an answer
-export function useSubmitAnswer() {
+// Submit an answer via edge function with server-side validation
+export function useSubmitAssessmentAnswer() {
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -163,24 +207,28 @@ export function useSubmitAnswer() {
       userAnswer: string;
       questionServedAt: string;
     }) => {
-      const { data, error } = await supabase.functions.invoke('evaluate-answer', {
+      const { data, error } = await supabase.functions.invoke('submit-assessment-answer', {
         body: {
           session_id: sessionId,
           question_id: questionId,
           user_answer: userAnswer,
-          question_served_at: questionServedAt,
-          answer_submitted_at: new Date().toISOString(),
+          client_question_served_at: questionServedAt,
+          client_answer_submitted_at: new Date().toISOString(),
         },
       });
 
       if (error) throw error;
+      if (data.error) throw new Error(data.error);
+      
       return data as {
         success: boolean;
         is_correct: boolean;
         evaluation_method: string;
         time_taken_seconds: number;
+        timing_flags: string[];
         correct_answer: string | null;
         answer_id: string;
+        session_progress: SessionProgress;
       };
     },
     onSuccess: () => {
@@ -189,10 +237,79 @@ export function useSubmitAnswer() {
   });
 }
 
-// Complete a session
+// Complete assessment via edge function
+export function useCompleteAssessment() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async ({ sessionId }: { sessionId: string }) => {
+      const { data, error } = await supabase.functions.invoke('complete-assessment', {
+        body: { session_id: sessionId },
+      });
+
+      if (error) throw error;
+      if (data.error) throw new Error(data.error);
+      
+      return data as {
+        success: boolean;
+        session: AssessmentSession;
+        performance: PerformanceSummary;
+        correct_answers: string[];
+        incorrect_answers: Array<{
+          question_id: string;
+          user_answer: string;
+          evaluation_details: Record<string, unknown>;
+        }>;
+        learning_objective_verified: boolean;
+        already_completed?: boolean;
+      };
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['active-session'] });
+      queryClient.invalidateQueries({ queryKey: ['session-history'] });
+      queryClient.invalidateQueries({ queryKey: ['learning-objectives'] });
+      
+      if (data.already_completed) {
+        return;
+      }
+
+      if (data.performance.passed) {
+        toast({
+          title: 'Assessment Passed! 🎉',
+          description: `You scored ${Math.round(data.performance.total_score)}%`,
+        });
+      } else {
+        toast({
+          title: 'Assessment Complete',
+          description: `You scored ${Math.round(data.performance.total_score)}%. Keep practicing!`,
+          variant: 'destructive',
+        });
+      }
+    },
+    onError: (error) => {
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to complete assessment',
+        variant: 'destructive',
+      });
+    },
+  });
+}
+
+// Legacy hooks for backward compatibility
+export function useStartSession() {
+  return useStartAssessment();
+}
+
+export function useSubmitAnswer() {
+  return useSubmitAssessmentAnswer();
+}
+
 export function useCompleteSession() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const completeAssessment = useCompleteAssessment();
 
   return useMutation({
     mutationFn: async ({
@@ -202,48 +319,8 @@ export function useCompleteSession() {
       sessionId: string;
       passed: boolean;
     }) => {
-      // Get session stats
-      const { data: session } = await supabase
-        .from('assessment_sessions')
-        .select('questions_answered, questions_correct')
-        .eq('id', sessionId)
-        .single();
-
-      const totalScore = session && session.questions_answered > 0
-        ? (session.questions_correct / session.questions_answered) * 100
-        : 0;
-
-      const { data, error } = await supabase
-        .from('assessment_sessions')
-        .update({
-          status: 'completed',
-          completed_at: new Date().toISOString(),
-          total_score: totalScore,
-          passed,
-        })
-        .eq('id', sessionId)
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data as AssessmentSession;
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['active-session'] });
-      queryClient.invalidateQueries({ queryKey: ['session-history'] });
-      
-      if (data.passed) {
-        toast({
-          title: 'Assessment Passed!',
-          description: `You scored ${Math.round(data.total_score || 0)}%`,
-        });
-      } else {
-        toast({
-          title: 'Assessment Complete',
-          description: `You scored ${Math.round(data.total_score || 0)}%. Keep practicing!`,
-          variant: 'destructive',
-        });
-      }
+      const result = await completeAssessment.mutateAsync({ sessionId });
+      return result.session;
     },
   });
 }

@@ -32,3 +32,12 @@ verify_jwt = true
 
 [functions.evaluate-answer]
 verify_jwt = true
+
+[functions.start-assessment]
+verify_jwt = true
+
+[functions.submit-assessment-answer]
+verify_jwt = true
+
+[functions.complete-assessment]
+verify_jwt = true
