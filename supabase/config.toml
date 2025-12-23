@@ -41,3 +41,6 @@ verify_jwt = true
 
 [functions.complete-assessment]
 verify_jwt = true
+
+[functions.parse-syllabus-document]
+verify_jwt = true

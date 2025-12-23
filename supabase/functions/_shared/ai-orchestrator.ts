@@ -69,12 +69,14 @@ export const TASK_MODEL_MAP: Record<AITaskType, { primary: string; fallback: str
   }
 };
 
-// Cost per 1M tokens for each model (USD) - Google Cloud pricing
+// Cost per 1M tokens for each model (USD)
+// Lovable AI Gateway is CHEAPER for Gemini Flash ($0.075 vs $0.10 input, $0.30 vs $0.40 output)
 export const MODEL_COSTS: Record<string, { input: number; output: number }> = {
-  'gemini-2.0-flash': { input: 0.10, output: 0.40 },
+  // Lovable Gateway pricing (cheaper for Flash)
+  'gemini-2.0-flash': { input: 0.075, output: 0.30 },
   'gemini-2.0-flash-lite': { input: 0.075, output: 0.30 },
   'gemini-2.5-pro-preview-06-05': { input: 1.25, output: 5.00 },
-  'gemini-2.0-flash-thinking-exp': { input: 0.10, output: 0.40 },
+  'gemini-2.0-flash-thinking-exp': { input: 0.075, output: 0.30 },
 };
 
 export interface AIRequest {
@@ -115,20 +117,23 @@ function estimateTokens(text: string): number {
 }
 
 /**
- * Get API key - prefers GOOGLE_CLOUD_API_KEY, falls back to LOVABLE_API_KEY
+ * Get API key - PREFERS LOVABLE_API_KEY (cheaper for Gemini Flash)
+ * Falls back to GOOGLE_CLOUD_API_KEY for specialized APIs or if Lovable is unavailable
  */
 function getAPIConfig(): { key: string; useGoogleDirect: boolean } {
-  const googleKey = Deno.env.get("GOOGLE_CLOUD_API_KEY");
-  if (googleKey) {
-    return { key: googleKey, useGoogleDirect: true };
-  }
-  
+  // Prefer Lovable AI Gateway (cheaper for Gemini Flash: $0.075 vs $0.10 input)
   const lovableKey = Deno.env.get("LOVABLE_API_KEY");
   if (lovableKey) {
     return { key: lovableKey, useGoogleDirect: false };
   }
   
-  throw new Error("No API key configured. Set GOOGLE_CLOUD_API_KEY or LOVABLE_API_KEY.");
+  // Fallback to Google Cloud (useful if Lovable is rate-limited)
+  const googleKey = Deno.env.get("GOOGLE_CLOUD_API_KEY");
+  if (googleKey) {
+    return { key: googleKey, useGoogleDirect: true };
+  }
+  
+  throw new Error("No API key configured. Set LOVABLE_API_KEY or GOOGLE_CLOUD_API_KEY.");
 }
 
 /**
