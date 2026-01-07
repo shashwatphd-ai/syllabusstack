@@ -400,6 +400,33 @@ export function useMicroChecks(contentId?: string) {
   });
 }
 
+// Fetch micro-check results for a consumption record
+export function useMicroCheckResults(consumptionRecordId?: string) {
+  return useQuery({
+    queryKey: ['micro-check-results', consumptionRecordId],
+    queryFn: async () => {
+      if (!consumptionRecordId) return [];
+
+      const { data, error } = await supabase
+        .from('micro_check_results')
+        .select(`
+          *,
+          micro_check:micro_checks(
+            question_text,
+            correct_answer,
+            trigger_time_seconds
+          )
+        `)
+        .eq('consumption_record_id', consumptionRecordId)
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!consumptionRecordId,
+  });
+}
+
 // Generate assessment questions for a learning objective using AI
 export function useGenerateAssessmentQuestions() {
   const queryClient = useQueryClient();

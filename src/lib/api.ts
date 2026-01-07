@@ -169,3 +169,139 @@ export async function generateRecommendations(
 
   return data;
 }
+
+// Parse PDF syllabus document
+export interface ParseDocumentResponse {
+  text: string;
+  metadata?: {
+    pages?: number;
+    title?: string;
+  };
+  error?: string;
+}
+
+export async function parseSyllabusDocument(file: File): Promise<ParseDocumentResponse> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+
+  // 1. Upload file to syllabi bucket
+  const fileExt = file.name.split('.').pop();
+  const filePath = `${user.id}/${Date.now()}-${file.name}`;
+  
+  const { error: uploadError } = await supabase.storage
+    .from('syllabi')
+    .upload(filePath, file);
+  
+  if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`);
+
+  // 2. Get signed URL
+  const { data: urlData, error: urlError } = await supabase.storage
+    .from('syllabi')
+    .createSignedUrl(filePath, 3600); // 1 hour expiry
+  
+  if (urlError || !urlData?.signedUrl) {
+    throw new Error('Failed to get file URL');
+  }
+
+  // 3. Call parse-syllabus-document edge function
+  const { data, error } = await supabase.functions.invoke('parse-syllabus-document', {
+    body: { 
+      file_url: urlData.signedUrl, 
+      file_name: file.name 
+    }
+  });
+
+  if (error) throw new Error(error.message);
+  if (data.error) throw new Error(data.error);
+
+  return data;
+}
+
+// Extract learning objectives from module
+export interface ExtractLOsResponse {
+  learningObjectives: Array<{
+    text: string;
+    core_concept: string;
+    bloom_level: string;
+  }>;
+  count: number;
+  error?: string;
+}
+
+export async function extractLearningObjectives(
+  moduleId: string,
+  moduleTitle: string,
+  moduleDescription: string,
+  userId: string
+): Promise<ExtractLOsResponse> {
+  const { data, error } = await supabase.functions.invoke('extract-learning-objectives', {
+    body: { 
+      module_id: moduleId, 
+      title: moduleTitle, 
+      description: moduleDescription,
+      user_id: userId
+    }
+  });
+  
+  if (error) throw new Error(error.message);
+  if (data.error) throw new Error(data.error);
+  
+  return data;
+}
+
+// Search YouTube content for a learning objective
+export interface YouTubeSearchResponse {
+  matches: Array<{
+    content_id: string;
+    title: string;
+    match_score: number;
+  }>;
+  total_found: number;
+  auto_approved_count: number;
+  error?: string;
+}
+
+export async function searchYouTubeContent(
+  learningObjectiveId: string,
+  searchQuery: string
+): Promise<YouTubeSearchResponse> {
+  const { data, error } = await supabase.functions.invoke('search-youtube-content', {
+    body: { 
+      learning_objective_id: learningObjectiveId, 
+      query: searchQuery 
+    }
+  });
+  
+  if (error) throw new Error(error.message);
+  if (data.error) throw new Error(data.error);
+  
+  return data;
+}
+
+// Generate assessment questions for a learning objective
+export interface GenerateQuestionsResponse {
+  questions: Array<{
+    id: string;
+    question_text: string;
+    question_type: string;
+  }>;
+  count: number;
+  error?: string;
+}
+
+export async function generateAssessmentQuestions(
+  learningObjectiveId: string,
+  questionCount: number = 5
+): Promise<GenerateQuestionsResponse> {
+  const { data, error } = await supabase.functions.invoke('generate-assessment-questions', {
+    body: { 
+      learning_objective_id: learningObjectiveId, 
+      question_count: questionCount 
+    }
+  });
+  
+  if (error) throw new Error(error.message);
+  if (data.error) throw new Error(data.error);
+  
+  return data;
+}

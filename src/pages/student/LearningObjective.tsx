@@ -1,24 +1,34 @@
+import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, PlayCircle, CheckCircle2, Lock, Clock, AlertCircle } from 'lucide-react';
+import { ArrowLeft, PlayCircle, CheckCircle2, Lock, Clock, AlertCircle, ChevronDown, ClipboardCheck, XCircle } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { useLearningObjectiveProgress } from '@/hooks/useStudentCourses';
-import { useMicroChecks } from '@/hooks/useAssessment';
+import { useMicroChecks, useMicroCheckResults } from '@/hooks/useAssessment';
 import { LoadingState } from '@/components/common/LoadingState';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { VerifiedVideoPlayer } from '@/components/player/VerifiedVideoPlayer';
-import { useState } from 'react';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
 export default function LearningObjectivePage() {
   const { loId } = useParams<{ loId: string }>();
   const navigate = useNavigate();
   const { data, isLoading, error } = useLearningObjectiveProgress(loId);
   const [selectedContentId, setSelectedContentId] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   // Get micro-checks for selected content
   const { data: microChecks } = useMicroChecks(selectedContentId || undefined);
+  
+  // Get current consumption record for selected content
+  const selectedConsumptionRecord = data?.consumptionRecords.find(
+    r => r.content_id === selectedContentId
+  );
+  
+  // Get micro-check results for this consumption record
+  const { data: microCheckResults } = useMicroCheckResults(selectedConsumptionRecord?.id);
 
   if (isLoading) {
     return (
@@ -112,15 +122,60 @@ export default function LearningObjectivePage() {
             {/* Video Player */}
             <div className="lg:col-span-2">
               {selectedContent ? (
-                <VerifiedVideoPlayer
-                  contentId={selectedContent.id}
-                  learningObjectiveId={loId!}
-                  videoUrl={selectedContent.source_url || ''}
-                  title={selectedContent.title}
-                  duration={selectedContent.duration_seconds || 600}
-                  microChecks={playerMicroChecks}
-                  onComplete={handleVideoComplete}
-                />
+                <>
+                  <VerifiedVideoPlayer
+                    contentId={selectedContent.id}
+                    learningObjectiveId={loId!}
+                    videoUrl={selectedContent.source_url || ''}
+                    title={selectedContent.title}
+                    duration={selectedContent.duration_seconds || 600}
+                    microChecks={playerMicroChecks}
+                    onComplete={handleVideoComplete}
+                  />
+                  
+                  {/* Micro-Check History */}
+                  {microCheckResults && microCheckResults.length > 0 && (
+                    <Card className="mt-4">
+                      <Collapsible open={historyOpen} onOpenChange={setHistoryOpen}>
+                        <CollapsibleTrigger asChild>
+                          <CardHeader className="py-3 cursor-pointer hover:bg-muted/50 transition-colors">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <ClipboardCheck className="h-4 w-4 text-muted-foreground" />
+                                <CardTitle className="text-sm font-medium">
+                                  Micro-Check History ({microCheckResults.length})
+                                </CardTitle>
+                              </div>
+                              <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${historyOpen ? 'rotate-180' : ''}`} />
+                            </div>
+                          </CardHeader>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                          <CardContent className="pt-0 space-y-2">
+                            {microCheckResults.map((result: any) => (
+                              <div 
+                                key={result.id} 
+                                className="flex items-start justify-between p-3 bg-muted/30 rounded-lg border border-border/50"
+                              >
+                                <div className="flex-1">
+                                  <p className="text-sm font-medium">
+                                    {result.micro_check?.question_text || 'Question'}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    Your answer: {result.user_answer || 'N/A'}
+                                  </p>
+                                </div>
+                                <Badge variant={result.is_correct ? 'default' : 'destructive'} className="ml-2">
+                                  {result.is_correct ? 'Correct' : 'Incorrect'}
+                                </Badge>
+                              </div>
+                            ))}
+                          </CardContent>
+                        </CollapsibleContent>
+                      </Collapsible>
+                    </Card>
+                  )}
+                </>
               ) : (
                 <Card>
                   <CardContent className="py-16 text-center">

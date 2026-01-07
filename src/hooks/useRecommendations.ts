@@ -74,3 +74,40 @@ export function useUpdateRecommendationStatus() {
     },
   });
 }
+
+// Fetch anti-recommendations for a dream job
+export type AntiRecommendation = {
+  id: string;
+  user_id: string;
+  dream_job_id: string;
+  action: string;
+  reason: string;
+  created_at: string;
+};
+
+async function fetchAntiRecommendations(dreamJobId?: string): Promise<AntiRecommendation[]> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  let query = supabase
+    .from('anti_recommendations')
+    .select('*')
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: false });
+
+  if (dreamJobId) {
+    query = query.eq('dream_job_id', dreamJobId);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return data || [];
+}
+
+export function useAntiRecommendations(dreamJobId?: string) {
+  return useQuery({
+    queryKey: queryKeys.antiRecommendations(dreamJobId),
+    queryFn: () => fetchAntiRecommendations(dreamJobId),
+    enabled: !!dreamJobId,
+  });
+}

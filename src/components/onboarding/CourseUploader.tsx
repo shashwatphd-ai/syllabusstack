@@ -33,7 +33,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { useCreateCourse } from '@/hooks/useCourses';
-import { analyzeSyllabus } from '@/lib/api';
+import { analyzeSyllabus, parseSyllabusDocument } from '@/lib/api';
 
 const courseSchema = z.object({
   name: z.string().min(1, 'Course name is required').max(200),
@@ -61,7 +61,8 @@ interface CourseUploaderProps {
 export function CourseUploader({ onSuccess, onCancel, onProcessingStart }: CourseUploaderProps) {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisStatus, setAnalysisStatus] = useState<'idle' | 'saving' | 'extracting' | 'analyzing' | 'complete'>('idle');
+  const [isParsing, setIsParsing] = useState(false);
+  const [analysisStatus, setAnalysisStatus] = useState<'idle' | 'parsing' | 'saving' | 'extracting' | 'analyzing' | 'complete'>('idle');
 
   const createCourse = useCreateCourse();
 
@@ -76,7 +77,7 @@ export function CourseUploader({ onSuccess, onCancel, onProcessingStart }: Cours
     },
   });
 
-  const onDrop = useCallback((acceptedFiles: File[]) => {
+  const onDrop = useCallback(async (acceptedFiles: File[]) => {
     const file = acceptedFiles[0];
     if (file) {
       setUploadedFile(file);
@@ -84,18 +85,43 @@ export function CourseUploader({ onSuccess, onCancel, onProcessingStart }: Cours
       const nameWithoutExt = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
       form.setValue('name', nameWithoutExt);
       
-      // Read text file content
+      // Handle different file types
       if (file.type === 'text/plain') {
+        // Read text file content directly
         const reader = new FileReader();
         reader.onload = (e) => {
           const text = e.target?.result as string;
           form.setValue('syllabusText', text);
         };
         reader.readAsText(file);
+      } else if (file.type === 'application/pdf' || 
+                 file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+        // Parse PDF/DOCX files using edge function
+        setIsParsing(true);
+        setAnalysisStatus('parsing');
+        try {
+          const result = await parseSyllabusDocument(file);
+          form.setValue('syllabusText', result.text);
+          toast({
+            title: "Document parsed!",
+            description: `Extracted ${result.text.length} characters from ${file.name}`,
+          });
+        } catch (error) {
+          console.error('PDF parsing error:', error);
+          toast({
+            title: "Parsing failed",
+            description: error instanceof Error ? error.message : "Please paste the syllabus content manually.",
+            variant: "destructive",
+          });
+        } finally {
+          setIsParsing(false);
+          setAnalysisStatus('idle');
+        }
       } else {
         toast({
-          title: "File uploaded",
-          description: "Please paste the syllabus content in the text tab for now. PDF/DOCX parsing coming soon.",
+          title: "Unsupported format",
+          description: "Please upload a PDF, DOCX, or TXT file.",
+          variant: "destructive",
         });
       }
     }
@@ -325,13 +351,17 @@ Include:
           </div>
 
           {/* Analysis Progress */}
-          {isAnalyzing && (
+          {(isAnalyzing || isParsing) && (
             <Card className="bg-muted/50">
               <CardContent className="p-4">
                 <div className="space-y-3">
                   <AnalysisStep
+                    label="Parsing document content"
+                    status={analysisStatus === 'parsing' ? 'loading' : ['saving', 'extracting', 'analyzing', 'complete'].includes(analysisStatus) ? 'complete' : 'pending'}
+                  />
+                  <AnalysisStep
                     label="Saving course to your profile"
-                    status={analysisStatus === 'saving' ? 'loading' : analysisStatus !== 'idle' ? 'complete' : 'pending'}
+                    status={analysisStatus === 'saving' ? 'loading' : ['extracting', 'analyzing', 'complete'].includes(analysisStatus) ? 'complete' : 'pending'}
                   />
                   <AnalysisStep
                     label="Extracting syllabus content"
@@ -353,12 +383,17 @@ Include:
           {/* Actions */}
           <div className="flex gap-3 justify-end">
             {onCancel && (
-              <Button type="button" variant="outline" onClick={onCancel}>
+              <Button type="button" variant="outline" onClick={onCancel} disabled={isParsing || isAnalyzing}>
                 Cancel
               </Button>
             )}
-            <Button type="submit" disabled={isAnalyzing}>
-              {isAnalyzing ? (
+            <Button type="submit" disabled={isAnalyzing || isParsing}>
+              {isParsing ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Parsing...
+                </>
+              ) : isAnalyzing ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
                   Analyzing...
