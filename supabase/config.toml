@@ -44,3 +44,6 @@ verify_jwt = false
 
 [functions.generate-assessment-questions]
 verify_jwt = true
+
+[functions.process-syllabus]
+verify_jwt = true

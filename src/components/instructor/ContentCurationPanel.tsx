@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Video, CheckCircle, XCircle, Clock, ExternalLink, Search, Loader2 } from 'lucide-react';
+import { Video, CheckCircle, XCircle, Clock, ExternalLink, Search, Loader2, Play, Sparkles } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -7,8 +7,11 @@ import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useContentMatches, useUpdateContentMatchStatus, useSearchYouTubeContent, LearningObjective, ContentMatch } from '@/hooks/useLearningObjectives';
+import { useLOContentStatus } from '@/hooks/useContentStats';
 import { EmptyState } from '@/components/common/EmptyState';
+import { VideoPreviewModal } from './VideoPreviewModal';
 
 interface ContentCurationPanelProps {
   courseId: string;
@@ -21,19 +24,51 @@ export function ContentCurationPanel({ courseId, learningObjectives, curationMod
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [selectedMatch, setSelectedMatch] = useState<ContentMatch | null>(null);
   const [rejectReason, setRejectReason] = useState('');
+  const [previewMatch, setPreviewMatch] = useState<ContentMatch | null>(null);
+  const [bulkSearching, setBulkSearching] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0 });
 
   const { data: contentMatches, isLoading } = useContentMatches(selectedLO || undefined);
   const updateStatus = useUpdateContentMatchStatus();
   const searchContent = useSearchYouTubeContent();
+  
+  // Get content status for all LOs
+  const loIds = learningObjectives.map(lo => lo.id);
+  const { data: loContentStatus } = useLOContentStatus(loIds);
 
   const handleFindContent = (lo: LearningObjective) => {
     searchContent.mutate(lo);
   };
 
+  // Bulk find content for all LOs without content
+  const handleFindAllContent = async () => {
+    const losWithoutContent = learningObjectives.filter(lo => 
+      !loContentStatus?.[lo.id]?.hasContent
+    );
+    
+    if (losWithoutContent.length === 0) return;
+    
+    setBulkSearching(true);
+    setBulkProgress({ current: 0, total: losWithoutContent.length });
+    
+    for (let i = 0; i < losWithoutContent.length; i++) {
+      setBulkProgress({ current: i + 1, total: losWithoutContent.length });
+      try {
+        await searchContent.mutateAsync(losWithoutContent[i]);
+      } catch (e) {
+        console.error('Error searching content for LO:', e);
+      }
+    }
+    
+    setBulkSearching(false);
+  };
+
   const selectedLOData = learningObjectives.find(lo => lo.id === selectedLO);
+  const losWithoutContent = learningObjectives.filter(lo => !loContentStatus?.[lo.id]?.hasContent).length;
 
   const handleApprove = (matchId: string) => {
     updateStatus.mutate({ matchId, status: 'approved' });
+    setPreviewMatch(null);
   };
 
   const handleReject = () => {
@@ -50,6 +85,7 @@ export function ContentCurationPanel({ courseId, learningObjectives, curationMod
 
   const openRejectDialog = (match: ContentMatch) => {
     setSelectedMatch(match);
+    setPreviewMatch(null);
     setRejectDialogOpen(true);
   };
 
@@ -86,6 +122,26 @@ export function ContentCurationPanel({ courseId, learningObjectives, curationMod
           <CardDescription className="text-xs">
             Select an LO to manage its content
           </CardDescription>
+          {losWithoutContent > 0 && (
+            <Button
+              size="sm"
+              onClick={handleFindAllContent}
+              disabled={bulkSearching || searchContent.isPending}
+              className="w-full mt-2 gap-2"
+            >
+              {bulkSearching ? (
+                <>
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Finding {bulkProgress.current}/{bulkProgress.total}...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-3 w-3" />
+                  Find All Content ({losWithoutContent})
+                </>
+              )}
+            </Button>
+          )}
         </CardHeader>
         <CardContent className="p-0">
           <div className="max-h-[400px] overflow-y-auto">
@@ -94,41 +150,63 @@ export function ContentCurationPanel({ courseId, learningObjectives, curationMod
                 No learning objectives yet
               </div>
             ) : (
-              learningObjectives.map((lo) => (
-                <div
-                  key={lo.id}
-                  className={`w-full text-left p-3 border-b border-border/50 hover:bg-muted/50 transition-colors cursor-pointer ${
-                    selectedLO === lo.id ? 'bg-muted' : ''
-                  }`}
-                  onClick={() => setSelectedLO(lo.id)}
-                >
-                  <p className="text-sm font-medium line-clamp-2">{lo.text}</p>
-                  <div className="flex items-center justify-between gap-2 mt-2">
-                    {lo.bloom_level && (
-                      <Badge variant="secondary" className="text-xs capitalize">
-                        {lo.bloom_level}
-                      </Badge>
-                    )}
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 text-xs gap-1"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleFindContent(lo);
-                      }}
-                      disabled={searchContent.isPending}
-                    >
-                      {searchContent.isPending && searchContent.variables?.id === lo.id ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : (
-                        <Search className="h-3 w-3" />
-                      )}
-                      Find
-                    </Button>
+              learningObjectives.map((lo) => {
+                const status = loContentStatus?.[lo.id];
+                return (
+                  <div
+                    key={lo.id}
+                    className={`w-full text-left p-3 border-b border-border/50 hover:bg-muted/50 transition-colors cursor-pointer ${
+                      selectedLO === lo.id ? 'bg-muted' : ''
+                    }`}
+                    onClick={() => setSelectedLO(lo.id)}
+                  >
+                    <div className="flex items-start gap-2">
+                      {/* Progress indicator */}
+                      <div className="mt-1 flex-shrink-0">
+                        {status?.approvedCount ? (
+                          <div className="w-2.5 h-2.5 rounded-full bg-success" title="Has approved content" />
+                        ) : status?.pendingCount ? (
+                          <div className="w-2.5 h-2.5 rounded-full bg-warning" title="Has pending content" />
+                        ) : (
+                          <div className="w-2.5 h-2.5 rounded-full bg-muted-foreground/30" title="No content" />
+                        )}
+                      </div>
+                      <p className="text-sm font-medium line-clamp-2 flex-1">{lo.text}</p>
+                    </div>
+                    <div className="flex items-center justify-between gap-2 mt-2 ml-4">
+                      <div className="flex items-center gap-1">
+                        {lo.bloom_level && (
+                          <Badge variant="secondary" className="text-xs capitalize">
+                            {lo.bloom_level}
+                          </Badge>
+                        )}
+                        {status?.pendingCount ? (
+                          <Badge variant="outline" className="text-xs text-warning">
+                            {status.pendingCount} pending
+                          </Badge>
+                        ) : null}
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs gap-1"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleFindContent(lo);
+                        }}
+                        disabled={searchContent.isPending || bulkSearching}
+                      >
+                        {searchContent.isPending && searchContent.variables?.id === lo.id ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Search className="h-3 w-3" />
+                        )}
+                        Find
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </CardContent>
@@ -253,6 +331,16 @@ export function ContentCurationPanel({ courseId, learningObjectives, curationMod
           </Tabs>
         )}
       </div>
+
+      {/* Video Preview Modal */}
+      <VideoPreviewModal
+        match={previewMatch}
+        open={previewMatch !== null}
+        onOpenChange={(open) => !open && setPreviewMatch(null)}
+        onApprove={() => previewMatch && handleApprove(previewMatch.id)}
+        onReject={() => previewMatch && openRejectDialog(previewMatch)}
+        isLoading={updateStatus.isPending}
+      />
 
       {/* Reject Dialog */}
       <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
