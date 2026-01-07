@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2";
 import { MASTER_SYSTEM_PROMPT, SYLLABUS_EXTRACTION_PROMPT } from "../_shared/prompts.ts";
 import { trackAIUsage, createServiceClient } from "../_shared/ai-cache.ts";
 import { SYLLABUS_EXTRACTION_SCHEMA, createToolDefinition, createToolChoice } from "../_shared/schemas.ts";
@@ -42,8 +42,8 @@ serve(async (req) => {
 
         // Check rate limits
         const serviceClient = createServiceClient();
-        const limits = await getUserLimits(serviceClient, userId);
-        const rateLimitResult = await checkRateLimit(serviceClient, userId, 'analyze-syllabus', limits);
+        const limits = await getUserLimits(serviceClient, user.id);
+        const rateLimitResult = await checkRateLimit(serviceClient, user.id, 'analyze-syllabus', limits);
         
         if (!rateLimitResult.allowed) {
           return createRateLimitResponse(rateLimitResult, corsHeaders);
