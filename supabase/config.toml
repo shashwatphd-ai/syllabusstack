@@ -30,9 +30,6 @@ verify_jwt = true
 [functions.generate-micro-checks]
 verify_jwt = true
 
-[functions.evaluate-answer]
-verify_jwt = true
-
 [functions.start-assessment]
 verify_jwt = true
 
@@ -43,7 +40,7 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.parse-syllabus-document]
-verify_jwt = true
+verify_jwt = false
 
 [functions.generate-assessment-questions]
 verify_jwt = true
