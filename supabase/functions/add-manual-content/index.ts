@@ -33,16 +33,21 @@ serve(async (req) => {
       throw new Error("Unauthorized");
     }
 
-    const { 
-      learning_objective_id, 
-      video_id, 
-      video_title, 
-      video_description,
-      channel_name,
-      thumbnail_url 
-    } = await req.json();
+    const body = await req.json();
+    
+    // Accept both naming conventions for backwards compatibility
+    const learning_objective_id = body.learning_objective_id;
+    const video_id = body.video_id;
+    const video_title = body.video_title || body.title;
+    const video_description = body.video_description || body.description;
+    const channel_name = body.channel_name;
+    const thumbnail_url = body.thumbnail_url;
+    const duration_seconds = body.duration_seconds;
+    const view_count = body.view_count;
+    const published_at = body.published_at;
 
     if (!learning_objective_id || !video_id) {
+      console.error("Missing required fields:", { learning_objective_id, video_id, body });
       throw new Error("learning_objective_id and video_id are required");
     }
 
@@ -53,38 +58,43 @@ serve(async (req) => {
     let description = video_description;
     let channelName = channel_name;
     let thumbnailUrl = thumbnail_url;
-    let durationSeconds = 0;
-    let viewCount = 0;
+    let durationSeconds = duration_seconds || 0;
+    let viewCount = view_count || 0;
     let likeCount = 0;
-    let publishedAt = null;
+    let publishedAt = published_at || null;
 
-    const detailsUrl = new URL("https://www.googleapis.com/youtube/v3/videos");
-    detailsUrl.searchParams.set("key", YOUTUBE_API_KEY);
-    detailsUrl.searchParams.set("id", video_id);
-    detailsUrl.searchParams.set("part", "snippet,contentDetails,statistics");
+    // If we don't have title, fetch from YouTube API
+    if (!title) {
+      const detailsUrl = new URL("https://www.googleapis.com/youtube/v3/videos");
+      detailsUrl.searchParams.set("key", YOUTUBE_API_KEY);
+      detailsUrl.searchParams.set("id", video_id);
+      detailsUrl.searchParams.set("part", "snippet,contentDetails,statistics");
 
-    const detailsResponse = await fetch(detailsUrl.toString());
-    if (detailsResponse.ok) {
-      const detailsData = await detailsResponse.json();
-      const item = detailsData.items?.[0];
-      
-      if (item) {
-        title = title || item.snippet.title;
-        description = description || item.snippet.description;
-        channelName = channelName || item.snippet.channelTitle;
-        thumbnailUrl = thumbnailUrl || item.snippet.thumbnails?.medium?.url;
-        publishedAt = item.snippet.publishedAt;
-        viewCount = parseInt(item.statistics?.viewCount || "0");
-        likeCount = parseInt(item.statistics?.likeCount || "0");
+      const detailsResponse = await fetch(detailsUrl.toString());
+      if (detailsResponse.ok) {
+        const detailsData = await detailsResponse.json();
+        const item = detailsData.items?.[0];
         
-        // Parse duration
-        const duration = item.contentDetails?.duration || "";
-        const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
-        if (match) {
-          const hours = parseInt(match[1] || "0");
-          const minutes = parseInt(match[2] || "0");
-          const seconds = parseInt(match[3] || "0");
-          durationSeconds = hours * 3600 + minutes * 60 + seconds;
+        if (item) {
+          title = item.snippet.title;
+          description = description || item.snippet.description;
+          channelName = channelName || item.snippet.channelTitle;
+          thumbnailUrl = thumbnailUrl || item.snippet.thumbnails?.medium?.url;
+          publishedAt = item.snippet.publishedAt;
+          viewCount = parseInt(item.statistics?.viewCount || "0");
+          likeCount = parseInt(item.statistics?.likeCount || "0");
+          
+          // Parse duration if not provided
+          if (!durationSeconds) {
+            const duration = item.contentDetails?.duration || "";
+            const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+            if (match) {
+              const hours = parseInt(match[1] || "0");
+              const minutes = parseInt(match[2] || "0");
+              const seconds = parseInt(match[3] || "0");
+              durationSeconds = hours * 3600 + minutes * 60 + seconds;
+            }
+          }
         }
       }
     }

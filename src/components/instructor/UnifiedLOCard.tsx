@@ -1,8 +1,7 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, Video, Search, Plus, Loader2, CheckCircle, XCircle, Play, Link, Sparkles, ExternalLink } from 'lucide-react';
+import { ChevronDown, ChevronRight, Video, Search, Loader2, CheckCircle, XCircle, Play, Link, HelpCircle, Clock, ExternalLink } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Progress } from '@/components/ui/progress';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { LearningObjective, ContentMatch, useContentMatches, useSearchYouTubeContent, useUpdateContentMatchStatus } from '@/hooks/useLearningObjectives';
@@ -20,6 +19,40 @@ interface UnifiedLOCardProps {
   };
 }
 
+// Bloom's Taxonomy descriptions for tooltips
+const bloomDescriptions: Record<string, { title: string; description: string; color: string }> = {
+  remember: {
+    title: 'Remember',
+    description: 'Recall facts and basic concepts. Activities: define, list, memorize, repeat.',
+    color: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
+  },
+  understand: {
+    title: 'Understand',
+    description: 'Explain ideas or concepts. Activities: classify, describe, discuss, explain.',
+    color: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
+  },
+  apply: {
+    title: 'Apply',
+    description: 'Use information in new situations. Activities: execute, implement, solve, use.',
+    color: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300',
+  },
+  analyze: {
+    title: 'Analyze',
+    description: 'Draw connections among ideas. Activities: differentiate, organize, compare, deconstruct.',
+    color: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300',
+  },
+  evaluate: {
+    title: 'Evaluate',
+    description: 'Justify a decision or course of action. Activities: appraise, argue, critique, judge.',
+    color: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
+  },
+  create: {
+    title: 'Create',
+    description: 'Produce new or original work. Activities: design, assemble, construct, develop.',
+    color: 'bg-pink-100 text-pink-800 dark:bg-pink-900/30 dark:text-pink-300',
+  },
+};
+
 export function UnifiedLOCard({ learningObjective, contentStatus }: UnifiedLOCardProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [previewMatch, setPreviewMatch] = useState<ContentMatch | null>(null);
@@ -34,16 +67,12 @@ export function UnifiedLOCard({ learningObjective, contentStatus }: UnifiedLOCar
   const pendingMatches = contentMatches?.filter(m => m.status === 'pending') || [];
   const approvedMatches = contentMatches?.filter(m => m.status === 'approved' || m.status === 'auto_approved') || [];
 
-  const getBloomBadgeColor = (level: string | null) => {
-    const colors: Record<string, string> = {
-      remember: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
-      understand: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
-      apply: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300',
-      analyze: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300',
-      evaluate: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
-      create: 'bg-pink-100 text-pink-800 dark:bg-pink-900/30 dark:text-pink-300',
+  const getBloomInfo = (level: string | null) => {
+    return bloomDescriptions[level || ''] || { 
+      title: level || 'Unknown', 
+      description: 'Cognitive level not specified.', 
+      color: 'bg-muted text-muted-foreground' 
     };
-    return colors[level || ''] || 'bg-muted text-muted-foreground';
   };
 
   const getStatusIndicator = () => {
@@ -87,6 +116,9 @@ export function UnifiedLOCard({ learningObjective, contentStatus }: UnifiedLOCar
     return 'text-destructive';
   };
 
+  // Get actual video duration from first approved match
+  const actualVideoDuration = approvedMatches[0]?.content?.duration_seconds;
+
   return (
     <>
       <Collapsible open={isOpen} onOpenChange={setIsOpen}>
@@ -106,16 +138,55 @@ export function UnifiedLOCard({ learningObjective, contentStatus }: UnifiedLOCar
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-foreground">{learningObjective.text}</p>
                 <div className="flex flex-wrap items-center gap-2 mt-2">
+                  {/* Bloom's Level with Tooltip */}
                   {learningObjective.bloom_level && (
-                    <Badge className={`text-xs ${getBloomBadgeColor(learningObjective.bloom_level)}`}>
-                      {learningObjective.bloom_level}
-                    </Badge>
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Badge className={`text-xs cursor-help ${getBloomInfo(learningObjective.bloom_level).color}`}>
+                            {learningObjective.bloom_level}
+                          </Badge>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs">
+                          <p className="font-semibold">{getBloomInfo(learningObjective.bloom_level).title}</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {getBloomInfo(learningObjective.bloom_level).description}
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   )}
+                  
+                  {/* Duration with Tooltip */}
                   {learningObjective.expected_duration_minutes && (
-                    <span className="text-xs text-muted-foreground">
-                      ~{learningObjective.expected_duration_minutes} min
-                    </span>
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="text-xs text-muted-foreground cursor-help flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            ~{learningObjective.expected_duration_minutes} min
+                            {actualVideoDuration && (
+                              <span className="text-success">
+                                → {Math.round(actualVideoDuration / 60)}m
+                              </span>
+                            )}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs">
+                          <p className="font-semibold">Estimated Duration</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Based on Bloom's level ({learningObjective.bloom_level}) and topic complexity.
+                            {actualVideoDuration && (
+                              <span className="block mt-1 text-success">
+                                Actual video: {Math.round(actualVideoDuration / 60)} minutes
+                              </span>
+                            )}
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   )}
+                  
                   {contentStatus.approvedCount > 0 && (
                     <Badge variant="outline" className="text-xs text-success border-success/30">
                       {contentStatus.approvedCount} approved
@@ -290,7 +361,7 @@ function CompactContentCard({
     <div className="flex items-center gap-3 p-2 rounded-lg bg-muted/30 border border-border/50">
       {/* Thumbnail */}
       <div 
-        className="relative w-20 h-12 flex-shrink-0 rounded overflow-hidden cursor-pointer group"
+        className="relative w-20 h-12 flex-shrink-0 rounded overflow-hidden cursor-pointer group bg-muted"
         onClick={onPreview}
       >
         {content?.thumbnail_url ? (
@@ -298,9 +369,12 @@ function CompactContentCard({
             src={content.thumbnail_url} 
             alt={content.title}
             className="w-full h-full object-cover"
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = 'none';
+            }}
           />
         ) : (
-          <div className="w-full h-full bg-muted flex items-center justify-center">
+          <div className="w-full h-full flex items-center justify-center">
             <Video className="h-4 w-4 text-muted-foreground" />
           </div>
         )}
@@ -329,9 +403,34 @@ function CompactContentCard({
 
       {/* Actions */}
       {isApproved ? (
-        <Badge className="bg-success/10 text-success text-xs">
-          ✓
-        </Badge>
+        <div className="flex items-center gap-1">
+          <Badge className="bg-success/10 text-success text-xs">
+            ✓
+          </Badge>
+          {content?.source_id && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    asChild
+                  >
+                    <a 
+                      href={`https://www.youtube.com/watch?v=${content.source_id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Open on YouTube</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+        </div>
       ) : (
         <div className="flex items-center gap-1">
           <TooltipProvider>

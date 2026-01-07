@@ -5,19 +5,14 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-interface YouTubeSearchResult {
-  id: string;
-  title: string;
-  description: string;
-  channelTitle: string;
-  thumbnailUrl: string;
-  duration: string;
-  viewCount: string;
-  publishedAt: string;
-}
-
-function parseDuration(duration: string): string {
-  return duration; // Return raw ISO 8601 for client-side parsing
+// Parse ISO 8601 duration (e.g., PT4M32S) to seconds
+function parseDurationToSeconds(duration: string): number {
+  const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  if (!match) return 0;
+  const hours = parseInt(match[1] || "0");
+  const minutes = parseInt(match[2] || "0");
+  const seconds = parseInt(match[3] || "0");
+  return hours * 3600 + minutes * 60 + seconds;
 }
 
 serve(async (req) => {
@@ -82,15 +77,16 @@ serve(async (req) => {
 
     const detailsData = await detailsResponse.json();
 
-    const results: YouTubeSearchResult[] = (detailsData.items || []).map((item: any) => ({
-      id: item.id,
+    // Map to frontend-expected field names
+    const results = (detailsData.items || []).map((item: any) => ({
+      video_id: item.id,
       title: item.snippet.title,
       description: item.snippet.description?.substring(0, 200) || '',
-      channelTitle: item.snippet.channelTitle,
-      thumbnailUrl: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url,
-      duration: item.contentDetails?.duration || '',
-      viewCount: item.statistics?.viewCount || '0',
-      publishedAt: item.snippet.publishedAt,
+      channel_name: item.snippet.channelTitle,
+      thumbnail_url: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url || '',
+      duration_seconds: parseDurationToSeconds(item.contentDetails?.duration || ''),
+      view_count: parseInt(item.statistics?.viewCount || '0'),
+      published_at: item.snippet.publishedAt,
     }));
 
     console.log(`Found ${results.length} videos`);
