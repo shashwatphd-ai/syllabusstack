@@ -25,7 +25,7 @@ export default function InstructorCourseDetailPage() {
   const navigate = useNavigate();
   const { data: course, isLoading: courseLoading } = useInstructorCourse(id);
   const { data: modules, isLoading: modulesLoading } = useModules(id);
-  const { data: learningObjectives } = useLearningObjectives();
+  const { data: learningObjectives, refetch: refetchLOs } = useLearningObjectives(id);
   const createModule = useCreateModule();
   const updateCourse = useUpdateInstructorCourse();
   const extractLOs = useExtractLearningObjectives();
@@ -51,20 +51,20 @@ export default function InstructorCourseDetailPage() {
   };
 
   const handleExtractLOs = async () => {
-    if (!syllabusText.trim()) return;
+    if (!syllabusText.trim() || !id) return;
     await extractLOs.mutateAsync({
       syllabusText,
+      courseId: id,
       moduleId: selectedModuleId || undefined,
     });
     setIsSyllabusDialogOpen(false);
     setSyllabusText('');
     setSelectedModuleId(null);
+    refetchLOs();
   };
 
-  // Filter LOs for this course's modules
-  const courseLOs = learningObjectives?.filter(lo => 
-    modules?.some(m => m.id === lo.module_id)
-  ) || [];
+  // All LOs for this course (including those without a module)
+  const courseLOs = learningObjectives || [];
 
   if (isLoading) {
     return (

@@ -56,6 +56,9 @@ serve(async (req) => {
 
     const { syllabus_text, course_id, module_id } = await req.json();
     
+    // course_id here refers to instructor_course_id
+    const instructorCourseId = course_id;
+    
     if (!syllabus_text) {
       throw new Error("syllabus_text is required");
     }
@@ -143,7 +146,7 @@ If no explicit learning objectives are found, infer them from course topics and 
 
       const loData = {
         user_id: user.id,
-        course_id: course_id || null,
+        instructor_course_id: instructorCourseId || null,
         module_id: module_id || null,
         text: lo.text,
         core_concept: lo.core_concept,
