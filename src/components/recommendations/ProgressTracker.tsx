@@ -1,13 +1,16 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { 
   CheckCircle2, 
   Circle, 
   Clock, 
   Target,
-  TrendingUp
+  TrendingUp,
+  Rocket
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 interface Milestone {
   id: string;
@@ -25,71 +28,13 @@ interface ProgressTrackerProps {
   isLoading?: boolean;
 }
 
-const mockMilestones: Milestone[] = [
-  {
-    id: "1",
-    title: "Complete Python Fundamentals",
-    description: "Master core Python programming concepts",
-    isCompleted: true,
-    completedDate: "2024-01-15",
-  },
-  {
-    id: "2",
-    title: "Learn SQL Basics",
-    description: "Complete SQL foundation course",
-    isCompleted: true,
-    completedDate: "2024-02-01",
-  },
-  {
-    id: "3",
-    title: "Start ML Specialization",
-    description: "Begin machine learning coursework",
-    isCompleted: true,
-    completedDate: "2024-02-20",
-  },
-  {
-    id: "4",
-    title: "Complete First ML Project",
-    description: "Build and deploy an end-to-end ML project",
-    isCompleted: false,
-    targetDate: "2024-04-15",
-  },
-  {
-    id: "5",
-    title: "Master Advanced SQL",
-    description: "Complete advanced database course",
-    isCompleted: false,
-    targetDate: "2024-05-01",
-  },
-  {
-    id: "6",
-    title: "Get AWS Certification",
-    description: "Pass AWS Cloud Practitioner exam",
-    isCompleted: false,
-    targetDate: "2024-06-15",
-  },
-  {
-    id: "7",
-    title: "Build Portfolio",
-    description: "Complete 3 portfolio projects",
-    isCompleted: false,
-    targetDate: "2024-07-01",
-  },
-  {
-    id: "8",
-    title: "Ready for Job Applications",
-    description: "Meet all requirements for entry-level positions",
-    isCompleted: false,
-    targetDate: "2024-08-01",
-  },
-];
-
 export function ProgressTracker({ 
-  dreamJobTitle = "Data Scientist",
-  currentProgress = 37,
-  milestones = mockMilestones,
+  dreamJobTitle = "Your Goal",
+  currentProgress = 0,
+  milestones = [],
   isLoading 
 }: ProgressTrackerProps) {
+  const navigate = useNavigate();
   const completedCount = milestones.filter((m) => m.isCompleted).length;
 
   if (isLoading) {
@@ -104,6 +49,33 @@ export function ProgressTracker({
               <div key={i} className="h-12 bg-muted rounded animate-pulse" />
             ))}
           </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Empty state
+  if (milestones.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Target className="h-5 w-5 text-accent" />
+            Progress Tracker
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col items-center justify-center py-8 text-center">
+          <Rocket className="h-12 w-12 text-muted-foreground/50 mb-4" />
+          <p className="text-sm text-muted-foreground mb-4">
+            Add dream jobs and complete recommendations to track your progress.
+          </p>
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={() => navigate('/dream-jobs')}
+          >
+            Add Dream Job
+          </Button>
         </CardContent>
       </Card>
     );

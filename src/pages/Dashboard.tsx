@@ -105,7 +105,7 @@ export default function DashboardPage() {
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2">
             <DreamJobCards 
-              jobs={transformedJobs.length > 0 ? transformedJobs : undefined}
+              jobs={transformedJobs}
               isLoading={jobsLoading}
               onViewJob={(jobId) => navigate(`/dream-jobs/${jobId}`)}
               onAddJob={() => navigate('/dream-jobs')}
@@ -118,7 +118,7 @@ export default function DashboardPage() {
               isLoading={overviewLoading}
             />
             <CapabilitySnapshot 
-              capabilities={transformedCapabilities.length > 0 ? transformedCapabilities : undefined}
+              capabilities={transformedCapabilities}
               isLoading={capsLoading}
             />
           </div>
