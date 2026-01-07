@@ -532,8 +532,49 @@ export type Database = {
         }
         Relationships: []
       }
+      content_assistant_chats: {
+        Row: {
+          created_at: string | null
+          id: string
+          learning_objective_id: string | null
+          messages: Json
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          learning_objective_id?: string | null
+          messages?: Json
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          learning_objective_id?: string | null
+          messages?: Json
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "content_assistant_chats_learning_objective_id_fkey"
+            columns: ["learning_objective_id"]
+            isOneToOne: false
+            referencedRelation: "learning_objectives"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       content_matches: {
         Row: {
+          ai_concern: string | null
+          ai_pedagogy_score: number | null
+          ai_quality_score: number | null
+          ai_reasoning: string | null
+          ai_recommendation: string | null
+          ai_relevance_score: number | null
           approved_at: string | null
           approved_by: string | null
           channel_authority_score: number | null
@@ -550,6 +591,12 @@ export type Database = {
           status: string | null
         }
         Insert: {
+          ai_concern?: string | null
+          ai_pedagogy_score?: number | null
+          ai_quality_score?: number | null
+          ai_reasoning?: string | null
+          ai_recommendation?: string | null
+          ai_relevance_score?: number | null
           approved_at?: string | null
           approved_by?: string | null
           channel_authority_score?: number | null
@@ -566,6 +613,12 @@ export type Database = {
           status?: string | null
         }
         Update: {
+          ai_concern?: string | null
+          ai_pedagogy_score?: number | null
+          ai_quality_score?: number | null
+          ai_reasoning?: string | null
+          ai_recommendation?: string | null
+          ai_relevance_score?: number | null
           approved_at?: string | null
           approved_by?: string | null
           channel_authority_score?: number | null
@@ -591,6 +644,47 @@ export type Database = {
           },
           {
             foreignKeyName: "content_matches_learning_objective_id_fkey"
+            columns: ["learning_objective_id"]
+            isOneToOne: false
+            referencedRelation: "learning_objectives"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      content_search_strategies: {
+        Row: {
+          created_at: string | null
+          expected_video_type: string | null
+          id: string
+          learning_objective_id: string | null
+          priority: number | null
+          query: string
+          rationale: string | null
+          videos_found: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          expected_video_type?: string | null
+          id?: string
+          learning_objective_id?: string | null
+          priority?: number | null
+          query: string
+          rationale?: string | null
+          videos_found?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          expected_video_type?: string | null
+          id?: string
+          learning_objective_id?: string | null
+          priority?: number | null
+          query?: string
+          rationale?: string | null
+          videos_found?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "content_search_strategies_learning_objective_id_fkey"
             columns: ["learning_objective_id"]
             isOneToOne: false
             referencedRelation: "learning_objectives"

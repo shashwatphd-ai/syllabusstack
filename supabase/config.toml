@@ -56,3 +56,12 @@ verify_jwt = true
 
 [functions.fetch-video-metadata]
 verify_jwt = false
+
+[functions.generate-content-strategy]
+verify_jwt = true
+
+[functions.evaluate-content-batch]
+verify_jwt = true
+
+[functions.content-assistant-chat]
+verify_jwt = true
