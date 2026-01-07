@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, Video, Search, Loader2, CheckCircle, XCircle, Play, Link, Clock, ExternalLink, Sparkles, Bot, AlertTriangle, ThumbsUp, Info, MessageSquare } from 'lucide-react';
+import { ChevronDown, ChevronRight, Video, Search, Loader2, CheckCircle, XCircle, Play, Link, Clock, ExternalLink, Sparkles, Bot, AlertTriangle, ThumbsUp, Info, MessageSquare, Zap, Award, Users } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { LearningObjective, ContentMatch, useContentMatches, useSearchYouTubeContent, useUpdateContentMatchStatus } from '@/hooks/useLearningObjectives';
+import { useVideoOtherMatches } from '@/hooks/useVideoOtherMatches';
 import { useGenerateMicroChecks } from '@/hooks/useAssessment';
 import { VideoPreviewModal } from './VideoPreviewModal';
 import { ManualContentSearch } from './ManualContentSearch';
@@ -282,6 +283,7 @@ export function UnifiedLOCard({ learningObjective, contentStatus }: UnifiedLOCar
                         <CompactContentCard
                           key={match.id}
                           match={match}
+                          learningObjectiveId={learningObjective.id}
                           onPreview={() => setPreviewMatch(match)}
                           formatDuration={formatDuration}
                           getScoreColor={getScoreColor}
@@ -301,6 +303,7 @@ export function UnifiedLOCard({ learningObjective, contentStatus }: UnifiedLOCar
                         <CompactContentCard
                           key={match.id}
                           match={match}
+                          learningObjectiveId={learningObjective.id}
                           onPreview={() => setPreviewMatch(match)}
                           onApprove={() => handleApprove(match)}
                           onReject={() => updateStatus.mutate({ matchId: match.id, status: 'rejected' })}
@@ -359,6 +362,7 @@ export function UnifiedLOCard({ learningObjective, contentStatus }: UnifiedLOCar
 
 interface CompactContentCardProps {
   match: ContentMatch;
+  learningObjectiveId: string;
   onPreview: () => void;
   onApprove?: () => void;
   onReject?: () => void;
@@ -372,20 +376,61 @@ interface CompactContentCardProps {
 function getAIRecommendationBadge(recommendation: string | null) {
   switch (recommendation) {
     case 'highly_recommended':
-      return { label: 'AI Pick', variant: 'default' as const, className: 'bg-success/10 text-success border-success/30' };
+      return { label: 'AI Pick', variant: 'default' as const, className: 'bg-success/10 text-success border-success/30', icon: Sparkles };
     case 'recommended':
-      return { label: 'Good Match', variant: 'outline' as const, className: 'text-primary border-primary/30' };
+      return { label: 'Good Match', variant: 'outline' as const, className: 'text-primary border-primary/30', icon: ThumbsUp };
     case 'acceptable':
-      return { label: 'Acceptable', variant: 'outline' as const, className: 'text-muted-foreground' };
+      return { label: 'Acceptable', variant: 'outline' as const, className: 'text-muted-foreground', icon: null };
     case 'not_recommended':
-      return { label: 'Not Ideal', variant: 'outline' as const, className: 'text-warning border-warning/30' };
+      return { label: 'Not Ideal', variant: 'outline' as const, className: 'text-warning border-warning/30', icon: AlertTriangle };
     default:
       return null;
   }
 }
 
+// Phase 2: Helper to get approval type info
+function getApprovalBadge(match: ContentMatch) {
+  if (match.status === 'auto_approved') {
+    // Determine WHY it was auto-approved
+    const isAIApproved = match.ai_recommendation === 'highly_recommended';
+    const isScoreApproved = match.match_score >= 0.75;
+    
+    if (isAIApproved && isScoreApproved) {
+      return { 
+        label: 'AI + Score', 
+        tooltip: `Auto-approved: AI highly recommended (${match.ai_recommendation}) AND high match score (${Math.round(match.match_score * 100)}%)`,
+        icon: Award,
+        className: 'bg-success/20 text-success border-success/40'
+      };
+    } else if (isAIApproved) {
+      return { 
+        label: 'AI Approved', 
+        tooltip: `Auto-approved: AI highly recommended this video as an excellent pedagogical match`,
+        icon: Sparkles,
+        className: 'bg-primary/10 text-primary border-primary/30'
+      };
+    } else {
+      return { 
+        label: 'Score Approved', 
+        tooltip: `Auto-approved: Match score of ${Math.round(match.match_score * 100)}% exceeded the 75% threshold`,
+        icon: Zap,
+        className: 'bg-success/10 text-success border-success/30'
+      };
+    }
+  } else if (match.status === 'approved') {
+    return { 
+      label: 'You Approved', 
+      tooltip: `Manually approved${match.approved_at ? ` on ${new Date(match.approved_at).toLocaleDateString()}` : ''}`,
+      icon: CheckCircle,
+      className: 'bg-success/10 text-success border-success/30'
+    };
+  }
+  return null;
+}
+
 function CompactContentCard({
   match,
+  learningObjectiveId,
   onPreview,
   onApprove,
   onReject,
@@ -396,6 +441,9 @@ function CompactContentCard({
 }: CompactContentCardProps) {
   const content = match.content;
   const aiBadge = getAIRecommendationBadge(match.ai_recommendation);
+  
+  // Phase 4: Check if this video is used in other learning objectives
+  const { data: otherMatches } = useVideoOtherMatches(content?.id, learningObjectiveId);
 
   return (
     <div className="flex items-start gap-3 p-2 rounded-lg bg-muted/30 border border-border/50">
@@ -501,6 +549,34 @@ function CompactContentCard({
               </Tooltip>
             </TooltipProvider>
           )}
+          
+          {/* Phase 4: Cross-module indicator */}
+          {otherMatches && otherMatches.length > 0 && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge variant="outline" className="text-[10px] h-5 text-muted-foreground cursor-help">
+                    <Users className="h-2.5 w-2.5 mr-0.5" />
+                    +{otherMatches.length}
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  <p className="font-medium text-xs mb-1">Also used in {otherMatches.length} other objective{otherMatches.length > 1 ? 's' : ''}</p>
+                  <ul className="text-[10px] text-muted-foreground space-y-1">
+                    {otherMatches.slice(0, 3).map((om, i) => (
+                      <li key={i} className="truncate">
+                        {om.moduleTitle && <span className="text-primary">{om.moduleTitle}: </span>}
+                        {om.learningObjectiveText.slice(0, 50)}...
+                      </li>
+                    ))}
+                    {otherMatches.length > 3 && (
+                      <li className="text-muted-foreground/70">...and {otherMatches.length - 3} more</li>
+                    )}
+                  </ul>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
         </div>
       </div>
 
@@ -513,34 +589,50 @@ function CompactContentCard({
 
       {/* Actions */}
       {isApproved ? (
-        <div className="flex items-center gap-1">
-          <Badge className="bg-success/10 text-success text-xs">
-            ✓
-          </Badge>
-          {content?.source_id && (
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7"
-                    asChild
-                  >
-                    <a 
-                      href={`https://www.youtube.com/watch?v=${content.source_id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      <ExternalLink className="h-3 w-3" />
-                    </a>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Open on YouTube</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          )}
-        </div>
+        (() => {
+          const approvalBadge = getApprovalBadge(match);
+          const ApprovalIcon = approvalBadge?.icon || CheckCircle;
+          return (
+            <div className="flex items-center gap-1">
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Badge variant="outline" className={`text-[10px] h-5 cursor-help ${approvalBadge?.className || 'bg-success/10 text-success'}`}>
+                      <ApprovalIcon className="h-2.5 w-2.5 mr-0.5" />
+                      {approvalBadge?.label || '✓'}
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    <p className="text-xs">{approvalBadge?.tooltip || 'Approved'}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+              {content?.source_id && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        asChild
+                      >
+                        <a 
+                          href={`https://www.youtube.com/watch?v=${content.source_id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Open on YouTube</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+            </div>
+          );
+        })()
       ) : (
         <div className="flex items-center gap-1">
           <TooltipProvider>

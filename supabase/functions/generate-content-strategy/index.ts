@@ -83,17 +83,32 @@ serve(async (req) => {
       expected_duration_minutes: expectedDuration,
     } = learning_objective;
 
-    // Get module context if available
+    // Phase 5: Enhanced module and course context for better search relevance
     let moduleContext = "";
+    let courseContext = "";
+    
     if (learning_objective.module_id) {
       const { data: module } = await supabase
         .from('modules')
-        .select('title, description')
+        .select('title, description, instructor_course_id')
         .eq('id', learning_objective.module_id)
         .single();
       
       if (module) {
-        moduleContext = `Module: ${module.title}${module.description ? ` - ${module.description}` : ''}`;
+        moduleContext = `MODULE: "${module.title}"${module.description ? `\nModule Description: ${module.description}` : ''}`;
+        
+        // Also fetch course context
+        if (module.instructor_course_id) {
+          const { data: course } = await supabase
+            .from('instructor_courses')
+            .select('title, description')
+            .eq('id', module.instructor_course_id)
+            .single();
+          
+          if (course) {
+            courseContext = `COURSE: "${course.title}"${course.description ? `\nCourse Description: ${course.description}` : ''}`;
+          }
+        }
       }
     }
 
@@ -103,7 +118,9 @@ serve(async (req) => {
 
 Your goal is to generate optimal YouTube search queries that will find videos matching the pedagogical requirements of the learning objective.`;
 
-    const userPrompt = `Generate YouTube search strategies for this learning objective:
+    const userPrompt = `Generate YouTube search strategies for this learning objective. CRITICAL: Searches must be SPECIFIC to the module and course context - avoid generic queries.
+
+${courseContext ? `${courseContext}\n` : ''}${moduleContext ? `${moduleContext}\n` : ''}
 
 LEARNING OBJECTIVE: "${loText}"
 
@@ -115,23 +132,28 @@ BLOOM'S LEVEL: ${bloomLevel || 'understand'}
 CORE CONCEPT: ${coreConcept || 'the main topic'}
 DOMAIN: ${domain || 'general'}
 ACTION VERB: ${actionVerb || 'understand'}
-${moduleContext ? `MODULE CONTEXT: ${moduleContext}` : ''}
 ${searchKeywords?.length ? `KEYWORDS TO CONSIDER: ${searchKeywords.join(', ')}` : ''}
 TARGET DURATION: ~${expectedDuration || 15} minutes
 
+IMPORTANT GUIDELINES:
+- All queries MUST relate specifically to the module topic "${moduleContext || 'this subject'}"
+- Avoid overly generic queries like "entrepreneurship" or "business" - be specific!
+- Include module-specific terminology in queries
+- Consider what makes THIS module different from others in the course
+
 Generate 6 diverse search strategies, prioritized by likely effectiveness. Consider:
-1. Different phrasings of the core concept
+1. Module-specific concept phrasing (e.g., for a "Pitch Deck" module, use "pitch deck" not just "presentation")
 2. Adding "tutorial", "explained", "course" for educational content
-3. Domain-specific terminology
+3. Domain-specific terminology from the module
 4. Content creator patterns (e.g., "crash course", "in 10 minutes")
-5. Academic vs practical approaches
+5. Academic vs practical approaches for this specific topic
 
 Return ONLY valid JSON in this exact format:
 {
   "strategies": [
     {
-      "query": "exact YouTube search query",
-      "rationale": "why this query will find pedagogically appropriate content",
+      "query": "exact YouTube search query - must be module-specific",
+      "rationale": "why this query will find content specific to this module",
       "expected_video_type": "lecture|tutorial|case study|animation|worked example|explanation|demonstration",
       "priority": 1
     }

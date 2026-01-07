@@ -492,16 +492,21 @@ serve(async (req) => {
     scoredVideos.sort((a, b) => b.scores.total - a.scores.total);
 
     // Filter and deduplicate by channel (max 2 per channel)
+    // Phase 3: Raised minimum threshold from 0.30 to 0.45, filter AI-rejected
     const channelCounts = new Map<string, number>();
     const viableCandidates = scoredVideos.filter((sv) => {
-      if (sv.scores.total < 0.30) return false;
+      // Minimum quality threshold - raised from 0.30 to 0.45
+      if (sv.scores.total < 0.45) return false;
+      // Never save videos that AI explicitly rejected
+      if (sv.ai_recommendation === 'not_recommended') return false;
       const count = channelCounts.get(sv.video.channelId) || 0;
       if (count >= 2) return false;
       channelCounts.set(sv.video.channelId, count + 1);
       return true;
     });
     
-    const topCandidates = viableCandidates.slice(0, 12);
+    // Reduced from 12 to 6 to reduce clutter
+    const topCandidates = viableCandidates.slice(0, 6);
 
     // Step 5: Save content and matches to database
     const savedMatches = [];
@@ -548,9 +553,11 @@ serve(async (req) => {
         contentId = newContent.id;
       }
 
-      // Determine auto-approval based on AI recommendation or score
-      const isHighlyRecommended = candidate.ai_recommendation === 'highly_recommended';
-      const autoApprove = isHighlyRecommended || candidate.scores.total >= 0.70;
+      // Phase 3: Stricter auto-approval criteria
+      // Require BOTH decent score AND good AI recommendation, OR very high score
+      const isAIApproved = candidate.ai_recommendation === 'highly_recommended' && candidate.scores.total >= 0.55;
+      const isScoreApproved = candidate.scores.total >= 0.75;
+      const autoApprove = isAIApproved || isScoreApproved;
       
       const { data: match, error: matchError } = await supabaseClient
         .from("content_matches")
