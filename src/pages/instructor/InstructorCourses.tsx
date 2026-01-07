@@ -79,45 +79,65 @@ export default function InstructorCoursesPage() {
                 New Course
               </Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="max-w-lg">
               <DialogHeader>
                 <DialogTitle>Create New Course</DialogTitle>
                 <DialogDescription>
-                  Set up a new course to manage learning objectives and content.
+                  Enter your course details. You'll add learning objectives and curate video content in the next step.
                 </DialogDescription>
               </DialogHeader>
+              
               <div className="space-y-4 py-4">
                 <div className="space-y-2">
-                  <Label htmlFor="title">Course Title</Label>
+                  <Label htmlFor="title">Course Title <span className="text-destructive">*</span></Label>
                   <Input
                     id="title"
-                    placeholder="Introduction to Data Science"
+                    placeholder="e.g., Strategic Management"
                     value={newCourse.title}
                     onChange={(e) => setNewCourse(prev => ({ ...prev, title: e.target.value }))}
+                    autoFocus
                   />
+                  <p className="text-xs text-muted-foreground">The name students will see</p>
                 </div>
+                
                 <div className="space-y-2">
-                  <Label htmlFor="code">Course Code (Optional)</Label>
+                  <Label htmlFor="code">Course Code</Label>
                   <Input
                     id="code"
-                    placeholder="DS101"
+                    placeholder="e.g., MGT471"
                     value={newCourse.code}
                     onChange={(e) => setNewCourse(prev => ({ ...prev, code: e.target.value }))}
                   />
+                  <p className="text-xs text-muted-foreground">Optional identifier for your records</p>
                 </div>
+                
                 <div className="space-y-2">
                   <Label htmlFor="description">Description</Label>
                   <Textarea
                     id="description"
-                    placeholder="Brief description of the course..."
+                    placeholder="What will students learn in this course?"
                     value={newCourse.description}
                     onChange={(e) => setNewCourse(prev => ({ ...prev, description: e.target.value }))}
+                    rows={3}
                   />
                 </div>
               </div>
-              <DialogFooter>
+
+              <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
+                <p className="font-medium text-foreground mb-1">What happens next?</p>
+                <ol className="list-decimal list-inside space-y-1 text-xs">
+                  <li>Add or paste your syllabus to extract learning objectives</li>
+                  <li>Review and curate video content for each objective</li>
+                  <li>Publish when ready for students to enroll</li>
+                </ol>
+              </div>
+              
+              <DialogFooter className="gap-2 sm:gap-0">
                 <Button variant="outline" onClick={() => setIsCreateOpen(false)}>Cancel</Button>
-                <Button onClick={handleCreateCourse} disabled={createCourse.isPending}>
+                <Button 
+                  onClick={handleCreateCourse} 
+                  disabled={createCourse.isPending || !newCourse.title.trim()}
+                >
                   {createCourse.isPending ? 'Creating...' : 'Create Course'}
                 </Button>
               </DialogFooter>
