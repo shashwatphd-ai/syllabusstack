@@ -82,7 +82,7 @@ export async function checkRateLimit(
     }
 
     const dailyCount = dailyUsage?.length || 0;
-    const dailyCost = dailyUsage?.reduce((sum, u) => sum + (u.cost_usd || 0), 0) || 0;
+    const dailyCost = dailyUsage?.reduce((sum: number, u: { cost_usd: number | null }) => sum + (u.cost_usd || 0), 0) || 0;
 
     const hourlyRemaining = limits.maxRequestsPerHour - (hourlyCount || 0);
     const dailyRemaining = limits.maxRequestsPerDay - dailyCount;

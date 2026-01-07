@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2";
 import { MASTER_SYSTEM_PROMPT, GAP_ANALYSIS_PROMPT } from "../_shared/prompts.ts";
 import { trackAIUsage, createServiceClient } from "../_shared/ai-cache.ts";
 import { GAP_ANALYSIS_SCHEMA, createToolDefinition, createToolChoice } from "../_shared/schemas.ts";
@@ -51,6 +51,9 @@ serve(async (req) => {
       return createErrorResponse('UNAUTHORIZED', corsHeaders, 'Authorization required');
     }
 
+    // Create service client for rate limiting
+    const serviceClient = createServiceClient();
+
     // Check rate limits for authenticated users
     if (authHeader) {
       const limits = await getUserLimits(serviceClient, userId);
@@ -63,8 +66,6 @@ serve(async (req) => {
       logInfo('gap-analysis', 'rate_limit_check', { userId, remaining: rateLimitResult.remaining });
     }
 
-    const serviceClient = createServiceClient();
-
     // Get user's capabilities
     const { data: capabilities, error: capError } = await supabase
       .from("capabilities")
@@ -74,12 +75,16 @@ serve(async (req) => {
       logError('gap-analysis', new Error(`Failed to fetch capabilities: ${capError.message}`));
       return createErrorResponse('DATABASE_ERROR', corsHeaders, 'Failed to fetch capabilities');
     }
+
+    // Get job requirements
+    const { data: requirements, error: reqError } = await supabase
       .from("job_requirements")
       .select("*")
       .eq("dream_job_id", dreamJobId);
 
     if (reqError) {
-      throw new Error(`Failed to fetch requirements: ${reqError.message}`);
+      logError('gap-analysis', new Error(`Failed to fetch requirements: ${reqError.message}`));
+      return createErrorResponse('DATABASE_ERROR', corsHeaders, 'Failed to fetch requirements');
     }
 
     // Get dream job details
@@ -90,14 +95,16 @@ serve(async (req) => {
       .single();
 
     if (jobError) {
-      throw new Error(`Failed to fetch dream job: ${jobError.message}`);
+      logError('gap-analysis', new Error(`Failed to fetch dream job: ${jobError.message}`));
+      return createErrorResponse('DATABASE_ERROR', corsHeaders, 'Failed to fetch dream job');
     }
 
-    console.log(`Gap analysis: ${capabilities?.length || 0} capabilities vs ${requirements?.length || 0} requirements`);
+    logInfo('gap-analysis', 'data_fetched', { 
+      capabilities: capabilities?.length || 0, 
+      requirements: requirements?.length || 0 
+    });
 
-    // --- PHASE 5: Pre-compute keyword-based similarity analysis ---
-    const serviceClient = createServiceClient();
-    
+
     // Build user's capability keywords
     const userKeywords = await buildUserCapabilityKeywords(supabase, userId);
     console.log(`User has ${userKeywords.length} aggregated capability keywords`);

@@ -2,7 +2,7 @@
 // Centralized AI request handling with model selection, caching, fallback logic, and cost tracking
 // Updated to use Google Cloud API directly for cost savings
 
-import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient, SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { getCachedResponse, setCachedResponse, CACHE_TTL, trackAIUsage } from "./ai-cache.ts";
 
 // Task types for model selection
