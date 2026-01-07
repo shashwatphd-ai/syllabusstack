@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -36,26 +36,37 @@ serve(async (req) => {
 
     // For authenticated requests, validate the user
     let userId: string | null = null;
-    const authHeader = req.headers.get("Authorization");
-    
+    const authHeader = req.headers.get("Authorization") ?? req.headers.get("authorization");
+
     if (!isPublicScan) {
       // Require auth for non-public scans
-      if (!authHeader) {
-        throw new Error("No authorization header");
+      if (!authHeader?.startsWith("Bearer ")) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       const supabaseClient = createClient(
         Deno.env.get("SUPABASE_URL") ?? "",
         Deno.env.get("SUPABASE_ANON_KEY") ?? "",
-        { global: { headers: { Authorization: authHeader } } }
+        { global: { headers: { Authorization: authHeader } } },
       );
 
-      const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
-      if (userError || !user) {
-        throw new Error("Unauthorized");
+      const token = authHeader.replace("Bearer ", "");
+      const { data, error: claimsError } = await supabaseClient.auth.getClaims(token);
+
+      if (claimsError || !data?.claims?.sub) {
+        console.error("Auth claims error:", claimsError);
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
-      userId = user.id;
+
+      userId = data.claims.sub;
     }
+
 
     console.log(`Parsing document${userId ? ` for user ${userId}` : ' (public scan)'}, course: ${course_id || 'new'}`);
 
