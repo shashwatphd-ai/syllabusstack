@@ -6,6 +6,7 @@ export interface LearningObjective {
   id: string;
   module_id: string | null;
   course_id: string | null;
+  instructor_course_id: string | null;
   user_id: string;
   text: string;
   core_concept: string | null;
@@ -55,24 +56,25 @@ export interface Content {
   is_available: boolean;
 }
 
-// Fetch learning objectives for a course
-export function useLearningObjectives(courseId?: string) {
+// Fetch learning objectives for an instructor course
+export function useLearningObjectives(instructorCourseId?: string) {
   return useQuery({
-    queryKey: ['learning-objectives', courseId],
+    queryKey: ['learning-objectives', instructorCourseId],
     queryFn: async () => {
       let query = supabase
         .from('learning_objectives')
         .select('*')
         .order('sequence_order', { ascending: true });
 
-      if (courseId) {
-        query = query.eq('course_id', courseId);
+      if (instructorCourseId) {
+        query = query.eq('instructor_course_id', instructorCourseId);
       }
 
       const { data, error } = await query;
       if (error) throw error;
       return data as LearningObjective[];
     },
+    enabled: !!instructorCourseId,
   });
 }
 

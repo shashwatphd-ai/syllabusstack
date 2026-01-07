@@ -956,6 +956,7 @@ export type Database = {
           domain: string | null
           expected_duration_minutes: number | null
           id: string
+          instructor_course_id: string | null
           module_id: string | null
           search_keywords: string[] | null
           sequence_order: number | null
@@ -974,6 +975,7 @@ export type Database = {
           domain?: string | null
           expected_duration_minutes?: number | null
           id?: string
+          instructor_course_id?: string | null
           module_id?: string | null
           search_keywords?: string[] | null
           sequence_order?: number | null
@@ -992,6 +994,7 @@ export type Database = {
           domain?: string | null
           expected_duration_minutes?: number | null
           id?: string
+          instructor_course_id?: string | null
           module_id?: string | null
           search_keywords?: string[] | null
           sequence_order?: number | null
@@ -1007,6 +1010,13 @@ export type Database = {
             columns: ["course_id"]
             isOneToOne: false
             referencedRelation: "courses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "learning_objectives_instructor_course_id_fkey"
+            columns: ["instructor_course_id"]
+            isOneToOne: false
+            referencedRelation: "instructor_courses"
             referencedColumns: ["id"]
           },
           {
