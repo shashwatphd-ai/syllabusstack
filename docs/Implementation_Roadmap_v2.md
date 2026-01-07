@@ -48,10 +48,10 @@
 
 ## Phase 2: Fix Video Integration (Partial)
 
-### Task 2.1: YouTube IFrame API
-- **Status:** ☐ Not Started (YouTube types file created)
-- **Files:** `src/types/youtube.d.ts` ✅, `src/components/player/VerifiedVideoPlayer.tsx`
-- **Goal:** Replace simulated tracking with real YouTube API
+### Task 2.1: YouTube IFrame API ✅
+- **Status:** ✅ Complete
+- **Files:** `src/types/youtube.d.ts` ✅, `src/components/player/VerifiedVideoPlayer.tsx` ✅
+- **Changes:** Replaced simulated `setInterval` time tracking with real YouTube IFrame API. Component now loads YT API dynamically, creates YT.Player instance, and listens to real `onStateChange`, `onPlaybackRateChange` events.
 
 ### Task 2.2: Micro-Check History ✅
 - **Status:** ✅ Complete
