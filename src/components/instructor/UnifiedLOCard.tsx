@@ -262,6 +262,10 @@ export function UnifiedLOCard({ learningObjective, contentStatus }: UnifiedLOCar
                     learningObjectiveId={learningObjective.id}
                     learningObjectiveText={learningObjective.text}
                     bloomLevel={learningObjective.bloom_level || undefined}
+                    onSearchRequest={(query) => {
+                      // Trigger the actual search when AI suggests one
+                      searchContent.mutate(learningObjective);
+                    }}
                     onClose={() => setShowAIAssistant(false)}
                   />
                 </div>
