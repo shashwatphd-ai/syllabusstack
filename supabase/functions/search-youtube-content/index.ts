@@ -265,7 +265,7 @@ serve(async (req) => {
 
     // Filter out auto-rejects (score < 0.40) and take top candidates
     const viableCandidates = scoredVideos.filter((sv) => sv.scores.total >= 0.40);
-    const topCandidates = viableCandidates.slice(0, 5);
+    const topCandidates = viableCandidates.slice(0, 10);
 
     // Save content and content_matches to database
     const savedMatches = [];
