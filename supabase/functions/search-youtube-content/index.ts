@@ -6,7 +6,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Expanded action mapping for Bloom's taxonomy levels
+// Fallback action mapping for Bloom's taxonomy levels (used if AI strategy fails)
 const ACTION_MAP: Record<string, string[]> = {
   remember: ["introduction to", "basics of", "what is", "overview"],
   understand: ["explained", "understanding", "how does", "concepts"],
@@ -28,11 +28,12 @@ const DOMAIN_MODIFIERS: Record<string, string[]> = {
 
 // Scoring weights
 const WEIGHTS = {
-  duration_fit: 0.20,
-  semantic_similarity: 0.35,
-  engagement_quality: 0.20,
-  channel_authority: 0.15,
-  recency: 0.10,
+  duration_fit: 0.15,
+  semantic_similarity: 0.25,
+  engagement_quality: 0.15,
+  channel_authority: 0.10,
+  recency: 0.05,
+  ai_score: 0.30, // New: AI evaluation weight
 };
 
 interface YouTubeVideo {
@@ -56,8 +57,12 @@ interface ScoredContent {
     engagement_quality: number;
     channel_authority: number;
     recency: number;
+    ai_score?: number;
     total: number;
   };
+  ai_reasoning?: string;
+  ai_recommendation?: string;
+  ai_concern?: string;
 }
 
 function parseDuration(duration: string): number {
@@ -73,7 +78,6 @@ function calculateDurationFitScore(actualSeconds: number, expectedMinutes: numbe
   const expectedSeconds = expectedMinutes * 60;
   const ratio = Math.min(actualSeconds, expectedSeconds) / Math.max(actualSeconds, expectedSeconds);
   
-  // Ideal range: 0.7x to 1.5x of expected duration
   if (actualSeconds >= expectedSeconds * 0.7 && actualSeconds <= expectedSeconds * 1.5) {
     return 0.8 + (ratio * 0.2);
   }
@@ -84,11 +88,11 @@ function calculateDurationFitScore(actualSeconds: number, expectedMinutes: numbe
 }
 
 function calculateEngagementScore(viewCount: number, likeCount: number): number {
-  if (viewCount < 500) return 0.2; // Very low confidence
+  if (viewCount < 500) return 0.2;
   if (viewCount < 1000) return 0.3;
   
   const likeRatio = likeCount / viewCount;
-  const viewScore = Math.min(Math.log10(viewCount) / 7, 1); // Log scale, max at 10M views
+  const viewScore = Math.min(Math.log10(viewCount) / 7, 1);
   
   return (likeRatio / 0.05 * 0.5 + viewScore * 0.5);
 }
@@ -112,12 +116,12 @@ function calculateRecencyScore(publishedAt: string): number {
   const now = new Date();
   const daysDiff = (now.getTime() - publishDate.getTime()) / (1000 * 60 * 60 * 24);
   
-  if (daysDiff < 30) return 0.6; // Too new, may not be established
-  if (daysDiff <= 365) return 1.0; // Sweet spot - recent and established
-  if (daysDiff <= 730) return 0.9; // 1-2 years
-  if (daysDiff <= 1095) return 0.75; // 2-3 years
-  if (daysDiff <= 1825) return 0.6; // 3-5 years
-  return 0.4; // Older than 5 years
+  if (daysDiff < 30) return 0.6;
+  if (daysDiff <= 365) return 1.0;
+  if (daysDiff <= 730) return 0.9;
+  if (daysDiff <= 1095) return 0.75;
+  if (daysDiff <= 1825) return 0.6;
+  return 0.4;
 }
 
 function calculateSemanticSimilarity(videoText: string, loText: string, keywords: string[], coreConcept: string): number {
@@ -125,16 +129,14 @@ function calculateSemanticSimilarity(videoText: string, loText: string, keywords
   const loLower = loText.toLowerCase();
   
   let score = 0;
-  const maxScore = keywords.length + 5; // keywords + core concept parts
+  const maxScore = keywords.length + 5;
   
-  // Check keywords
   for (const keyword of keywords) {
     if (keyword && videoLower.includes(keyword.toLowerCase())) {
       score += 1;
     }
   }
   
-  // Check core concept words (weighted higher)
   const conceptWords = coreConcept?.toLowerCase().split(/\s+/) || [];
   for (const word of conceptWords) {
     if (word.length > 3 && videoLower.includes(word)) {
@@ -142,7 +144,6 @@ function calculateSemanticSimilarity(videoText: string, loText: string, keywords
     }
   }
   
-  // Check LO text words (less weight)
   const loWords = loLower.split(/\s+/).filter(w => w.length > 4);
   const matchedWords = loWords.filter(word => videoLower.includes(word)).length;
   score += matchedWords * 0.3;
@@ -166,56 +167,111 @@ serve(async (req) => {
       throw new Error("No authorization header");
     }
 
-    const supabaseClient = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_ANON_KEY") ?? "",
-      { global: { headers: { Authorization: authHeader } } }
-    );
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    
+    const supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: authHeader } }
+    });
+    
+    const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
 
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
     if (userError || !user) {
       throw new Error("Unauthorized");
     }
 
-    const { learning_objective_id, core_concept, bloom_level, domain, search_keywords, expected_duration_minutes, lo_text, instructor_course_id } = await req.json();
+    const { 
+      learning_objective_id, 
+      core_concept, 
+      bloom_level, 
+      domain, 
+      search_keywords, 
+      expected_duration_minutes, 
+      lo_text, 
+      instructor_course_id,
+      use_ai_strategy = true,
+      use_ai_evaluation = true 
+    } = await req.json();
     
     if (!learning_objective_id) {
       throw new Error("learning_objective_id is required");
     }
 
-    console.log(`Searching YouTube content for LO: ${learning_objective_id}`);
+    console.log(`Searching YouTube content for LO: ${learning_objective_id} (AI Strategy: ${use_ai_strategy}, AI Eval: ${use_ai_evaluation})`);
 
-    // Get existing content IDs for this course to avoid duplicates
+    // Get existing content IDs to avoid duplicates
     const existingVideoIds = new Set<string>();
-    if (instructor_course_id) {
-      const { data: existingMatches } = await supabaseClient
-        .from("content_matches")
-        .select(`
-          content:content_id(source_id)
-        `)
-        .eq("learning_objective_id", learning_objective_id);
+    const { data: existingMatches } = await supabaseClient
+      .from("content_matches")
+      .select(`content:content_id(source_id)`)
+      .eq("learning_objective_id", learning_objective_id);
+    
+    existingMatches?.forEach((m: any) => {
+      if (m.content?.source_id) existingVideoIds.add(m.content.source_id);
+    });
+
+    // Step 1: Get AI-generated search strategies or fallback to rule-based
+    let queries: string[] = [];
+    
+    if (use_ai_strategy) {
+      try {
+        // Call generate-content-strategy function
+        const strategyResponse = await fetch(`${supabaseUrl}/functions/v1/generate-content-strategy`, {
+          method: 'POST',
+          headers: {
+            'Authorization': authHeader,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            learning_objective: {
+              id: learning_objective_id,
+              text: lo_text,
+              bloom_level,
+              core_concept,
+              domain,
+              action_verb: search_keywords?.[0] || '',
+              search_keywords,
+              expected_duration_minutes,
+            }
+          }),
+        });
+
+        if (strategyResponse.ok) {
+          const strategyData = await strategyResponse.json();
+          if (strategyData.strategies?.length) {
+            queries = strategyData.strategies
+              .sort((a: any, b: any) => a.priority - b.priority)
+              .slice(0, 6)
+              .map((s: any) => s.query);
+            console.log('Using AI-generated search strategies:', queries);
+          }
+        } else {
+          console.error('AI strategy generation failed, using fallback');
+        }
+      } catch (strategyError) {
+        console.error('Error calling AI strategy:', strategyError);
+      }
+    }
+    
+    // Fallback to rule-based queries
+    if (queries.length === 0) {
+      const actionModifiers = ACTION_MAP[bloom_level] || ACTION_MAP.understand;
+      const domainModifiers = DOMAIN_MODIFIERS[domain] || DOMAIN_MODIFIERS.other;
       
-      existingMatches?.forEach((m: any) => {
-        if (m.content?.source_id) existingVideoIds.add(m.content.source_id);
-      });
+      queries = [
+        `${core_concept} ${actionModifiers[0]} ${domainModifiers[0]}`,
+        `${core_concept} ${domain} lecture`,
+        `${core_concept} tutorial explained`,
+        ...(search_keywords?.slice(0, 3).map((kw: string) => `${kw} ${domain} explained`) || []),
+        `${core_concept} course`,
+        `${core_concept} education`,
+      ].slice(0, 6);
+      console.log('Using fallback search queries:', queries);
     }
 
-    // Build diverse search queries
-    const actionModifiers = ACTION_MAP[bloom_level] || ACTION_MAP.understand;
-    const domainModifiers = DOMAIN_MODIFIERS[domain] || DOMAIN_MODIFIERS.other;
-    
-    const queries = [
-      // Primary queries
-      `${core_concept} ${actionModifiers[0]} ${domainModifiers[0]}`,
-      `${core_concept} ${domain} lecture`,
-      `${core_concept} tutorial explained`,
-      // Keyword-based queries
-      ...(search_keywords?.slice(0, 3).map((kw: string) => `${kw} ${domain} explained`) || []),
-      // Fallback queries
-      `${core_concept} course`,
-      `${core_concept} education`,
-    ].slice(0, 6); // Max 6 queries
-
+    // Step 2: Execute YouTube searches
     const allVideos: YouTubeVideo[] = [];
     const seenVideoIds = new Set<string>();
 
@@ -230,7 +286,7 @@ serve(async (req) => {
         searchUrl.searchParams.set("videoEmbeddable", "true");
         searchUrl.searchParams.set("videoSyndicated", "true");
         searchUrl.searchParams.set("safeSearch", "strict");
-        searchUrl.searchParams.set("maxResults", "15"); // Increased from 10
+        searchUrl.searchParams.set("maxResults", "15");
 
         const searchResponse = await fetch(searchUrl.toString());
         if (!searchResponse.ok) {
@@ -245,7 +301,6 @@ serve(async (req) => {
 
         if (videoIds.length === 0) continue;
 
-        // Mark as seen to avoid duplicates across queries
         videoIds.forEach((id: string) => seenVideoIds.add(id));
 
         const detailsUrl = new URL("https://www.googleapis.com/youtube/v3/videos");
@@ -282,8 +337,8 @@ serve(async (req) => {
 
     console.log(`Found ${allVideos.length} unique videos across ${queries.length} queries`);
 
-    // Score all videos
-    const scoredVideos: ScoredContent[] = allVideos.map((video) => {
+    // Step 3: Initial scoring (rule-based)
+    let scoredVideos: ScoredContent[] = allVideos.map((video) => {
       const durationFit = calculateDurationFitScore(video.duration, expected_duration_minutes || 15);
       const semanticSimilarity = calculateSemanticSimilarity(
         `${video.title} ${video.description}`,
@@ -295,12 +350,10 @@ serve(async (req) => {
       const channelAuthority = calculateChannelAuthorityScore(video.channelTitle);
       const recency = calculateRecencyScore(video.publishedAt);
 
-      const total =
-        durationFit * WEIGHTS.duration_fit +
-        semanticSimilarity * WEIGHTS.semantic_similarity +
-        engagementQuality * WEIGHTS.engagement_quality +
-        channelAuthority * WEIGHTS.channel_authority +
-        recency * WEIGHTS.recency;
+      // Without AI, use standard weights
+      const total = use_ai_evaluation 
+        ? 0 // Will be recalculated after AI evaluation
+        : (durationFit * 0.20 + semanticSimilarity * 0.35 + engagementQuality * 0.20 + channelAuthority * 0.15 + recency * 0.10);
 
       return {
         video,
@@ -315,22 +368,142 @@ serve(async (req) => {
       };
     });
 
-    // Sort by total score descending
+    // Pre-sort for AI evaluation (top candidates)
+    scoredVideos.sort((a, b) => 
+      (b.scores.semantic_similarity + b.scores.engagement_quality) - 
+      (a.scores.semantic_similarity + a.scores.engagement_quality)
+    );
+
+    // Step 4: AI evaluation for top candidates
+    if (use_ai_evaluation && scoredVideos.length > 0) {
+      try {
+        const topCandidates = scoredVideos.slice(0, 15);
+        
+        const evalResponse = await fetch(`${supabaseUrl}/functions/v1/evaluate-content-batch`, {
+          method: 'POST',
+          headers: {
+            'Authorization': authHeader,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            learning_objective: {
+              id: learning_objective_id,
+              text: lo_text,
+              bloom_level,
+              core_concept,
+              action_verb: search_keywords?.[0] || '',
+              expected_duration_minutes,
+            },
+            videos: topCandidates.map(sv => ({
+              video_id: sv.video.id,
+              title: sv.video.title,
+              description: sv.video.description,
+              channel_name: sv.video.channelTitle,
+              duration_seconds: sv.video.duration,
+            })),
+          }),
+        });
+
+        if (evalResponse.ok) {
+          const evalData = await evalResponse.json();
+          const aiEvaluations = new Map<string, any>(
+            (evalData.evaluations || []).map((e: any) => [e.video_id, e])
+          );
+
+          // Apply AI scores
+          scoredVideos = scoredVideos.map(sv => {
+            const aiEval = aiEvaluations.get(sv.video.id) as any;
+            if (aiEval) {
+              const aiScore = (aiEval.total_score || 50) / 100;
+              const total = 
+                sv.scores.duration_fit * WEIGHTS.duration_fit +
+                sv.scores.semantic_similarity * WEIGHTS.semantic_similarity +
+                sv.scores.engagement_quality * WEIGHTS.engagement_quality +
+                sv.scores.channel_authority * WEIGHTS.channel_authority +
+                sv.scores.recency * WEIGHTS.recency +
+                aiScore * WEIGHTS.ai_score;
+
+              return {
+                ...sv,
+                scores: {
+                  ...sv.scores,
+                  ai_score: Math.round(aiScore * 100) / 100,
+                  total: Math.round(total * 100) / 100,
+                },
+                ai_reasoning: aiEval.reasoning as string,
+                ai_recommendation: aiEval.recommendation as string,
+                ai_concern: aiEval.concern as string | null,
+              };
+            }
+            // For non-evaluated videos, calculate without AI score
+            const total = 
+              sv.scores.duration_fit * 0.20 +
+              sv.scores.semantic_similarity * 0.35 +
+              sv.scores.engagement_quality * 0.20 +
+              sv.scores.channel_authority * 0.15 +
+              sv.scores.recency * 0.10;
+            return {
+              ...sv,
+              scores: {
+                ...sv.scores,
+                total: Math.round(total * 100) / 100,
+              }
+            };
+          });
+
+          console.log('Applied AI evaluations to', aiEvaluations.size, 'videos');
+        } else {
+          console.error('AI evaluation failed, using rule-based scores only');
+          // Recalculate totals without AI
+          scoredVideos = scoredVideos.map(sv => ({
+            ...sv,
+            scores: {
+              ...sv.scores,
+              total: Math.round((
+                sv.scores.duration_fit * 0.20 +
+                sv.scores.semantic_similarity * 0.35 +
+                sv.scores.engagement_quality * 0.20 +
+                sv.scores.channel_authority * 0.15 +
+                sv.scores.recency * 0.10
+              ) * 100) / 100,
+            }
+          }));
+        }
+      } catch (evalError) {
+        console.error('Error in AI evaluation:', evalError);
+        // Recalculate totals without AI
+        scoredVideos = scoredVideos.map(sv => ({
+          ...sv,
+          scores: {
+            ...sv.scores,
+            total: Math.round((
+              sv.scores.duration_fit * 0.20 +
+              sv.scores.semantic_similarity * 0.35 +
+              sv.scores.engagement_quality * 0.20 +
+              sv.scores.channel_authority * 0.15 +
+              sv.scores.recency * 0.10
+            ) * 100) / 100,
+          }
+        }));
+      }
+    }
+
+    // Sort by total score
     scoredVideos.sort((a, b) => b.scores.total - a.scores.total);
 
     // Filter and deduplicate by channel (max 2 per channel)
     const channelCounts = new Map<string, number>();
     const viableCandidates = scoredVideos.filter((sv) => {
-      if (sv.scores.total < 0.35) return false; // Lowered threshold
+      if (sv.scores.total < 0.30) return false;
       const count = channelCounts.get(sv.video.channelId) || 0;
       if (count >= 2) return false;
       channelCounts.set(sv.video.channelId, count + 1);
       return true;
     });
     
-    const topCandidates = viableCandidates.slice(0, 12); // Save top 12 instead of 10
+    const topCandidates = viableCandidates.slice(0, 12);
 
-    // Save content and content_matches to database
+    // Step 5: Save content and matches to database
     const savedMatches = [];
     for (const candidate of topCandidates) {
       let contentId: string;
@@ -375,8 +548,10 @@ serve(async (req) => {
         contentId = newContent.id;
       }
 
-      // Auto-approve high-scoring content
-      const autoApprove = candidate.scores.total >= 0.70;
+      // Determine auto-approval based on AI recommendation or score
+      const isHighlyRecommended = candidate.ai_recommendation === 'highly_recommended';
+      const autoApprove = isHighlyRecommended || candidate.scores.total >= 0.70;
+      
       const { data: match, error: matchError } = await supabaseClient
         .from("content_matches")
         .upsert({
@@ -388,6 +563,12 @@ serve(async (req) => {
           engagement_quality_score: candidate.scores.engagement_quality,
           channel_authority_score: candidate.scores.channel_authority,
           recency_score: candidate.scores.recency,
+          ai_reasoning: candidate.ai_reasoning || null,
+          ai_relevance_score: candidate.scores.ai_score ? candidate.scores.ai_score * 40 : null,
+          ai_pedagogy_score: candidate.scores.ai_score ? candidate.scores.ai_score * 35 : null,
+          ai_quality_score: candidate.scores.ai_score ? candidate.scores.ai_score * 25 : null,
+          ai_recommendation: candidate.ai_recommendation || null,
+          ai_concern: candidate.ai_concern || null,
           status: autoApprove ? "auto_approved" : "pending",
           approved_by: autoApprove ? user.id : null,
           approved_at: autoApprove ? new Date().toISOString() : null,
@@ -414,6 +595,8 @@ serve(async (req) => {
         total_found: allVideos.length,
         viable_candidates: viableCandidates.length,
         auto_approved_count: savedMatches.filter((m) => m.status === "auto_approved").length,
+        ai_strategy_used: use_ai_strategy && queries.length > 0,
+        ai_evaluation_used: use_ai_evaluation,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
