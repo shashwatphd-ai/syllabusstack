@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Video, CheckCircle, XCircle, Clock, AlertCircle, ExternalLink } from 'lucide-react';
+import { Video, CheckCircle, XCircle, Clock, ExternalLink, Search, Loader2 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -7,7 +7,7 @@ import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
-import { useContentMatches, useUpdateContentMatchStatus, LearningObjective, ContentMatch } from '@/hooks/useLearningObjectives';
+import { useContentMatches, useUpdateContentMatchStatus, useSearchYouTubeContent, LearningObjective, ContentMatch } from '@/hooks/useLearningObjectives';
 import { EmptyState } from '@/components/common/EmptyState';
 
 interface ContentCurationPanelProps {
@@ -24,6 +24,13 @@ export function ContentCurationPanel({ courseId, learningObjectives, curationMod
 
   const { data: contentMatches, isLoading } = useContentMatches(selectedLO || undefined);
   const updateStatus = useUpdateContentMatchStatus();
+  const searchContent = useSearchYouTubeContent();
+
+  const handleFindContent = (lo: LearningObjective) => {
+    searchContent.mutate(lo);
+  };
+
+  const selectedLOData = learningObjectives.find(lo => lo.id === selectedLO);
 
   const handleApprove = (matchId: string) => {
     updateStatus.mutate({ matchId, status: 'approved' });
@@ -88,22 +95,39 @@ export function ContentCurationPanel({ courseId, learningObjectives, curationMod
               </div>
             ) : (
               learningObjectives.map((lo) => (
-                <button
+                <div
                   key={lo.id}
-                  className={`w-full text-left p-3 border-b border-border/50 hover:bg-muted/50 transition-colors ${
+                  className={`w-full text-left p-3 border-b border-border/50 hover:bg-muted/50 transition-colors cursor-pointer ${
                     selectedLO === lo.id ? 'bg-muted' : ''
                   }`}
                   onClick={() => setSelectedLO(lo.id)}
                 >
                   <p className="text-sm font-medium line-clamp-2">{lo.text}</p>
-                  <div className="flex items-center gap-2 mt-1.5">
+                  <div className="flex items-center justify-between gap-2 mt-2">
                     {lo.bloom_level && (
                       <Badge variant="secondary" className="text-xs capitalize">
                         {lo.bloom_level}
                       </Badge>
                     )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs gap-1"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleFindContent(lo);
+                      }}
+                      disabled={searchContent.isPending}
+                    >
+                      {searchContent.isPending && searchContent.variables?.id === lo.id ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Search className="h-3 w-3" />
+                      )}
+                      Find
+                    </Button>
                   </div>
-                </button>
+                </div>
               ))
             )}
           </div>
@@ -119,6 +143,20 @@ export function ContentCurationPanel({ courseId, learningObjectives, curationMod
               Mode: <span className="font-medium capitalize">{curationMode.replace('_', ' ')}</span>
             </p>
           </div>
+          {selectedLOData && (
+            <Button
+              onClick={() => handleFindContent(selectedLOData)}
+              disabled={searchContent.isPending}
+              className="gap-2"
+            >
+              {searchContent.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Search className="h-4 w-4" />
+              )}
+              Find Content
+            </Button>
+          )}
         </div>
 
         {!selectedLO ? (
