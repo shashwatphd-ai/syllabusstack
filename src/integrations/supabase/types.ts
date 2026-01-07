@@ -1167,6 +1167,7 @@ export type Database = {
           major: string | null
           onboarding_completed: boolean | null
           onboarding_step: number | null
+          preferences: Json | null
           student_level: string | null
           university: string | null
           updated_at: string
@@ -1184,6 +1185,7 @@ export type Database = {
           major?: string | null
           onboarding_completed?: boolean | null
           onboarding_step?: number | null
+          preferences?: Json | null
           student_level?: string | null
           university?: string | null
           updated_at?: string
@@ -1201,6 +1203,7 @@ export type Database = {
           major?: string | null
           onboarding_completed?: boolean | null
           onboarding_step?: number | null
+          preferences?: Json | null
           student_level?: string | null
           university?: string | null
           updated_at?: string
