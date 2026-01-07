@@ -1,4 +1,4 @@
-import { ReactNode, ComponentType } from 'react';
+import { ReactNode, ComponentType, isValidElement } from 'react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { LucideProps } from 'lucide-react';
@@ -33,32 +33,37 @@ export function EmptyState({
   const renderIcon = () => {
     if (!icon) return null;
     
-    // If it's a function/component, render it
-    if (typeof icon === 'function') {
-      const IconComponent = icon as ComponentType<LucideProps>;
-      return <IconComponent className="h-8 w-8 text-muted-foreground" />;
+    // If it's already a valid React element, return it directly
+    if (isValidElement(icon)) {
+      return icon;
     }
     
-    // Otherwise it's already a ReactNode
-    return icon;
+    // Otherwise treat it as a component to instantiate
+    const IconComponent = icon as ComponentType<LucideProps>;
+    return <IconComponent className="h-8 w-8 text-muted-foreground" />;
   };
 
   // Render action - handle both ReactNode and object
   const renderAction = () => {
     if (!action) return null;
     
+    // If it's already a valid React element, return it directly
+    if (isValidElement(action)) {
+      return action;
+    }
+    
     // If it's an object with label/onClick, render a button
-    if (typeof action === 'object' && 'label' in action && 'onClick' in action) {
+    if (typeof action === 'object' && action !== null && 'label' in action && 'onClick' in action) {
+      const actionConfig = action as { label: string; onClick: () => void };
       return (
-        <Button onClick={action.onClick}>
+        <Button onClick={actionConfig.onClick}>
           <Plus className="h-4 w-4 mr-2" />
-          {action.label}
+          {actionConfig.label}
         </Button>
       );
     }
     
-    // Otherwise it's already a ReactNode
-    return action;
+    return null;
   };
 
   return (
