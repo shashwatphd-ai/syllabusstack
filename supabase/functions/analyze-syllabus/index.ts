@@ -5,6 +5,8 @@ import { trackAIUsage, createServiceClient } from "../_shared/ai-cache.ts";
 import { SYLLABUS_EXTRACTION_SCHEMA, createToolDefinition, createToolChoice } from "../_shared/schemas.ts";
 import { updateCourseKeywords } from "../_shared/similarity.ts";
 import { generateKeywordVector } from "../_shared/ai-orchestrator.ts";
+import { checkRateLimit, getUserLimits, createRateLimitResponse } from "../_shared/rate-limiter.ts";
+import { createErrorResponse, handleAIGatewayError, createSuccessResponse, logInfo, logError } from "../_shared/error-handler.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -20,18 +22,46 @@ serve(async (req) => {
     const { syllabusText, courseId } = await req.json();
     
     if (!syllabusText) {
-      return new Response(
-        JSON.stringify({ error: "Syllabus text is required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'Syllabus text is required');
+    }
+
+    // Get user for rate limiting
+    const authHeader = req.headers.get("Authorization");
+    let userId: string | null = null;
+    let supabase: any = null;
+
+    if (authHeader) {
+      supabase = createClient(
+        Deno.env.get("SUPABASE_URL") ?? "",
+        Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+        { global: { headers: { Authorization: authHeader } } }
       );
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (!userError && user) {
+        userId = user.id;
+
+        // Check rate limits
+        const serviceClient = createServiceClient();
+        const limits = await getUserLimits(serviceClient, userId);
+        const rateLimitResult = await checkRateLimit(serviceClient, userId, 'analyze-syllabus', limits);
+        
+        if (!rateLimitResult.allowed) {
+          return createRateLimitResponse(rateLimitResult, corsHeaders);
+        }
+
+        logInfo('analyze-syllabus', 'rate_limit_check', { 
+          userId, 
+          remaining: rateLimitResult.remaining 
+        });
+      }
     }
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY is not configured");
+      return createErrorResponse('SERVICE_UNAVAILABLE', corsHeaders, 'AI service not configured');
     }
 
-    console.log("Analyzing syllabus for course:", courseId);
+    logInfo('analyze-syllabus', 'processing', { courseId });
 
     const systemPrompt = `${MASTER_SYSTEM_PROMPT}
 
@@ -76,32 +106,20 @@ For each capability, provide:
       }),
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("AI gateway error:", response.status, errorText);
-      
-      if (response.status === 429) {
-        return new Response(
-          JSON.stringify({ error: "Rate limit exceeded. Please try again later." }),
-          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      if (response.status === 402) {
-        return new Response(
-          JSON.stringify({ error: "AI credits exhausted. Please add credits to continue." }),
-          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      throw new Error(`AI gateway error: ${response.status}`);
+    // Handle AI gateway errors
+    const gatewayError = handleAIGatewayError(response, corsHeaders);
+    if (gatewayError) {
+      logError('analyze-syllabus', new Error(`AI gateway error: ${response.status}`));
+      return gatewayError;
     }
 
     const data = await response.json();
-    console.log("AI response received");
+    logInfo('analyze-syllabus', 'ai_response_received', { hasToolCall: !!data.choices?.[0]?.message?.tool_calls });
 
     // Extract capabilities from tool call response
     const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
     if (!toolCall?.function?.arguments) {
-      throw new Error("Invalid AI response format");
+      return createErrorResponse('AI_GATEWAY_ERROR', corsHeaders, 'Invalid AI response format');
     }
 
     const parsed = JSON.parse(toolCall.function.arguments);

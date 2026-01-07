@@ -5,6 +5,8 @@ import { trackAIUsage, createServiceClient } from "../_shared/ai-cache.ts";
 import { GAP_ANALYSIS_SCHEMA, createToolDefinition, createToolChoice } from "../_shared/schemas.ts";
 import { analyzeRequirementCoverage, buildUserCapabilityKeywords } from "../_shared/similarity.ts";
 import { generateKeywordVector, calculateSimilarity } from "../_shared/ai-orchestrator.ts";
+import { checkRateLimit, getUserLimits, createRateLimitResponse } from "../_shared/rate-limiter.ts";
+import { createErrorResponse, handleAIGatewayError, logInfo, logError } from "../_shared/error-handler.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -20,10 +22,7 @@ serve(async (req) => {
     const { dreamJobId, userId: testUserId } = await req.json();
     
     if (!dreamJobId) {
-      return new Response(
-        JSON.stringify({ error: "Dream job ID is required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'Dream job ID is required');
     }
 
     const authHeader = req.headers.get("Authorization");
@@ -45,15 +44,26 @@ serve(async (req) => {
       userId = user.id;
     } else if (testUserId) {
       // Testing mode with service client
-      console.log("Running in test mode with userId:", testUserId);
+      logInfo('gap-analysis', 'test_mode', { testUserId });
       supabase = createServiceClient();
       userId = testUserId;
     } else {
-      return new Response(
-        JSON.stringify({ error: "Authorization required" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return createErrorResponse('UNAUTHORIZED', corsHeaders, 'Authorization required');
     }
+
+    // Check rate limits for authenticated users
+    if (authHeader) {
+      const limits = await getUserLimits(serviceClient, userId);
+      const rateLimitResult = await checkRateLimit(serviceClient, userId, 'gap-analysis', limits);
+      
+      if (!rateLimitResult.allowed) {
+        return createRateLimitResponse(rateLimitResult, corsHeaders);
+      }
+      
+      logInfo('gap-analysis', 'rate_limit_check', { userId, remaining: rateLimitResult.remaining });
+    }
+
+    const serviceClient = createServiceClient();
 
     // Get user's capabilities
     const { data: capabilities, error: capError } = await supabase
@@ -61,11 +71,9 @@ serve(async (req) => {
       .select("*");
 
     if (capError) {
-      throw new Error(`Failed to fetch capabilities: ${capError.message}`);
+      logError('gap-analysis', new Error(`Failed to fetch capabilities: ${capError.message}`));
+      return createErrorResponse('DATABASE_ERROR', corsHeaders, 'Failed to fetch capabilities');
     }
-
-    // Get job requirements
-    const { data: requirements, error: reqError } = await supabase
       .from("job_requirements")
       .select("*")
       .eq("dream_job_id", dreamJobId);
