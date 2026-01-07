@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, FileText, Video, CheckCircle2, Clock, AlertCircle, Settings2, Copy, Share2, Loader2 } from 'lucide-react';
+import { ArrowLeft, Plus, FileText, Video, CheckCircle2, Clock, AlertCircle, Settings2, Copy, Share2, Loader2, Sparkles, Search, Upload } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { Button } from '@/components/ui/button';
@@ -14,21 +14,30 @@ import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useInstructorCourse, useModules, useCreateModule, useUpdateInstructorCourse } from '@/hooks/useInstructorCourses';
 import { useLearningObjectives, useExtractLearningObjectives } from '@/hooks/useLearningObjectives';
+import { useContentStats } from '@/hooks/useContentStats';
 import { LoadingState } from '@/components/common/LoadingState';
 import { EmptyState } from '@/components/common/EmptyState';
 import { ModuleCard } from '@/components/instructor/ModuleCard';
 import { ContentCurationPanel } from '@/components/instructor/ContentCurationPanel';
+import { SyllabusUploader } from '@/components/instructor/SyllabusUploader';
+import { OnboardingProgress } from '@/components/instructor/OnboardingProgress';
 import { toast } from '@/hooks/use-toast';
+import { useQueryClient } from '@tanstack/react-query';
 
 export default function InstructorCourseDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { data: course, isLoading: courseLoading } = useInstructorCourse(id);
-  const { data: modules, isLoading: modulesLoading } = useModules(id);
+  const { data: modules, isLoading: modulesLoading, refetch: refetchModules } = useModules(id);
   const { data: learningObjectives, refetch: refetchLOs } = useLearningObjectives(id);
   const createModule = useCreateModule();
   const updateCourse = useUpdateInstructorCourse();
   const extractLOs = useExtractLearningObjectives();
+
+  // Get content stats for visibility fix
+  const loIds = learningObjectives?.map(lo => lo.id) || [];
+  const { data: contentStats } = useContentStats(loIds);
 
   const [isModuleDialogOpen, setIsModuleDialogOpen] = useState(false);
   const [isSyllabusDialogOpen, setIsSyllabusDialogOpen] = useState(false);
@@ -63,8 +72,44 @@ export default function InstructorCourseDetailPage() {
     refetchLOs();
   };
 
+  const handleSyllabusProcessed = () => {
+    refetchModules();
+    refetchLOs();
+    queryClient.invalidateQueries({ queryKey: ['content-stats'] });
+  };
+
   // All LOs for this course (including those without a module)
   const courseLOs = learningObjectives || [];
+  const unassignedLOs = courseLOs.filter(lo => !lo.module_id);
+  const hasModulesOrLOs = (modules?.length || 0) > 0 || courseLOs.length > 0;
+
+  // Onboarding steps calculation
+  const onboardingSteps = [
+    { 
+      label: 'Upload Syllabus', 
+      description: hasModulesOrLOs ? `${modules?.length || 0} modules` : undefined,
+      completed: hasModulesOrLOs 
+    },
+    { 
+      label: 'Review LOs', 
+      description: courseLOs.length > 0 ? `${courseLOs.length} objectives` : undefined,
+      completed: courseLOs.length > 0 
+    },
+    { 
+      label: 'Find Content', 
+      description: (contentStats?.total || 0) > 0 ? `${contentStats?.total || 0} videos found` : undefined,
+      completed: (contentStats?.total || 0) > 0 
+    },
+    { 
+      label: 'Approve Content', 
+      description: (contentStats?.approved || 0) > 0 ? `${contentStats?.approved} approved` : undefined,
+      completed: (contentStats?.approved || 0) > 0 
+    },
+    { 
+      label: 'Publish', 
+      completed: course?.is_published || false 
+    },
+  ];
 
   if (isLoading) {
     return (
@@ -157,6 +202,11 @@ export default function InstructorCourseDetailPage() {
             </div>
           </div>
 
+          {/* Onboarding Progress Banner */}
+          {!course.is_published && (
+            <OnboardingProgress steps={onboardingSteps} />
+          )}
+
           {/* Access Code Banner */}
           {course.is_published && course.access_code && (
             <Alert className="border-primary/50 bg-primary/5">
@@ -174,7 +224,7 @@ export default function InstructorCourseDetailPage() {
             </Alert>
           )}
 
-          {/* Stats Cards */}
+          {/* Stats Cards - FIXED: Content counter now shows actual count */}
           <div className="grid gap-4 md:grid-cols-4">
             <Card>
               <CardContent className="pt-6">
@@ -209,8 +259,13 @@ export default function InstructorCourseDetailPage() {
                     <Video className="h-5 w-5 text-success" />
                   </div>
                   <div>
-                    <p className="text-2xl font-bold">0</p>
-                    <p className="text-sm text-muted-foreground">Content Items</p>
+                    <p className="text-2xl font-bold">{contentStats?.approved || 0}</p>
+                    <p className="text-sm text-muted-foreground">
+                      Approved Content
+                      {(contentStats?.pending || 0) > 0 && (
+                        <span className="text-warning ml-1">({contentStats?.pending} pending)</span>
+                      )}
+                    </p>
                   </div>
                 </div>
               </CardContent>
@@ -239,130 +294,184 @@ export default function InstructorCourseDetailPage() {
             </TabsList>
 
             <TabsContent value="modules" className="space-y-4">
-              <div className="flex justify-between items-center">
-                <h3 className="text-lg font-semibold">Course Modules</h3>
-                <div className="flex gap-2">
-                  <Dialog open={isSyllabusDialogOpen} onOpenChange={setIsSyllabusDialogOpen}>
-                    <DialogTrigger asChild>
-                      <Button variant="outline" className="gap-2">
-                        <FileText className="h-4 w-4" />
-                        Extract from Syllabus
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="max-w-2xl">
-                      <DialogHeader>
-                        <DialogTitle>Extract Learning Objectives</DialogTitle>
-                        <DialogDescription>
-                          Paste your syllabus text to automatically extract learning objectives.
-                        </DialogDescription>
-                      </DialogHeader>
-                      <div className="space-y-4 py-4">
-                        {modules && modules.length > 0 && (
-                          <div className="space-y-2">
-                            <Label>Assign to Module (Optional)</Label>
-                            <select 
-                              className="w-full p-2 border rounded-md bg-background"
-                              value={selectedModuleId || ''}
-                              onChange={(e) => setSelectedModuleId(e.target.value || null)}
-                            >
-                              <option value="">No module (course-level)</option>
-                              {modules.map(m => (
-                                <option key={m.id} value={m.id}>{m.title}</option>
-                              ))}
-                            </select>
-                          </div>
-                        )}
-                        <div className="space-y-2">
-                          <Label>Syllabus Text</Label>
-                          <Textarea
-                            placeholder="Paste your syllabus content here..."
-                            className="min-h-[200px]"
-                            value={syllabusText}
-                            onChange={(e) => setSyllabusText(e.target.value)}
-                          />
-                        </div>
-                      </div>
-                      <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsSyllabusDialogOpen(false)}>
-                          Cancel
-                        </Button>
-                        <Button onClick={handleExtractLOs} disabled={extractLOs.isPending}>
-                          {extractLOs.isPending ? 'Extracting...' : 'Extract LOs'}
-                        </Button>
-                      </DialogFooter>
-                    </DialogContent>
-                  </Dialog>
-                  <Dialog open={isModuleDialogOpen} onOpenChange={setIsModuleDialogOpen}>
-                    <DialogTrigger asChild>
-                      <Button className="gap-2">
-                        <Plus className="h-4 w-4" />
-                        Add Module
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                      <DialogHeader>
-                        <DialogTitle>Create New Module</DialogTitle>
-                        <DialogDescription>
-                          Add a module to organize learning objectives.
-                        </DialogDescription>
-                      </DialogHeader>
-                      <div className="space-y-4 py-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="module-title">Module Title</Label>
-                          <Input
-                            id="module-title"
-                            placeholder="Module 1: Introduction"
-                            value={newModule.title}
-                            onChange={(e) => setNewModule(prev => ({ ...prev, title: e.target.value }))}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="module-desc">Description (Optional)</Label>
-                          <Textarea
-                            id="module-desc"
-                            placeholder="Brief description of this module..."
-                            value={newModule.description}
-                            onChange={(e) => setNewModule(prev => ({ ...prev, description: e.target.value }))}
-                          />
-                        </div>
-                      </div>
-                      <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsModuleDialogOpen(false)}>
-                          Cancel
-                        </Button>
-                        <Button onClick={handleCreateModule} disabled={createModule.isPending}>
-                          {createModule.isPending ? 'Creating...' : 'Create Module'}
-                        </Button>
-                      </DialogFooter>
-                    </DialogContent>
-                  </Dialog>
-                </div>
-              </div>
-
-              {!modules || modules.length === 0 ? (
-                <EmptyState
-                  icon={FileText}
-                  title="No modules yet"
-                  description="Create modules to organize your learning objectives."
-                  action={
-                    <Button onClick={() => setIsModuleDialogOpen(true)} className="gap-2">
-                      <Plus className="h-4 w-4" />
-                      Add Module
-                    </Button>
-                  }
+              {/* Show syllabus uploader when no modules/LOs exist */}
+              {!hasModulesOrLOs && (
+                <SyllabusUploader 
+                  courseId={id!} 
+                  onSuccess={handleSyllabusProcessed}
                 />
-              ) : (
-                <div className="space-y-4">
-                  {modules
-                    .sort((a, b) => a.sequence_order - b.sequence_order)
-                    .map((module) => (
-                      <ModuleCard 
-                        key={module.id} 
-                        module={module}
-                        learningObjectives={learningObjectives?.filter(lo => lo.module_id === module.id) || []}
-                      />
-                    ))}
-                </div>
+              )}
+
+              {hasModulesOrLOs && (
+                <>
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-lg font-semibold">Course Structure</h3>
+                    <div className="flex gap-2">
+                      <Dialog open={isSyllabusDialogOpen} onOpenChange={setIsSyllabusDialogOpen}>
+                        <DialogTrigger asChild>
+                          <Button variant="outline" className="gap-2">
+                            <FileText className="h-4 w-4" />
+                            Extract from Text
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent className="max-w-2xl">
+                          <DialogHeader>
+                            <DialogTitle>Extract Learning Objectives</DialogTitle>
+                            <DialogDescription>
+                              Paste your syllabus text to automatically extract learning objectives.
+                            </DialogDescription>
+                          </DialogHeader>
+                          <div className="space-y-4 py-4">
+                            {modules && modules.length > 0 && (
+                              <div className="space-y-2">
+                                <Label>Assign to Module (Optional)</Label>
+                                <select 
+                                  className="w-full p-2 border rounded-md bg-background"
+                                  value={selectedModuleId || ''}
+                                  onChange={(e) => setSelectedModuleId(e.target.value || null)}
+                                >
+                                  <option value="">No module (course-level)</option>
+                                  {modules.map(m => (
+                                    <option key={m.id} value={m.id}>{m.title}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
+                            <div className="space-y-2">
+                              <Label>Syllabus Text</Label>
+                              <Textarea
+                                placeholder="Paste your syllabus content here..."
+                                className="min-h-[200px]"
+                                value={syllabusText}
+                                onChange={(e) => setSyllabusText(e.target.value)}
+                              />
+                            </div>
+                          </div>
+                          <DialogFooter>
+                            <Button variant="outline" onClick={() => setIsSyllabusDialogOpen(false)}>
+                              Cancel
+                            </Button>
+                            <Button onClick={handleExtractLOs} disabled={extractLOs.isPending}>
+                              {extractLOs.isPending ? 'Extracting...' : 'Extract LOs'}
+                            </Button>
+                          </DialogFooter>
+                        </DialogContent>
+                      </Dialog>
+                      <Dialog open={isModuleDialogOpen} onOpenChange={setIsModuleDialogOpen}>
+                        <DialogTrigger asChild>
+                          <Button className="gap-2">
+                            <Plus className="h-4 w-4" />
+                            Add Module
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent>
+                          <DialogHeader>
+                            <DialogTitle>Create New Module</DialogTitle>
+                            <DialogDescription>
+                              Add a module to organize learning objectives.
+                            </DialogDescription>
+                          </DialogHeader>
+                          <div className="space-y-4 py-4">
+                            <div className="space-y-2">
+                              <Label htmlFor="module-title">Module Title</Label>
+                              <Input
+                                id="module-title"
+                                placeholder="Module 1: Introduction"
+                                value={newModule.title}
+                                onChange={(e) => setNewModule(prev => ({ ...prev, title: e.target.value }))}
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="module-desc">Description (Optional)</Label>
+                              <Textarea
+                                id="module-desc"
+                                placeholder="Brief description of this module..."
+                                value={newModule.description}
+                                onChange={(e) => setNewModule(prev => ({ ...prev, description: e.target.value }))}
+                              />
+                            </div>
+                          </div>
+                          <DialogFooter>
+                            <Button variant="outline" onClick={() => setIsModuleDialogOpen(false)}>
+                              Cancel
+                            </Button>
+                            <Button onClick={handleCreateModule} disabled={createModule.isPending}>
+                              {createModule.isPending ? 'Creating...' : 'Create Module'}
+                            </Button>
+                          </DialogFooter>
+                        </DialogContent>
+                      </Dialog>
+                    </div>
+                  </div>
+
+                  {/* Unassigned Learning Objectives Section */}
+                  {unassignedLOs.length > 0 && (
+                    <Card className="border-dashed border-amber-500/50 bg-amber-500/5">
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-sm flex items-center gap-2">
+                          <AlertCircle className="h-4 w-4 text-amber-500" />
+                          Unassigned Learning Objectives ({unassignedLOs.length})
+                        </CardTitle>
+                        <CardDescription className="text-xs">
+                          These objectives are not assigned to any module
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-2">
+                          {unassignedLOs.map((lo) => (
+                            <div 
+                              key={lo.id} 
+                              className="flex items-center gap-3 p-3 bg-background rounded-lg border"
+                            >
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm line-clamp-2">{lo.text}</p>
+                                <div className="flex items-center gap-2 mt-1">
+                                  {lo.bloom_level && (
+                                    <Badge variant="outline" className="text-xs capitalize">
+                                      {lo.bloom_level}
+                                    </Badge>
+                                  )}
+                                  {lo.domain && (
+                                    <Badge variant="secondary" className="text-xs capitalize">
+                                      {lo.domain}
+                                    </Badge>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Modules */}
+                  {modules && modules.length > 0 ? (
+                    <div className="space-y-4">
+                      {modules
+                        .sort((a, b) => a.sequence_order - b.sequence_order)
+                        .map((module) => (
+                          <ModuleCard 
+                            key={module.id} 
+                            module={module}
+                            learningObjectives={learningObjectives?.filter(lo => lo.module_id === module.id) || []}
+                          />
+                        ))}
+                    </div>
+                  ) : unassignedLOs.length === 0 ? (
+                    <EmptyState
+                      icon={FileText}
+                      title="No modules yet"
+                      description="Create modules to organize your learning objectives."
+                      action={
+                        <Button onClick={() => setIsModuleDialogOpen(true)} className="gap-2">
+                          <Plus className="h-4 w-4" />
+                          Add Module
+                        </Button>
+                      }
+                    />
+                  ) : null}
+                </>
               )}
             </TabsContent>
 
