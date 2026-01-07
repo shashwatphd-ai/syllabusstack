@@ -2,7 +2,9 @@ import * as React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { TrendingUp, TrendingDown, Minus, BookOpen } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useNavigate } from "react-router-dom";
 
 interface Capability {
   name: string;
@@ -16,15 +18,6 @@ interface CapabilitySnapshotProps {
   capabilities?: Capability[];
   isLoading?: boolean;
 }
-
-const mockCapabilities: Capability[] = [
-  { name: "Python Programming", level: 75, maxLevel: 100, trend: "up", category: "Technical" },
-  { name: "Data Analysis", level: 60, maxLevel: 100, trend: "up", category: "Technical" },
-  { name: "Machine Learning", level: 40, maxLevel: 100, trend: "stable", category: "Technical" },
-  { name: "Communication", level: 70, maxLevel: 100, trend: "up", category: "Soft Skills" },
-  { name: "Problem Solving", level: 80, maxLevel: 100, trend: "stable", category: "Soft Skills" },
-  { name: "Project Management", level: 35, maxLevel: 100, trend: "down", category: "Professional" },
-];
 
 const TrendIcon = React.forwardRef<SVGSVGElement, { trend: "up" | "down" | "stable" }>(
   ({ trend }, ref) => {
@@ -61,7 +54,8 @@ const getLevelBadgeStyle = (level: number): string => {
   return "bg-destructive/10 text-destructive border-destructive/20";
 };
 
-export function CapabilitySnapshot({ capabilities = mockCapabilities, isLoading }: CapabilitySnapshotProps) {
+export function CapabilitySnapshot({ capabilities = [], isLoading }: CapabilitySnapshotProps) {
+  const navigate = useNavigate();
   const groupedCapabilities = capabilities.reduce((acc, cap) => {
     if (!acc[cap.category]) acc[cap.category] = [];
     acc[cap.category].push(cap);
@@ -83,6 +77,30 @@ export function CapabilitySnapshot({ capabilities = mockCapabilities, isLoading 
               </div>
             ))}
           </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Empty state
+  if (capabilities.length === 0) {
+    return (
+      <Card className="border-0 shadow-md bg-card">
+        <CardHeader className="pb-4">
+          <CardTitle className="text-lg font-semibold">Your Capabilities</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col items-center justify-center py-8 text-center">
+          <BookOpen className="h-12 w-12 text-muted-foreground/50 mb-4" />
+          <p className="text-sm text-muted-foreground mb-4">
+            No capabilities tracked yet. Add courses to extract your skills.
+          </p>
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={() => navigate('/courses')}
+          >
+            Add Courses
+          </Button>
         </CardContent>
       </Card>
     );

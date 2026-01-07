@@ -1,15 +1,13 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
 import { 
-  Briefcase, 
   MapPin, 
   DollarSign, 
-  TrendingUp,
   ChevronRight,
   Plus,
-  Target
+  Target,
+  Briefcase
 } from "lucide-react";
 
 interface DreamJob {
@@ -29,39 +27,6 @@ interface DreamJobCardsProps {
   onViewJob?: (jobId: string) => void;
   onAddJob?: () => void;
 }
-
-const mockJobs: DreamJob[] = [
-  {
-    id: "1",
-    title: "Data Scientist",
-    company: "Tech Companies",
-    location: "Remote / San Francisco",
-    salaryRange: "$120k - $180k",
-    matchScore: 68,
-    gapsCount: 4,
-    status: "active",
-  },
-  {
-    id: "2",
-    title: "Machine Learning Engineer",
-    company: "AI Startups",
-    location: "New York / Remote",
-    salaryRange: "$140k - $200k",
-    matchScore: 45,
-    gapsCount: 7,
-    status: "active",
-  },
-  {
-    id: "3",
-    title: "Product Analyst",
-    company: "Product Companies",
-    location: "Flexible",
-    salaryRange: "$90k - $130k",
-    matchScore: 82,
-    gapsCount: 2,
-    status: "active",
-  },
-];
 
 const getMatchColor = (score: number): string => {
   if (score >= 80) return "text-success";
@@ -85,7 +50,7 @@ const getMatchLabel = (score: number): string => {
 };
 
 export function DreamJobCards({ 
-  jobs = mockJobs, 
+  jobs = [], 
   isLoading, 
   onViewJob,
   onAddJob 
@@ -105,6 +70,34 @@ export function DreamJobCards({
             </CardContent>
           </Card>
         ))}
+      </div>
+    );
+  }
+
+  // Empty state
+  if (jobs.length === 0) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-foreground">Your Dream Jobs</h3>
+          <Button variant="outline" size="sm" onClick={onAddJob} className="border-border hover:bg-accent hover:text-accent-foreground hover:border-accent transition-colors">
+            <Plus className="h-4 w-4 mr-2" />
+            Add Job
+          </Button>
+        </div>
+        <Card className="border-dashed border-2 border-muted">
+          <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+            <Briefcase className="h-12 w-12 text-muted-foreground/50 mb-4" />
+            <h4 className="font-medium text-foreground mb-2">No dream jobs yet</h4>
+            <p className="text-sm text-muted-foreground mb-4 max-w-sm">
+              Add your target job roles to get personalized gap analysis and recommendations.
+            </p>
+            <Button onClick={onAddJob}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add Your First Dream Job
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }
