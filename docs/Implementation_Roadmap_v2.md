@@ -28,7 +28,12 @@
 ### Task 1.1: PDF Syllabus Upload ✅
 - **Status:** ✅ Complete
 - **Files:** `src/lib/api.ts`, `src/components/onboarding/CourseUploader.tsx`
-- **Changes:** Added `parseSyllabusDocument()` API function, CourseUploader now handles PDF/DOCX
+- **Changes:** 
+  - Fixed `file_url` → `document_url` parameter mismatch in api.ts
+  - Added `parseSyllabusDocument()` API function with proper response mapping
+  - CourseUploader now handles PDF/DOCX with parsing status
+  - **SyllabusScanner (public trial)** now parses PDF/DOCX files via edge function with `isPublicScan` flag
+  - Edge function updated to allow public scans without auth
 
 ### Task 1.2: Display Anti-Recommendations ✅
 - **Status:** ✅ Complete
@@ -65,10 +70,12 @@
 ### Task 3.1: Configure RESEND_API_KEY
 - **Status:** ☐ Not Started
 - **Goal:** User must add secret for email functionality
+- **Action Required:** Go to https://resend.com, create API key, add as secret
 
-### Task 3.2: Remove Orphaned Function
-- **Status:** ☐ Not Started
+### Task 3.2: Remove Orphaned Function ✅
+- **Status:** ✅ Complete
 - **Goal:** Delete unused `evaluate-answer` edge function
+- **Changes:** Deleted `supabase/functions/evaluate-answer/` and undeployed from Supabase
 
 ---
 

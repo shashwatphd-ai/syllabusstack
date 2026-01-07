@@ -27,30 +27,38 @@ serve(async (req) => {
       throw new Error("GOOGLE_CLOUD_API_KEY is not configured");
     }
 
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      throw new Error("No authorization header");
-    }
-
-    const supabaseClient = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_ANON_KEY") ?? "",
-      { global: { headers: { Authorization: authHeader } } }
-    );
-
-    const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
-    if (userError || !user) {
-      throw new Error("Unauthorized");
-    }
-
     // Get the request body - expects base64 encoded PDF or file URL
-    const { document_base64, document_url, course_id, file_name } = await req.json();
+    const { document_base64, document_url, course_id, file_name, isPublicScan } = await req.json();
 
     if (!document_base64 && !document_url) {
       throw new Error("Either document_base64 or document_url is required");
     }
 
-    console.log(`Parsing document for user ${user.id}, course: ${course_id || 'new'}`);
+    // For authenticated requests, validate the user
+    let userId: string | null = null;
+    const authHeader = req.headers.get("Authorization");
+    
+    if (!isPublicScan) {
+      // Require auth for non-public scans
+      if (!authHeader) {
+        throw new Error("No authorization header");
+      }
+
+      const supabaseClient = createClient(
+        Deno.env.get("SUPABASE_URL") ?? "",
+        Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+        { global: { headers: { Authorization: authHeader } } }
+      );
+
+      const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
+      if (userError || !user) {
+        throw new Error("Unauthorized");
+      }
+      userId = user.id;
+    }
+
+    console.log(`Parsing document${userId ? ` for user ${userId}` : ' (public scan)'}, course: ${course_id || 'new'}`);
+
 
     let base64Content: string;
     let mimeType = "application/pdf";

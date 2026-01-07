@@ -87,6 +87,7 @@ export default function SyllabusScannerPage() {
   const [syllabusText, setSyllabusText] = useState('');
   const [courseName, setCourseName] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isParsing, setIsParsing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [rateLimitInfo] = useState(getRateLimitInfo);
 
@@ -109,7 +110,22 @@ export default function SyllabusScannerPage() {
     navigate('/auth?from=scanner');
   };
 
-  const onDrop = useCallback((acceptedFiles: File[]) => {
+  // Helper to convert file to base64
+  const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        // Remove data URL prefix (e.g., "data:application/pdf;base64,")
+        const base64 = result.split(',')[1] || result;
+        resolve(base64);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const onDrop = useCallback(async (acceptedFiles: File[]) => {
     const file = acceptedFiles[0];
     if (file) {
       setUploadedFile(file);
@@ -123,12 +139,54 @@ export default function SyllabusScannerPage() {
           setSyllabusText(e.target?.result as string || '');
         };
         reader.readAsText(file);
+        toast({
+          title: 'File uploaded',
+          description: 'Text extracted and ready for analysis.',
+        });
+      } else if (file.type === 'application/pdf' || 
+                 file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+        // For PDF/DOCX, we need to parse them using the edge function
+        setIsParsing(true);
+        try {
+          const base64 = await fileToBase64(file);
+          
+          // Call parse-syllabus-document edge function (no auth required for public scan)
+          const { data, error } = await supabase.functions.invoke('parse-syllabus-document', {
+            body: { 
+              document_base64: base64,
+              file_name: file.name,
+              isPublicScan: true
+            }
+          });
+          
+          if (error) throw error;
+          
+          const extractedText = data.extracted_text || '';
+          if (extractedText.length > 0) {
+            setSyllabusText(extractedText);
+            toast({
+              title: 'Document parsed!',
+              description: `Extracted ${extractedText.length} characters from ${file.name}`,
+            });
+          } else {
+            throw new Error('No text could be extracted from the document');
+          }
+        } catch (error) {
+          console.error('PDF parsing error:', error);
+          toast({
+            title: 'Parsing failed',
+            description: error instanceof Error ? error.message : 'Please paste the syllabus content manually.',
+            variant: 'destructive',
+          });
+        } finally {
+          setIsParsing(false);
+        }
+      } else {
+        toast({
+          title: 'File uploaded',
+          description: 'Ready for analysis.',
+        });
       }
-      
-      toast({
-        title: 'File uploaded',
-        description: 'Ready for analysis.',
-      });
     }
   }, []);
 
@@ -154,6 +212,16 @@ export default function SyllabusScannerPage() {
       toast({
         title: 'Missing content',
         description: 'Please upload a file or paste syllabus text.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
+    // If we have an uploaded file but no text yet, it might still be parsing
+    if (isParsing) {
+      toast({
+        title: 'Still parsing',
+        description: 'Please wait for the document to finish parsing.',
         variant: 'destructive',
       });
       return;
@@ -398,11 +466,16 @@ export default function SyllabusScannerPage() {
 
               <Button
                 onClick={handleAnalyze}
-                disabled={isAnalyzing || (!syllabusText && !uploadedFile) || remaining <= 0}
+                disabled={isAnalyzing || isParsing || (!syllabusText && !uploadedFile) || remaining <= 0}
                 className="w-full"
                 size="lg"
               >
-                {isAnalyzing ? (
+                {isParsing ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    Parsing document...
+                  </>
+                ) : isAnalyzing ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin mr-2" />
                     Analyzing with AI...
