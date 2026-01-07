@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, FileText, Video, CheckCircle2, Clock, AlertCircle, Settings2, Copy, Share2, Loader2, Sparkles, Search, Upload } from 'lucide-react';
+import { ArrowLeft, Plus, FileText, Video, CheckCircle2, Clock, AlertCircle, Settings2, Copy, Share2, Loader2, Sparkles, Users } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { Button } from '@/components/ui/button';
@@ -13,12 +13,13 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useInstructorCourse, useModules, useCreateModule, useUpdateInstructorCourse } from '@/hooks/useInstructorCourses';
-import { useLearningObjectives, useExtractLearningObjectives } from '@/hooks/useLearningObjectives';
+import { useLearningObjectives, useSearchYouTubeContent } from '@/hooks/useLearningObjectives';
 import { useContentStats } from '@/hooks/useContentStats';
+import { useLOContentStatus } from '@/hooks/useContentStats';
 import { LoadingState } from '@/components/common/LoadingState';
 import { EmptyState } from '@/components/common/EmptyState';
-import { ModuleCard } from '@/components/instructor/ModuleCard';
-import { ContentCurationPanel } from '@/components/instructor/ContentCurationPanel';
+import { UnifiedModuleCard } from '@/components/instructor/UnifiedModuleCard';
+import { UnifiedLOCard } from '@/components/instructor/UnifiedLOCard';
 import { SyllabusUploader } from '@/components/instructor/SyllabusUploader';
 import { OnboardingProgress } from '@/components/instructor/OnboardingProgress';
 import { toast } from '@/hooks/use-toast';
@@ -33,17 +34,16 @@ export default function InstructorCourseDetailPage() {
   const { data: learningObjectives, refetch: refetchLOs } = useLearningObjectives(id);
   const createModule = useCreateModule();
   const updateCourse = useUpdateInstructorCourse();
-  const extractLOs = useExtractLearningObjectives();
+  const searchContent = useSearchYouTubeContent();
 
   // Get content stats for visibility fix
   const loIds = learningObjectives?.map(lo => lo.id) || [];
   const { data: contentStats } = useContentStats(loIds);
+  const { data: loContentStatus } = useLOContentStatus(loIds);
 
   const [isModuleDialogOpen, setIsModuleDialogOpen] = useState(false);
-  const [isSyllabusDialogOpen, setIsSyllabusDialogOpen] = useState(false);
   const [newModule, setNewModule] = useState({ title: '', description: '' });
-  const [syllabusText, setSyllabusText] = useState('');
-  const [selectedModuleId, setSelectedModuleId] = useState<string | null>(null);
+  const [bulkSearching, setBulkSearching] = useState(false);
 
   const isLoading = courseLoading || modulesLoading;
 
@@ -59,17 +59,25 @@ export default function InstructorCourseDetailPage() {
     setNewModule({ title: '', description: '' });
   };
 
-  const handleExtractLOs = async () => {
-    if (!syllabusText.trim() || !id) return;
-    await extractLOs.mutateAsync({
-      syllabusText,
-      courseId: id,
-      moduleId: selectedModuleId || undefined,
-    });
-    setIsSyllabusDialogOpen(false);
-    setSyllabusText('');
-    setSelectedModuleId(null);
-    refetchLOs();
+  // Bulk find content for all LOs without content
+  const handleFindAllContent = async () => {
+    const losWithoutContent = courseLOs.filter(lo => 
+      !loContentStatus?.[lo.id]?.hasContent
+    );
+    
+    if (losWithoutContent.length === 0) return;
+    
+    setBulkSearching(true);
+    
+    for (const lo of losWithoutContent) {
+      try {
+        await searchContent.mutateAsync(lo);
+      } catch (e) {
+        console.error('Error searching content for LO:', e);
+      }
+    }
+    
+    setBulkSearching(false);
   };
 
   const handleSyllabusProcessed = () => {
@@ -285,15 +293,20 @@ export default function InstructorCourseDetailPage() {
             </Card>
           </div>
 
-          {/* Main Content */}
-          <Tabs defaultValue="modules" className="space-y-4">
+          {/* Main Content - Unified View */}
+          <Tabs defaultValue="course" className="space-y-4">
             <TabsList>
-              <TabsTrigger value="modules">Modules & LOs</TabsTrigger>
-              <TabsTrigger value="content">Content Curation</TabsTrigger>
-              <TabsTrigger value="students">Students</TabsTrigger>
+              <TabsTrigger value="course" className="gap-2">
+                <FileText className="h-4 w-4" />
+                Course Structure
+              </TabsTrigger>
+              <TabsTrigger value="students" className="gap-2">
+                <Users className="h-4 w-4" />
+                Students
+              </TabsTrigger>
             </TabsList>
 
-            <TabsContent value="modules" className="space-y-4">
+            <TabsContent value="course" className="space-y-4">
               {/* Show syllabus uploader when no modules/LOs exist */}
               {!hasModulesOrLOs && (
                 <SyllabusUploader 
@@ -305,58 +318,29 @@ export default function InstructorCourseDetailPage() {
               {hasModulesOrLOs && (
                 <>
                   <div className="flex justify-between items-center">
-                    <h3 className="text-lg font-semibold">Course Structure</h3>
+                    <h3 className="text-lg font-semibold">Modules & Learning Objectives</h3>
                     <div className="flex gap-2">
-                      <Dialog open={isSyllabusDialogOpen} onOpenChange={setIsSyllabusDialogOpen}>
-                        <DialogTrigger asChild>
-                          <Button variant="outline" className="gap-2">
-                            <FileText className="h-4 w-4" />
-                            Extract from Text
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent className="max-w-2xl">
-                          <DialogHeader>
-                            <DialogTitle>Extract Learning Objectives</DialogTitle>
-                            <DialogDescription>
-                              Paste your syllabus text to automatically extract learning objectives.
-                            </DialogDescription>
-                          </DialogHeader>
-                          <div className="space-y-4 py-4">
-                            {modules && modules.length > 0 && (
-                              <div className="space-y-2">
-                                <Label>Assign to Module (Optional)</Label>
-                                <select 
-                                  className="w-full p-2 border rounded-md bg-background"
-                                  value={selectedModuleId || ''}
-                                  onChange={(e) => setSelectedModuleId(e.target.value || null)}
-                                >
-                                  <option value="">No module (course-level)</option>
-                                  {modules.map(m => (
-                                    <option key={m.id} value={m.id}>{m.title}</option>
-                                  ))}
-                                </select>
-                              </div>
-                            )}
-                            <div className="space-y-2">
-                              <Label>Syllabus Text</Label>
-                              <Textarea
-                                placeholder="Paste your syllabus content here..."
-                                className="min-h-[200px]"
-                                value={syllabusText}
-                                onChange={(e) => setSyllabusText(e.target.value)}
-                              />
-                            </div>
-                          </div>
-                          <DialogFooter>
-                            <Button variant="outline" onClick={() => setIsSyllabusDialogOpen(false)}>
-                              Cancel
-                            </Button>
-                            <Button onClick={handleExtractLOs} disabled={extractLOs.isPending}>
-                              {extractLOs.isPending ? 'Extracting...' : 'Extract LOs'}
-                            </Button>
-                          </DialogFooter>
-                        </DialogContent>
-                      </Dialog>
+                      {/* Bulk Find All Content */}
+                      {courseLOs.some(lo => !loContentStatus?.[lo.id]?.hasContent) && (
+                        <Button 
+                          variant="outline" 
+                          className="gap-2"
+                          onClick={handleFindAllContent}
+                          disabled={bulkSearching}
+                        >
+                          {bulkSearching ? (
+                            <>
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              Finding Content...
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles className="h-4 w-4" />
+                              Find All Content
+                            </>
+                          )}
+                        </Button>
+                      )}
                       <Dialog open={isModuleDialogOpen} onOpenChange={setIsModuleDialogOpen}>
                         <DialogTrigger asChild>
                           <Button className="gap-2">
@@ -404,7 +388,7 @@ export default function InstructorCourseDetailPage() {
                     </div>
                   </div>
 
-                  {/* Unassigned Learning Objectives Section */}
+                  {/* Unassigned Learning Objectives - Using Unified Cards */}
                   {unassignedLOs.length > 0 && (
                     <Card className="border-dashed border-amber-500/50 bg-amber-500/5">
                       <CardHeader className="pb-3">
@@ -417,41 +401,30 @@ export default function InstructorCourseDetailPage() {
                         </CardDescription>
                       </CardHeader>
                       <CardContent>
-                        <div className="space-y-2">
+                        <div className="space-y-3">
                           {unassignedLOs.map((lo) => (
-                            <div 
-                              key={lo.id} 
-                              className="flex items-center gap-3 p-3 bg-background rounded-lg border"
-                            >
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm line-clamp-2">{lo.text}</p>
-                                <div className="flex items-center gap-2 mt-1">
-                                  {lo.bloom_level && (
-                                    <Badge variant="outline" className="text-xs capitalize">
-                                      {lo.bloom_level}
-                                    </Badge>
-                                  )}
-                                  {lo.domain && (
-                                    <Badge variant="secondary" className="text-xs capitalize">
-                                      {lo.domain}
-                                    </Badge>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
+                            <UnifiedLOCard
+                              key={lo.id}
+                              learningObjective={lo}
+                              contentStatus={loContentStatus?.[lo.id] || {
+                                hasContent: false,
+                                pendingCount: 0,
+                                approvedCount: 0,
+                              }}
+                            />
                           ))}
                         </div>
                       </CardContent>
                     </Card>
                   )}
 
-                  {/* Modules */}
+                  {/* Modules with Unified Cards */}
                   {modules && modules.length > 0 ? (
                     <div className="space-y-4">
                       {modules
                         .sort((a, b) => a.sequence_order - b.sequence_order)
                         .map((module) => (
-                          <ModuleCard 
+                          <UnifiedModuleCard 
                             key={module.id} 
                             module={module}
                             learningObjectives={learningObjectives?.filter(lo => lo.module_id === module.id) || []}
@@ -475,19 +448,11 @@ export default function InstructorCourseDetailPage() {
               )}
             </TabsContent>
 
-            <TabsContent value="content">
-              <ContentCurationPanel 
-                courseId={id!}
-                learningObjectives={courseLOs}
-                curationMode={course.curation_mode || 'guided_auto'}
-              />
-            </TabsContent>
-
             <TabsContent value="students">
               <EmptyState
-                icon={AlertCircle}
+                icon={Users}
                 title="No students enrolled"
-                description="Students will appear here once they enroll in your course."
+                description="Students will appear here once they enroll using your course access code."
               />
             </TabsContent>
           </Tabs>

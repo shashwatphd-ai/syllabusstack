@@ -1,2 +1,9 @@
 export { ModuleCard } from './ModuleCard';
 export { ContentCurationPanel } from './ContentCurationPanel';
+export { SyllabusUploader } from './SyllabusUploader';
+export { OnboardingProgress } from './OnboardingProgress';
+export { VideoPreviewModal } from './VideoPreviewModal';
+export { ManualContentSearch } from './ManualContentSearch';
+export { AddVideoByURL } from './AddVideoByURL';
+export { UnifiedLOCard } from './UnifiedLOCard';
+export { UnifiedModuleCard } from './UnifiedModuleCard';

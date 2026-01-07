@@ -1,224 +1,215 @@
 import { useState } from 'react';
-import { Search, Loader2, Plus, ExternalLink, Video, Clock } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Search, Video, Loader2, Plus, ExternalLink } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
+import { useQueryClient } from '@tanstack/react-query';
 
 interface ManualContentSearchProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   learningObjectiveId: string;
   learningObjectiveText: string;
-  onContentAdded?: () => void;
 }
 
-interface YouTubeSearchResult {
-  id: string;
+interface YouTubeResult {
+  video_id: string;
   title: string;
   description: string;
-  channelTitle: string;
-  thumbnailUrl: string;
-  duration: string;
-  viewCount: string;
-  publishedAt: string;
+  channel_name: string;
+  thumbnail_url: string;
+  duration_seconds: number;
+  view_count: number;
+  published_at: string;
 }
 
-export function ManualContentSearch({ learningObjectiveId, learningObjectiveText, onContentAdded }: ManualContentSearchProps) {
-  const { toast } = useToast();
-  const [open, setOpen] = useState(false);
+export function ManualContentSearch({ 
+  open, 
+  onOpenChange, 
+  learningObjectiveId,
+  learningObjectiveText 
+}: ManualContentSearchProps) {
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<YouTubeSearchResult[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [adding, setAdding] = useState<string | null>(null);
+  const [results, setResults] = useState<YouTubeResult[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [isAdding, setIsAdding] = useState<string | null>(null);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const handleSearch = async () => {
     if (!query.trim()) return;
     
-    setSearching(true);
+    setIsSearching(true);
     try {
       const { data, error } = await supabase.functions.invoke('search-youtube-manual', {
-        body: { query: query.trim() },
+        body: { query: query.trim(), max_results: 10 },
       });
 
       if (error) throw error;
-      if (data.error) throw new Error(data.error);
-      
       setResults(data.results || []);
-      
-      if (data.results?.length === 0) {
-        toast({
-          title: 'No results found',
-          description: 'Try different search terms',
-        });
-      }
     } catch (error) {
-      console.error('Search error:', error);
       toast({
-        title: 'Search failed',
-        description: error instanceof Error ? error.message : 'Unknown error',
+        title: 'Search Failed',
+        description: error instanceof Error ? error.message : 'Failed to search YouTube',
         variant: 'destructive',
       });
     } finally {
-      setSearching(false);
+      setIsSearching(false);
     }
   };
 
-  const handleAddVideo = async (video: YouTubeSearchResult) => {
-    setAdding(video.id);
+  const handleAddVideo = async (video: YouTubeResult) => {
+    setIsAdding(video.video_id);
     try {
       const { data, error } = await supabase.functions.invoke('add-manual-content', {
         body: {
           learning_objective_id: learningObjectiveId,
-          video_id: video.id,
-          video_title: video.title,
-          video_description: video.description,
-          channel_name: video.channelTitle,
-          thumbnail_url: video.thumbnailUrl,
+          video_id: video.video_id,
+          title: video.title,
+          description: video.description,
+          channel_name: video.channel_name,
+          thumbnail_url: video.thumbnail_url,
+          duration_seconds: video.duration_seconds,
+          view_count: video.view_count,
+          published_at: video.published_at,
         },
       });
 
       if (error) throw error;
-      if (data.error) throw new Error(data.error);
-      
+
       toast({
-        title: 'Video added!',
-        description: 'The video has been added to this learning objective',
+        title: 'Video Added',
+        description: 'The video has been added and is pending review',
       });
-      
+
       // Remove from results
-      setResults(prev => prev.filter(r => r.id !== video.id));
-      onContentAdded?.();
+      setResults(prev => prev.filter(r => r.video_id !== video.video_id));
+      
+      // Invalidate queries
+      queryClient.invalidateQueries({ queryKey: ['content-matches', learningObjectiveId] });
+      queryClient.invalidateQueries({ queryKey: ['lo-content-status'] });
+      queryClient.invalidateQueries({ queryKey: ['content-stats'] });
+
     } catch (error) {
-      console.error('Add video error:', error);
       toast({
-        title: 'Failed to add video',
-        description: error instanceof Error ? error.message : 'Unknown error',
+        title: 'Failed to Add Video',
+        description: error instanceof Error ? error.message : 'Failed to add video',
         variant: 'destructive',
       });
     } finally {
-      setAdding(null);
+      setIsAdding(null);
     }
   };
 
-  const formatDuration = (duration: string) => {
-    // Parse ISO 8601 duration (e.g., PT4M13S)
-    const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
-    if (!match) return duration;
-    const hours = parseInt(match[1] || '0');
-    const minutes = parseInt(match[2] || '0');
-    const seconds = parseInt(match[3] || '0');
-    if (hours > 0) {
-      return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-    }
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  const formatDuration = (seconds: number | null) => {
+    if (!seconds) return '';
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const formatViews = (count: string) => {
-    const num = parseInt(count);
-    if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
-    if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
-    return count;
+  const formatViews = (count: number | null) => {
+    if (!count) return '0';
+    if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
+    if (count >= 1000) return `${(count / 1000).toFixed(1)}K`;
+    return count.toString();
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="gap-1.5">
-          <Search className="h-3.5 w-3.5" />
-          Search Manually
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="max-w-3xl max-h-[80vh] overflow-hidden flex flex-col">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
         <DialogHeader>
-          <DialogTitle>Search YouTube Content</DialogTitle>
+          <DialogTitle>Search YouTube Videos</DialogTitle>
           <DialogDescription className="line-clamp-2">
             Find videos for: {learningObjectiveText}
           </DialogDescription>
         </DialogHeader>
-        
-        <div className="flex gap-2 py-2">
+
+        <div className="flex gap-2">
           <Input
-            placeholder="Search for educational videos..."
+            placeholder="Search YouTube..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
           />
-          <Button onClick={handleSearch} disabled={searching || !query.trim()}>
-            {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+          <Button onClick={handleSearch} disabled={isSearching} className="gap-2">
+            {isSearching ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Search className="h-4 w-4" />
+            )}
+            Search
           </Button>
         </div>
 
-        <div className="flex-1 overflow-y-auto space-y-3 py-2">
-          {results.length === 0 && !searching && (
+        <div className="flex-1 overflow-y-auto space-y-3 mt-4">
+          {results.length === 0 && !isSearching && (
             <div className="text-center py-8 text-muted-foreground">
               <Video className="h-8 w-8 mx-auto mb-2 opacity-50" />
-              <p>Search for videos to add to this learning objective</p>
+              <p className="text-sm">Search for videos to add to this learning objective</p>
             </div>
           )}
-          
-          {searching && (
-            <div className="text-center py-8">
-              <Loader2 className="h-8 w-8 mx-auto animate-spin text-primary" />
-              <p className="text-muted-foreground mt-2">Searching YouTube...</p>
+
+          {isSearching && (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           )}
 
           {results.map((video) => (
-            <Card key={video.id} className="overflow-hidden">
-              <div className="flex">
-                {/* Thumbnail */}
-                <div className="relative w-40 h-24 flex-shrink-0">
-                  <img 
-                    src={video.thumbnailUrl} 
-                    alt={video.title}
-                    className="w-full h-full object-cover"
-                  />
-                  {video.duration && (
-                    <span className="absolute bottom-1 right-1 px-1 py-0.5 bg-black/80 text-white text-xs rounded">
-                      {formatDuration(video.duration)}
-                    </span>
-                  )}
-                </div>
-
-                {/* Info */}
-                <CardContent className="flex-1 p-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 min-w-0">
-                      <h4 className="font-medium text-sm line-clamp-2">{video.title}</h4>
-                      <p className="text-xs text-muted-foreground mt-1">{video.channelTitle}</p>
-                      <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
-                        <span>{formatViews(video.viewCount)} views</span>
-                        <a 
-                          href={`https://www.youtube.com/watch?v=${video.id}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-1 hover:text-primary"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <ExternalLink className="h-3 w-3" />
-                          Preview
-                        </a>
-                      </div>
-                    </div>
-                    <Button 
-                      size="sm" 
-                      onClick={() => handleAddVideo(video)}
-                      disabled={adding === video.id}
-                      className="gap-1"
-                    >
-                      {adding === video.id ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Plus className="h-3.5 w-3.5" />
-                      )}
-                      Add
-                    </Button>
-                  </div>
-                </CardContent>
+            <div 
+              key={video.video_id}
+              className="flex gap-3 p-3 rounded-lg border border-border/50 hover:border-primary/30 transition-colors"
+            >
+              <div className="relative w-32 h-20 flex-shrink-0 rounded overflow-hidden">
+                <img 
+                  src={video.thumbnail_url} 
+                  alt={video.title}
+                  className="w-full h-full object-cover"
+                />
+                <span className="absolute bottom-1 right-1 px-1 py-0.5 bg-black/80 text-white text-xs rounded">
+                  {formatDuration(video.duration_seconds)}
+                </span>
               </div>
-            </Card>
+              
+              <div className="flex-1 min-w-0">
+                <h4 className="font-medium text-sm line-clamp-2">{video.title}</h4>
+                <p className="text-xs text-muted-foreground mt-1">{video.channel_name}</p>
+                <p className="text-xs text-muted-foreground">{formatViews(video.view_count)} views</p>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <Button
+                  size="sm"
+                  onClick={() => handleAddVideo(video)}
+                  disabled={isAdding === video.video_id}
+                  className="gap-1.5"
+                >
+                  {isAdding === video.video_id ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Plus className="h-3 w-3" />
+                  )}
+                  Add
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  asChild
+                >
+                  <a 
+                    href={`https://youtube.com/watch?v=${video.video_id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                </Button>
+              </div>
+            </div>
           ))}
         </div>
       </DialogContent>
