@@ -173,6 +173,12 @@ export async function generateRecommendations(
 // Parse PDF syllabus document
 export interface ParseDocumentResponse {
   text: string;
+  extracted_text?: string;
+  analysis?: {
+    capabilities?: Array<{ name: string; category: string } | string>;
+    tools_learned?: string[];
+    course_themes?: string[];
+  };
   metadata?: {
     pages?: number;
     title?: string;
@@ -206,7 +212,7 @@ export async function parseSyllabusDocument(file: File): Promise<ParseDocumentRe
   // 3. Call parse-syllabus-document edge function
   const { data, error } = await supabase.functions.invoke('parse-syllabus-document', {
     body: { 
-      file_url: urlData.signedUrl, 
+      document_url: urlData.signedUrl, 
       file_name: file.name 
     }
   });
@@ -214,7 +220,13 @@ export async function parseSyllabusDocument(file: File): Promise<ParseDocumentRe
   if (error) throw new Error(error.message);
   if (data.error) throw new Error(data.error);
 
-  return data;
+  // Normalize response - edge function returns extracted_text, map to text for compatibility
+  return {
+    text: data.extracted_text || data.text || '',
+    extracted_text: data.extracted_text,
+    analysis: data.analysis,
+    metadata: data.metadata,
+  };
 }
 
 // Extract learning objectives from module
