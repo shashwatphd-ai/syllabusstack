@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Play, Pause, Volume2, VolumeX, Maximize, RotateCcw, AlertTriangle } from 'lucide-react';
+import { Play, Pause, Volume2, VolumeX, RotateCcw, AlertTriangle, Loader2 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -34,6 +34,42 @@ interface VerifiedVideoPlayerProps {
 
 type PlayerState = 'LOADING' | 'READY' | 'PLAYING' | 'PAUSED' | 'MICROCHECK_ACTIVE' | 'MICROCHECK_FAILED' | 'COMPLETED' | 'BLOCKED';
 
+// Global flag to track if YouTube API is loading
+let isYouTubeApiLoading = false;
+let isYouTubeApiReady = false;
+const apiReadyCallbacks: (() => void)[] = [];
+
+// Load YouTube IFrame API
+function loadYouTubeApi(): Promise<void> {
+  return new Promise((resolve) => {
+    if (isYouTubeApiReady) {
+      resolve();
+      return;
+    }
+
+    apiReadyCallbacks.push(resolve);
+
+    if (isYouTubeApiLoading) {
+      return;
+    }
+
+    isYouTubeApiLoading = true;
+
+    // Set up the callback that YouTube API will call when ready
+    window.onYouTubeIframeAPIReady = () => {
+      isYouTubeApiReady = true;
+      apiReadyCallbacks.forEach(cb => cb());
+      apiReadyCallbacks.length = 0;
+    };
+
+    // Load the API script
+    const script = document.createElement('script');
+    script.src = 'https://www.youtube.com/iframe_api';
+    script.async = true;
+    document.head.appendChild(script);
+  });
+}
+
 export function VerifiedVideoPlayer({
   contentId,
   learningObjectiveId,
@@ -43,7 +79,10 @@ export function VerifiedVideoPlayer({
   microChecks = [],
   onComplete,
 }: VerifiedVideoPlayerProps) {
-  const playerRef = useRef<HTMLIFrameElement>(null);
+  const playerContainerRef = useRef<HTMLDivElement>(null);
+  const playerInstanceRef = useRef<YT.Player | null>(null);
+  const timeUpdateIntervalRef = useRef<number | null>(null);
+  
   const [playerState, setPlayerState] = useState<PlayerState>('LOADING');
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -54,6 +93,7 @@ export function VerifiedVideoPlayer({
   const [completedMicroChecks, setCompletedMicroChecks] = useState<Set<string>>(new Set());
   const [microCheckResults, setMicroCheckResults] = useState<Array<{ id: string; is_correct: boolean; attempt_number: number }>>([]);
   const [speedViolation, setSpeedViolation] = useState(false);
+  const [videoDuration, setVideoDuration] = useState(duration);
 
   const { 
     syncConsumption, 
@@ -62,13 +102,22 @@ export function VerifiedVideoPlayer({
     engagementScore 
   } = useConsumptionTracking(contentId, learningObjectiveId);
 
+  // Extract video ID from URL
+  const getVideoId = useCallback((url: string) => {
+    const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&?/]+)/);
+    return match ? match[1] : '';
+  }, []);
+
+  const videoId = getVideoId(videoUrl);
+
   // Calculate watch percentage
   const watchPercentage = useCallback(() => {
-    if (duration === 0) return 0;
+    const effectiveDuration = videoDuration || duration;
+    if (effectiveDuration === 0) return 0;
     const merged = mergeSegments(watchedSegments);
     const watchedSeconds = merged.reduce((sum, seg) => sum + (seg.end - seg.start), 0);
-    return Math.min((watchedSeconds / duration) * 100, 100);
-  }, [watchedSegments, duration]);
+    return Math.min((watchedSeconds / effectiveDuration) * 100, 100);
+  }, [watchedSegments, videoDuration, duration]);
 
   // Merge overlapping segments
   function mergeSegments(segments: WatchedSegment[]): WatchedSegment[] {
@@ -88,44 +137,194 @@ export function VerifiedVideoPlayer({
     return merged;
   }
 
-  // Handle play
-  const handlePlay = () => {
-    if (playerState === 'BLOCKED') return;
-    setIsPlaying(true);
-    setPlayerState('PLAYING');
-    setCurrentSegmentStart(currentTime);
-    trackEvent({ type: 'play', timestamp: Date.now(), video_time: currentTime });
-  };
-
-  // Handle pause
-  const handlePause = () => {
-    setIsPlaying(false);
-    setPlayerState('PAUSED');
+  // Start time tracking interval
+  const startTimeTracking = useCallback(() => {
+    if (timeUpdateIntervalRef.current) return;
     
-    // Save current segment
+    timeUpdateIntervalRef.current = window.setInterval(() => {
+      if (playerInstanceRef.current) {
+        const time = playerInstanceRef.current.getCurrentTime();
+        setCurrentTime(time);
+      }
+    }, 250); // Update 4 times per second for smooth progress
+  }, []);
+
+  // Stop time tracking interval
+  const stopTimeTracking = useCallback(() => {
+    if (timeUpdateIntervalRef.current) {
+      window.clearInterval(timeUpdateIntervalRef.current);
+      timeUpdateIntervalRef.current = null;
+    }
+  }, []);
+
+  // Initialize YouTube player
+  useEffect(() => {
+    if (!videoId) return;
+
+    let isMounted = true;
+    
+    const initPlayer = async () => {
+      await loadYouTubeApi();
+      
+      if (!isMounted || !playerContainerRef.current) return;
+
+      // Create a unique container ID
+      const containerId = `yt-player-${contentId}`;
+      playerContainerRef.current.id = containerId;
+
+      playerInstanceRef.current = new YT.Player(containerId, {
+        videoId,
+        playerVars: {
+          autoplay: 0,
+          controls: 1,
+          enablejsapi: 1,
+          modestbranding: 1,
+          rel: 0,
+          playsinline: 1,
+          origin: window.location.origin,
+        },
+        events: {
+          onReady: (event) => {
+            if (!isMounted) return;
+            setPlayerState('READY');
+            // Get actual video duration from YouTube
+            const ytDuration = event.target.getDuration();
+            if (ytDuration > 0) {
+              setVideoDuration(ytDuration);
+            }
+          },
+          onStateChange: (event) => {
+            if (!isMounted) return;
+            handleYouTubeStateChange(event.data);
+          },
+          onPlaybackRateChange: (event) => {
+            if (!isMounted) return;
+            handlePlaybackRateChange(event.data);
+          },
+          onError: (event) => {
+            console.error('YouTube player error:', event.data);
+          },
+        },
+      });
+    };
+
+    initPlayer();
+
+    return () => {
+      isMounted = false;
+      stopTimeTracking();
+      if (playerInstanceRef.current) {
+        playerInstanceRef.current.destroy();
+        playerInstanceRef.current = null;
+      }
+    };
+  }, [videoId, contentId]);
+
+  // Handle YouTube state changes
+  const handleYouTubeStateChange = useCallback((state: number) => {
+    const time = playerInstanceRef.current?.getCurrentTime() || 0;
+    
+    switch (state) {
+      case YT.PlayerState.PLAYING:
+        if (playerState === 'MICROCHECK_ACTIVE' || playerState === 'MICROCHECK_FAILED') {
+          // Don't allow playing during micro-check
+          playerInstanceRef.current?.pauseVideo();
+          return;
+        }
+        setIsPlaying(true);
+        setPlayerState('PLAYING');
+        setCurrentSegmentStart(time);
+        startTimeTracking();
+        trackEvent({ type: 'play', timestamp: Date.now(), video_time: time });
+        break;
+        
+      case YT.PlayerState.PAUSED:
+        setIsPlaying(false);
+        if (playerState !== 'MICROCHECK_ACTIVE' && playerState !== 'MICROCHECK_FAILED') {
+          setPlayerState('PAUSED');
+        }
+        stopTimeTracking();
+        
+        // Save current segment
+        if (currentSegmentStart !== null) {
+          const newSegment = { start: currentSegmentStart, end: time };
+          setWatchedSegments(prev => [...prev, newSegment]);
+          setCurrentSegmentStart(null);
+        }
+        
+        trackEvent({ type: 'pause', timestamp: Date.now(), video_time: time });
+        break;
+        
+      case YT.PlayerState.ENDED:
+        stopTimeTracking();
+        handleVideoComplete();
+        break;
+        
+      case YT.PlayerState.BUFFERING:
+        // Keep tracking but note buffering
+        break;
+    }
+  }, [playerState, currentSegmentStart, startTimeTracking, stopTimeTracking, trackEvent]);
+
+  // Handle playback rate changes
+  const handlePlaybackRateChange = useCallback((rate: number) => {
+    const time = playerInstanceRef.current?.getCurrentTime() || 0;
+    
+    if (rate > 2) {
+      setSpeedViolation(true);
+      setPlayerState('BLOCKED');
+      playerInstanceRef.current?.pauseVideo();
+      stopTimeTracking();
+      trackEvent({ type: 'speed_change', timestamp: Date.now(), video_time: time, data: { speed: rate } });
+    }
+  }, [stopTimeTracking, trackEvent]);
+
+  // Handle video completion
+  const handleVideoComplete = useCallback(() => {
+    const time = playerInstanceRef.current?.getCurrentTime() || videoDuration;
+    
     if (currentSegmentStart !== null) {
-      const newSegment = { start: currentSegmentStart, end: currentTime };
-      setWatchedSegments(prev => [...prev, newSegment]);
+      setWatchedSegments(prev => [...prev, { start: currentSegmentStart, end: time }]);
       setCurrentSegmentStart(null);
     }
     
-    trackEvent({ type: 'pause', timestamp: Date.now(), video_time: currentTime });
-  };
+    setPlayerState('COMPLETED');
+    setIsPlaying(false);
+    trackEvent({ type: 'complete', timestamp: Date.now(), video_time: time });
+    
+    // Sync final state
+    syncConsumption(watchedSegments, videoDuration, microCheckResults);
+    
+    if (onComplete) {
+      onComplete(engagementScore || 0, isVerified || false);
+    }
+  }, [currentSegmentStart, videoDuration, watchedSegments, microCheckResults, engagementScore, isVerified, onComplete, syncConsumption, trackEvent]);
 
-  // Handle seek
-  const handleSeek = (newTime: number) => {
-    const oldTime = currentTime;
+  // Player control functions
+  const handlePlay = useCallback(() => {
+    if (playerState === 'BLOCKED' || !playerInstanceRef.current) return;
+    playerInstanceRef.current.playVideo();
+  }, [playerState]);
+
+  const handlePause = useCallback(() => {
+    if (!playerInstanceRef.current) return;
+    playerInstanceRef.current.pauseVideo();
+  }, []);
+
+  const handleSeek = useCallback((newTime: number) => {
+    if (!playerInstanceRef.current) return;
+    
+    const oldTime = playerInstanceRef.current.getCurrentTime();
     
     // Save current segment before seeking
     if (currentSegmentStart !== null && isPlaying) {
       const newSegment = { start: currentSegmentStart, end: oldTime };
       setWatchedSegments(prev => [...prev, newSegment]);
-    }
-    
-    setCurrentTime(newTime);
-    if (isPlaying) {
       setCurrentSegmentStart(newTime);
     }
+    
+    playerInstanceRef.current.seekTo(newTime, true);
+    setCurrentTime(newTime);
     
     // Track rewind
     if (newTime < oldTime) {
@@ -136,22 +335,25 @@ export function VerifiedVideoPlayer({
         data: { from: oldTime, to: newTime },
       });
     }
-  };
+  }, [currentSegmentStart, isPlaying, trackEvent]);
 
-  // Handle speed change
-  const handleSpeedChange = (speed: number) => {
-    if (speed > 2) {
-      setSpeedViolation(true);
-      setPlayerState('BLOCKED');
-      trackEvent({ type: 'speed_change', timestamp: Date.now(), video_time: currentTime, data: { speed } });
+  const handleMuteToggle = useCallback(() => {
+    if (!playerInstanceRef.current) return;
+    
+    if (isMuted) {
+      playerInstanceRef.current.unMute();
+    } else {
+      playerInstanceRef.current.mute();
     }
-  };
+    setIsMuted(!isMuted);
+  }, [isMuted]);
 
   // Handle tab visibility
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.hidden && isPlaying) {
-        trackEvent({ type: 'tab_focus_loss', timestamp: Date.now(), video_time: currentTime });
+        const time = playerInstanceRef.current?.getCurrentTime() || currentTime;
+        trackEvent({ type: 'tab_focus_loss', timestamp: Date.now(), video_time: time });
       }
     };
     
@@ -159,7 +361,7 @@ export function VerifiedVideoPlayer({
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [isPlaying, currentTime, trackEvent]);
 
-  // Check for micro-checks
+  // Check for micro-checks based on current time
   useEffect(() => {
     if (playerState !== 'PLAYING') return;
     
@@ -172,12 +374,12 @@ export function VerifiedVideoPlayer({
     if (pendingCheck) {
       setActiveMicroCheck(pendingCheck);
       setPlayerState('MICROCHECK_ACTIVE');
-      handlePause();
+      playerInstanceRef.current?.pauseVideo();
     }
   }, [currentTime, playerState, microChecks, completedMicroChecks]);
 
   // Handle micro-check answer
-  const handleMicroCheckAnswer = (isCorrect: boolean) => {
+  const handleMicroCheckAnswer = useCallback((isCorrect: boolean) => {
     if (!activeMicroCheck) return;
     
     const attemptNumber = microCheckResults.filter(r => r.id === activeMicroCheck.id).length + 1;
@@ -197,62 +399,21 @@ export function VerifiedVideoPlayer({
         setPlayerState('READY');
       }, 2000);
     }
-  };
-
-  // Handle completion
-  const handleComplete = () => {
-    if (currentSegmentStart !== null) {
-      setWatchedSegments(prev => [...prev, { start: currentSegmentStart, end: currentTime }]);
-    }
-    
-    setPlayerState('COMPLETED');
-    trackEvent({ type: 'complete', timestamp: Date.now(), video_time: currentTime });
-    
-    // Sync final state
-    syncConsumption(watchedSegments, duration, microCheckResults);
-    
-    if (onComplete) {
-      onComplete(engagementScore || 0, isVerified || false);
-    }
-  };
-
-  // Simulate time progression (in real implementation, would listen to YouTube API events)
-  useEffect(() => {
-    if (!isPlaying || playerState !== 'PLAYING') return;
-    
-    const interval = setInterval(() => {
-      setCurrentTime(prev => {
-        const newTime = prev + 1;
-        if (newTime >= duration) {
-          handleComplete();
-          return duration;
-        }
-        return newTime;
-      });
-    }, 1000);
-    
-    return () => clearInterval(interval);
-  }, [isPlaying, playerState, duration]);
+  }, [activeMicroCheck, microCheckResults, handleSeek]);
 
   // Sync periodically
   useEffect(() => {
     const interval = setInterval(() => {
       if (watchedSegments.length > 0) {
-        syncConsumption(watchedSegments, duration, microCheckResults);
+        syncConsumption(watchedSegments, videoDuration, microCheckResults);
       }
     }, 30000); // Every 30 seconds
     
     return () => clearInterval(interval);
-  }, [watchedSegments, duration, microCheckResults, syncConsumption]);
+  }, [watchedSegments, videoDuration, microCheckResults, syncConsumption]);
 
-  // Extract video ID from URL
-  const getVideoId = (url: string) => {
-    const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&]+)/);
-    return match ? match[1] : '';
-  };
-
-  const videoId = getVideoId(videoUrl);
-  const progress = (currentTime / duration) * 100;
+  const effectiveDuration = videoDuration || duration;
+  const progress = effectiveDuration > 0 ? (currentTime / effectiveDuration) * 100 : 0;
 
   return (
     <Card className="overflow-hidden">
@@ -266,12 +427,16 @@ export function VerifiedVideoPlayer({
           </div>
         ) : (
           <>
-            <iframe
-              ref={playerRef}
-              src={`https://www.youtube.com/embed/${videoId}?enablejsapi=1&modestbranding=1&rel=0`}
+            {playerState === 'LOADING' && (
+              <div className="absolute inset-0 flex items-center justify-center bg-muted/50 z-10">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            )}
+            
+            {/* YouTube Player Container */}
+            <div 
+              ref={playerContainerRef} 
               className="w-full h-full"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              allowFullScreen
             />
             
             {/* Micro-check Overlay */}
@@ -314,13 +479,13 @@ export function VerifiedVideoPlayer({
                 className={`absolute top-0 w-1 h-2 rounded ${
                   completedMicroChecks.has(mc.id) ? 'bg-success' : 'bg-warning'
                 }`}
-                style={{ left: `${(mc.trigger_time_seconds / duration) * 100}%` }}
+                style={{ left: `${(mc.trigger_time_seconds / effectiveDuration) * 100}%` }}
               />
             ))}
           </div>
           <div className="flex justify-between text-xs text-muted-foreground">
             <span>{formatTime(currentTime)}</span>
-            <span>{formatTime(duration)}</span>
+            <span>{formatTime(effectiveDuration)}</span>
           </div>
         </div>
 
@@ -331,7 +496,7 @@ export function VerifiedVideoPlayer({
               variant="outline"
               size="icon"
               onClick={isPlaying ? handlePause : handlePlay}
-              disabled={playerState === 'BLOCKED' || playerState === 'MICROCHECK_ACTIVE'}
+              disabled={playerState === 'BLOCKED' || playerState === 'MICROCHECK_ACTIVE' || playerState === 'LOADING'}
             >
               {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
             </Button>
@@ -339,13 +504,15 @@ export function VerifiedVideoPlayer({
               variant="ghost"
               size="icon"
               onClick={() => handleSeek(Math.max(0, currentTime - 10))}
+              disabled={playerState === 'LOADING'}
             >
               <RotateCcw className="h-4 w-4" />
             </Button>
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => setIsMuted(!isMuted)}
+              onClick={handleMuteToggle}
+              disabled={playerState === 'LOADING'}
             >
               {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
             </Button>
