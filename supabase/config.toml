@@ -19,7 +19,7 @@ verify_jwt = true
 verify_jwt = false
 
 [functions.extract-learning-objectives]
-verify_jwt = true
+verify_jwt = false
 
 [functions.search-youtube-content]
 verify_jwt = true
