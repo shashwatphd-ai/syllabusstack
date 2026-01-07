@@ -1,208 +1,213 @@
 import { useState } from 'react';
-import { Link, Loader2, Plus, Video } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Link, Loader2, Video, CheckCircle } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
+import { useQueryClient } from '@tanstack/react-query';
 
 interface AddVideoByURLProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   learningObjectiveId: string;
-  onContentAdded?: () => void;
 }
 
-export function AddVideoByURL({ learningObjectiveId, onContentAdded }: AddVideoByURLProps) {
-  const { toast } = useToast();
-  const [open, setOpen] = useState(false);
-  const [url, setUrl] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [preview, setPreview] = useState<{
-    title: string;
-    channelName: string;
-    thumbnailUrl: string;
-    duration: string;
-  } | null>(null);
+interface VideoMetadata {
+  video_id: string;
+  title: string;
+  description: string;
+  channel_name: string;
+  thumbnail_url: string;
+  duration_seconds: number;
+  view_count: number;
+  published_at: string;
+}
 
-  const extractVideoId = (input: string): string | null => {
-    // Handle various YouTube URL formats
+export function AddVideoByURL({ open, onOpenChange, learningObjectiveId }: AddVideoByURLProps) {
+  const [url, setUrl] = useState('');
+  const [isFetching, setIsFetching] = useState(false);
+  const [isAdding, setIsAdding] = useState(false);
+  const [metadata, setMetadata] = useState<VideoMetadata | null>(null);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const extractVideoId = (inputUrl: string): string | null => {
     const patterns = [
-      /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&?\/\s]+)/,
-      /^([a-zA-Z0-9_-]{11})$/, // Direct video ID
+      /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/,
+      /youtube\.com\/v\/([^&\n?#]+)/,
     ];
     
     for (const pattern of patterns) {
-      const match = input.match(pattern);
+      const match = inputUrl.match(pattern);
       if (match) return match[1];
     }
+    
     return null;
   };
 
-  const handleFetchPreview = async () => {
+  const handleFetchMetadata = async () => {
     const videoId = extractVideoId(url);
     if (!videoId) {
       toast({
         title: 'Invalid URL',
-        description: 'Please enter a valid YouTube URL or video ID',
+        description: 'Please enter a valid YouTube URL',
         variant: 'destructive',
       });
       return;
     }
 
-    setLoading(true);
+    setIsFetching(true);
     try {
       const { data, error } = await supabase.functions.invoke('fetch-video-metadata', {
         body: { video_id: videoId },
       });
 
       if (error) throw error;
-      if (data.error) throw new Error(data.error);
+      if (!data.success) throw new Error(data.error || 'Failed to fetch video');
       
-      setPreview({
-        title: data.title,
-        channelName: data.channel_name,
-        thumbnailUrl: data.thumbnail_url,
-        duration: data.duration,
-      });
+      setMetadata(data.metadata);
     } catch (error) {
-      console.error('Fetch preview error:', error);
       toast({
-        title: 'Failed to fetch video',
-        description: error instanceof Error ? error.message : 'Unknown error',
+        title: 'Failed to Fetch Video',
+        description: error instanceof Error ? error.message : 'Could not fetch video details',
         variant: 'destructive',
       });
     } finally {
-      setLoading(false);
+      setIsFetching(false);
     }
   };
 
   const handleAddVideo = async () => {
-    const videoId = extractVideoId(url);
-    if (!videoId) return;
+    if (!metadata) return;
 
-    setLoading(true);
+    setIsAdding(true);
     try {
       const { data, error } = await supabase.functions.invoke('add-manual-content', {
         body: {
           learning_objective_id: learningObjectiveId,
-          video_id: videoId,
-          video_title: preview?.title,
-          channel_name: preview?.channelName,
-          thumbnail_url: preview?.thumbnailUrl,
+          video_id: metadata.video_id,
+          title: metadata.title,
+          description: metadata.description,
+          channel_name: metadata.channel_name,
+          thumbnail_url: metadata.thumbnail_url,
+          duration_seconds: metadata.duration_seconds,
+          view_count: metadata.view_count,
+          published_at: metadata.published_at,
         },
       });
 
       if (error) throw error;
-      if (data.error) throw new Error(data.error);
-      
+
       toast({
-        title: 'Video added!',
+        title: 'Video Added',
         description: 'The video has been added and is pending review',
       });
-      
-      setOpen(false);
+
+      // Reset and close
       setUrl('');
-      setPreview(null);
-      onContentAdded?.();
+      setMetadata(null);
+      onOpenChange(false);
+      
+      // Invalidate queries
+      queryClient.invalidateQueries({ queryKey: ['content-matches', learningObjectiveId] });
+      queryClient.invalidateQueries({ queryKey: ['lo-content-status'] });
+      queryClient.invalidateQueries({ queryKey: ['content-stats'] });
+
     } catch (error) {
-      console.error('Add video error:', error);
       toast({
-        title: 'Failed to add video',
-        description: error instanceof Error ? error.message : 'Unknown error',
+        title: 'Failed to Add Video',
+        description: error instanceof Error ? error.message : 'Failed to add video',
         variant: 'destructive',
       });
     } finally {
-      setLoading(false);
+      setIsAdding(false);
     }
   };
 
-  const formatDuration = (duration: string) => {
-    const match = duration?.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
-    if (!match) return duration;
-    const hours = parseInt(match[1] || '0');
-    const minutes = parseInt(match[2] || '0');
-    const seconds = parseInt(match[3] || '0');
-    if (hours > 0) {
-      return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-    }
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  const formatDuration = (seconds: number | null) => {
+    if (!seconds) return '';
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) { setUrl(''); setPreview(null); } }}>
-      <DialogTrigger asChild>
-        <Button variant="ghost" size="sm" className="gap-1.5">
-          <Link className="h-3.5 w-3.5" />
-          Add by URL
-        </Button>
-      </DialogTrigger>
-      <DialogContent>
+    <Dialog open={open} onOpenChange={(isOpen) => {
+      if (!isOpen) {
+        setUrl('');
+        setMetadata(null);
+      }
+      onOpenChange(isOpen);
+    }}>
+      <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Add Video by URL</DialogTitle>
           <DialogDescription>
-            Paste a YouTube video URL or video ID to add it to this learning objective
+            Paste a YouTube URL to add it to this learning objective
           </DialogDescription>
         </DialogHeader>
-        
-        <div className="space-y-4 py-4">
+
+        <div className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="video-url">YouTube URL or Video ID</Label>
+            <Label htmlFor="url">YouTube URL</Label>
             <div className="flex gap-2">
               <Input
-                id="video-url"
-                placeholder="https://www.youtube.com/watch?v=..."
+                id="url"
+                placeholder="https://youtube.com/watch?v=..."
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
               />
               <Button 
-                variant="outline" 
-                onClick={handleFetchPreview}
-                disabled={loading || !url.trim()}
+                onClick={handleFetchMetadata} 
+                disabled={isFetching || !url.trim()}
+                variant="outline"
               >
-                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Preview'}
+                {isFetching ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  'Fetch'
+                )}
               </Button>
             </div>
           </div>
 
-          {preview && (
-            <div className="flex gap-3 p-3 bg-muted/50 rounded-lg">
-              {preview.thumbnailUrl ? (
-                <img 
-                  src={preview.thumbnailUrl} 
-                  alt={preview.title}
-                  className="w-32 h-20 object-cover rounded"
-                />
-              ) : (
-                <div className="w-32 h-20 bg-muted flex items-center justify-center rounded">
-                  <Video className="h-6 w-6 text-muted-foreground" />
+          {metadata && (
+            <div className="p-3 rounded-lg border border-border/50 bg-muted/30">
+              <div className="flex gap-3">
+                <div className="relative w-24 h-14 flex-shrink-0 rounded overflow-hidden">
+                  <img 
+                    src={metadata.thumbnail_url} 
+                    alt={metadata.title}
+                    className="w-full h-full object-cover"
+                  />
+                  <span className="absolute bottom-0.5 right-0.5 px-1 py-0.5 bg-black/80 text-white text-[10px] rounded">
+                    {formatDuration(metadata.duration_seconds)}
+                  </span>
                 </div>
-              )}
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-sm line-clamp-2">{preview.title}</p>
-                <p className="text-xs text-muted-foreground mt-1">{preview.channelName}</p>
-                {preview.duration && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Duration: {formatDuration(preview.duration)}
-                  </p>
-                )}
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-sm line-clamp-2">{metadata.title}</p>
+                  <p className="text-xs text-muted-foreground">{metadata.channel_name}</p>
+                </div>
               </div>
             </div>
           )}
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button 
-            onClick={handleAddVideo}
-            disabled={loading || !preview}
-            className="gap-1.5"
+            onClick={handleAddVideo} 
+            disabled={isAdding || !metadata}
+            className="gap-2"
           >
-            {loading ? (
+            {isAdding ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
-              <Plus className="h-4 w-4" />
+              <CheckCircle className="h-4 w-4" />
             )}
             Add Video
           </Button>
