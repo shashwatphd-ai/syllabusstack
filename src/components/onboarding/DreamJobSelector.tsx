@@ -35,7 +35,7 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { useCreateDreamJob } from '@/hooks/useDreamJobs';
-import { analyzeDreamJob } from '@/lib/api';
+import { analyzeDreamJob } from '@/services';
 
 const dreamJobSchema = z.object({
   jobQuery: z.string().min(3, 'Please enter a job title or role'),

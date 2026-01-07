@@ -1,9 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { queryKeys } from '@/lib/query-keys';
-import { performGapAnalysis, generateRecommendations, GapAnalysisResponse, SkillGap, SkillOverlap } from '@/lib/api';
+import { performGapAnalysis, generateRecommendations, GapAnalysisResponse, SkillGap, SkillOverlap } from '@/services';
 
-// Re-export types from api.ts
+// Re-export types from services
 export type { GapAnalysisResponse, SkillGap, SkillOverlap };
 
 export interface CapabilityProfile {

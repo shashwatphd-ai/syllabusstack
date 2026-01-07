@@ -9,7 +9,7 @@ import { RecommendationCard } from "./RecommendationCard";
 import { ReAnalysisPrompt } from "./ReAnalysisPrompt";
 import { ProgressTracker } from "./ProgressTracker";
 import { useRecommendations, useUpdateRecommendationStatus } from "@/hooks/useRecommendations";
-import { performGapAnalysis } from "@/lib/api";
+import { performGapAnalysis } from "@/services";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { useToast } from "@/hooks/use-toast";

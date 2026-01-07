@@ -1,18 +1,10 @@
 import { useState, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useDropzone } from 'react-dropzone';
 import { 
-  Upload, 
-  FileText, 
-  X, 
   Loader2, 
   Sparkles, 
   GraduationCap,
-  CheckCircle2,
-  ArrowRight,
-  AlertCircle,
   Clock,
-  Save
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,11 +13,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
-import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useSEO, pageSEO } from '@/hooks/useSEO';
 import { savePendingResults } from '@/lib/pending-results';
+import { ScannerDropzone, ScanResultDisplay, RateLimitBanner } from '@/components/scanner';
 
 interface AnalysisResult {
   capabilities: string[];
@@ -49,7 +41,6 @@ function getRateLimitInfo(): { remaining: number; resetTime: number } {
   const { count, resetTime } = JSON.parse(stored);
   
   if (now > resetTime) {
-    // Reset window
     return { remaining: RATE_LIMIT_MAX, resetTime: now + RATE_LIMIT_WINDOW };
   }
   
@@ -77,6 +68,20 @@ function recordScan(): boolean {
   
   sessionStorage.setItem(RATE_LIMIT_KEY, JSON.stringify({ count, resetTime }));
   return true;
+}
+
+// Helper to convert file to base64
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      const base64 = result.split(',')[1] || result;
+      resolve(base64);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
 
 export default function SyllabusScannerPage() {
@@ -110,98 +115,61 @@ export default function SyllabusScannerPage() {
     navigate('/auth?from=scanner');
   };
 
-  // Helper to convert file to base64
-  const fileToBase64 = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
+  const handleFileAccepted = useCallback(async (file: File) => {
+    setUploadedFile(file);
+    const nameWithoutExt = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
+    setCourseName(nameWithoutExt);
+    
+    if (file.type === 'text/plain') {
       const reader = new FileReader();
-      reader.onload = () => {
-        const result = reader.result as string;
-        // Remove data URL prefix (e.g., "data:application/pdf;base64,")
-        const base64 = result.split(',')[1] || result;
-        resolve(base64);
+      reader.onload = (e) => {
+        setSyllabusText(e.target?.result as string || '');
       };
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-  };
-
-  const onDrop = useCallback(async (acceptedFiles: File[]) => {
-    const file = acceptedFiles[0];
-    if (file) {
-      setUploadedFile(file);
-      const nameWithoutExt = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
-      setCourseName(nameWithoutExt);
-      
-      // Read text content if it's a text file
-      if (file.type === 'text/plain') {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          setSyllabusText(e.target?.result as string || '');
-        };
-        reader.readAsText(file);
-        toast({
-          title: 'File uploaded',
-          description: 'Text extracted and ready for analysis.',
-        });
-      } else if (file.type === 'application/pdf' || 
-                 file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-        // For PDF/DOCX, we need to parse them using the edge function
-        setIsParsing(true);
-        try {
-          const base64 = await fileToBase64(file);
-          
-          // Call parse-syllabus-document edge function (no auth required for public scan)
-          const { data, error } = await supabase.functions.invoke('parse-syllabus-document', {
-            body: { 
-              document_base64: base64,
-              file_name: file.name,
-              isPublicScan: true
-            }
-          });
-          
-          if (error) throw error;
-          
-          const extractedText = data.extracted_text || '';
-          if (extractedText.length > 0) {
-            setSyllabusText(extractedText);
-            toast({
-              title: 'Document parsed!',
-              description: `Extracted ${extractedText.length} characters from ${file.name}`,
-            });
-          } else {
-            throw new Error('No text could be extracted from the document');
+      reader.readAsText(file);
+      toast({
+        title: 'File uploaded',
+        description: 'Text extracted and ready for analysis.',
+      });
+    } else if (file.type === 'application/pdf' || 
+               file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+      setIsParsing(true);
+      try {
+        const base64 = await fileToBase64(file);
+        
+        const { data, error } = await supabase.functions.invoke('parse-syllabus-document', {
+          body: { 
+            document_base64: base64,
+            file_name: file.name,
+            isPublicScan: true
           }
-        } catch (error) {
-          console.error('PDF parsing error:', error);
-          toast({
-            title: 'Parsing failed',
-            description: error instanceof Error ? error.message : 'Please paste the syllabus content manually.',
-            variant: 'destructive',
-          });
-        } finally {
-          setIsParsing(false);
-        }
-      } else {
-        toast({
-          title: 'File uploaded',
-          description: 'Ready for analysis.',
         });
+        
+        if (error) throw error;
+        
+        const extractedText = data.extracted_text || '';
+        if (extractedText.length > 0) {
+          setSyllabusText(extractedText);
+          toast({
+            title: 'Document parsed!',
+            description: `Extracted ${extractedText.length} characters from ${file.name}`,
+          });
+        } else {
+          throw new Error('No text could be extracted from the document');
+        }
+      } catch (error) {
+        console.error('PDF parsing error:', error);
+        toast({
+          title: 'Parsing failed',
+          description: error instanceof Error ? error.message : 'Please paste the syllabus content manually.',
+          variant: 'destructive',
+        });
+      } finally {
+        setIsParsing(false);
       }
     }
   }, []);
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: {
-      'application/pdf': ['.pdf'],
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
-      'text/plain': ['.txt'],
-    },
-    maxFiles: 1,
-    maxSize: 10 * 1024 * 1024,
-  });
-
-  const removeFile = () => {
+  const handleRemoveFile = () => {
     setUploadedFile(null);
   };
 
@@ -217,7 +185,6 @@ export default function SyllabusScannerPage() {
       return;
     }
     
-    // If we have an uploaded file but no text yet, it might still be parsing
     if (isParsing) {
       toast({
         title: 'Still parsing',
@@ -236,7 +203,6 @@ export default function SyllabusScannerPage() {
       return;
     }
 
-    // Check rate limit
     const { remaining } = getRateLimitInfo();
     if (remaining <= 0) {
       toast({
@@ -259,21 +225,19 @@ export default function SyllabusScannerPage() {
     setIsAnalyzing(true);
     
     try {
-      // Call the analyze-syllabus edge function anonymously
       const { data, error } = await supabase.functions.invoke('analyze-syllabus', {
         body: { 
-          syllabusText: content.slice(0, 8000), // Limit content size
+          syllabusText: content.slice(0, 8000),
           courseName: courseName || 'Untitled Course',
-          isPublicScan: true // Flag for anonymous scan
+          isPublicScan: true
         }
       });
 
       if (error) throw error;
 
       if (data?.capabilities) {
-        // Map capability objects to strings, handle both string[] and object[] formats
-        const capNames = data.capabilities.slice(0, 5).map((c: any) => 
-          typeof c === 'string' ? c : c.name
+        const capNames = data.capabilities.slice(0, 5).map((c: unknown) => 
+          typeof c === 'string' ? c : (c as { name: string }).name
         );
         
         setAnalysisResult({
@@ -294,29 +258,10 @@ export default function SyllabusScannerPage() {
       });
     } catch (error) {
       console.error('Analysis error:', error);
-      
-      // Fallback to mock data for demo purposes
-      setAnalysisResult({
-        capabilities: [
-          'Can analyze and interpret course learning objectives',
-          'Can identify key skills and competencies from curriculum',
-          'Can map course content to job requirements',
-          'Can evaluate practical project work',
-          'Can assess tool and technology proficiency',
-        ],
-        tools: [
-          { name: 'Critical Analysis', level: 'Demonstrated' },
-          { name: 'Research Methods', level: 'Applied' },
-        ],
-        artifacts: [
-          'Course assignments and projects',
-          'Written analyses and reports',
-        ],
-      });
-      
       toast({
-        title: 'Analysis complete (preview)',
-        description: 'Sign up for full AI-powered analysis.',
+        title: 'Analysis failed',
+        description: error instanceof Error ? error.message : 'Please try again.',
+        variant: 'destructive',
       });
     } finally {
       setIsAnalyzing(false);
@@ -368,21 +313,7 @@ export default function SyllabusScannerPage() {
           </p>
         </div>
 
-        {/* Rate Limit Warning */}
-        {remaining <= 2 && remaining > 0 && (
-          <Card className="mb-6 border-yellow-500/50 bg-yellow-50/10">
-            <CardContent className="py-4 flex items-center gap-3">
-              <AlertCircle className="h-5 w-5 text-yellow-500" />
-              <div className="flex-1">
-                <p className="text-sm font-medium">Only {remaining} free scan{remaining !== 1 ? 's' : ''} left</p>
-                <p className="text-xs text-muted-foreground">Sign up for unlimited scans and full analysis</p>
-              </div>
-              <Button size="sm" asChild>
-                <Link to="/auth">Sign Up</Link>
-              </Button>
-            </CardContent>
-          </Card>
-        )}
+        <RateLimitBanner remaining={remaining} />
 
         {!analysisResult ? (
           <Card>
@@ -409,45 +340,12 @@ export default function SyllabusScannerPage() {
                 </TabsList>
 
                 <TabsContent value="upload" className="mt-4">
-                  {uploadedFile ? (
-                    <Card>
-                      <CardContent className="p-4">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                              <FileText className="h-5 w-5 text-primary" />
-                            </div>
-                            <div>
-                              <p className="font-medium text-sm">{uploadedFile.name}</p>
-                              <p className="text-xs text-muted-foreground">
-                                {(uploadedFile.size / 1024).toFixed(1)} KB
-                              </p>
-                            </div>
-                          </div>
-                          <Button variant="ghost" size="icon" onClick={removeFile}>
-                            <X className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ) : (
-                    <div
-                      {...getRootProps()}
-                      className={cn(
-                        'border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors',
-                        isDragActive
-                          ? 'border-primary bg-primary/5'
-                          : 'border-muted-foreground/25 hover:border-primary/50'
-                      )}
-                    >
-                      <input {...getInputProps()} />
-                      <Upload className="h-10 w-10 mx-auto text-muted-foreground mb-4" />
-                      <p className="text-sm font-medium mb-1">
-                        {isDragActive ? 'Drop your syllabus here' : 'Drag & drop your syllabus'}
-                      </p>
-                      <p className="text-xs text-muted-foreground">PDF, DOCX, or TXT (max 10MB)</p>
-                    </div>
-                  )}
+                  <ScannerDropzone
+                    uploadedFile={uploadedFile}
+                    isParsing={isParsing}
+                    onFileAccepted={handleFileAccepted}
+                    onRemoveFile={handleRemoveFile}
+                  />
                 </TabsContent>
 
                 <TabsContent value="paste" className="mt-4">
@@ -499,125 +397,12 @@ export default function SyllabusScannerPage() {
             </CardContent>
           </Card>
         ) : (
-          <div className="space-y-6">
-            {/* Results Header */}
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-xl font-semibold">{courseName || 'Course Analysis'}</h2>
-                <p className="text-sm text-muted-foreground">AI-generated capability analysis</p>
-              </div>
-              <Button variant="outline" onClick={resetAnalysis}>
-                Scan Another
-              </Button>
-            </div>
-
-            {/* Capabilities */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <CheckCircle2 className="h-5 w-5 text-green-500" />
-                  Concrete Capabilities
-                </CardTitle>
-                <CardDescription>
-                  What students will actually be able to DO after this course
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-3">
-                  {analysisResult.capabilities.map((cap, i) => (
-                    <li key={i} className="flex items-start gap-3">
-                      <span className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 text-xs font-medium text-primary">
-                        {i + 1}
-                      </span>
-                      <span className="text-sm">{cap}</span>
-                    </li>
-                  ))}
-                </ul>
-              </CardContent>
-            </Card>
-
-            {/* Tools & Methods */}
-            {analysisResult.tools.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Tools & Methods Proficiency</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex flex-wrap gap-3">
-                    {analysisResult.tools.map((tool, i) => (
-                      <Badge key={i} variant="outline" className="py-2 px-3">
-                        <span className="font-medium">{tool.name}</span>
-                        <span className="text-muted-foreground ml-2">({tool.level})</span>
-                      </Badge>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Artifacts */}
-            {analysisResult.artifacts.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Evidence & Artifacts</CardTitle>
-                  <CardDescription>Tangible outputs students will produce</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <ul className="space-y-2">
-                    {analysisResult.artifacts.map((artifact, i) => (
-                      <li key={i} className="flex items-center gap-2 text-sm">
-                        <FileText className="h-4 w-4 text-muted-foreground" />
-                        {artifact}
-                      </li>
-                    ))}
-                  </ul>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Save Results CTA */}
-            <Card className="bg-gradient-to-br from-green-500/10 to-emerald-500/10 border-green-500/20">
-              <CardContent className="p-6">
-                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                  <div className="w-12 h-12 rounded-full bg-green-500/10 flex items-center justify-center shrink-0">
-                    <Save className="h-6 w-6 text-green-600" />
-                  </div>
-                  <div className="flex-1">
-                    <h3 className="font-semibold mb-1">Save These Results</h3>
-                    <p className="text-sm text-muted-foreground">
-                      Don't lose this analysis! Create a free account to save it permanently 
-                      and compare against real job requirements.
-                    </p>
-                  </div>
-                  <Button onClick={handleSaveResults} className="shrink-0 gap-2">
-                    <Save className="h-4 w-4" />
-                    Save & Sign Up
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Full Analysis CTA */}
-            <Card className="bg-gradient-to-br from-primary/10 to-accent/10 border-primary/20">
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="font-semibold mb-1">Want the Full Analysis?</h3>
-                    <p className="text-sm text-muted-foreground">
-                      Compare this course against real job requirements. See gaps and get 
-                      personalized recommendations.
-                    </p>
-                  </div>
-                  <Button asChild variant="outline">
-                    <Link to="/auth">
-                      Get Started Free
-                      <ArrowRight className="h-4 w-4 ml-2" />
-                    </Link>
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+          <ScanResultDisplay
+            courseName={courseName}
+            result={analysisResult}
+            onReset={resetAnalysis}
+            onSave={handleSaveResults}
+          />
         )}
 
         {/* Footer Note */}

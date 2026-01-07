@@ -16,7 +16,7 @@ import { useRecommendations } from '@/hooks/useRecommendations';
 import { useToast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
-import { performGapAnalysis } from '@/lib/api';
+import { performGapAnalysis } from '@/services';
 import { useState } from 'react';
 
 export default function DreamJobDetailPage() {

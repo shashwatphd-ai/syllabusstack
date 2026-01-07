@@ -33,7 +33,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { useCreateCourse } from '@/hooks/useCourses';
-import { analyzeSyllabus, parseSyllabusDocument } from '@/lib/api';
+import { analyzeSyllabus, parseSyllabusDocument } from '@/services';
 
 const courseSchema = z.object({
   name: z.string().min(1, 'Course name is required').max(200),
