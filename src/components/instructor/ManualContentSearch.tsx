@@ -3,7 +3,6 @@ import { Search, Video, Loader2, Plus, ExternalLink } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
@@ -45,7 +44,7 @@ export function ManualContentSearch({
     setIsSearching(true);
     try {
       const { data, error } = await supabase.functions.invoke('search-youtube-manual', {
-        body: { query: query.trim(), max_results: 10 },
+        body: { query: query.trim() },
       });
 
       if (error) throw error;
@@ -68,8 +67,8 @@ export function ManualContentSearch({
         body: {
           learning_objective_id: learningObjectiveId,
           video_id: video.video_id,
-          title: video.title,
-          description: video.description,
+          video_title: video.title,
+          video_description: video.description,
           channel_name: video.channel_name,
           thumbnail_url: video.thumbnail_url,
           duration_seconds: video.duration_seconds,
@@ -164,15 +163,26 @@ export function ManualContentSearch({
               key={video.video_id}
               className="flex gap-3 p-3 rounded-lg border border-border/50 hover:border-primary/30 transition-colors"
             >
-              <div className="relative w-32 h-20 flex-shrink-0 rounded overflow-hidden">
-                <img 
-                  src={video.thumbnail_url} 
-                  alt={video.title}
-                  className="w-full h-full object-cover"
-                />
-                <span className="absolute bottom-1 right-1 px-1 py-0.5 bg-black/80 text-white text-xs rounded">
-                  {formatDuration(video.duration_seconds)}
-                </span>
+              <div className="relative w-32 h-20 flex-shrink-0 rounded overflow-hidden bg-muted">
+                {video.thumbnail_url ? (
+                  <img 
+                    src={video.thumbnail_url} 
+                    alt={video.title}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = 'none';
+                    }}
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <Video className="h-6 w-6 text-muted-foreground" />
+                  </div>
+                )}
+                {video.duration_seconds > 0 && (
+                  <span className="absolute bottom-1 right-1 px-1 py-0.5 bg-black/80 text-white text-xs rounded">
+                    {formatDuration(video.duration_seconds)}
+                  </span>
+                )}
               </div>
               
               <div className="flex-1 min-w-0">
@@ -201,7 +211,7 @@ export function ManualContentSearch({
                   asChild
                 >
                   <a 
-                    href={`https://youtube.com/watch?v=${video.video_id}`}
+                    href={`https://www.youtube.com/watch?v=${video.video_id}`}
                     target="_blank"
                     rel="noopener noreferrer"
                   >
