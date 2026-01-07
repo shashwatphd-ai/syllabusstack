@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { Moon, Sun, Shield, Globe, Palette, Monitor } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -11,20 +10,58 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import { toast } from '@/hooks/use-toast';
 import { EmailPreferences } from '@/components/settings/EmailPreferences';
+import { ExportButtons } from '@/components/common/ExportButtons';
+import { useUserPreferences, useUpdatePreferences } from '@/hooks/useUserPreferences';
+import { Skeleton } from '@/components/ui/skeleton';
 
 export default function SettingsPage() {
-  const [darkMode, setDarkMode] = useState(false);
+  const { data: preferences, isLoading } = useUserPreferences();
+  const updatePreferences = useUpdatePreferences();
 
-  const handleSave = () => {
-    toast({
-      title: 'Settings saved',
-      description: 'Your preferences have been updated.',
-    });
+  const handleDarkModeChange = (checked: boolean) => {
+    updatePreferences.mutate({ darkMode: checked });
+    // Apply theme change
+    if (checked) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
   };
+
+  const handleThemeChange = (theme: string) => {
+    updatePreferences.mutate({ theme });
+  };
+
+  const handleLanguageChange = (language: string) => {
+    updatePreferences.mutate({ language });
+  };
+
+  const handleDataCollectionChange = (checked: boolean) => {
+    updatePreferences.mutate({ dataCollection: checked });
+  };
+
+  if (isLoading) {
+    return (
+      <AppShell>
+        <div className="max-w-2xl mx-auto space-y-6">
+          <div>
+            <Skeleton className="h-8 w-32" />
+            <Skeleton className="h-4 w-64 mt-2" />
+          </div>
+          <Skeleton className="h-48 w-full" />
+          <Skeleton className="h-48 w-full" />
+          <Skeleton className="h-32 w-full" />
+        </div>
+      </AppShell>
+    );
+  }
+
+  const darkMode = preferences?.darkMode ?? false;
+  const theme = preferences?.theme ?? 'blue';
+  const language = preferences?.language ?? 'en';
+  const dataCollection = preferences?.dataCollection ?? true;
 
   return (
     <AppShell>
@@ -61,7 +98,8 @@ export default function SettingsPage() {
               <Switch
                 id="dark-mode"
                 checked={darkMode}
-                onCheckedChange={setDarkMode}
+                onCheckedChange={handleDarkModeChange}
+                disabled={updatePreferences.isPending}
               />
             </div>
             
@@ -77,7 +115,11 @@ export default function SettingsPage() {
                   </p>
                 </div>
               </div>
-              <Select defaultValue="blue">
+              <Select 
+                value={theme} 
+                onValueChange={handleThemeChange}
+                disabled={updatePreferences.isPending}
+              >
                 <SelectTrigger className="w-32">
                   <SelectValue />
                 </SelectTrigger>
@@ -92,7 +134,7 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
-        {/* Email Notifications - Using new component */}
+        {/* Email Notifications */}
         <EmailPreferences />
 
         {/* Privacy */}
@@ -114,7 +156,11 @@ export default function SettingsPage() {
                   Allow anonymous usage data to improve the platform
                 </p>
               </div>
-              <Switch defaultChecked />
+              <Switch 
+                checked={dataCollection} 
+                onCheckedChange={handleDataCollectionChange}
+                disabled={updatePreferences.isPending}
+              />
             </div>
             
             <Separator />
@@ -124,9 +170,7 @@ export default function SettingsPage() {
               <p className="text-sm text-muted-foreground mb-3">
                 Download all your courses, analyses, and recommendations
               </p>
-              <Button variant="outline" size="sm">
-                Export Data
-              </Button>
+              <ExportButtons variant="inline" size="sm" />
             </div>
           </CardContent>
         </Card>
@@ -147,7 +191,11 @@ export default function SettingsPage() {
                   Select your preferred language
                 </p>
               </div>
-              <Select defaultValue="en">
+              <Select 
+                value={language} 
+                onValueChange={handleLanguageChange}
+                disabled={updatePreferences.isPending}
+              >
                 <SelectTrigger className="w-40">
                   <SelectValue />
                 </SelectTrigger>
@@ -161,11 +209,6 @@ export default function SettingsPage() {
             </div>
           </CardContent>
         </Card>
-
-        {/* Save Button */}
-        <div className="flex justify-end">
-          <Button onClick={handleSave}>Save Settings</Button>
-        </div>
       </div>
     </AppShell>
   );
