@@ -60,9 +60,9 @@ interface ScoredContent {
     ai_score?: number;
     total: number;
   };
-  ai_reasoning?: string;
-  ai_recommendation?: string;
-  ai_concern?: string;
+  ai_reasoning?: string | null;
+  ai_recommendation?: string | null;
+  ai_concern?: string | null;
 }
 
 function parseDuration(duration: string): number {
