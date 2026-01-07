@@ -25,6 +25,7 @@ import TestResultsPage from "./pages/TestResults";
 import ResourcesPage from "./pages/Resources";
 import LegalPage from "./pages/Legal";
 import UniversitiesPage from "./pages/Universities";
+import HowItWorksPage from "./pages/HowItWorks";
 import ForgotPasswordPage from "./pages/ForgotPassword";
 import ResetPasswordPage from "./pages/ResetPassword";
 import InstructorCoursesPage from "./pages/instructor/InstructorCourses";
@@ -45,6 +46,7 @@ const App = () => (
             <Route path="/test-results" element={<TestResultsPage />} />
             <Route path="/resources" element={<ResourcesPage />} />
             <Route path="/legal" element={<LegalPage />} />
+            <Route path="/how-it-works" element={<HowItWorksPage />} />
             <Route path="/universities" element={<UniversitiesPage />} />
 
             {/* Auth routes (redirect if logged in) */}

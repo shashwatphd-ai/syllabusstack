@@ -27,9 +27,9 @@ export function Header() {
             <a href="#features" className="text-sm font-medium text-primary-foreground/70 hover:text-primary-foreground transition-colors">
               Features
             </a>
-            <a href="#how-it-works" className="text-sm font-medium text-primary-foreground/70 hover:text-primary-foreground transition-colors">
+            <Link to="/how-it-works" className="text-sm font-medium text-primary-foreground/70 hover:text-primary-foreground transition-colors">
               How It Works
-            </a>
+            </Link>
             <Link to="/scanner" className="text-sm font-medium text-primary-foreground/70 hover:text-primary-foreground transition-colors">
               Syllabus Scanner
             </Link>
@@ -69,9 +69,9 @@ export function Header() {
               <a href="#features" className="block text-sm font-medium text-primary-foreground/70 hover:text-primary-foreground transition-colors">
                 Features
               </a>
-              <a href="#how-it-works" className="block text-sm font-medium text-primary-foreground/70 hover:text-primary-foreground transition-colors">
+              <Link to="/how-it-works" className="block text-sm font-medium text-primary-foreground/70 hover:text-primary-foreground transition-colors">
                 How It Works
-              </a>
+              </Link>
               <Link to="/scanner" className="block text-sm font-medium text-primary-foreground/70 hover:text-primary-foreground transition-colors">
                 Syllabus Scanner
               </Link>
