@@ -38,6 +38,13 @@ export interface ContentMatch {
   rejection_reason: string | null;
   created_at: string;
   content?: Content;
+  // AI evaluation fields
+  ai_reasoning: string | null;
+  ai_relevance_score: number | null;
+  ai_pedagogy_score: number | null;
+  ai_quality_score: number | null;
+  ai_recommendation: string | null;
+  ai_concern: string | null;
 }
 
 export interface Content {

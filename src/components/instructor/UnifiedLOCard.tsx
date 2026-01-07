@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, Video, Search, Loader2, CheckCircle, XCircle, Play, Link, HelpCircle, Clock, ExternalLink } from 'lucide-react';
+import { ChevronDown, ChevronRight, Video, Search, Loader2, CheckCircle, XCircle, Play, Link, Clock, ExternalLink, Sparkles, Bot, AlertTriangle, ThumbsUp, Info, MessageSquare } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -9,6 +9,7 @@ import { useGenerateMicroChecks } from '@/hooks/useAssessment';
 import { VideoPreviewModal } from './VideoPreviewModal';
 import { ManualContentSearch } from './ManualContentSearch';
 import { AddVideoByURL } from './AddVideoByURL';
+import { ContentAssistantChat } from './ContentAssistantChat';
 
 interface UnifiedLOCardProps {
   learningObjective: LearningObjective;
@@ -58,6 +59,7 @@ export function UnifiedLOCard({ learningObjective, contentStatus }: UnifiedLOCar
   const [previewMatch, setPreviewMatch] = useState<ContentMatch | null>(null);
   const [showManualSearch, setShowManualSearch] = useState(false);
   const [showAddByURL, setShowAddByURL] = useState(false);
+  const [showAIAssistant, setShowAIAssistant] = useState(false);
 
   const { data: contentMatches, isLoading: loadingMatches } = useContentMatches(isOpen ? learningObjective.id : undefined);
   const searchContent = useSearchYouTubeContent();
@@ -222,7 +224,7 @@ export function UnifiedLOCard({ learningObjective, contentStatus }: UnifiedLOCar
           <CollapsibleContent>
             <div className="px-4 pb-4 pt-0 border-t border-border/50">
               {/* Action buttons */}
-              <div className="flex items-center gap-2 py-3">
+              <div className="flex items-center gap-2 py-3 flex-wrap">
                 <Button
                   variant="outline"
                   size="sm"
@@ -241,7 +243,28 @@ export function UnifiedLOCard({ learningObjective, contentStatus }: UnifiedLOCar
                   <Link className="h-3 w-3" />
                   Add by URL
                 </Button>
+                <Button
+                  variant={showAIAssistant ? "default" : "outline"}
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={() => setShowAIAssistant(!showAIAssistant)}
+                >
+                  <Bot className="h-3 w-3" />
+                  AI Assistant
+                </Button>
               </div>
+
+              {/* AI Assistant Chat Panel */}
+              {showAIAssistant && (
+                <div className="mb-4">
+                  <ContentAssistantChat
+                    learningObjectiveId={learningObjective.id}
+                    learningObjectiveText={learningObjective.text}
+                    bloomLevel={learningObjective.bloom_level || undefined}
+                    onClose={() => setShowAIAssistant(false)}
+                  />
+                </div>
+              )}
 
               {loadingMatches ? (
                 <div className="flex items-center justify-center py-6">
@@ -345,6 +368,22 @@ interface CompactContentCardProps {
   isLoading?: boolean;
 }
 
+// Helper to get AI recommendation badge info
+function getAIRecommendationBadge(recommendation: string | null) {
+  switch (recommendation) {
+    case 'highly_recommended':
+      return { label: 'AI Pick', variant: 'default' as const, className: 'bg-success/10 text-success border-success/30' };
+    case 'recommended':
+      return { label: 'Good Match', variant: 'outline' as const, className: 'text-primary border-primary/30' };
+    case 'acceptable':
+      return { label: 'Acceptable', variant: 'outline' as const, className: 'text-muted-foreground' };
+    case 'not_recommended':
+      return { label: 'Not Ideal', variant: 'outline' as const, className: 'text-warning border-warning/30' };
+    default:
+      return null;
+  }
+}
+
 function CompactContentCard({
   match,
   onPreview,
@@ -356,9 +395,10 @@ function CompactContentCard({
   isLoading,
 }: CompactContentCardProps) {
   const content = match.content;
+  const aiBadge = getAIRecommendationBadge(match.ai_recommendation);
 
   return (
-    <div className="flex items-center gap-3 p-2 rounded-lg bg-muted/30 border border-border/50">
+    <div className="flex items-start gap-3 p-2 rounded-lg bg-muted/30 border border-border/50">
       {/* Thumbnail */}
       <div 
         className="relative w-20 h-12 flex-shrink-0 rounded overflow-hidden cursor-pointer group bg-muted"
@@ -390,8 +430,78 @@ function CompactContentCard({
 
       {/* Info */}
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-foreground truncate">{content?.title || 'Unknown'}</p>
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-medium text-foreground truncate">{content?.title || 'Unknown'}</p>
+        </div>
         <p className="text-xs text-muted-foreground truncate">{content?.channel_name}</p>
+        
+        {/* AI Badges Row */}
+        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+          {/* AI Recommendation Badge */}
+          {aiBadge && (
+            <Badge variant={aiBadge.variant} className={`text-[10px] h-5 ${aiBadge.className}`}>
+              <Sparkles className="h-2.5 w-2.5 mr-0.5" />
+              {aiBadge.label}
+            </Badge>
+          )}
+          
+          {/* AI Concern Badge */}
+          {match.ai_concern && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge variant="outline" className="text-[10px] h-5 text-warning border-warning/30 cursor-help">
+                    <AlertTriangle className="h-2.5 w-2.5 mr-0.5" />
+                    Note
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  <p className="font-medium text-warning">AI Concern</p>
+                  <p className="text-xs mt-1">{match.ai_concern}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+          
+          {/* "Why this video?" tooltip */}
+          {match.ai_reasoning && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-primary"
+                  >
+                    <Info className="h-2.5 w-2.5 mr-0.5" />
+                    Why?
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-sm">
+                  <div className="space-y-2">
+                    <p className="font-medium flex items-center gap-1">
+                      <Bot className="h-3 w-3" /> AI Reasoning
+                    </p>
+                    <p className="text-xs">{match.ai_reasoning}</p>
+                    {(match.ai_relevance_score !== null || match.ai_pedagogy_score !== null || match.ai_quality_score !== null) && (
+                      <div className="flex gap-2 text-[10px] pt-1 border-t border-border">
+                        {match.ai_relevance_score !== null && (
+                          <span>Relevance: {Math.round(match.ai_relevance_score * 100)}%</span>
+                        )}
+                        {match.ai_pedagogy_score !== null && (
+                          <span>Pedagogy: {Math.round(match.ai_pedagogy_score * 100)}%</span>
+                        )}
+                        {match.ai_quality_score !== null && (
+                          <span>Quality: {Math.round(match.ai_quality_score * 100)}%</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+        </div>
       </div>
 
       {/* Score */}
