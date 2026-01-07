@@ -282,6 +282,7 @@ export function ContentCurationPanel({ courseId, learningObjectives, curationMod
                     match={match}
                     onApprove={() => handleApprove(match.id)}
                     onReject={() => openRejectDialog(match)}
+                    onPreview={() => setPreviewMatch(match)}
                     formatDuration={formatDuration}
                     formatViews={formatViews}
                     getScoreColor={getScoreColor}
@@ -374,6 +375,7 @@ interface ContentMatchCardProps {
   match: ContentMatch;
   onApprove?: () => void;
   onReject?: () => void;
+  onPreview?: () => void;
   formatDuration: (s: number | null) => string;
   formatViews: (c: number | null) => string;
   getScoreColor: (s: number) => string;
@@ -385,7 +387,8 @@ interface ContentMatchCardProps {
 function ContentMatchCard({ 
   match, 
   onApprove, 
-  onReject, 
+  onReject,
+  onPreview, 
   formatDuration, 
   formatViews, 
   getScoreColor,
@@ -449,29 +452,66 @@ function ContentMatchCard({
             </div>
           </div>
 
-          {/* Score Breakdown */}
-          <div className="mt-4 grid grid-cols-5 gap-2 text-xs">
-            <div>
-              <p className="text-muted-foreground">Duration</p>
-              <Progress value={(match.duration_fit_score || 0) * 100} className="h-1.5 mt-1" />
+          {/* Score Breakdown with Tooltips */}
+          <TooltipProvider>
+            <div className="mt-4 grid grid-cols-5 gap-2 text-xs">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="cursor-help">
+                    <p className="text-muted-foreground">Duration</p>
+                    <Progress value={(match.duration_fit_score || 0) * 100} className="h-1.5 mt-1" />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="max-w-xs">How well the video length matches the expected learning time for this objective</p>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="cursor-help">
+                    <p className="text-muted-foreground">Relevance</p>
+                    <Progress value={(match.semantic_similarity_score || 0) * 100} className="h-1.5 mt-1" />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="max-w-xs">Semantic similarity between video content and the learning objective</p>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="cursor-help">
+                    <p className="text-muted-foreground">Engagement</p>
+                    <Progress value={(match.engagement_quality_score || 0) * 100} className="h-1.5 mt-1" />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="max-w-xs">View count, likes, and audience engagement metrics</p>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="cursor-help">
+                    <p className="text-muted-foreground">Authority</p>
+                    <Progress value={(match.channel_authority_score || 0) * 100} className="h-1.5 mt-1" />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="max-w-xs">Channel subscriber count and educational reputation</p>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="cursor-help">
+                    <p className="text-muted-foreground">Recency</p>
+                    <Progress value={(match.recency_score || 0) * 100} className="h-1.5 mt-1" />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="max-w-xs">How recently the video was published</p>
+                </TooltipContent>
+              </Tooltip>
             </div>
-            <div>
-              <p className="text-muted-foreground">Relevance</p>
-              <Progress value={(match.semantic_similarity_score || 0) * 100} className="h-1.5 mt-1" />
-            </div>
-            <div>
-              <p className="text-muted-foreground">Engagement</p>
-              <Progress value={(match.engagement_quality_score || 0) * 100} className="h-1.5 mt-1" />
-            </div>
-            <div>
-              <p className="text-muted-foreground">Authority</p>
-              <Progress value={(match.channel_authority_score || 0) * 100} className="h-1.5 mt-1" />
-            </div>
-            <div>
-              <p className="text-muted-foreground">Recency</p>
-              <Progress value={(match.recency_score || 0) * 100} className="h-1.5 mt-1" />
-            </div>
-          </div>
+          </TooltipProvider>
 
           {/* Actions */}
           {!isApproved && !isRejected && onApprove && onReject && (
@@ -495,6 +535,17 @@ function ContentMatchCard({
                 <XCircle className="h-4 w-4" />
                 Reject
               </Button>
+              {onPreview && (
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={onPreview}
+                  className="gap-1.5 ml-auto"
+                >
+                  <Play className="h-4 w-4" />
+                  Preview
+                </Button>
+              )}
             </div>
           )}
 
