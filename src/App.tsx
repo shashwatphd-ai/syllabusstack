@@ -30,6 +30,7 @@ import ForgotPasswordPage from "./pages/ForgotPassword";
 import ResetPasswordPage from "./pages/ResetPassword";
 import InstructorCoursesPage from "./pages/instructor/InstructorCourses";
 import InstructorCourseDetailPage from "./pages/instructor/InstructorCourseDetail";
+import QuickCourseSetupPage from "./pages/instructor/QuickCourseSetup";
 import { StudentCoursesPage, StudentCourseDetailPage, LearningObjectivePage, AssessmentPage } from "./pages/student";
 
 const App = () => (
@@ -76,6 +77,7 @@ const App = () => (
             {/* Instructor routes */}
             <Route path="/instructor/courses" element={<AuthGuard><InstructorCoursesPage /></AuthGuard>} />
             <Route path="/instructor/courses/:id" element={<AuthGuard><InstructorCourseDetailPage /></AuthGuard>} />
+            <Route path="/instructor/quick-setup" element={<AuthGuard><QuickCourseSetupPage /></AuthGuard>} />
 
             {/* Catch-all */}
             <Route path="*" element={<NotFound />} />

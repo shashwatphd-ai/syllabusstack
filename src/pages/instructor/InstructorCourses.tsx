@@ -72,13 +72,18 @@ export default function InstructorCoursesPage() {
         />
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-xl font-semibold text-foreground">Your Courses</h2>
-          <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-            <DialogTrigger asChild>
-              <Button className="gap-2">
-                <Plus className="h-4 w-4" />
-                New Course
-              </Button>
-            </DialogTrigger>
+          <div className="flex gap-2">
+            <Button variant="default" className="gap-2" onClick={() => navigate('/instructor/quick-setup')}>
+              <Plus className="h-4 w-4" />
+              Quick Setup (AI)
+            </Button>
+            <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline" className="gap-2">
+                  <Plus className="h-4 w-4" />
+                  Manual Setup
+                </Button>
+              </DialogTrigger>
             <DialogContent className="max-w-lg">
               <DialogHeader>
                 <DialogTitle>Create New Course</DialogTitle>
@@ -143,6 +148,7 @@ export default function InstructorCoursesPage() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+          </div>
         </div>
 
         {!courses || courses.length === 0 ? (
