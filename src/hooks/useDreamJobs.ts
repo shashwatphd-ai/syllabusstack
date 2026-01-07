@@ -3,7 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Tables, TablesInsert } from '@/integrations/supabase/types';
 import { queryKeys } from '@/lib/query-keys';
 import { toast } from '@/hooks/use-toast';
-import { analyzeDreamJob, performGapAnalysis, generateRecommendations } from '@/lib/api';
+import { analyzeDreamJob, performGapAnalysis, generateRecommendations } from '@/services';
 
 // Types from database
 export type DreamJob = Tables<'dream_jobs'>;

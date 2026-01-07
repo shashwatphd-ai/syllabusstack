@@ -28,7 +28,7 @@ import {
 import { useCourses, useCreateCourse, useDeleteCourse } from "@/hooks/useCourses";
 import { useCapabilities } from "@/hooks/useCapabilities";
 import { useQueryClient } from "@tanstack/react-query";
-import { analyzeSyllabus } from "@/lib/api";
+import { analyzeSyllabus } from "@/services";
 import { toast } from "@/hooks/use-toast";
 
 export default function CoursesPage() {

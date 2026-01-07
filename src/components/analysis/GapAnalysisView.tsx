@@ -16,7 +16,7 @@ import {
   Loader2
 } from "lucide-react";
 import { useGapAnalysis } from "@/hooks/useAnalysis";
-import { performGapAnalysis } from "@/lib/api";
+import { performGapAnalysis } from "@/services";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { useState } from "react";
