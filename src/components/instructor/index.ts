@@ -7,3 +7,4 @@ export { ManualContentSearch } from './ManualContentSearch';
 export { AddVideoByURL } from './AddVideoByURL';
 export { UnifiedLOCard } from './UnifiedLOCard';
 export { UnifiedModuleCard } from './UnifiedModuleCard';
+export { ContentAssistantChat } from './ContentAssistantChat';
