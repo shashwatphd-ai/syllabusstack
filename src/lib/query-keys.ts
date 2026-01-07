@@ -33,6 +33,12 @@ export const queryKeys = {
       : [...queryKeys.recommendations, 'list'] as const,
   recommendationDetail: (id: string) => [...queryKeys.recommendations, 'detail', id] as const,
   
+  // Anti-Recommendations
+  antiRecommendations: (dreamJobId?: string) => 
+    dreamJobId 
+      ? ['anti-recommendations', dreamJobId] as const
+      : ['anti-recommendations'] as const,
+  
   // Dashboard
   dashboard: {
     all: ['dashboard'] as const,
