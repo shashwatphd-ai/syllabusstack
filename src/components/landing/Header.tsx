@@ -10,15 +10,15 @@ export function Header() {
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50">
-      <div className="bg-navy-900/80 backdrop-blur-xl border-b border-primary-foreground/10">
+      <div className="bg-indigo-900/80 backdrop-blur-xl border-b border-primary-foreground/10">
         <div className="container mx-auto px-6 h-16 flex items-center justify-between">
           {/* Logo */}
           <Link to="/" className="flex items-center gap-2">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center shadow-lg shadow-teal-500/25">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-coral-400 to-coral-500 flex items-center justify-center shadow-lg shadow-coral-500/25">
               <GraduationCap className="w-5 h-5 text-primary-foreground" />
             </div>
             <span className="text-xl font-bold text-primary-foreground">
-              Edu<span className="text-teal-400">Three</span>
+              Syllabus<span className="text-coral-400">Stack</span>
             </span>
           </Link>
 
@@ -64,7 +64,7 @@ export function Header() {
 
         {/* Mobile menu */}
         {mobileMenuOpen && (
-          <div className="md:hidden bg-navy-900/95 backdrop-blur-xl border-t border-primary-foreground/10">
+          <div className="md:hidden bg-indigo-900/95 backdrop-blur-xl border-t border-primary-foreground/10">
             <div className="container mx-auto px-6 py-4 space-y-4">
               <a href="#features" className="block text-sm font-medium text-primary-foreground/70 hover:text-primary-foreground transition-colors">
                 Features

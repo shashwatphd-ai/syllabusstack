@@ -70,7 +70,7 @@ export function AppHeader({ onMenuClick, showSearch = true }: AppHeaderProps) {
     if (path.startsWith('/recommendations')) return 'Recommendations';
     if (path.startsWith('/settings')) return 'Settings';
     if (path.startsWith('/profile')) return 'Profile';
-    return 'EduThree';
+    return 'SyllabusStack';
   };
 
   const handleSignOut = async () => {
@@ -238,7 +238,7 @@ export function MobileNav({ open, onClose }: { open: boolean; onClose: () => voi
           <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
             <GraduationCap className="h-5 w-5 text-primary-foreground" />
           </div>
-          <span className="text-lg font-bold">EduThree</span>
+          <span className="text-lg font-bold">SyllabusStack</span>
         </div>
         <nav className="p-4 space-y-1">
           {navigation.map((item) => {

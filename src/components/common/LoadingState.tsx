@@ -52,7 +52,7 @@ export function PageLoader() {
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
           </div>
         </div>
-        <p className="text-muted-foreground">Loading EduThree...</p>
+        <p className="text-muted-foreground">Loading SyllabusStack...</p>
       </div>
     </div>
   );

@@ -254,7 +254,7 @@ export default function SyllabusScannerPage() {
 
       toast({
         title: 'Analysis complete',
-        description: 'Full features available with a free EduThree account.',
+        description: 'Full features available with a free SyllabusStack account.',
       });
     } catch (error) {
       console.error('Analysis error:', error);
@@ -286,7 +286,7 @@ export default function SyllabusScannerPage() {
             <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
               <GraduationCap className="h-5 w-5 text-primary-foreground" />
             </div>
-            <span className="text-lg font-bold">EduThree</span>
+            <span className="text-lg font-bold">SyllabusStack</span>
             <Badge variant="secondary" className="ml-2">Syllabus Scanner</Badge>
           </div>
           <div className="flex items-center gap-4">

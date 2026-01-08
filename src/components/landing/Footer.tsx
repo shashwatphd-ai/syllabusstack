@@ -3,17 +3,17 @@ import { GraduationCap, Twitter, Linkedin, Mail } from "lucide-react";
 
 export function Footer() {
   return (
-    <footer className="bg-navy-900 border-t border-primary-foreground/10">
+    <footer className="bg-indigo-900 border-t border-primary-foreground/10">
       <div className="container mx-auto px-6 py-16">
         <div className="grid md:grid-cols-4 gap-12">
           {/* Brand */}
           <div className="md:col-span-1">
             <Link to="/" className="flex items-center gap-2 mb-4">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center shadow-lg shadow-teal-500/25">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-coral-400 to-coral-500 flex items-center justify-center shadow-lg shadow-coral-500/25">
                 <GraduationCap className="w-5 h-5 text-primary-foreground" />
               </div>
               <span className="text-xl font-bold text-primary-foreground">
-                Edu<span className="text-teal-400">Three</span>
+                Syllabus<span className="text-coral-400">Stack</span>
               </span>
             </Link>
             <p className="text-primary-foreground/50 text-sm mb-4">
@@ -21,26 +21,26 @@ export function Footer() {
             </p>
             <div className="flex gap-3">
               <a
-                href="https://twitter.com/eduthree"
+                href="https://twitter.com/syllabusstack"
                 target="_blank"
                 rel="noreferrer"
-                aria-label="EduThree on Twitter"
+                aria-label="SyllabusStack on Twitter"
                 className="w-8 h-8 rounded-lg bg-primary-foreground/5 hover:bg-primary-foreground/10 flex items-center justify-center text-primary-foreground/50 hover:text-primary-foreground transition-colors"
               >
                 <Twitter className="w-4 h-4" />
               </a>
               <a
-                href="https://www.linkedin.com/company/eduthree"
+                href="https://www.linkedin.com/company/syllabusstack"
                 target="_blank"
                 rel="noreferrer"
-                aria-label="EduThree on LinkedIn"
+                aria-label="SyllabusStack on LinkedIn"
                 className="w-8 h-8 rounded-lg bg-primary-foreground/5 hover:bg-primary-foreground/10 flex items-center justify-center text-primary-foreground/50 hover:text-primary-foreground transition-colors"
               >
                 <Linkedin className="w-4 h-4" />
               </a>
               <a
-                href="mailto:support@eduthree.app"
-                aria-label="Email EduThree support"
+                href="mailto:support@syllabusstack.app"
+                aria-label="Email SyllabusStack support"
                 className="w-8 h-8 rounded-lg bg-primary-foreground/5 hover:bg-primary-foreground/10 flex items-center justify-center text-primary-foreground/50 hover:text-primary-foreground transition-colors"
               >
                 <Mail className="w-4 h-4" />
@@ -84,7 +84,7 @@ export function Footer() {
         {/* Bottom bar */}
         <div className="mt-12 pt-8 border-t border-primary-foreground/10 flex flex-col sm:flex-row justify-between items-center gap-4">
           <p className="text-primary-foreground/40 text-sm">
-            © {new Date().getFullYear()} EduThree. All rights reserved.
+            © {new Date().getFullYear()} SyllabusStack. All rights reserved.
           </p>
           <p className="text-primary-foreground/40 text-sm">
             Made with AI that tells the truth.

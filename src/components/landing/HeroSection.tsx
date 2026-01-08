@@ -7,9 +7,9 @@ export function HeroSection() {
     <section className="relative min-h-screen bg-hero overflow-hidden">
       {/* Background decoration */}
       <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute top-20 left-10 w-72 h-72 bg-teal-500/10 rounded-full blur-3xl" />
-        <div className="absolute bottom-20 right-10 w-96 h-96 bg-teal-400/5 rounded-full blur-3xl" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-navy-700/30 rounded-full blur-3xl" />
+        <div className="absolute top-20 left-10 w-72 h-72 bg-coral-500/10 rounded-full blur-3xl" />
+        <div className="absolute bottom-20 right-10 w-96 h-96 bg-coral-400/5 rounded-full blur-3xl" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-indigo-700/30 rounded-full blur-3xl" />
       </div>
 
       {/* Grid pattern overlay */}
@@ -24,7 +24,7 @@ export function HeroSection() {
       <div className="relative container mx-auto px-6 pt-32 pb-20">
         <div className="max-w-4xl mx-auto text-center">
           {/* Badge */}
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-teal-500/10 border border-teal-500/20 text-teal-300 text-sm font-medium mb-8 animate-fade-up">
+          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-coral-500/10 border border-coral-500/20 text-coral-300 text-sm font-medium mb-8 animate-fade-up">
             <Sparkles className="w-4 h-4" />
             <span>AI-Powered Career Intelligence</span>
           </div>
@@ -33,8 +33,8 @@ export function HeroSection() {
           <h1 className="text-4xl sm:text-5xl lg:text-7xl font-extrabold text-primary-foreground leading-tight mb-6 animate-fade-up" style={{ animationDelay: '0.1s' }}>
             Know Your{" "}
             <span className="relative">
-              <span className="text-gradient bg-gradient-to-r from-teal-300 to-teal-500">Real</span>
-              <svg className="absolute -bottom-2 left-0 w-full h-3 text-teal-500/30" viewBox="0 0 200 12" preserveAspectRatio="none">
+              <span className="text-gradient bg-gradient-to-r from-coral-300 to-coral-500">Real</span>
+              <svg className="absolute -bottom-2 left-0 w-full h-3 text-coral-500/30" viewBox="0 0 200 12" preserveAspectRatio="none">
                 <path d="M0,8 Q50,0 100,8 T200,8" fill="none" stroke="currentColor" strokeWidth="4"/>
               </svg>
             </span>{" "}
@@ -44,7 +44,7 @@ export function HeroSection() {
           {/* Subheadline */}
           <p className="text-lg sm:text-xl text-primary-foreground/70 max-w-2xl mx-auto mb-10 animate-fade-up" style={{ animationDelay: '0.2s' }}>
             Stop guessing. Upload your coursework, add your dream jobs, and get 
-            <span className="text-teal-300 font-semibold"> honest AI analysis</span> of exactly 
+            <span className="text-coral-300 font-semibold"> honest AI analysis</span> of exactly 
             where you stand—and what to do next.
           </p>
 
@@ -82,8 +82,8 @@ export function HeroSection() {
         <div className="absolute left-8 top-1/2 hidden xl:block animate-float" style={{ animationDelay: '0s' }}>
           <div className="bg-primary-foreground/5 backdrop-blur-xl border border-primary-foreground/10 rounded-2xl p-4 shadow-xl">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-teal-500/20 flex items-center justify-center">
-                <Target className="w-5 h-5 text-teal-400" />
+              <div className="w-10 h-10 rounded-xl bg-coral-500/20 flex items-center justify-center">
+                <Target className="w-5 h-5 text-coral-400" />
               </div>
               <div>
                 <div className="text-sm font-semibold text-primary-foreground">Gap Analysis</div>
@@ -96,8 +96,8 @@ export function HeroSection() {
         <div className="absolute right-8 top-1/3 hidden xl:block animate-float" style={{ animationDelay: '2s' }}>
           <div className="bg-primary-foreground/5 backdrop-blur-xl border border-primary-foreground/10 rounded-2xl p-4 shadow-xl">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-teal-500/20 flex items-center justify-center">
-                <BookOpen className="w-5 h-5 text-teal-400" />
+              <div className="w-10 h-10 rounded-xl bg-coral-500/20 flex items-center justify-center">
+                <BookOpen className="w-5 h-5 text-coral-400" />
               </div>
               <div>
                 <div className="text-sm font-semibold text-primary-foreground">Smart Recs</div>
