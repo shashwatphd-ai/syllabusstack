@@ -152,17 +152,32 @@ Return ONLY the JSON array, no other text.`;
       throw new Error('Failed to parse micro-checks from AI response');
     }
 
-    // Validate and store micro-checks
-    const insertData = microChecks.map(check => ({
-      content_id,
-      trigger_time_seconds: check.trigger_time_seconds,
-      question_text: check.question_text,
-      question_type: check.question_type,
-      correct_answer: check.correct_answer,
-      options: check.options || null,
-      rewind_target_seconds: check.rewind_target_seconds,
-      created_by: user.id,
-    }));
+    // Validate and fix micro-checks before storing
+    const validatedChecks = microChecks.map(check => {
+      // For MCQ, extract correct answer from options if missing
+      let correctAnswer = check.correct_answer;
+      if (!correctAnswer && check.options && check.question_type === 'mcq') {
+        const correctOption = check.options.find(opt => opt.is_correct);
+        correctAnswer = correctOption?.text || 'See options';
+      }
+      // For recall, provide default if missing
+      if (!correctAnswer) {
+        correctAnswer = 'Answer not specified';
+      }
+      
+      return {
+        content_id,
+        trigger_time_seconds: check.trigger_time_seconds || 60,
+        question_text: check.question_text || 'Check your understanding',
+        question_type: check.question_type || 'recall',
+        correct_answer: correctAnswer,
+        options: check.options || null,
+        rewind_target_seconds: check.rewind_target_seconds || Math.max(0, (check.trigger_time_seconds || 60) - 30),
+        created_by: user.id,
+      };
+    });
+    
+    const insertData = validatedChecks;
 
     const { data: savedChecks, error: insertError } = await supabase
       .from('micro_checks')
