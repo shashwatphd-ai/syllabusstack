@@ -45,7 +45,28 @@ export function AntiRecommendations({
   }
 
   if (antiRecommendations.length === 0) {
-    return null;
+    return (
+      <Card className="border-muted">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-muted-foreground">
+            <AlertOctagon className="h-5 w-5" />
+            Things to Avoid
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-center py-8">
+            <Ban className="h-10 w-10 mx-auto text-muted-foreground/50 mb-3" />
+            <p className="text-sm text-muted-foreground mb-2">
+              No anti-recommendations yet
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Run a fresh gap analysis to identify activities you should avoid.
+              {dreamJobTitle && ` Anti-recommendations will be tailored for "${dreamJobTitle}".`}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    );
   }
 
   return (
