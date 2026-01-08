@@ -107,43 +107,40 @@ export function CapabilitySnapshot({ capabilities = [], isLoading }: CapabilityS
   }
 
   return (
-    <Card className="border-0 shadow-md bg-card">
-      <CardHeader className="pb-4">
+    <Card className="border-0 shadow-md bg-card h-full">
+      <CardHeader className="pb-3">
         <CardTitle className="flex items-center justify-between">
           <span className="text-lg font-semibold">Your Capabilities</span>
           <Badge 
             variant="secondary" 
-            className="font-medium bg-accent/10 text-accent border border-accent/20"
+            className="font-medium text-xs bg-accent/10 text-accent border border-accent/20"
           >
-            {capabilities.length} skills tracked
+            {capabilities.length} tracked
           </Badge>
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-6 max-h-96 overflow-y-auto">
+      <CardContent className="space-y-4 max-h-80 overflow-y-auto">
         {Object.entries(groupedCapabilities).map(([category, caps]) => (
-          <div key={category} className="space-y-3">
-            <h4 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">{category}</h4>
-            <div className="space-y-4">
+          <div key={category} className="space-y-2">
+            <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{category}</h4>
+            <div className="space-y-2">
               {caps.map((cap) => (
-                <div key={cap.name} className="space-y-2 group cursor-pointer hover:bg-muted/50 rounded-lg p-2 -mx-2 transition-colors">
-                  <div className="flex items-center justify-between text-sm gap-2">
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
-                      <span 
-                        className="font-medium text-foreground group-hover:text-accent transition-colors"
-                        title={cap.name}
-                      >
-                        {cap.name}
-                      </span>
-                      <TrendIcon trend={cap.trend} />
-                    </div>
+                <div key={cap.name} className="space-y-1 group cursor-pointer hover:bg-muted/50 rounded-md p-1.5 -mx-1.5 transition-colors">
+                  <div className="flex items-center justify-between text-xs gap-1">
+                    <span 
+                      className="font-medium text-foreground group-hover:text-accent transition-colors truncate flex-1"
+                      title={cap.name}
+                    >
+                      {cap.name}
+                    </span>
                     <Badge 
                       variant="outline" 
-                      className={`text-xs border flex-shrink-0 ${getLevelBadgeStyle(cap.level)}`}
+                      className={`text-[10px] px-1.5 py-0 border flex-shrink-0 ${getLevelBadgeStyle(cap.level)}`}
                     >
                       {getLevelLabel(cap.level)}
                     </Badge>
                   </div>
-                  <div className="relative h-2 w-full overflow-hidden rounded-full bg-muted">
+                  <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-muted">
                     <div
                       className={`h-full rounded-full transition-all duration-500 ${getLevelColor(cap.level)}`}
                       style={{ width: `${cap.level}%` }}

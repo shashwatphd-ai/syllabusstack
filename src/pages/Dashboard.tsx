@@ -80,12 +80,15 @@ export default function DashboardPage() {
 
   return (
     <AppShell>
-      <div className="space-y-8">
-        <div>
-          <h1 className="text-3xl font-bold font-display">Dashboard</h1>
-          <p className="text-muted-foreground">
-            Welcome back! Here's your career progress overview.
-          </p>
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold font-display">Dashboard</h1>
+            <p className="text-sm text-muted-foreground">
+              Your career progress at a glance
+            </p>
+          </div>
         </div>
 
         {/* Welcome Back Banner for returning users */}
@@ -97,13 +100,16 @@ export default function DashboardPage() {
           isLoading={overviewLoading}
         />
 
+        {/* Stats Cards Row - Compact */}
         <DashboardOverview 
           stats={overviewStats}
           isLoading={overviewLoading || statsLoading}
         />
 
-        <div className="grid gap-6 lg:grid-cols-3">
-          <div className="lg:col-span-2">
+        {/* Main Content - Balanced 3 column layout */}
+        <div className="grid gap-6 lg:grid-cols-12">
+          {/* Dream Jobs - Takes more space when needed */}
+          <div className="lg:col-span-5">
             <DreamJobCards 
               jobs={transformedJobs}
               isLoading={jobsLoading}
@@ -111,12 +117,17 @@ export default function DashboardPage() {
               onAddJob={() => navigate('/dream-jobs')}
             />
           </div>
-          <div className="space-y-6">
-            {/* Progress Widget */}
+          
+          {/* Progress Widget - Center column */}
+          <div className="lg:col-span-3">
             <ProgressWidget 
               recommendations={progressStats}
               isLoading={overviewLoading}
             />
+          </div>
+          
+          {/* Capabilities - Right column */}
+          <div className="lg:col-span-4">
             <CapabilitySnapshot 
               capabilities={transformedCapabilities}
               isLoading={capsLoading}
