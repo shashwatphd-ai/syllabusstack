@@ -194,6 +194,8 @@ export function GapAnalysisView({
                 estimatedTimeToClose: '3-6 months',
               }))}
               priorityGaps={priorityGaps}
+              dreamJobId={dreamJobId}
+              dreamJobTitle={dreamJobTitle}
             />
           ) : (
             <Card className="p-8 text-center">
