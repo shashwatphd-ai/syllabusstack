@@ -152,7 +152,7 @@ export function OnboardingWizard() {
           await completeOnboarding.mutateAsync();
           await refreshProfile();
           toast({
-            title: "Welcome to EduThree!",
+            title: "Welcome to SyllabusStack!",
             description: "Your profile is set up. Let's explore your gap analysis.",
           });
           navigate('/dashboard');
@@ -212,7 +212,7 @@ export function OnboardingWizard() {
             <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
               <Sparkles className="h-4 w-4 text-primary-foreground" />
             </div>
-            <span className="font-bold">EduThree</span>
+            <span className="font-bold">SyllabusStack</span>
           </div>
           <div className="text-sm text-muted-foreground">
             Step {stepIndex + 1} of {steps.length}

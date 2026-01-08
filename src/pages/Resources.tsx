@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 export default function ResourcesPage() {
   useSEO({
     title: "Resources",
-    description: "EduThree resources: documentation, career guides, product updates, and support.",
+    description: "SyllabusStack resources: documentation, career guides, product updates, and support.",
     canonical: "/resources",
   });
 
@@ -16,7 +16,7 @@ export default function ResourcesPage() {
         <header className="mb-10">
           <h1 className="text-3xl sm:text-4xl font-bold text-foreground">Resources</h1>
           <p className="mt-2 text-muted-foreground">
-            Quick links to help you get the most out of EduThree.
+            Quick links to help you get the most out of SyllabusStack.
           </p>
           <div className="mt-6 flex gap-3">
             <Button asChild variant="outline">
@@ -68,7 +68,7 @@ export default function ResourcesPage() {
             </CardHeader>
             <CardContent className="text-sm text-muted-foreground">
               Need help? Email us at{" "}
-              <a className="underline" href="mailto:support@eduthree.app">support@eduthree.app</a>.
+              <a className="underline" href="mailto:support@syllabusstack.com">support@syllabusstack.com</a>.
             </CardContent>
           </Card>
         </section>

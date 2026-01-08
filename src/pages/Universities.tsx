@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 export default function UniversitiesPage() {
   useSEO({
     title: "For Universities",
-    description: "EduThree for universities: curriculum-to-career alignment and cohort insights.",
+    description: "SyllabusStack for universities: curriculum-to-career alignment and cohort insights.",
     canonical: "/universities",
   });
 
@@ -14,7 +14,7 @@ export default function UniversitiesPage() {
     <main className="min-h-screen bg-background">
       <div className="container mx-auto px-6 py-16 max-w-4xl">
         <header className="mb-10">
-          <h1 className="text-3xl sm:text-4xl font-bold text-foreground">EduThree for Universities</h1>
+          <h1 className="text-3xl sm:text-4xl font-bold text-foreground">SyllabusStack for Universities</h1>
           <p className="mt-2 text-muted-foreground">
             Understand what students actually learn—and how it maps to real job requirements.
           </p>
@@ -23,7 +23,7 @@ export default function UniversitiesPage() {
               <Link to="/">Back to Home</Link>
             </Button>
             <Button asChild>
-              <a href="mailto:partnerships@eduthree.app">Contact partnerships</a>
+              <a href="mailto:partnerships@syllabusstack.com">Contact partnerships</a>
             </Button>
           </div>
         </header>

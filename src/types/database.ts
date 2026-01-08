@@ -1,4 +1,4 @@
-// EduThree Database Types - Based on Technical Specification v3.0
+// SyllabusStack Database Types - Based on Technical Specification v3.0
 
 export type StudentLevel = 'freshman' | 'sophomore' | 'junior' | 'senior' | 'graduate';
 export type RecommendationType = 'project' | 'course' | 'certification' | 'action' | 'reading';

@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 export default function LegalPage() {
   useSEO({
     title: "Legal",
-    description: "EduThree legal information: privacy, terms, and cookie policy.",
+    description: "SyllabusStack legal information: privacy, terms, and cookie policy.",
     canonical: "/legal",
   });
 
@@ -48,7 +48,7 @@ export default function LegalPage() {
             </CardHeader>
             <CardContent className="space-y-3 text-sm text-muted-foreground">
               <p>
-                EduThree provides informational guidance, not guarantees of employment outcomes.
+                SyllabusStack provides informational guidance, not guarantees of employment outcomes.
               </p>
               <p>
                 You are responsible for ensuring content you upload is allowed to be shared for analysis.
