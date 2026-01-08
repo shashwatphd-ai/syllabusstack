@@ -28,7 +28,7 @@ const features = [
   {
     icon: Brain,
     title: "AI That Understands Context",
-    description: "Our multi-model AI uses GPT-4, Claude, and Gemini together—each for what it does best. No generic advice.",
+    description: "Our AI uses advanced language models optimized for each task—extraction, analysis, and recommendations. No generic advice.",
     color: "from-purple-500 to-violet-600",
   },
   {

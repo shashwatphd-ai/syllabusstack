@@ -74,13 +74,13 @@ export default function LegalPage() {
 
               <div>
                 <h3 className="font-semibold text-foreground mb-2">3. Third-Party Services</h3>
-                <p className="mb-3">We integrate with the following third-party services to provide our functionality:</p>
+                <p className="mb-3">We integrate with third-party services to provide our functionality. These services have their own privacy policies governing their handling of data:</p>
                 <ul className="list-disc pl-6 space-y-2">
-                  <li><strong>AI Language Models:</strong> Your content is processed by AI services (Google Gemini, OpenAI) to generate analysis. These providers have their own privacy policies.</li>
-                  <li><strong>Video Platforms:</strong> We embed content from YouTube and Khan Academy. Your interaction with these embeds may be subject to their privacy policies.</li>
-                  <li><strong>Course Search:</strong> We use Firecrawl to search for online courses from providers like Coursera, Udemy, and edX based on your skill gaps.</li>
-                  <li><strong>Payment Processing:</strong> If you subscribe to paid features, Stripe handles payment processing. We store only subscription status, not payment details.</li>
-                  <li><strong>Email Services:</strong> Transactional emails are sent through Resend.</li>
+                  <li><strong>AI Processing Services:</strong> Your content is processed by third-party artificial intelligence providers to generate analysis and recommendations.</li>
+                  <li><strong>Video Platforms:</strong> We embed educational content from third-party video platforms. Your interaction with these embeds may be subject to their respective privacy policies.</li>
+                  <li><strong>Course Discovery Services:</strong> We use third-party search services to find relevant online courses and learning resources based on your skill gaps.</li>
+                  <li><strong>Payment Processing:</strong> If you subscribe to paid features, a third-party payment processor handles transactions. We store only subscription status, not payment details.</li>
+                  <li><strong>Email Services:</strong> Transactional emails are sent through a third-party email service provider.</li>
                 </ul>
               </div>
 
