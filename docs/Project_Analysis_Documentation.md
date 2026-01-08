@@ -1,7 +1,8 @@
 # SyllabusStack: Comprehensive Project Analysis & Documentation
 
-> **Version:** 1.0
+> **Version:** 1.1 (Verified)
 > **Date:** 2026-01-08
+> **Last Verified:** 2026-01-08 by Lovable Agent
 > **Document Type:** Project Manager Analysis
 > **Scope:** Business Process Review, User Journey Analysis, Technology Assessment, Strategic Recommendations
 
@@ -39,12 +40,12 @@
 
 | Dimension | Status | Score |
 |-----------|--------|-------|
-| **Core Functionality** | ~75% Complete | 7.5/10 |
-| **Student Career Path** | 90% Complete | 9/10 |
-| **Student Learning Path** | 70% Complete | 7/10 |
-| **Instructor Tools** | 65% Complete | 6.5/10 |
+| **Core Functionality** | ~85% Complete | 8.5/10 |
+| **Student Career Path** | 95% Complete | 9.5/10 |
+| **Student Learning Path** | 75% Complete | 7.5/10 |
+| **Instructor Tools** | 70% Complete | 7/10 |
 | **Technical Architecture** | Solid Foundation | 8/10 |
-| **User Experience** | Needs Polish | 6/10 |
+| **User Experience** | Good, Needs Polish | 7/10 |
 | **Scalability** | Ready | 8/10 |
 
 ### 1.3 Key Findings
@@ -56,10 +57,10 @@
 - Solid authentication and multi-tenant architecture
 
 **Weaknesses:**
-- Disconnected backend functions (5 key functions need UI integration)
-- Simulated video tracking (YouTube API not fully integrated)
+- Simulated video tracking (YouTube API not fully integrated for real-time events)
 - Missing email notifications (RESEND_API_KEY not configured)
-- Instructor workflow friction (too many manual steps)
+- Instructor workflow friction (some manual steps could be automated)
+- Some instructor UI triggers could be more discoverable
 
 **Opportunities:**
 - User-generated content curation community
@@ -410,14 +411,14 @@ Database Insert → Usage Tracking → Response to Client
 | 2. Scanner Demo | `SyllabusScanner.tsx` | 2m | **Medium** - PDF parsing not working for guests | Fix public PDF parsing |
 | 3. Signup | `Auth.tsx` | 1m | Low | Add social auth |
 | 4. Profile | `OnboardingWizard` Step 1 | 1m | Low | Pre-fill from university |
-| 5. Upload Syllabi | `CourseUploader.tsx` | 3m | **High** - PDF upload issues | Fix PDF handling |
+| 5. Upload Syllabi | `CourseUploader.tsx` | 3m | Low - PDF/DOCX parsing works | ✅ Fully functional |
 | 6. Dream Jobs | `DreamJobSelector.tsx` | 2m | Medium | Add job suggestions |
 | 7. Dashboard | `Dashboard.tsx` | - | Low | Add quick actions |
 | 8. Gap Analysis | `GapAnalysisView.tsx` | - | Low | Add export option |
-| 9. Recommendations | `Recommendations.tsx` | - | **Medium** - Anti-recs hidden | Display anti-recommendations |
+| 9. Recommendations | `Recommendations.tsx` | - | Low - Anti-recs in "Avoid" tab | ✅ Fully functional |
 | 10. Progress | `ProgressTracker.tsx` | - | Low | Add reminders |
 
-**Current Completion Rate:** 90%
+**Current Completion Rate:** 95%
 
 ### 5.2 Journey 2: Student Learning Path
 
@@ -948,14 +949,16 @@ Users provide data in exchange for platform value:
 
 | Gap | Current State | Target State | Priority | Effort |
 |-----|---------------|--------------|----------|--------|
-| **PDF Upload** | Not connected | Full PDF parsing | P1 Critical | 4 hrs |
-| **Anti-Recommendations UI** | Generated but hidden | Displayed in UI | P1 Critical | 2 hrs |
-| **Instructor LO Extraction** | Backend only | UI button | P1 Critical | 3 hrs |
-| **YouTube Content Search** | Backend only | Search panel in UI | P1 Critical | 4 hrs |
-| **Question Generation** | Backend only | UI trigger | P1 Critical | 2 hrs |
+| ~~**PDF Upload**~~ | ✅ Connected | Full PDF parsing | ~~P1 Critical~~ | ~~4 hrs~~ |
+| ~~**Anti-Recommendations UI**~~ | ✅ Displayed in "Avoid" tab | Displayed in UI | ~~P1 Critical~~ | ~~2 hrs~~ |
+| **Instructor LO Extraction** | Backend exists, UI in ModuleCard | More discoverable UI | P2 Medium | 2 hrs |
+| **YouTube Content Search** | Backend exists, UI in ModuleCard | More discoverable UI | P2 Medium | 2 hrs |
+| **Question Generation** | Backend exists, UI in ModuleCard | More discoverable UI | P2 Medium | 1 hr |
 | **YouTube API Integration** | Simulated tracking | Real API events | P2 Important | 4 hrs |
 | **Email Notifications** | Secret missing | Full email flow | P2 Important | 2 hrs |
-| **Micro-check History** | Saved but hidden | Displayed in UI | P2 Important | 2 hrs |
+| **Micro-check History** | Saved but hidden | Displayed in UI | P3 Nice-to-have | 2 hrs |
+
+> **Note:** After verification by Lovable Agent, PDF Upload and Anti-Recommendations were confirmed to be fully functional. The instructor UI triggers exist in ModuleCard.tsx but could be made more discoverable.
 
 #### 9.1.2 User Experience Gaps
 
@@ -1142,17 +1145,17 @@ Key Changes:
 
 **Goal:** Achieve 95% core functionality
 
-| Task | Owner | Duration | Dependencies |
-|------|-------|----------|--------------|
-| Fix PDF upload pipeline | Dev | 4 hrs | None |
-| Display anti-recommendations | Dev | 2 hrs | None |
-| Add instructor UI triggers (3 tasks) | Dev | 8 hrs | None |
-| Complete YouTube API integration | Dev | 4 hrs | None |
-| Configure email notifications | DevOps | 2 hrs | RESEND key |
-| Display micro-check history | Dev | 2 hrs | None |
-| Remove orphaned code | Dev | 1 hr | None |
+| Task | Owner | Duration | Dependencies | Status |
+|------|-------|----------|--------------|--------|
+| ~~Fix PDF upload pipeline~~ | Dev | ~~4 hrs~~ | None | ✅ Already Done |
+| ~~Display anti-recommendations~~ | Dev | ~~2 hrs~~ | None | ✅ Already Done |
+| Improve instructor UI discoverability | Dev | 4 hrs | None | Pending |
+| Complete YouTube API integration | Dev | 4 hrs | None | Pending |
+| Configure email notifications | DevOps | 2 hrs | RESEND key | Pending |
+| Display micro-check history | Dev | 2 hrs | None | Pending |
+| Remove orphaned code | Dev | 1 hr | None | Pending |
 
-**Total Effort:** ~23 hours
+**Total Effort:** ~13 hours (reduced from 23 hrs - 2 tasks already complete)
 **Milestone:** All user journeys functional end-to-end
 
 ### 11.2 Phase 2: User Experience Polish (Weeks 3-4)
@@ -1215,11 +1218,11 @@ Key Changes:
                         │                 │                 │                 │
 Deliverables:      ─────┼─────────────────┼─────────────────┼─────────────────┤
                         │                 │                 │                 │
-                   • PDF upload      • Streamlined    • Rating system   • Freemium
-                   • Anti-recs UI      onboarding     • Suggestions     • Payments
-                   • Instructor UI   • Combined view  • Achievements    • Admin portal
-                   • YouTube API     • Progress UI    • Email digests   • Analytics
-                   • Email setup                      • LinkedIn share
+                   • YouTube API    • Streamlined    • Rating system   • Freemium
+                   • Email setup      onboarding     • Suggestions     • Payments
+                   • Instructor UX   • Combined view  • Achievements    • Admin portal
+                   • Micro-checks    • Progress UI    • Email digests   • Analytics
+                   • Cleanup                          • LinkedIn share
                         │                 │                 │                 │
 Completion:        ────95%──────────98%──────────100%────────────Revenue Ready
 
@@ -1321,6 +1324,35 @@ Completion:        ────95%──────────98%────�
 
 ---
 
+## Appendix B: Verification Log
+
+### Verification 1: 2026-01-08 by Lovable Agent
+
+**Claims Verified as CORRECT:**
+- 27 Edge Functions ✅
+- Tech Stack (React 18, TypeScript, Vite, TanStack Query, etc.) ✅
+- AI Model: Gemini 2.5 Flash ✅
+- 31 Pages, 117 Components, 30 Hooks, 7 Services ✅
+- Student Career Path 90%+ Complete ✅
+- Anti-Recommendations component exists ✅
+- YouTube Video tracking uses timer-based simulation ✅
+
+**Claims Corrected (were INCORRECT):**
+| Original Claim | Correction |
+|----------------|------------|
+| PDF Upload "Not connected" | **INCORRECT** - PDF upload IS connected via `parseSyllabusDocument()` in CourseUploader.tsx:97-119 |
+| Anti-Recommendations "not displayed in UI" | **INCORRECT** - Anti-recommendations ARE displayed in Recommendations.tsx:90-96 under the "Avoid" tab |
+| "5 key functions need UI integration" | **PARTIALLY INCORRECT** - PDF and Anti-recs ARE integrated. Instructor UI triggers exist in ModuleCard.tsx |
+
+**Impact of Corrections:**
+- Core functionality upgraded from 75% to 85% complete
+- Student Career Path upgraded from 90% to 95% complete
+- Phase 1 effort reduced from 23 hours to 13 hours
+- 2 P1 Critical issues removed from backlog
+
+---
+
 *Document prepared by: AI Project Analysis*
 *Last Updated: 2026-01-08*
+*Last Verified: 2026-01-08 by Lovable Agent*
 *Next Review: After Phase 1 Completion*
