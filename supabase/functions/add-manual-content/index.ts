@@ -45,15 +45,17 @@ serve(async (req) => {
     const duration_seconds = body.duration_seconds;
     const view_count = body.view_count;
     const published_at = body.published_at;
+    const source_type = body.source_type || 'youtube';
+    const source_url = body.source_url;
 
     if (!learning_objective_id || !video_id) {
       console.error("Missing required fields:", { learning_objective_id, video_id, body });
       throw new Error("learning_objective_id and video_id are required");
     }
 
-    console.log(`Adding manual content: video ${video_id} for LO ${learning_objective_id}`);
+    console.log(`Adding manual content (${source_type}): ${video_id} for LO ${learning_objective_id}`);
 
-    // Fetch video details from YouTube if not provided
+    // Fetch video details from YouTube if not provided (only for YouTube source)
     let title = video_title;
     let description = video_description;
     let channelName = channel_name;
@@ -63,40 +65,50 @@ serve(async (req) => {
     let likeCount = 0;
     let publishedAt = published_at || null;
 
-    // If we don't have title, fetch from YouTube API
-    if (!title) {
-      const detailsUrl = new URL("https://www.googleapis.com/youtube/v3/videos");
-      detailsUrl.searchParams.set("key", YOUTUBE_API_KEY);
-      detailsUrl.searchParams.set("id", video_id);
-      detailsUrl.searchParams.set("part", "snippet,contentDetails,statistics");
+    // If we don't have title and it's a YouTube video, fetch from YouTube API
+    if (!title && source_type === 'youtube') {
+      const YOUTUBE_API_KEY = Deno.env.get("GOOGLE_CLOUD_API_KEY");
+      if (YOUTUBE_API_KEY) {
+        const detailsUrl = new URL("https://www.googleapis.com/youtube/v3/videos");
+        detailsUrl.searchParams.set("key", YOUTUBE_API_KEY);
+        detailsUrl.searchParams.set("id", video_id);
+        detailsUrl.searchParams.set("part", "snippet,contentDetails,statistics");
 
-      const detailsResponse = await fetch(detailsUrl.toString());
-      if (detailsResponse.ok) {
-        const detailsData = await detailsResponse.json();
-        const item = detailsData.items?.[0];
-        
-        if (item) {
-          title = item.snippet.title;
-          description = description || item.snippet.description;
-          channelName = channelName || item.snippet.channelTitle;
-          thumbnailUrl = thumbnailUrl || item.snippet.thumbnails?.medium?.url;
-          publishedAt = item.snippet.publishedAt;
-          viewCount = parseInt(item.statistics?.viewCount || "0");
-          likeCount = parseInt(item.statistics?.likeCount || "0");
+        const detailsResponse = await fetch(detailsUrl.toString());
+        if (detailsResponse.ok) {
+          const detailsData = await detailsResponse.json();
+          const item = detailsData.items?.[0];
           
-          // Parse duration if not provided
-          if (!durationSeconds) {
-            const duration = item.contentDetails?.duration || "";
-            const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
-            if (match) {
-              const hours = parseInt(match[1] || "0");
-              const minutes = parseInt(match[2] || "0");
-              const seconds = parseInt(match[3] || "0");
-              durationSeconds = hours * 3600 + minutes * 60 + seconds;
+          if (item) {
+            title = item.snippet.title;
+            description = description || item.snippet.description;
+            channelName = channelName || item.snippet.channelTitle;
+            thumbnailUrl = thumbnailUrl || item.snippet.thumbnails?.medium?.url;
+            publishedAt = item.snippet.publishedAt;
+            viewCount = parseInt(item.statistics?.viewCount || "0");
+            likeCount = parseInt(item.statistics?.likeCount || "0");
+            
+            // Parse duration if not provided
+            if (!durationSeconds) {
+              const duration = item.contentDetails?.duration || "";
+              const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+              if (match) {
+                const hours = parseInt(match[1] || "0");
+                const minutes = parseInt(match[2] || "0");
+                const seconds = parseInt(match[3] || "0");
+                durationSeconds = hours * 3600 + minutes * 60 + seconds;
+              }
             }
           }
         }
       }
+    }
+
+    // For Khan Academy, use defaults if not provided
+    if (source_type === 'khan_academy') {
+      title = title || video_id.replace(/-/g, ' ');
+      channelName = channelName || 'Khan Academy';
+      durationSeconds = durationSeconds || 600; // Default 10 min estimate
     }
 
     // Check if content already exists
@@ -105,8 +117,13 @@ serve(async (req) => {
       .from("content")
       .select("id")
       .eq("source_id", video_id)
-      .eq("source_type", "youtube")
+      .eq("source_type", source_type)
       .maybeSingle();
+
+    // Determine the source URL
+    const finalSourceUrl = source_url || (source_type === 'youtube' 
+      ? `https://www.youtube.com/watch?v=${video_id}`
+      : `https://www.khanacademy.org/video/${video_id}`);
 
     if (existingContent) {
       contentId = existingContent.id;
@@ -115,9 +132,9 @@ serve(async (req) => {
       const { data: newContent, error: contentError } = await supabaseClient
         .from("content")
         .insert({
-          source_type: "youtube",
+          source_type: source_type,
           source_id: video_id,
-          source_url: `https://www.youtube.com/watch?v=${video_id}`,
+          source_url: finalSourceUrl,
           title: title || "Unknown Title",
           description: description || null,
           duration_seconds: durationSeconds || null,
@@ -127,7 +144,7 @@ serve(async (req) => {
           like_count: likeCount,
           like_ratio: viewCount > 0 ? likeCount / viewCount : 0,
           published_at: publishedAt,
-          quality_score: 0.6, // Default score for manually added content
+          quality_score: source_type === 'khan_academy' ? 0.8 : 0.6, // Higher default for Khan Academy
           is_available: true,
           last_availability_check: new Date().toISOString(),
           created_by: user.id,
