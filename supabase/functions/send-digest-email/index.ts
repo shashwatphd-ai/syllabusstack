@@ -151,7 +151,7 @@ function generateDigestHtml(data: DigestData): string {
     </head>
     <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
       <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; border-radius: 12px 12px 0 0; text-align: center;">
-        <h1 style="margin: 0; font-size: 24px;">EduThree</h1>
+        <h1 style="margin: 0; font-size: 24px;">SyllabusStack</h1>
         <p style="margin: 10px 0 0; opacity: 0.9;">Your Weekly Career Progress Update</p>
       </div>
       

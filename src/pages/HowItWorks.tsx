@@ -153,15 +153,15 @@ export default function HowItWorksPage() {
       <section className="pt-32 pb-20 bg-gradient-to-b from-navy-900 to-background">
         <div className="container mx-auto px-6">
           <div className="text-center max-w-4xl mx-auto">
-            <Badge variant="outline" className="mb-6 text-teal-400 border-teal-400/30 bg-teal-400/10">
+            <Badge variant="outline" className="mb-6 text-coral-400 border-coral-400/30 bg-coral-400/10">
               Verified Learning System
             </Badge>
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-primary-foreground mb-6">
-              Prove You <span className="text-teal-400">Learned</span> It,<br />
-              Don't Just Claim You <span className="text-teal-400">Watched</span> It
+              Prove You <span className="text-coral-400">Learned</span> It,<br />
+              Don't Just Claim You <span className="text-coral-400">Watched</span> It
             </h1>
             <p className="text-xl text-primary-foreground/70 mb-8 max-w-2xl mx-auto">
-              EduThree transforms passive video consumption into verified, accountable learning 
+              SyllabusStack transforms passive video consumption into verified, accountable learning 
               with engagement tracking and anti-gaming measures.
             </p>
             <div className="flex flex-wrap justify-center gap-4">

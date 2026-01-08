@@ -112,7 +112,7 @@ export default function ResetPassword() {
               <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center">
                 <GraduationCap className="h-6 w-6 text-primary-foreground" />
               </div>
-              <span className="text-2xl font-bold">EduThree</span>
+              <span className="text-2xl font-bold">SyllabusStack</span>
             </Link>
             <CardTitle className="text-2xl">Invalid or expired link</CardTitle>
             <CardDescription className="mt-2">
@@ -137,7 +137,7 @@ export default function ResetPassword() {
             <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center">
               <GraduationCap className="h-6 w-6 text-primary-foreground" />
             </div>
-            <span className="text-2xl font-bold">EduThree</span>
+            <span className="text-2xl font-bold">SyllabusStack</span>
           </Link>
           
           {isSuccess ? (

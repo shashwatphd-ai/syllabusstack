@@ -2,7 +2,7 @@ import { Star, Quote } from "lucide-react";
 
 const testimonials = [
   {
-    quote: "I thought I was ready for PM roles. EduThree showed me I was missing critical SQL skills. Saved me months of failed applications.",
+    quote: "I thought I was ready for PM roles. SyllabusStack showed me I was missing critical SQL skills. Saved me months of failed applications.",
     name: "Sarah Chen",
     title: "Business Major → PM at Stripe",
     university: "UC Berkeley",
@@ -16,7 +16,7 @@ const testimonials = [
     avatar: "MR",
   },
   {
-    quote: "Finally, a tool that tells you the truth. My career center said I was 'on track'. EduThree showed me 3 critical gaps.",
+    quote: "Finally, a tool that tells you the truth. My career center said I was 'on track'. SyllabusStack showed me 3 critical gaps.",
     name: "Priya Patel",
     title: "CS Major → Product Manager",
     university: "Georgia Tech",

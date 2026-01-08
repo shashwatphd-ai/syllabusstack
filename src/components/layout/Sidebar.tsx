@@ -131,7 +131,7 @@ export function Sidebar({ collapsed = false, onCollapse }: SidebarProps) {
           </div>
           {!isCollapsed && (
             <span className="text-lg font-bold text-sidebar-foreground">
-              EduThree
+              SyllabusStack
             </span>
           )}
         </Link>
