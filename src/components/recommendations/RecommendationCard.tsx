@@ -57,67 +57,90 @@ interface RecommendationCardProps {
   isUpdating?: boolean;
 }
 
-const getTypeIcon = (type: RecommendationType) => {
+const getTypeConfig = (type: RecommendationType) => {
   switch (type) {
     case "course":
-      return <BookOpen className="h-5 w-5" />;
+      return { icon: BookOpen, label: "Course", color: "text-blue-600" };
     case "project":
-      return <Code className="h-5 w-5" />;
+      return { icon: Code, label: "Project", color: "text-purple-600" };
     case "certification":
-      return <Star className="h-5 w-5" />;
+      return { icon: Star, label: "Cert", color: "text-amber-600" };
     case "networking":
-      return <Users className="h-5 w-5" />;
-    case "reading":
-    case "resource":
-      return <Video className="h-5 w-5" />;
-    case "action":
-      return <PlayCircle className="h-5 w-5" />;
+      return { icon: Users, label: "Network", color: "text-green-600" };
+    case "skill":
+      return { icon: Star, label: "Skill", color: "text-orange-600" };
+    case "experience":
+      return { icon: Users, label: "Exp", color: "text-teal-600" };
     default:
-      return <Star className="h-5 w-5" />;
+      return { icon: Video, label: "Resource", color: "text-gray-600" };
   }
 };
 
-const getPriorityColor = (priority: Priority): string => {
+const getPriorityConfig = (priority: Priority) => {
   switch (priority) {
     case "high":
     case "critical":
-      return "bg-destructive/10 text-destructive border-destructive/20";
+      return { 
+        label: "High Priority",
+        borderColor: "border-l-destructive",
+        bgColor: "bg-destructive/5",
+        badgeClass: "bg-destructive text-destructive-foreground"
+      };
     case "medium":
     case "important":
-      return "bg-yellow-500/10 text-yellow-600 border-yellow-500/20";
+      return { 
+        label: "Medium",
+        borderColor: "border-l-warning",
+        bgColor: "hover:bg-warning/5",
+        badgeClass: "bg-warning/10 text-warning border-warning/30"
+      };
     case "low":
     case "nice_to_have":
-      return "bg-blue-500/10 text-blue-600 border-blue-500/20";
+      return { 
+        label: "Low",
+        borderColor: "border-l-muted-foreground",
+        bgColor: "hover:bg-muted/50",
+        badgeClass: "bg-muted text-muted-foreground"
+      };
     default:
-      return "bg-muted text-muted-foreground";
+      return { 
+        label: "",
+        borderColor: "border-l-muted",
+        bgColor: "",
+        badgeClass: "bg-muted text-muted-foreground"
+      };
   }
 };
 
-const getStatusInfo = (status: Status) => {
+const getStatusConfig = (status: Status) => {
   switch (status) {
     case "completed":
       return { 
-        color: "bg-green-500/10 text-green-600 border-green-500/30",
+        bgClass: "bg-success/10",
+        textClass: "text-success",
         icon: CheckCircle2,
-        label: "Completed"
+        label: "Done"
       };
     case "in_progress":
       return { 
-        color: "bg-blue-500/10 text-blue-600 border-blue-500/30",
+        bgClass: "bg-blue-500/10",
+        textClass: "text-blue-600",
         icon: PlayCircle,
-        label: "In Progress"
+        label: "Active"
       };
     case "skipped":
       return { 
-        color: "bg-muted text-muted-foreground border-muted",
+        bgClass: "bg-muted",
+        textClass: "text-muted-foreground",
         icon: SkipForward,
         label: "Skipped"
       };
     default:
       return { 
-        color: "bg-muted/50 text-muted-foreground border-muted",
+        bgClass: "bg-muted/50",
+        textClass: "text-muted-foreground",
         icon: Circle,
-        label: "Not Started"
+        label: "To Do"
       };
   }
 };
@@ -149,11 +172,14 @@ export function RecommendationCard({ recommendation, onStatusChange, isUpdating 
   const isCompleted = status === "completed";
   const isSkipped = status === "skipped";
   const displayGap = gap_addressed || relatedGap;
-  const statusInfo = getStatusInfo(status);
-  const StatusIcon = statusInfo.icon;
+  const priorityConfig = getPriorityConfig(priority);
+  const statusConfig = getStatusConfig(status);
+  const typeConfig = getTypeConfig(type);
+  const StatusIcon = statusConfig.icon;
+  const TypeIcon = typeConfig.icon;
   
-  // Parse steps - can be array of strings or array of objects
-  const parsedSteps = steps?.map((step, i) => {
+  // Parse steps
+  const parsedSteps = steps?.map((step) => {
     if (typeof step === 'string') return step;
     if (typeof step === 'object' && step !== null) {
       return (step as Step).step || String(step);
@@ -171,228 +197,240 @@ export function RecommendationCard({ recommendation, onStatusChange, isUpdating 
     }
   };
 
+  // Compact time display
+  const timeDisplay = effort_hours ? `${effort_hours}h` : estimatedTime || null;
+  const costDisplay = cost_usd === 0 || !cost_usd ? 'Free' : `$${cost_usd}`;
+
   return (
     <Card className={cn(
-      "transition-all",
-      isCompleted ? "opacity-70 border-green-500/30" : isSkipped ? "opacity-50" : "hover:shadow-md"
+      "transition-all border-l-4 overflow-hidden",
+      priorityConfig.borderColor,
+      isCompleted && "opacity-60",
+      isSkipped && "opacity-40",
+      !isCompleted && !isSkipped && priorityConfig.bgColor
     )}>
-      <CardHeader className="pb-2">
-        {/* Header row */}
+      <CardContent className="p-0">
+        {/* Main Content - Always visible */}
         <div 
-          className="flex items-start justify-between gap-4 cursor-pointer" 
+          className="p-4 cursor-pointer"
           onClick={() => setExpanded(!expanded)}
         >
-          <div className="flex items-start gap-3 flex-1">
-            <Badge variant="outline" className={cn(
-              "px-2 py-1 text-xs font-medium shrink-0",
-              getPriorityColor(priority)
+          {/* Top row: Type icon, Title, Status */}
+          <div className="flex items-start gap-3">
+            {/* Type Icon */}
+            <div className={cn(
+              "p-2 rounded-lg shrink-0 mt-0.5",
+              statusConfig.bgClass
             )}>
-              #{priority === 'critical' || priority === 'high' ? '1' : priority === 'important' || priority === 'medium' ? '2' : '3'}
-            </Badge>
+              <TypeIcon className={cn("h-4 w-4", typeConfig.color)} />
+            </div>
+            
+            {/* Title and Gap */}
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h4 className={cn(
-                  "font-medium",
+                  "font-medium text-sm leading-tight",
                   isCompleted && "line-through text-muted-foreground",
                   isSkipped && "text-muted-foreground"
                 )}>
                   {title}
                 </h4>
-                <Badge variant="outline" className={cn("text-xs shrink-0", statusInfo.color)}>
-                  <StatusIcon className="h-3 w-3 mr-1" />
-                  {statusInfo.label}
-                </Badge>
               </div>
               {displayGap && (
-                <p className="text-sm text-muted-foreground mt-1 truncate">
-                  Addresses: {displayGap}
+                <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">
+                  → {displayGap}
                 </p>
               )}
             </div>
-          </div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground shrink-0">
-            <span className="flex items-center gap-1">
-              <Clock className="h-3 w-3" />
-              {effort_hours ? `${effort_hours}h` : estimatedTime || 'Varies'}
-            </span>
-            <span className="flex items-center gap-1">
-              <DollarSign className="h-3 w-3" />
-              {cost_usd === 0 || !cost_usd ? 'Free' : `$${cost_usd}`}
-            </span>
-            {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-          </div>
-        </div>
 
-        {/* Action buttons */}
-        <div className="mt-4 flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
-          {status === 'pending' || status === 'not_started' ? (
-            <>
+            {/* Right side: Status + expand */}
+            <div className="flex items-center gap-2 shrink-0">
+              <Badge variant="outline" className={cn(
+                "text-[10px] px-1.5 py-0.5 gap-1",
+                statusConfig.bgClass,
+                statusConfig.textClass
+              )}>
+                <StatusIcon className="h-3 w-3" />
+                {statusConfig.label}
+              </Badge>
+              {expanded ? (
+                <ChevronUp className="h-4 w-4 text-muted-foreground" />
+              ) : (
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              )}
+            </div>
+          </div>
+
+          {/* Metadata row */}
+          <div className="flex items-center gap-3 mt-2 ml-11 flex-wrap">
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-muted-foreground">
+              {typeConfig.label}
+            </Badge>
+            {timeDisplay && (
+              <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                <Clock className="h-3 w-3" />
+                {timeDisplay}
+              </span>
+            )}
+            <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+              <DollarSign className="h-3 w-3" />
+              {costDisplay}
+            </span>
+            {provider && (
+              <span className="text-[11px] text-muted-foreground">
+                via {provider}
+              </span>
+            )}
+          </div>
+
+          {/* Action buttons - Always visible */}
+          <div className="mt-3 ml-11 flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
+            {status === 'pending' || status === 'not_started' ? (
+              <>
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={() => handleStatusChange('in_progress')}
+                  disabled={!!updatingStatus}
+                  className="h-7 text-xs gap-1"
+                >
+                  {updatingStatus === 'in_progress' ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <PlayCircle className="h-3 w-3" />
+                  )}
+                  Start
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleStatusChange('skipped')}
+                  disabled={!!updatingStatus}
+                  className="h-7 text-xs gap-1 text-muted-foreground hover:text-foreground"
+                >
+                  {updatingStatus === 'skipped' ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <SkipForward className="h-3 w-3" />
+                  )}
+                  Skip
+                </Button>
+              </>
+            ) : status === 'in_progress' ? (
+              <>
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={() => handleStatusChange('completed')}
+                  disabled={!!updatingStatus}
+                  className="h-7 text-xs gap-1 bg-success hover:bg-success/90"
+                >
+                  {updatingStatus === 'completed' ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="h-3 w-3" />
+                  )}
+                  Complete
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleStatusChange('pending')}
+                  disabled={!!updatingStatus}
+                  className="h-7 text-xs gap-1 text-muted-foreground"
+                >
+                  Pause
+                </Button>
+              </>
+            ) : status === 'completed' ? (
               <Button
-                variant="default"
-                size="sm"
-                onClick={() => handleStatusChange('in_progress')}
-                disabled={!!updatingStatus}
-                className="gap-1.5"
-              >
-                {updatingStatus === 'in_progress' ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <PlayCircle className="h-3.5 w-3.5" />
-                )}
-                Start This
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleStatusChange('skipped')}
-                disabled={!!updatingStatus}
-                className="gap-1.5 text-muted-foreground"
-              >
-                {updatingStatus === 'skipped' ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <SkipForward className="h-3.5 w-3.5" />
-                )}
-                Skip
-              </Button>
-            </>
-          ) : status === 'in_progress' ? (
-            <>
-              <Button
-                variant="default"
-                size="sm"
-                onClick={() => handleStatusChange('completed')}
-                disabled={!!updatingStatus}
-                className="gap-1.5 bg-green-600 hover:bg-green-700"
-              >
-                {updatingStatus === 'completed' ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                )}
-                Mark Complete
-              </Button>
-              <Button
-                variant="outline"
+                variant="ghost"
                 size="sm"
                 onClick={() => handleStatusChange('pending')}
                 disabled={!!updatingStatus}
-                className="gap-1.5 text-muted-foreground"
+                className="h-7 text-xs gap-1 text-muted-foreground"
               >
-                {updatingStatus === 'pending' ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Circle className="h-3.5 w-3.5" />
-                )}
-                Pause
+                <Circle className="h-3 w-3" />
+                Undo
               </Button>
+            ) : status === 'skipped' ? (
               <Button
-                variant="outline"
+                variant="ghost"
                 size="sm"
-                onClick={() => handleStatusChange('skipped')}
+                onClick={() => handleStatusChange('pending')}
                 disabled={!!updatingStatus}
-                className="gap-1.5 text-muted-foreground"
+                className="h-7 text-xs gap-1 text-muted-foreground"
               >
-                {updatingStatus === 'skipped' ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <SkipForward className="h-3.5 w-3.5" />
-                )}
-                Skip
+                Restore
               </Button>
-            </>
-          ) : status === 'completed' ? (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleStatusChange('pending')}
-              disabled={!!updatingStatus}
-              className="gap-1.5"
-            >
-              {updatingStatus === 'pending' ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Circle className="h-3.5 w-3.5" />
-              )}
-              Mark Incomplete
-            </Button>
-          ) : status === 'skipped' ? (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleStatusChange('pending')}
-              disabled={!!updatingStatus}
-              className="gap-1.5"
-            >
-              {updatingStatus === 'pending' ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Circle className="h-3.5 w-3.5" />
-              )}
-              Restore
-            </Button>
-          ) : null}
-        </div>
-      </CardHeader>
-
-      {expanded && (
-        <CardContent className="border-t bg-muted/30 space-y-4 pt-4">
-          {/* Description */}
-          <div>
-            <h5 className="text-sm font-medium mb-1">What To Do</h5>
-            <p className="text-sm text-muted-foreground">{description}</p>
+            ) : null}
+            
+            {url && (
+              <a 
+                href={url} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 h-7 px-2 text-xs text-primary hover:underline"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <ExternalLink className="h-3 w-3" />
+                Open
+              </a>
+            )}
           </div>
+        </div>
 
-          {/* Why This Matters */}
-          {why_this_matters && (
-            <div className="bg-primary/5 border border-primary/20 rounded-lg p-3">
-              <h5 className="text-sm font-medium text-primary mb-1">Why This Matters</h5>
-              <p className="text-sm text-primary/80">{why_this_matters}</p>
-            </div>
-          )}
+        {/* Expanded Content */}
+        {expanded && (
+          <div className="border-t bg-muted/30 p-4 space-y-3">
+            {/* Description */}
+            {description && (
+              <div>
+                <h5 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">What To Do</h5>
+                <p className="text-sm">{description}</p>
+              </div>
+            )}
 
-          {/* Steps */}
-          {parsedSteps.length > 0 && (
-            <div>
-              <h5 className="text-sm font-medium mb-2">Steps</h5>
-              <ol className="list-decimal list-inside space-y-1">
-                {parsedSteps.map((step, i) => (
-                  <li key={i} className="text-sm text-muted-foreground">{step}</li>
-                ))}
-              </ol>
-            </div>
-          )}
+            {/* Why This Matters */}
+            {why_this_matters && (
+              <div className="bg-primary/5 border border-primary/20 rounded-lg p-3">
+                <h5 className="text-xs font-medium text-primary uppercase tracking-wide mb-1">Why This Matters</h5>
+                <p className="text-sm text-primary/80">{why_this_matters}</p>
+              </div>
+            )}
 
-          {/* Evidence Created */}
-          {evidence_created && (
-            <div>
-              <h5 className="text-sm font-medium mb-1">Evidence Created</h5>
-              <p className="text-sm text-muted-foreground">{evidence_created}</p>
-            </div>
-          )}
+            {/* Steps */}
+            {parsedSteps.length > 0 && (
+              <div>
+                <h5 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Steps</h5>
+                <ol className="list-decimal list-inside space-y-1 text-sm">
+                  {parsedSteps.map((step, i) => (
+                    <li key={i} className="text-muted-foreground">{step}</li>
+                  ))}
+                </ol>
+              </div>
+            )}
 
-          {/* How to Demonstrate */}
-          {how_to_demonstrate && (
-            <div>
-              <h5 className="text-sm font-medium mb-1">How to Demonstrate in Interviews</h5>
-              <p className="text-sm text-muted-foreground italic">"{how_to_demonstrate}"</p>
-            </div>
-          )}
-
-          {/* Action Button */}
-          {url && (
-            <a 
-              href={url} 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm rounded-md hover:bg-primary/90 transition-colors"
-            >
-              Start: {provider || 'Resource'}
-              <ExternalLink className="h-4 w-4" />
-            </a>
-          )}
-        </CardContent>
-      )}
+            {/* Evidence & Interview prep in a grid */}
+            {(evidence_created || how_to_demonstrate) && (
+              <div className="grid sm:grid-cols-2 gap-3">
+                {evidence_created && (
+                  <div className="bg-muted/50 rounded-lg p-3">
+                    <h5 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Evidence Created</h5>
+                    <p className="text-sm">{evidence_created}</p>
+                  </div>
+                )}
+                {how_to_demonstrate && (
+                  <div className="bg-muted/50 rounded-lg p-3">
+                    <h5 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Interview Talking Point</h5>
+                    <p className="text-sm italic">"{how_to_demonstrate}"</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
     </Card>
   );
 }
