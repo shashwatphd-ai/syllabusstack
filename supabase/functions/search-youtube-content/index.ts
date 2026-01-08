@@ -304,7 +304,45 @@ serve(async (req) => {
     // Check YouTube quota before proceeding
     const quotaStatus = await checkYouTubeQuota();
     if (!quotaStatus.canSearch) {
-      console.warn(`YouTube quota exhausted: ${quotaStatus.usedToday}/${10000} units used today`);
+      console.warn(`YouTube quota exhausted: ${quotaStatus.usedToday}/${10000} units used today - using Khan Academy as primary source`);
+
+      // Fallback to Khan Academy when YouTube quota is exhausted
+      try {
+        const khanResponse = await fetch(`${supabaseUrl}/functions/v1/search-khan-academy`, {
+          method: 'POST',
+          headers: {
+            'Authorization': authHeader,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            learning_objective_id,
+            core_concept,
+            search_keywords,
+            lo_text,
+            max_results: 6,
+          }),
+        });
+
+        if (khanResponse.ok) {
+          const khanData = await khanResponse.json();
+          return new Response(
+            JSON.stringify({
+              success: true,
+              content_matches: khanData.content_matches || [],
+              total_found: khanData.total_found || 0,
+              auto_approved_count: khanData.auto_approved_count || 0,
+              youtube_quota_exhausted: true,
+              fallback_source: 'khan_academy',
+              cached: khanData.cached || false,
+              message: "YouTube quota exhausted. Using Khan Academy as primary source."
+            }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+      } catch (khanError) {
+        console.error('Khan Academy fallback also failed:', khanError);
+      }
+
       return new Response(
         JSON.stringify({
           success: false,
