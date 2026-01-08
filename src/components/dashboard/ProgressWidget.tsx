@@ -106,24 +106,24 @@ export function ProgressWidget({ recommendations, isLoading }: ProgressWidgetPro
   }
 
   return (
-    <Card className="border-0 shadow-md">
+    <Card className="border-0 shadow-md h-full">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-lg flex items-center gap-2">
-            <TrendingUp className="h-5 w-5 text-primary" />
-            Progress Overview
+            <TrendingUp className="h-4 w-4 text-primary" />
+            Progress
           </CardTitle>
-          <Badge variant="outline" className="bg-success/10 text-success border-success/30">
-            {completionRate}% complete
+          <Badge variant="outline" className="bg-success/10 text-success border-success/30 text-xs">
+            {completionRate}%
           </Badge>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Overall progress bar */}
-        <div className="space-y-2">
+        <div className="space-y-1.5">
           <div className="flex justify-between text-xs text-muted-foreground">
-            <span>{recommendations.completed} of {actionableTotal} completed</span>
-            <span>{recommendations.in_progress} in progress</span>
+            <span>{recommendations.completed} of {actionableTotal}</span>
+            <span>{recommendations.in_progress} active</span>
           </div>
           <div className="h-2 rounded-full bg-muted overflow-hidden flex">
             {recommendations.completed > 0 && (
@@ -147,8 +147,8 @@ export function ProgressWidget({ recommendations, isLoading }: ProgressWidgetPro
           </div>
         </div>
 
-        {/* Status breakdown */}
-        <div className="grid grid-cols-2 gap-3">
+        {/* Status breakdown - 2x2 compact grid */}
+        <div className="grid grid-cols-2 gap-2">
           {statusConfig.map((status) => {
             const count = recommendations[status.key];
             const Icon = status.icon;
@@ -156,12 +156,12 @@ export function ProgressWidget({ recommendations, isLoading }: ProgressWidgetPro
             return (
               <div 
                 key={status.key}
-                className={`flex items-center gap-2 p-2 rounded-lg ${status.bgColor}`}
+                className={`flex items-center gap-2 p-2 rounded-md ${status.bgColor}`}
               >
-                <Icon className={`h-4 w-4 ${status.color}`} />
-                <div>
-                  <p className="text-lg font-bold">{count}</p>
-                  <p className="text-xs text-muted-foreground">{status.label}</p>
+                <Icon className={`h-3.5 w-3.5 ${status.color}`} />
+                <div className="min-w-0">
+                  <p className="text-sm font-bold leading-none">{count}</p>
+                  <p className="text-[10px] text-muted-foreground truncate">{status.label}</p>
                 </div>
               </div>
             );
@@ -172,9 +172,9 @@ export function ProgressWidget({ recommendations, isLoading }: ProgressWidgetPro
         {(recommendations.pending > 0 || recommendations.in_progress > 0) && (
           <Link 
             to="/recommendations"
-            className="block text-center text-sm text-primary hover:underline mt-2"
+            className="block text-center text-xs text-primary hover:underline pt-1"
           >
-            View all recommendations →
+            View all →
           </Link>
         )}
       </CardContent>

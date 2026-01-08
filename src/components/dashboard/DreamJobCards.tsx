@@ -77,120 +77,112 @@ export function DreamJobCards({
   // Empty state
   if (jobs.length === 0) {
     return (
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-foreground">Your Dream Jobs</h3>
-          <Button variant="outline" size="sm" onClick={onAddJob} className="border-border hover:bg-accent hover:text-accent-foreground hover:border-accent transition-colors">
-            <Plus className="h-4 w-4 mr-2" />
-            Add Job
-          </Button>
-        </div>
-        <Card className="border-dashed border-2 border-muted">
-          <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-            <Briefcase className="h-12 w-12 text-muted-foreground/50 mb-4" />
-            <h4 className="font-medium text-foreground mb-2">No dream jobs yet</h4>
-            <p className="text-sm text-muted-foreground mb-4 max-w-sm">
-              Add your target job roles to get personalized gap analysis and recommendations.
-            </p>
-            <Button onClick={onAddJob}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Your First Dream Job
+      <Card className="border-0 shadow-md h-full">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-lg font-semibold">Your Dream Jobs</CardTitle>
+            <Button variant="outline" size="sm" onClick={onAddJob} className="border-border hover:bg-accent hover:text-accent-foreground hover:border-accent transition-colors">
+              <Plus className="h-4 w-4 mr-1" />
+              Add
             </Button>
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+        </CardHeader>
+        <CardContent className="flex flex-col items-center justify-center py-8 text-center">
+          <Briefcase className="h-10 w-10 text-muted-foreground/50 mb-3" />
+          <h4 className="font-medium text-foreground text-sm mb-1">No dream jobs yet</h4>
+          <p className="text-xs text-muted-foreground mb-4 max-w-[200px]">
+            Add target roles for personalized gap analysis
+          </p>
+          <Button size="sm" onClick={onAddJob}>
+            <Plus className="h-3 w-3 mr-1" />
+            Add Dream Job
+          </Button>
+        </CardContent>
+      </Card>
     );
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-foreground">Your Dream Jobs</h3>
-        <Button variant="outline" size="sm" onClick={onAddJob} className="border-border hover:bg-accent hover:text-accent-foreground hover:border-accent transition-colors">
-          <Plus className="h-4 w-4 mr-2" />
-          Add Job
-        </Button>
-      </div>
-      
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {jobs.map((job, index) => (
-          <Card 
+    <Card className="border-0 shadow-md h-full">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-lg font-semibold">Your Dream Jobs</CardTitle>
+          <Button variant="outline" size="sm" onClick={onAddJob} className="border-border hover:bg-accent hover:text-accent-foreground hover:border-accent transition-colors">
+            <Plus className="h-4 w-4 mr-1" />
+            Add
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {jobs.map((job) => (
+          <div 
             key={job.id} 
-            className="border-0 shadow-md hover:shadow-lg transition-all duration-300 cursor-pointer group bg-card overflow-hidden"
-            style={{ animationDelay: `${index * 100}ms` }}
+            className="p-3 rounded-lg border border-border hover:border-accent/50 hover:bg-accent/5 transition-all duration-200 cursor-pointer group"
             onClick={() => onViewJob?.(job.id)}
           >
-            <CardHeader className="pb-2">
-              <div className="flex items-start justify-between">
-                <div className="space-y-1 flex-1 min-w-0">
-                  <CardTitle className="text-base font-semibold group-hover:text-accent transition-colors truncate">
-                    {job.title}
-                  </CardTitle>
-                  {job.company && (
-                    <p className="text-sm text-muted-foreground truncate">{job.company}</p>
-                  )}
-                </div>
-                <Badge 
-                  variant={job.status === "achieved" ? "default" : "secondary"}
-                  className={`
-                    capitalize ml-2 flex-shrink-0
-                    ${job.status === "active" 
-                      ? "bg-accent/10 text-accent border border-accent/20" 
-                      : "bg-success/10 text-success border border-success/20"
-                    }
-                  `}
-                >
-                  {job.status}
-                </Badge>
+            <div className="flex items-start justify-between mb-2">
+              <div className="min-w-0 flex-1">
+                <h4 className="font-medium text-sm group-hover:text-accent transition-colors truncate">
+                  {job.title}
+                </h4>
+                {job.company && (
+                  <p className="text-xs text-muted-foreground truncate">{job.company}</p>
+                )}
               </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+              <Badge 
+                variant="secondary"
+                className={`
+                  capitalize text-xs ml-2 flex-shrink-0
+                  ${job.status === "active" 
+                    ? "bg-accent/10 text-accent border border-accent/20" 
+                    : "bg-success/10 text-success border border-success/20"
+                  }
+                `}
+              >
+                {job.status}
+              </Badge>
+            </div>
+            
+            {(job.location || job.salaryRange) && (
+              <div className="flex flex-wrap gap-1.5 mb-2 text-xs text-muted-foreground">
                 {job.location && (
-                  <span className="flex items-center gap-1 bg-muted/50 px-2 py-1 rounded-md">
-                    <MapPin className="h-3 w-3" />
+                  <span className="flex items-center gap-0.5 bg-muted/50 px-1.5 py-0.5 rounded">
+                    <MapPin className="h-2.5 w-2.5" />
                     {job.location}
                   </span>
                 )}
-                {job.salaryRange && (
-                  <span className="flex items-center gap-1 bg-muted/50 px-2 py-1 rounded-md">
-                    <DollarSign className="h-3 w-3" />
-                    {job.salaryRange}
-                  </span>
-                )}
               </div>
+            )}
 
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="flex items-center gap-1 text-muted-foreground">
-                    <Target className="h-4 w-4" />
-                    Match Score
-                  </span>
-                  <span className={`font-bold ${getMatchColor(job.matchScore)}`}>
-                    {job.matchScore}%
-                  </span>
-                </div>
-                <div className="relative h-2 w-full overflow-hidden rounded-full bg-muted">
-                  <div 
-                    className={`h-full rounded-full transition-all duration-500 ${getMatchBgColor(job.matchScore)}`}
-                    style={{ width: `${job.matchScore}%` }}
-                  />
-                </div>
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-xs">
+                <span className="flex items-center gap-1 text-muted-foreground">
+                  <Target className="h-3 w-3" />
+                  Match
+                </span>
+                <span className={`font-semibold ${getMatchColor(job.matchScore)}`}>
+                  {job.matchScore}%
+                </span>
+              </div>
+              <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                <div 
+                  className={`h-full rounded-full transition-all duration-500 ${getMatchBgColor(job.matchScore)}`}
+                  style={{ width: `${job.matchScore}%` }}
+                />
+              </div>
+              <div className="flex items-center justify-between">
                 <p className={`text-xs font-medium ${getMatchColor(job.matchScore)}`}>
                   {getMatchLabel(job.matchScore)}
                 </p>
-              </div>
-
-              <div className="flex items-center justify-between pt-3 border-t border-border">
-                <span className="text-sm text-muted-foreground">
-                  {job.gapsCount} {job.gapsCount === 1 ? "gap" : "gaps"} to close
+                <span className="text-xs text-muted-foreground flex items-center gap-1">
+                  {job.gapsCount} gaps
+                  <ChevronRight className="h-3 w-3 group-hover:translate-x-0.5 transition-transform" />
                 </span>
-                <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-accent group-hover:translate-x-1 transition-all" />
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         ))}
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
