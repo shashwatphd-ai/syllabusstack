@@ -957,8 +957,15 @@ Users provide data in exchange for platform value:
 | **YouTube API Integration** | Simulated tracking | Real API events | P2 Important | 4 hrs |
 | **Email Notifications** | Secret missing | Full email flow | P2 Important | 2 hrs |
 | **Micro-check History** | Saved but hidden | Displayed in UI | P3 Nice-to-have | 2 hrs |
+| **YouTube API Quota** | 10K units/day limit | Multi-tier caching + Khan Academy primary | P1 Critical | 10 hrs |
 
 > **Note:** After verification by Lovable Agent, PDF Upload and Anti-Recommendations were confirmed to be fully functional. The instructor UI triggers exist in ModuleCard.tsx but could be made more discoverable.
+
+> **NEW - Content Search Strategy:** YouTube API quota (10K units/day) is a critical bottleneck. See `docs/Content_Search_Strategy.md` for the optimized multi-tier approach:
+> 1. **Concept-level caching** (30-day TTL, semantic similarity matching)
+> 2. **Khan Academy as primary** (free, server-side GraphQL access)
+> 3. **YouTube as fallback** (only when cache + Khan insufficient)
+> 4. **Local content library** (MIT OCW, Yale imports for common topics)
 
 #### 9.1.2 User Experience Gaps
 
@@ -1149,13 +1156,18 @@ Key Changes:
 |------|-------|----------|--------------|--------|
 | ~~Fix PDF upload pipeline~~ | Dev | ~~4 hrs~~ | None | ✅ Already Done |
 | ~~Display anti-recommendations~~ | Dev | ~~2 hrs~~ | None | ✅ Already Done |
+| **Implement content search caching** | Dev | 4 hrs | None | **P1 Critical** |
+| **Khan Academy GraphQL integration** | Dev | 6 hrs | None | **P1 Critical** |
 | Improve instructor UI discoverability | Dev | 4 hrs | None | Pending |
-| Complete YouTube API integration | Dev | 4 hrs | None | Pending |
+| Complete YouTube player API integration | Dev | 4 hrs | None | Pending |
 | Configure email notifications | DevOps | 2 hrs | RESEND key | Pending |
 | Display micro-check history | Dev | 2 hrs | None | Pending |
 | Remove orphaned code | Dev | 1 hr | None | Pending |
 
-**Total Effort:** ~13 hours (reduced from 23 hrs - 2 tasks already complete)
+**Total Effort:** ~23 hours (content search optimization added as P1 Critical)
+
+> **Priority Change:** Content search caching is now P1 Critical due to YouTube API quota limits (10K units/day). See `docs/Content_Search_Strategy.md` for implementation details.
+
 **Milestone:** All user journeys functional end-to-end
 
 ### 11.2 Phase 2: User Experience Polish (Weeks 3-4)
