@@ -113,7 +113,16 @@ Provide a candid evaluation:
 - Job success prediction: If hired, would they succeed?
 
 PRIORITY GAPS:
-Rank the top 3-5 gaps that would have the biggest impact if closed.`;
+Rank the top 3-5 gaps that would have the biggest impact if closed.
+
+ANTI-RECOMMENDATIONS (REQUIRED):
+You MUST provide 3-5 anti-recommendations - things the student should NOT waste time on:
+- Certifications not valued in the target industry
+- Technologies/frameworks that are trendy but irrelevant to this role
+- Skills they already have at sufficient level (don't over-optimize)
+- Activities that sound impressive but don't move the needle
+- Common student mistakes for this particular career path
+Be specific and explain WHY each is a waste of time for THIS student and THIS role.`;
 
 export const RECOMMENDATIONS_PROMPT = `You are generating specific, actionable recommendations to close skill gaps.
 
