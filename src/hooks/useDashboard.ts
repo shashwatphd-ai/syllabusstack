@@ -57,11 +57,12 @@ async function fetchDashboardOverview(): Promise<DashboardOverview> {
     supabase.from('dream_jobs').select('id, title, match_score').eq('user_id', user.id),
     supabase.from('capabilities').select('id, name').eq('user_id', user.id),
     supabase.from('recommendations').select('id, title, type, status, priority').eq('user_id', user.id).order('created_at', { ascending: false }),
-    supabase.from('gap_analyses').select('id').eq('user_id', user.id).limit(1)
+    supabase.from('gap_analyses').select('id, dream_job_id, critical_gaps, priority_gaps').eq('user_id', user.id)
   ]);
 
   const jobs = dreamJobs || [];
   const recs = recommendations || [];
+  const gaps = gapAnalyses || [];
 
   // Calculate average match score
   const matchScores = jobs.map(j => j.match_score || 0).filter(s => s > 0);
@@ -80,13 +81,39 @@ async function fetchDashboardOverview(): Promise<DashboardOverview> {
     (r.status === 'pending' || !r.status) && r.priority === 'high'
   ) || recs.find(r => r.status === 'pending' || !r.status);
 
+  // Calculate actual gaps from gap_analyses
+  interface GapItem { job_requirement?: string; gap?: string }
+  const topGaps: DashboardOverview['topGaps'] = [];
+  for (const ga of gaps) {
+    const job = jobs.find(j => j.id === ga.dream_job_id);
+    const criticalGaps = (ga.critical_gaps as GapItem[] | null) || [];
+    const priorityGaps = (ga.priority_gaps as GapItem[] | null) || [];
+    
+    // Add critical gaps
+    for (const g of criticalGaps.slice(0, 3)) {
+      topGaps.push({
+        skill: g.job_requirement || 'Unknown skill',
+        severity: 'critical',
+        dreamJob: job?.title || 'Dream Job'
+      });
+    }
+    // Add priority gaps
+    for (const g of priorityGaps.slice(0, 2)) {
+      topGaps.push({
+        skill: g.gap || 'Unknown skill',
+        severity: 'important',
+        dreamJob: job?.title || 'Dream Job'
+      });
+    }
+  }
+
   return {
     totalCourses: courses?.length || 0,
     totalDreamJobs: jobs.length,
     totalCapabilities: capabilities?.length || 0,
     averageMatchScore,
-    hasGapAnalysis: (gapAnalyses?.length || 0) > 0,
-    topGaps: [], // Would be populated from gap analysis
+    hasGapAnalysis: gaps.length > 0,
+    topGaps: topGaps.slice(0, 5), // Top 5 gaps across all dream jobs
     recentRecommendations: recs.slice(0, 3).map(r => ({
       id: r.id,
       title: r.title,
