@@ -43,11 +43,14 @@ SyllabusStack is an AI-powered career navigation platform that transforms course
 
 ### Remaining Gaps (Verified)
 
-1. **RESEND_API_KEY** - Email notifications not configured
-2. **User Contribution System** - No ratings, suggestions, feedback
-3. **Achievement/Gamification** - Not implemented
-4. **Monetization** - No freemium or payment system
-5. **University Admin Portal** - Not implemented
+1. **YouTube API Quota** - 10K units/day exhausts after ~100 searches (1 syllabus)
+2. **RESEND_API_KEY** - Email notifications not configured
+3. **User Contribution System** - No ratings, suggestions, feedback
+4. **Achievement/Gamification** - Not implemented
+5. **Monetization** - No freemium or payment system
+6. **University Admin Portal** - Not implemented
+
+> **See also:** `docs/Content_Search_Strategy.md` for YouTube API quota solution details
 
 ---
 
@@ -483,11 +486,69 @@ TOTAL ESTIMATED EFFORT: ~180 hours (down from 257 - more accurate)
 
 ## Phase 0: Critical Configuration
 
-**Duration:** 2-4 hours
+**Duration:** 10-14 hours
 **Priority:** P0 - Must do before any other work
-**Goal:** Enable email notifications
+**Goal:** Address YouTube API quota blocker + Enable email notifications
 
-### Task 0.1: Configure RESEND_API_KEY (2 hrs)
+> **CRITICAL:** YouTube API quota (10K units/day) is exhausted after ~100 searches, which is insufficient for a single syllabus. See `docs/Content_Search_Strategy.md` for detailed implementation.
+
+### Task 0.1: Implement Content Search Caching (4 hrs)
+
+**Problem:** YouTube API quota (10K units/day = ~100 searches) exhausts after 1 syllabus
+
+**Solution:** Multi-tier caching with Khan Academy as primary source
+
+**Database Tables to Create:**
+```sql
+-- Content search cache with semantic similarity
+CREATE TABLE content_search_cache (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  search_concept TEXT NOT NULL,
+  search_embedding VECTOR(768),
+  results JSONB NOT NULL,
+  source TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  expires_at TIMESTAMPTZ DEFAULT now() + interval '30 days',
+  hit_count INTEGER DEFAULT 0,
+  UNIQUE(search_concept, source)
+);
+
+-- API quota tracking
+CREATE TABLE api_quota_tracking (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  api_name TEXT NOT NULL,
+  date DATE NOT NULL,
+  units_used INTEGER DEFAULT 0,
+  UNIQUE(api_name, date)
+);
+```
+
+**Files to create/modify:**
+- `supabase/functions/_shared/cache-lookup.ts`
+- `supabase/functions/_shared/concept-normalizer.ts`
+- `supabase/functions/search-youtube-content/index.ts` - Add cache check
+
+**Expected Savings:** 80-96% reduction in YouTube API calls
+
+### Task 0.2: Khan Academy GraphQL Integration (4 hrs)
+
+**Goal:** Use Khan Academy as primary content source (free, unlimited)
+
+**Implementation:**
+- Server-side GraphQL access (bypasses CORS)
+- Endpoint: `https://www.khanacademy.org/api/internal/graphql`
+- Auto-approve threshold: 0.75 (vs 0.85 for YouTube)
+
+**Files to create:**
+- `supabase/functions/search-khan-academy-graphql/index.ts`
+
+**Search Priority Order:**
+1. Concept cache (semantic similarity > 0.85)
+2. Local content library
+3. Khan Academy GraphQL (free)
+4. YouTube API (quota-limited fallback)
+
+### Task 0.3: Configure RESEND_API_KEY (2 hrs)
 
 **Current State:**
 - Edge function `send-digest-email/index.ts` exists
@@ -992,6 +1053,7 @@ export function useCreateSomething() {
 
 | Phase | Key Metric | Target |
 |-------|------------|--------|
+| Phase 0 | YouTube API calls saved | 80%+ reduction |
 | Phase 0 | Email delivery rate | 95%+ |
 | Phase 1 | Core functionality | 95% |
 | Phase 2 | User contribution rate | 20%+ |
