@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   Menu, 
@@ -23,8 +23,15 @@ import {
   Sheet,
   SheetContent,
 } from '@/components/ui/sheet';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
+import { useGlobalSearch } from '@/hooks/useGlobalSearch';
+import { GlobalSearchResults } from '@/components/search/GlobalSearchResults';
 
 interface AppHeaderProps {
   onMenuClick?: () => void;
@@ -33,9 +40,25 @@ interface AppHeaderProps {
 
 export function AppHeader({ onMenuClick, showSearch = true }: AppHeaderProps) {
   const [searchOpen, setSearchOpen] = useState(false);
+  const [popoverOpen, setPopoverOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const { user, profile, signOut } = useAuth();
+  const { query, setQuery, results, isLoading, clearSearch } = useGlobalSearch();
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Open popover when there's a query
+  useEffect(() => {
+    if (query.length >= 2) {
+      setPopoverOpen(true);
+    }
+  }, [query]);
+
+  const handleSearchSelect = () => {
+    setPopoverOpen(false);
+    setSearchOpen(false);
+    clearSearch();
+  };
 
   // Get current page title
   const getPageTitle = () => {
@@ -76,16 +99,32 @@ export function AppHeader({ onMenuClick, showSearch = true }: AppHeaderProps) {
 
         {/* Center - Search (desktop) */}
         {showSearch && (
-          <div className="hidden md:flex flex-1 max-w-md mx-4">
-            <div className="relative w-full">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                type="search"
-                placeholder="Search courses, jobs, recommendations..."
-                className="pl-10 bg-muted/50"
+          <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
+            <PopoverTrigger asChild>
+              <div className="hidden md:flex flex-1 max-w-md mx-4">
+                <div className="relative w-full">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    ref={searchInputRef}
+                    type="search"
+                    placeholder="Search courses, jobs, recommendations..."
+                    className="pl-10 bg-muted/50"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    onFocus={() => query.length >= 2 && setPopoverOpen(true)}
+                  />
+                </div>
+              </div>
+            </PopoverTrigger>
+            <PopoverContent className="w-[400px] p-0" align="start" sideOffset={8}>
+              <GlobalSearchResults
+                results={results}
+                isLoading={isLoading}
+                onSelect={handleSearchSelect}
+                query={query}
               />
-            </div>
-          </div>
+            </PopoverContent>
+          </Popover>
         )}
 
         {/* Right side - Actions */}
@@ -150,7 +189,7 @@ export function AppHeader({ onMenuClick, showSearch = true }: AppHeaderProps) {
 
       {/* Mobile search bar */}
       {showSearch && searchOpen && (
-        <div className="md:hidden px-4 pb-4 border-b border-border bg-background">
+        <div className="md:hidden px-4 pb-4 border-b border-border bg-background space-y-2">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
@@ -158,8 +197,20 @@ export function AppHeader({ onMenuClick, showSearch = true }: AppHeaderProps) {
               placeholder="Search..."
               className="pl-10"
               autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
             />
           </div>
+          {query.length >= 2 && (
+            <div className="bg-background border rounded-md shadow-md">
+              <GlobalSearchResults
+                results={results}
+                isLoading={isLoading}
+                onSelect={handleSearchSelect}
+                query={query}
+              />
+            </div>
+          )}
         </div>
       )}
     </header>

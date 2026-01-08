@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { AppShell } from "@/components/layout";
 import { AddDreamJobForm } from "@/components/forms";
+import { DreamJobDiscovery } from "@/components/dreamjobs/DreamJobDiscovery";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
   Target, 
   MapPin, 
@@ -14,7 +16,8 @@ import {
   Trash2,
   BarChart3,
   Plus,
-  Briefcase
+  Briefcase,
+  Sparkles
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -28,6 +31,7 @@ import { useToast } from "@/hooks/use-toast";
 
 export default function DreamJobsPage() {
   const [showForm, setShowForm] = useState(false);
+  const [activeTab, setActiveTab] = useState<'jobs' | 'discover'>('jobs');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -115,46 +119,67 @@ export default function DreamJobsPage() {
           <div>
             <h1 className="text-3xl font-bold font-display">Dream Jobs</h1>
             <p className="text-muted-foreground">
-              Track your career aspirations
+              Track your career aspirations or discover new paths
             </p>
           </div>
-          <Button onClick={() => setShowForm(!showForm)}>
-            {showForm ? "View Jobs" : (
-              <>
-                <Plus className="h-4 w-4 mr-2" />
-                Add Dream Job
-              </>
-            )}
-          </Button>
+          {activeTab === 'jobs' && (
+            <Button onClick={() => setShowForm(!showForm)}>
+              {showForm ? "View Jobs" : (
+                <>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Dream Job
+                </>
+              )}
+            </Button>
+          )}
         </div>
 
-        {showForm ? (
-          <AddDreamJobForm 
-            onSubmit={handleAddJob}
-            onCancel={() => setShowForm(false)}
-            isSubmitting={isAnalyzing}
-          />
-        ) : jobs.length === 0 ? (
-          <Card className="p-12 text-center">
-            <div className="flex flex-col items-center gap-4">
-              <div className="p-4 rounded-full bg-accent/10">
-                <Briefcase className="h-8 w-8 text-accent" />
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold">No dream jobs yet</h3>
-                <p className="text-muted-foreground">
-                  Add your first dream job to get personalized gap analysis
-                </p>
-              </div>
-              <Button onClick={() => setShowForm(true)}>
-                <Plus className="h-4 w-4 mr-2" />
-                Add Your First Dream Job
-              </Button>
-            </div>
-          </Card>
-        ) : (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {jobs.map((job) => (
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'jobs' | 'discover')}>
+          <TabsList>
+            <TabsTrigger value="jobs" className="gap-2">
+              <Briefcase className="h-4 w-4" />
+              My Dream Jobs
+            </TabsTrigger>
+            <TabsTrigger value="discover" className="gap-2">
+              <Sparkles className="h-4 w-4" />
+              Discover Careers
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="jobs" className="mt-4">
+            {showForm ? (
+              <AddDreamJobForm 
+                onSubmit={handleAddJob}
+                onCancel={() => setShowForm(false)}
+                isSubmitting={isAnalyzing}
+              />
+            ) : jobs.length === 0 ? (
+              <Card className="p-12 text-center">
+                <div className="flex flex-col items-center gap-4">
+                  <div className="p-4 rounded-full bg-accent/10">
+                    <Briefcase className="h-8 w-8 text-accent" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold">No dream jobs yet</h3>
+                    <p className="text-muted-foreground">
+                      Add your first dream job or discover careers you might love
+                    </p>
+                  </div>
+                  <div className="flex gap-3">
+                    <Button onClick={() => setShowForm(true)}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add Dream Job
+                    </Button>
+                    <Button variant="outline" onClick={() => setActiveTab('discover')}>
+                      <Sparkles className="h-4 w-4 mr-2" />
+                      Discover Careers
+                    </Button>
+                  </div>
+                </div>
+              </Card>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {jobs.map((job) => (
               <Card 
                 key={job.id} 
                 className="hover:shadow-md transition-shadow cursor-pointer"
@@ -234,9 +259,15 @@ export default function DreamJobsPage() {
                   </div>
                 </CardContent>
               </Card>
-            ))}
-          </div>
-        )}
+                ))}
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="discover" className="mt-4">
+            <DreamJobDiscovery onJobAdded={() => setActiveTab('jobs')} />
+          </TabsContent>
+        </Tabs>
       </div>
     </AppShell>
   );
