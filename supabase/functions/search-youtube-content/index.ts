@@ -595,15 +595,53 @@ serve(async (req) => {
 
     console.log(`Saved ${savedMatches.length} content matches (${savedMatches.filter(m => m.status === "auto_approved").length} auto-approved)`);
 
+    // FALLBACK: If YouTube returned too few results, try Khan Academy
+    let khanMatches: any[] = [];
+    const needsFallback = savedMatches.length < 2 || allVideos.length === 0;
+    
+    if (needsFallback) {
+      console.log('YouTube returned few results, trying Khan Academy fallback...');
+      try {
+        const khanResponse = await fetch(`${supabaseUrl}/functions/v1/search-khan-academy`, {
+          method: 'POST',
+          headers: {
+            'Authorization': authHeader,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            learning_objective_id,
+            core_concept,
+            search_keywords,
+            lo_text,
+            max_results: 3,
+          }),
+        });
+
+        if (khanResponse.ok) {
+          const khanData = await khanResponse.json();
+          khanMatches = khanData.content_matches || [];
+          console.log(`Khan Academy fallback found ${khanMatches.length} additional videos`);
+        } else {
+          console.log('Khan Academy fallback failed:', await khanResponse.text());
+        }
+      } catch (khanError) {
+        console.error('Error in Khan Academy fallback:', khanError);
+      }
+    }
+
+    const allMatches = [...savedMatches, ...khanMatches];
+
     return new Response(
       JSON.stringify({
         success: true,
-        content_matches: savedMatches,
+        content_matches: allMatches,
         total_found: allVideos.length,
         viable_candidates: viableCandidates.length,
-        auto_approved_count: savedMatches.filter((m) => m.status === "auto_approved").length,
+        auto_approved_count: allMatches.filter((m) => m.status === "auto_approved").length,
         ai_strategy_used: use_ai_strategy && queries.length > 0,
         ai_evaluation_used: use_ai_evaluation,
+        khan_academy_fallback_used: needsFallback && khanMatches.length > 0,
+        khan_academy_results: khanMatches.length,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

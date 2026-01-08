@@ -28,11 +28,13 @@ interface VerifiedVideoPlayerProps {
   videoUrl: string;
   title: string;
   duration: number;
+  sourceType?: 'youtube' | 'khan_academy';
   microChecks?: MicroCheck[];
   onComplete?: (engagementScore: number, isVerified: boolean) => void;
 }
 
 type PlayerState = 'LOADING' | 'READY' | 'PLAYING' | 'PAUSED' | 'MICROCHECK_ACTIVE' | 'MICROCHECK_FAILED' | 'COMPLETED' | 'BLOCKED';
+type VideoSource = 'youtube' | 'khan_academy';
 
 // Global flag to track if YouTube API is loading
 let isYouTubeApiLoading = false;
@@ -76,10 +78,12 @@ export function VerifiedVideoPlayer({
   videoUrl,
   title,
   duration,
+  sourceType,
   microChecks = [],
   onComplete,
 }: VerifiedVideoPlayerProps) {
   const playerContainerRef = useRef<HTMLDivElement>(null);
+  const khanIframeRef = useRef<HTMLIFrameElement>(null);
   const playerInstanceRef = useRef<YT.Player | null>(null);
   const timeUpdateIntervalRef = useRef<number | null>(null);
   
@@ -102,13 +106,36 @@ export function VerifiedVideoPlayer({
     engagementScore 
   } = useConsumptionTracking(contentId, learningObjectiveId);
 
-  // Extract video ID from URL
-  const getVideoId = useCallback((url: string) => {
+  // Detect video source type
+  const detectSourceType = useCallback((url: string): VideoSource => {
+    if (sourceType) return sourceType;
+    if (url.includes('khanacademy.org')) return 'khan_academy';
+    return 'youtube';
+  }, [sourceType]);
+
+  const videoSource = detectSourceType(videoUrl);
+
+  // Extract video ID from URL (YouTube)
+  const getYouTubeVideoId = useCallback((url: string) => {
     const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&?/]+)/);
     return match ? match[1] : '';
   }, []);
 
-  const videoId = getVideoId(videoUrl);
+  // Extract Khan Academy video slug
+  const getKhanVideoSlug = useCallback((url: string) => {
+    const patterns = [
+      /khanacademy\.org\/(?:video|v)\/([^/?#]+)/,
+      /khanacademy\.org\/.*\/v\/([^/?#]+)/,
+    ];
+    for (const pattern of patterns) {
+      const match = url.match(pattern);
+      if (match) return match[1];
+    }
+    return '';
+  }, []);
+
+  const youtubeVideoId = videoSource === 'youtube' ? getYouTubeVideoId(videoUrl) : '';
+  const khanVideoSlug = videoSource === 'khan_academy' ? getKhanVideoSlug(videoUrl) : '';
 
   // Calculate watch percentage
   const watchPercentage = useCallback(() => {
@@ -157,9 +184,9 @@ export function VerifiedVideoPlayer({
     }
   }, []);
 
-  // Initialize YouTube player
+  // Initialize YouTube player (only for YouTube source)
   useEffect(() => {
-    if (!videoId) return;
+    if (videoSource !== 'youtube' || !youtubeVideoId) return;
 
     let isMounted = true;
     
@@ -173,7 +200,7 @@ export function VerifiedVideoPlayer({
       playerContainerRef.current.id = containerId;
 
       playerInstanceRef.current = new YT.Player(containerId, {
-        videoId,
+        videoId: youtubeVideoId,
         playerVars: {
           autoplay: 0,
           controls: 1,
@@ -218,7 +245,16 @@ export function VerifiedVideoPlayer({
         playerInstanceRef.current = null;
       }
     };
-  }, [videoId, contentId]);
+  }, [videoSource, youtubeVideoId, contentId]);
+
+  // Initialize Khan Academy player (simple iframe, limited tracking)
+  useEffect(() => {
+    if (videoSource !== 'khan_academy') return;
+    
+    // Khan Academy doesn't have a JS API, so we just mark as ready
+    setPlayerState('READY');
+    setVideoDuration(duration || 600); // Use provided duration or default to 10 min
+  }, [videoSource, duration]);
 
   // Handle YouTube state changes
   const handleYouTubeStateChange = useCallback((state: number) => {
@@ -434,10 +470,41 @@ export function VerifiedVideoPlayer({
             )}
             
             {/* YouTube Player Container */}
-            <div 
-              ref={playerContainerRef} 
-              className="w-full h-full"
-            />
+            {videoSource === 'youtube' && (
+              <div 
+                ref={playerContainerRef} 
+                className="w-full h-full"
+              />
+            )}
+
+            {/* Khan Academy Player (iframe embed) */}
+            {videoSource === 'khan_academy' && khanVideoSlug && (
+              <iframe
+                ref={khanIframeRef}
+                src={`https://www.khanacademy.org/embed_video?v=${khanVideoSlug}`}
+                className="w-full h-full"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+                title={title}
+                onLoad={() => {
+                  setPlayerState('READY');
+                  setIsPlaying(true); // Assume playing when iframe loads
+                  // Start simple time tracking for Khan Academy
+                  if (!timeUpdateIntervalRef.current) {
+                    const startTime = Date.now();
+                    timeUpdateIntervalRef.current = window.setInterval(() => {
+                      const elapsed = (Date.now() - startTime) / 1000;
+                      setCurrentTime(elapsed);
+                      // Simple segment tracking
+                      if (currentSegmentStart === null) {
+                        setCurrentSegmentStart(0);
+                      }
+                      setWatchedSegments([{ start: 0, end: elapsed }]);
+                    }, 1000);
+                  }
+                }}
+              />
+            )}
             
             {/* Micro-check Overlay */}
             {activeMicroCheck && (

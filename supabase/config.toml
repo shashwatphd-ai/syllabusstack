@@ -74,3 +74,6 @@ verify_jwt = true
 
 [functions.global-search]
 verify_jwt = true
+
+[functions.search-khan-academy]
+verify_jwt = true
