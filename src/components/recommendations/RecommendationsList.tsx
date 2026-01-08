@@ -153,22 +153,6 @@ export function RecommendationsList({ dreamJobId }: RecommendationsListProps) {
       />
       
       <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-2xl font-bold">Recommendations</h2>
-            <p className="text-muted-foreground">
-              Personalized action plan to reach your dream job
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Badge variant="outline">{pendingCount} pending</Badge>
-            <Badge variant="secondary" className="bg-green-500/10 text-green-600 border-green-500/30">
-              {completedCount} completed
-            </Badge>
-          </div>
-        </div>
-
         {recommendations.length === 0 ? (
           <Card className="p-12 text-center">
             <div className="flex flex-col items-center gap-4">
@@ -185,52 +169,45 @@ export function RecommendationsList({ dreamJobId }: RecommendationsListProps) {
           </Card>
         ) : (
           <Tabs defaultValue="recommendations" className="space-y-4">
-            <TabsList>
-              <TabsTrigger value="recommendations">Action Items</TabsTrigger>
-              <TabsTrigger value="progress">Progress Tracker</TabsTrigger>
-            </TabsList>
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <TabsList>
+                <TabsTrigger value="recommendations">Action Items</TabsTrigger>
+                <TabsTrigger value="progress">Progress Tracker</TabsTrigger>
+              </TabsList>
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="text-xs">
+                  {pendingCount} to do
+                </Badge>
+                <Badge variant="secondary" className="text-xs bg-success/10 text-success border-success/30">
+                  {completedCount} done
+                </Badge>
+              </div>
+            </div>
 
             <TabsContent value="recommendations" className="space-y-4">
-              {/* Filters */}
+              {/* Filters - Pill style */}
               <div className="flex items-center gap-2 flex-wrap">
-                <Button
-                  variant={filter === "all" ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setFilter("all")}
-                >
-                  All
-                </Button>
-                <Button
-                  variant={filter === "course" ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setFilter("course")}
-                >
-                  Courses
-                </Button>
-                <Button
-                  variant={filter === "project" ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setFilter("project")}
-                >
-                  Projects
-                </Button>
-                <Button
-                  variant={filter === "certification" ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setFilter("certification")}
-                >
-                  Certifications
-                </Button>
-                <Button
-                  variant={filter === "skill" ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setFilter("skill")}
-                >
-                  Skills
-                </Button>
+                {[
+                  { key: "all", label: "All" },
+                  { key: "course", label: "Courses" },
+                  { key: "project", label: "Projects" },
+                  { key: "certification", label: "Certs" },
+                  { key: "skill", label: "Skills" },
+                ].map((item) => (
+                  <Button
+                    key={item.key}
+                    variant={filter === item.key ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setFilter(item.key as FilterType)}
+                    className="h-7 text-xs"
+                  >
+                    {item.label}
+                  </Button>
+                ))}
               </div>
 
-              <div className="grid gap-4 md:grid-cols-2">
+              {/* Single column list */}
+              <div className="space-y-3">
                 {transformedRecs.map((rec) => (
                   <RecommendationCard
                     key={rec.id}
@@ -241,8 +218,8 @@ export function RecommendationsList({ dreamJobId }: RecommendationsListProps) {
               </div>
 
               {filteredRecommendations.length === 0 && recommendations.length > 0 && (
-                <div className="text-center py-12">
-                  <p className="text-muted-foreground">No recommendations in this category</p>
+                <div className="text-center py-8">
+                  <p className="text-muted-foreground text-sm">No recommendations in this category</p>
                 </div>
               )}
             </TabsContent>
@@ -250,7 +227,7 @@ export function RecommendationsList({ dreamJobId }: RecommendationsListProps) {
             <TabsContent value="progress">
               <ProgressTracker 
                 currentProgress={Math.round((completedCount / recommendations.length) * 100)}
-                milestones={recommendations.slice(0, 8).map((rec, i) => ({
+                milestones={recommendations.slice(0, 8).map((rec) => ({
                   id: rec.id,
                   title: rec.title,
                   description: rec.description || '',
