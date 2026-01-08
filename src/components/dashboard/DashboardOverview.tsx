@@ -1,3 +1,4 @@
+import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -26,13 +27,13 @@ interface DashboardOverviewProps {
 }
 
 const defaultStats: OverviewStats = {
-  coursesAnalyzed: 8,
-  dreamJobsTracked: 3,
-  capabilitiesIdentified: 24,
-  gapsToClose: 7,
-  recommendationsCompleted: 12,
-  totalRecommendations: 20,
-  overallReadiness: 65,
+  coursesAnalyzed: 0,
+  dreamJobsTracked: 0,
+  capabilitiesIdentified: 0,
+  gapsToClose: 0,
+  recommendationsCompleted: 0,
+  totalRecommendations: 0,
+  overallReadiness: 0,
 };
 
 const statConfig: Array<{
@@ -43,6 +44,7 @@ const statConfig: Array<{
   iconBg: string;
   iconColor: string;
   valueColor?: string;
+  link: string;
 }> = [
   {
     key: 'coursesAnalyzed',
@@ -51,6 +53,7 @@ const statConfig: Array<{
     icon: BookOpen,
     iconBg: 'bg-primary/10',
     iconColor: 'text-primary',
+    link: '/courses',
   },
   {
     key: 'dreamJobsTracked',
@@ -59,6 +62,7 @@ const statConfig: Array<{
     icon: Target,
     iconBg: 'bg-accent/10',
     iconColor: 'text-accent',
+    link: '/dream-jobs',
   },
   {
     key: 'capabilitiesIdentified',
@@ -67,6 +71,7 @@ const statConfig: Array<{
     icon: TrendingUp,
     iconBg: 'bg-success/10',
     iconColor: 'text-success',
+    link: '/courses',
   },
   {
     key: 'gapsToClose',
@@ -76,10 +81,12 @@ const statConfig: Array<{
     iconBg: 'bg-warning/10',
     iconColor: 'text-warning',
     valueColor: 'text-warning',
+    link: '/analysis',
   },
 ];
 
 export function DashboardOverview({ stats = defaultStats, isLoading }: DashboardOverviewProps) {
+  const navigate = useNavigate();
   const progressPercentage = stats.totalRecommendations > 0 
     ? (stats.recommendationsCompleted / stats.totalRecommendations) * 100 
     : 0;
@@ -122,7 +129,8 @@ export function DashboardOverview({ stats = defaultStats, isLoading }: Dashboard
           return (
             <Card 
               key={stat.key} 
-              className="border-0 shadow-md hover:shadow-lg transition-all duration-300 bg-card group"
+              className="border-0 shadow-md hover:shadow-lg transition-all duration-300 bg-card group cursor-pointer"
+              onClick={() => navigate(stat.link)}
             >
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground">

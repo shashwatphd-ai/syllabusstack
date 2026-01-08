@@ -15,17 +15,11 @@ import {
   RefreshCw,
   Loader2
 } from "lucide-react";
-import { useGapAnalysis } from "@/hooks/useAnalysis";
-import { performGapAnalysis } from "@/services";
-import { useQueryClient } from "@tanstack/react-query";
-import { queryKeys } from "@/lib/query-keys";
-import { useState } from "react";
-import { useToast } from "@/hooks/use-toast";
+import { useGapAnalysis, useRefreshGapAnalysis } from "@/hooks/useAnalysis";
 
 interface GapAnalysisViewProps {
   dreamJobId?: string;
   dreamJobTitle?: string;
-  isLoading?: boolean;
 }
 
 export function GapAnalysisView({ 
@@ -33,47 +27,24 @@ export function GapAnalysisView({
   dreamJobTitle = "Dream Job",
 }: GapAnalysisViewProps) {
   const { data: analysis, isLoading } = useGapAnalysis(dreamJobId || '');
-  const queryClient = useQueryClient();
-  const { toast } = useToast();
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const refreshAnalysis = useRefreshGapAnalysis();
+  const isRefreshing = refreshAnalysis.isPending;
 
-  const handleRefresh = async () => {
+  const handleRefresh = () => {
     if (!dreamJobId) return;
-    setIsRefreshing(true);
-    try {
-      await performGapAnalysis(dreamJobId);
-      queryClient.invalidateQueries({ queryKey: queryKeys.gapAnalysis(dreamJobId) });
-      toast({
-        title: "Analysis refreshed",
-        description: "Gap analysis has been updated.",
-      });
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to refresh analysis",
-        variant: "destructive",
-      });
-    } finally {
-      setIsRefreshing(false);
-    }
+    refreshAnalysis.mutate(dreamJobId);
   };
 
   const matchScore = analysis?.match_score || 0;
   
-  // Map new API response format
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const strongOverlaps = (analysis?.strong_overlaps || []) as any[];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const partialOverlaps = (analysis?.partial_overlaps || []) as any[];
-  const criticalGaps = (analysis?.critical_gaps || []) as Array<{job_requirement: string; student_status: string; impact: string}>;
-  const priorityGaps = (analysis?.priority_gaps || []) as Array<{gap: string; priority: number; reason: string}>;
+  // Parse JSON fields from database
+  const strongOverlaps = (analysis?.strong_overlaps as Array<{student_capability: string; job_requirement: string; assessment: string}>) || [];
+  const partialOverlaps = (analysis?.partial_overlaps as Array<{area?: string; foundation?: string; missing?: string}>) || [];
+  const criticalGaps = (analysis?.critical_gaps as Array<{job_requirement: string; student_status: string; impact: string}>) || [];
+  const priorityGaps = (analysis?.priority_gaps as Array<{gap: string; priority: number; reason: string}>) || [];
   
-  // Legacy fields fallback
-  const legacyOverlaps = analysis?.overlaps || [];
-  const legacyGaps = analysis?.gaps || [];
-  
-  const overlapsCount = strongOverlaps.length + partialOverlaps.length || legacyOverlaps.length;
-  const gapsCount = criticalGaps.length + priorityGaps.length || legacyGaps.length;
+  const overlapsCount = strongOverlaps.length + partialOverlaps.length;
+  const gapsCount = criticalGaps.length + priorityGaps.length;
 
   if (isLoading) {
     return (
@@ -100,7 +71,7 @@ export function GapAnalysisView({
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h2 className="text-2xl font-bold">Gap Analysis</h2>
           <p className="text-muted-foreground">
@@ -119,7 +90,7 @@ export function GapAnalysisView({
             ) : (
               <RefreshCw className="h-4 w-4 mr-2" />
             )}
-            Refresh
+            {isRefreshing ? 'Analyzing...' : 'Refresh'}
           </Button>
           <Badge variant="outline" className="text-base px-4 py-2">
             <Target className="h-4 w-4 mr-2" />
@@ -177,8 +148,8 @@ export function GapAnalysisView({
       <Tabs defaultValue="assessment" className="space-y-4">
         <TabsList>
           <TabsTrigger value="assessment">Honest Assessment</TabsTrigger>
-          <TabsTrigger value="gaps">Skill Gaps</TabsTrigger>
-          <TabsTrigger value="comparison">Skills Comparison</TabsTrigger>
+          <TabsTrigger value="gaps">Skill Gaps ({gapsCount})</TabsTrigger>
+          <TabsTrigger value="comparison">Skills Match ({overlapsCount})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="assessment">
@@ -188,11 +159,11 @@ export function GapAnalysisView({
               matchScore={matchScore}
               readinessLevel={analysis.readiness_level as any}
               honestAssessment={analysis.honest_assessment || "Run a gap analysis to get personalized feedback."}
-              interviewReadiness={analysis.interview_readiness}
-              jobSuccessPrediction={analysis.job_success_prediction}
-              strongOverlaps={analysis.strong_overlaps as any}
-              criticalGaps={analysis.critical_gaps as any}
-              priorityGaps={analysis.priority_gaps as any}
+              interviewReadiness={analysis.interview_readiness || undefined}
+              jobSuccessPrediction={analysis.job_success_prediction || undefined}
+              strongOverlaps={strongOverlaps}
+              criticalGaps={criticalGaps}
+              priorityGaps={priorityGaps}
             />
           ) : (
             <Card className="p-8 text-center">
@@ -212,30 +183,17 @@ export function GapAnalysisView({
         </TabsContent>
 
         <TabsContent value="gaps">
-          {(criticalGaps.length > 0 || priorityGaps.length > 0 || legacyGaps.length > 0) ? (
+          {gapsCount > 0 ? (
             <GapsList 
-              gaps={criticalGaps.length > 0 ? 
-                criticalGaps.map((g, i) => ({
-                  id: String(i),
-                  skill: g.job_requirement,
-                  currentLevel: 20,
-                  requiredLevel: 90,
-                  severity: 'critical' as const,
-                  category: 'technical',
-                  estimatedTimeToClose: '3-6 months',
-                  description: g.impact || g.student_status || `Address ${g.job_requirement}`,
-                })) :
-                legacyGaps.map((g, i) => ({
-                  id: String(i),
-                  skill: g.requirement,
-                  currentLevel: 20,
-                  requiredLevel: g.importance === 'critical' ? 90 : g.importance === 'important' ? 70 : 50,
-                  severity: g.importance === 'critical' ? 'critical' as const : g.importance === 'important' ? 'important' as const : 'nice-to-have' as const,
-                  category: 'technical',
-                  estimatedTimeToClose: g.time_to_close,
-                  description: g.suggested_action || `Develop ${g.requirement} skills`,
-                }))
-              }
+              criticalGaps={criticalGaps.map((g, i) => ({
+                id: `critical-${i}`,
+                job_requirement: g.job_requirement,
+                student_status: g.student_status,
+                impact: g.impact,
+                severity: 'critical' as const,
+                estimatedTimeToClose: '3-6 months',
+              }))}
+              priorityGaps={priorityGaps}
             />
           ) : (
             <Card className="p-8 text-center">
@@ -247,39 +205,28 @@ export function GapAnalysisView({
         </TabsContent>
 
         <TabsContent value="comparison">
-          {(strongOverlaps.length > 0 || partialOverlaps.length > 0 || legacyOverlaps.length > 0) ? (
+          {overlapsCount > 0 ? (
             <OverlapsList 
-              overlaps={strongOverlaps.length > 0 ?
-                [
-                  ...strongOverlaps.map((o, i) => ({
-                    id: `strong-${i}`,
-                    studentCapability: o.student_capability,
-                    jobRequirement: o.job_requirement,
-                    strength: 'strong' as const,
-                    strengthScore: 90,
-                    assessment: o.assessment || '',
-                    source: 'Your Courses',
-                  })),
-                  ...partialOverlaps.map((o, i) => ({
-                    id: `partial-${i}`,
-                    studentCapability: o.foundation,
-                    jobRequirement: o.area,
-                    strength: 'partial' as const,
-                    strengthScore: 50,
-                    assessment: `Missing: ${o.missing}`,
-                    source: 'Your Courses',
-                  }))
-                ] :
-                legacyOverlaps.map((o, i) => ({
-                  id: String(i),
-                  studentCapability: o.capability,
-                  jobRequirement: o.requirement,
-                  strength: o.strength,
-                  strengthScore: o.strength === 'strong' ? 90 : o.strength === 'moderate' ? 70 : 50,
-                  assessment: o.notes || '',
+              overlaps={[
+                ...strongOverlaps.map((o, i) => ({
+                  id: `strong-${i}`,
+                  studentCapability: o.student_capability,
+                  jobRequirement: o.job_requirement,
+                  strength: 'strong' as const,
+                  strengthScore: 90,
+                  assessment: o.assessment || '',
+                  source: 'Your Courses',
+                })),
+                ...partialOverlaps.map((o, i) => ({
+                  id: `partial-${i}`,
+                  studentCapability: o.foundation || '',
+                  jobRequirement: o.area || '',
+                  strength: 'partial' as const,
+                  strengthScore: 50,
+                  assessment: o.missing ? `Missing: ${o.missing}` : '',
                   source: 'Your Courses',
                 }))
-              }
+              ]}
             />
           ) : (
             <Card>
