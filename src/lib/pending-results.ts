@@ -1,7 +1,7 @@
 // Utility for storing and retrieving pending scan results for unauthenticated users
 // Used to persist syllabus scanner results across the signup flow
 
-const PENDING_RESULTS_KEY = 'eduthree_pending_scan_results';
+const PENDING_RESULTS_KEY = 'syllabusstack_pending_scan_results';
 
 export interface PendingScanResult {
   courseName: string;

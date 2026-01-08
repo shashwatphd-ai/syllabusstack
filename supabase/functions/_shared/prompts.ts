@@ -1,4 +1,4 @@
-// EduThree AI Prompt Library - Based on Technical Specification v3.0
+// SyllabusStack AI Prompt Library - Based on Technical Specification v3.0
 // Centralized prompts for consistent AI behavior across all edge functions
 
 export const MASTER_SYSTEM_PROMPT = `You are an expert career advisor who gives specific, honest advice to college students.

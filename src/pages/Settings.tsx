@@ -81,7 +81,7 @@ export default function SettingsPage() {
               Appearance
             </CardTitle>
             <CardDescription>
-              Customize how EduThree looks on your device
+              Customize how SyllabusStack looks on your device
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">

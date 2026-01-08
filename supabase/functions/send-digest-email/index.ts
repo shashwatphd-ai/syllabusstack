@@ -96,7 +96,7 @@ const handler = async (req: Request): Promise<Response> => {
 
         // Send the digest email
         const { error: emailError } = await resend.emails.send({
-          from: "EduThree <noreply@resend.dev>",
+          from: "SyllabusStack <noreply@resend.dev>",
           to: [user.email],
           subject: `Your Weekly Career Progress Update - ${pendingCount} actions waiting`,
           html: generateDigestHtml(digestData),
@@ -180,7 +180,7 @@ function generateDigestHtml(data: DigestData): string {
         ` : ''}
         
         <div style="text-align: center; margin-top: 30px;">
-          <a href="https://eduthree.lovable.app/recommendations" 
+          <a href="https://syllabusstack.com/recommendations" 
              style="display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">
             Continue Your Journey →
           </a>
@@ -188,7 +188,7 @@ function generateDigestHtml(data: DigestData): string {
         
         <p style="margin-top: 30px; font-size: 12px; color: #6b7280; text-align: center;">
           You're receiving this because you opted in for weekly digests.<br>
-          <a href="https://eduthree.lovable.app/settings" style="color: #667eea;">Update your preferences</a>
+          <a href="https://syllabusstack.com/settings" style="color: #667eea;">Update your preferences</a>
         </p>
       </div>
     </body>
