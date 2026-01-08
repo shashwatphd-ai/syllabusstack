@@ -239,7 +239,11 @@ export default function CoursesPage() {
               const skillCount = getCourseSkillCount(course.id);
               
               return (
-                <Card key={course.id}>
+                <Card 
+                  key={course.id} 
+                  className="cursor-pointer hover:shadow-md transition-shadow"
+                  onClick={() => navigate(`/courses/${course.id}`)}
+                >
                   <CardHeader className="pb-2">
                     <div className="flex items-start justify-between">
                       <div>
@@ -249,7 +253,7 @@ export default function CoursesPage() {
                         </p>
                       </div>
                       <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
+                        <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
                           <Button variant="ghost" size="sm">
                             <MoreVertical className="h-4 w-4" />
                           </Button>
