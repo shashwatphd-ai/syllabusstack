@@ -10,9 +10,12 @@ import {
   Lightbulb,
   BookOpen,
   Flame,
-  Target
+  Target,
+  Search,
+  Loader2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useCourseSearch } from "@/hooks/useCourseSearch";
 
 type GapSeverity = "critical" | "important" | "nice_to_have" | "nice-to-have";
 type GapCategory = "technical" | "soft_skill" | "soft-skill" | "experience" | "certification";
@@ -42,6 +45,8 @@ interface GapsListProps {
   onViewGap?: (gapId: string) => void;
   isLoading?: boolean;
   variant?: 'full' | 'compact';
+  dreamJobId?: string;
+  dreamJobTitle?: string;
 }
 
 const getSeverityColor = (severity?: GapSeverity | string): string => {
@@ -77,13 +82,28 @@ export function GapsList({
   priorityGaps = [],
   onViewGap, 
   isLoading,
-  variant = 'full'
+  variant = 'full',
+  dreamJobId,
+  dreamJobTitle
 }: GapsListProps) {
+  const { searchCourses, isSearching } = useCourseSearch();
+  
   // Merge gaps from different sources
   const allGaps = [
     ...criticalGaps.map((g, i) => ({ ...g, id: g.id || `critical-${i}`, severity: 'critical' as GapSeverity })),
     ...gaps.filter(g => !criticalGaps.find(cg => cg.job_requirement === g.job_requirement)),
   ];
+  
+  const handleFindCourses = (gapText: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!dreamJobId || !dreamJobTitle) return;
+    
+    searchCourses({
+      gaps: [{ gap: gapText }],
+      dreamJobId,
+      dreamJobTitle,
+    });
+  };
 
   const criticalCount = allGaps.filter((g) => g.severity === "critical").length;
   const importantCount = allGaps.filter((g) => g.severity === "important").length;
@@ -221,9 +241,27 @@ export function GapsList({
                   <Clock className="h-3 w-3" />
                   Est. {gap.estimatedTimeToClose || gap.time_to_close || 'TBD'}
                 </span>
-                {onViewGap && (
-                  <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-accent transition-colors" />
-                )}
+                <div className="flex items-center gap-2">
+                  {dreamJobId && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs"
+                      onClick={(e) => handleFindCourses(gapTitle, e)}
+                      disabled={isSearching}
+                    >
+                      {isSearching ? (
+                        <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                      ) : (
+                        <Search className="h-3 w-3 mr-1" />
+                      )}
+                      Find Courses
+                    </Button>
+                  )}
+                  {onViewGap && (
+                    <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-accent transition-colors" />
+                  )}
+                </div>
               </div>
             </div>
           );
