@@ -885,6 +885,8 @@ export type Database = {
         Row: {
           ai_cost_usd: number | null
           ai_model_used: string | null
+          analysis_error: string | null
+          analysis_status: string | null
           capability_keywords: string[] | null
           capability_text: string | null
           code: string | null
@@ -906,6 +908,8 @@ export type Database = {
         Insert: {
           ai_cost_usd?: number | null
           ai_model_used?: string | null
+          analysis_error?: string | null
+          analysis_status?: string | null
           capability_keywords?: string[] | null
           capability_text?: string | null
           code?: string | null
@@ -927,6 +931,8 @@ export type Database = {
         Update: {
           ai_cost_usd?: number | null
           ai_model_used?: string | null
+          analysis_error?: string | null
+          analysis_status?: string | null
           capability_keywords?: string[] | null
           capability_text?: string | null
           code?: string | null

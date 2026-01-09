@@ -43,8 +43,11 @@ export default function CoursesPage() {
   const createCourse = useCreateCourse();
   const deleteCourse = useDeleteCourse();
 
-  const analyzedCourseIds = new Set(capabilities?.map(c => c.course_id).filter(Boolean) || []);
-  const analyzedCount = courses?.filter(c => analyzedCourseIds.has(c.id)).length || 0;
+  // Use analysis_status from courses for status, fall back to capability check for older courses
+  const analyzedCount = courses?.filter(c =>
+    c.analysis_status === 'completed' ||
+    (c.analysis_status === null && c.capability_text)
+  ).length || 0;
   const totalSkills = capabilities?.length || 0;
 
   const handleBulkUploadSuccess = () => {
@@ -93,8 +96,14 @@ export default function CoursesPage() {
     deleteCourse.mutate(courseId);
   };
 
-  const getCourseStatus = (courseId: string) => {
-    return analyzedCourseIds.has(courseId) ? "analyzed" : "pending";
+  const getCourseStatus = (course: typeof courses extends (infer T)[] | undefined ? T : never) => {
+    // Use analysis_status field, fall back to capability_text check for older courses
+    if (course.analysis_status === 'completed') return 'analyzed';
+    if (course.analysis_status === 'analyzing') return 'analyzing';
+    if (course.analysis_status === 'failed') return 'failed';
+    // Fall back for courses created before analysis_status was added
+    if (course.capability_text) return 'analyzed';
+    return 'pending';
   };
 
   const getCourseSkillCount = (courseId: string) => {
@@ -235,12 +244,12 @@ export default function CoursesPage() {
         ) : courses && courses.length > 0 ? (
           <div className="grid gap-4 md:grid-cols-2">
             {courses.map((course) => {
-              const status = getCourseStatus(course.id);
+              const status = getCourseStatus(course);
               const skillCount = getCourseSkillCount(course.id);
-              
+
               return (
-                <Card 
-                  key={course.id} 
+                <Card
+                  key={course.id}
                   className="cursor-pointer hover:shadow-md transition-shadow"
                   onClick={() => navigate(`/courses/${course.id}`)}
                 >
@@ -263,7 +272,7 @@ export default function CoursesPage() {
                             <Eye className="h-4 w-4 mr-2" />
                             View Details
                           </DropdownMenuItem>
-                          <DropdownMenuItem 
+                          <DropdownMenuItem
                             className="text-destructive"
                             onClick={() => handleDeleteCourse(course.id)}
                           >
@@ -278,7 +287,12 @@ export default function CoursesPage() {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <Badge
-                          variant={status === "analyzed" ? "default" : "secondary"}
+                          variant={
+                            status === "analyzed" ? "default" :
+                            status === "failed" ? "destructive" :
+                            status === "analyzing" ? "outline" :
+                            "secondary"
+                          }
                         >
                           {status}
                         </Badge>
@@ -286,11 +300,15 @@ export default function CoursesPage() {
                           {course.credits || 3} credits
                         </span>
                       </div>
-                      {skillCount > 0 && (
+                      {status === "failed" && course.analysis_error ? (
+                        <span className="text-xs text-destructive truncate max-w-[150px]" title={course.analysis_error}>
+                          {course.analysis_error}
+                        </span>
+                      ) : skillCount > 0 ? (
                         <span className="text-sm text-accent">
                           {skillCount} skills
                         </span>
-                      )}
+                      ) : null}
                     </div>
                   </CardContent>
                 </Card>

@@ -18,15 +18,20 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Store these at function level for access in catch block
+  let parsedCourseId: string | undefined;
+  let supabaseClient: any = null;
+  const authHeader = req.headers.get("Authorization");
+
   try {
     const { syllabusText, courseId } = await req.json();
-    
+    parsedCourseId = courseId;
+
     if (!syllabusText) {
       return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'Syllabus text is required');
     }
 
     // Get user for rate limiting
-    const authHeader = req.headers.get("Authorization");
     let userId: string | null = null;
     let supabase: any = null;
 
@@ -36,6 +41,7 @@ serve(async (req) => {
         Deno.env.get("SUPABASE_ANON_KEY") ?? "",
         { global: { headers: { Authorization: authHeader } } }
       );
+      supabaseClient = supabase; // Store for catch block access
       const { data: { user }, error: userError } = await supabase.auth.getUser();
       if (!userError && user) {
         userId = user.id;
@@ -62,6 +68,14 @@ serve(async (req) => {
     }
 
     logInfo('analyze-syllabus', 'processing', { courseId });
+
+    // Set analysis status to 'analyzing' if we have a courseId and supabase client
+    if (courseId && supabase) {
+      await supabase
+        .from("courses")
+        .update({ analysis_status: "analyzing", analysis_error: null })
+        .eq("id", courseId);
+    }
 
     const systemPrompt = `${MASTER_SYSTEM_PROMPT}
 
@@ -181,7 +195,9 @@ IMPORTANT:
               evidence_types: evidenceTypes,
               tools_methods: toolsLearned,
               capability_keywords: allKeywords, // Store extracted keywords
-              ai_model_used: "google/gemini-2.5-flash"
+              ai_model_used: "google/gemini-2.5-flash",
+              analysis_status: "completed",
+              analysis_error: null
             })
             .eq("id", courseId);
 
@@ -238,8 +254,25 @@ IMPORTANT:
     );
   } catch (error) {
     console.error("Error in analyze-syllabus:", error);
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+
+    // Set the course status to failed if we have the context
+    if (parsedCourseId && supabaseClient) {
+      try {
+        await supabaseClient
+          .from("courses")
+          .update({
+            analysis_status: "failed",
+            analysis_error: errorMessage
+          })
+          .eq("id", parsedCourseId);
+      } catch (updateError) {
+        console.error("Failed to update course status to failed:", updateError);
+      }
+    }
+
     return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
+      JSON.stringify({ error: errorMessage }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }

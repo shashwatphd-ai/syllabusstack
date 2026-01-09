@@ -260,32 +260,35 @@ export function BulkSyllabusUploader({ onSuccess, onCancel }: BulkSyllabusUpload
     
     for (const fileItem of completedFiles) {
       try {
-        // Create course with capability names for key_capabilities field
+        // Create course with capability names and analysis status
+        const capabilityText = fileItem.capabilities.map(c => c.name).join("; ");
         const course = await createCourse.mutateAsync({
           title: fileItem.title,
           code: fileItem.code || null,
           semester: fileItem.semester || null,
           credits: fileItem.credits || 3,
-          key_capabilities: fileItem.capabilities.map(c => c.name),
+          key_capabilities: fileItem.capabilities,
+          capability_text: capabilityText,
+          analysis_status: "completed",
         });
-        
-        // Save capabilities with AI-extracted metadata (not hardcoded)
+
+        // Save capabilities with AI-extracted metadata
         if (fileItem.capabilities.length > 0) {
           const capabilitiesToInsert = fileItem.capabilities.map(cap => ({
             user_id: user.id,
             course_id: course.id,
             name: cap.name,
-            category: cap.category,           // Use AI-extracted value
-            proficiency_level: cap.proficiency_level, // Use AI-extracted value
+            category: cap.category,
+            proficiency_level: cap.proficiency_level,
             source: 'course',
           }));
-          
+
           const { error: capError } = await supabase.from('capabilities').insert(capabilitiesToInsert);
           if (capError) {
             console.error(`Failed to save capabilities for ${fileItem.title}:`, capError);
           }
         }
-        
+
         savedCount++;
       } catch (error) {
         console.error(`Failed to save ${fileItem.title}:`, error);
