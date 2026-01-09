@@ -125,7 +125,14 @@ export function CapabilitySnapshot({ capabilities = [], isLoading }: CapabilityS
             <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{category}</h4>
             <div className="space-y-2">
               {caps.map((cap) => (
-                <div key={cap.name} className="space-y-1 group cursor-pointer hover:bg-muted/50 rounded-md p-1.5 -mx-1.5 transition-colors">
+                <div
+                  key={cap.name}
+                  className="space-y-1 group cursor-pointer hover:bg-muted/50 rounded-md p-1.5 -mx-1.5 transition-colors"
+                  onClick={() => navigate(`/analysis?skill=${encodeURIComponent(cap.name)}`)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => e.key === 'Enter' && navigate(`/analysis?skill=${encodeURIComponent(cap.name)}`)}
+                >
                   <div className="flex items-center justify-between text-xs gap-1">
                     <span 
                       className="font-medium text-foreground group-hover:text-accent transition-colors truncate flex-1"

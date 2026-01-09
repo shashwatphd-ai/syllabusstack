@@ -9,7 +9,7 @@ interface SEOProps {
   image?: string;
 }
 
-const BASE_TITLE = 'EduThree';
+const BASE_TITLE = 'SyllabusStack';
 const DEFAULT_DESCRIPTION = 'Know your real job readiness. Upload your coursework, add your dream jobs, and get honest AI analysis of exactly where you stand—and what to do next.';
 
 export function useSEO({
@@ -93,11 +93,11 @@ export const pageSEO = {
   },
   profile: {
     title: 'Profile',
-    description: 'Manage your EduThree profile and academic information.',
+    description: 'Manage your SyllabusStack profile and academic information.',
   },
   settings: {
     title: 'Settings',
-    description: 'Configure your EduThree preferences and account settings.',
+    description: 'Configure your SyllabusStack preferences and account settings.',
   },
   usage: {
     title: 'AI Usage',
@@ -105,7 +105,7 @@ export const pageSEO = {
   },
   onboarding: {
     title: 'Get Started',
-    description: 'Set up your EduThree account and start your career intelligence journey.',
+    description: 'Set up your SyllabusStack account and start your career intelligence journey.',
   },
   syllabusScanner: {
     title: 'Free Syllabus Scanner',
