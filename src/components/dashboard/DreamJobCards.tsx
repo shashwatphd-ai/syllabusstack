@@ -1,14 +1,16 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { 
-  MapPin, 
-  DollarSign, 
+import {
+  MapPin,
+  DollarSign,
   ChevronRight,
   Plus,
   Target,
-  Briefcase
+  Briefcase,
+  TrendingUp
 } from "lucide-react";
+import { ProgressRing } from "@/components/common/ProgressRing";
 
 interface DreamJob {
   id: string;
@@ -18,6 +20,8 @@ interface DreamJob {
   salaryRange?: string;
   matchScore: number;
   gapsCount: number;
+  completedRecommendations?: number;
+  totalRecommendations?: number;
   status: "active" | "achieved" | "paused";
 }
 
@@ -154,30 +158,62 @@ export function DreamJobCards({
               </div>
             )}
 
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between text-xs">
-                <span className="flex items-center gap-1 text-muted-foreground">
-                  <Target className="h-3 w-3" />
-                  Match
-                </span>
-                <span className={`font-semibold ${getMatchColor(job.matchScore)}`}>
-                  {job.matchScore}%
-                </span>
-              </div>
-              <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                <div 
-                  className={`h-full rounded-full transition-all duration-500 ${getMatchBgColor(job.matchScore)}`}
-                  style={{ width: `${job.matchScore}%` }}
+            <div className="space-y-2">
+              {/* Match Score Progress */}
+              <div className="flex items-center gap-3">
+                <ProgressRing
+                  progress={job.matchScore}
+                  size="sm"
+                  color={job.matchScore >= 80 ? 'success' : job.matchScore >= 50 ? 'accent' : 'warning'}
                 />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="flex items-center gap-1 text-muted-foreground">
+                      <Target className="h-3 w-3" />
+                      Match Score
+                    </span>
+                    <span className={`font-semibold ${getMatchColor(job.matchScore)}`}>
+                      {getMatchLabel(job.matchScore)}
+                    </span>
+                  </div>
+                  <div className="relative h-1 w-full overflow-hidden rounded-full bg-muted mt-1">
+                    <div
+                      className={`h-full rounded-full transition-all duration-500 ${getMatchBgColor(job.matchScore)}`}
+                      style={{ width: `${job.matchScore}%` }}
+                    />
+                  </div>
+                </div>
               </div>
-              <div className="flex items-center justify-between">
-                <p className={`text-xs font-medium ${getMatchColor(job.matchScore)}`}>
-                  {getMatchLabel(job.matchScore)}
-                </p>
-                <span className="text-xs text-muted-foreground flex items-center gap-1">
-                  {job.gapsCount} gaps
-                  <ChevronRight className="h-3 w-3 group-hover:translate-x-0.5 transition-transform" />
+
+              {/* Recommendations Progress */}
+              {(job.totalRecommendations ?? 0) > 0 && (
+                <div className="flex items-center gap-3 pt-1 border-t border-border/50">
+                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <TrendingUp className="h-3 w-3" />
+                    <span>Progress:</span>
+                  </div>
+                  <div className="flex-1 flex items-center gap-2">
+                    <div className="relative h-1 flex-1 overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full transition-all duration-500 bg-success"
+                        style={{
+                          width: `${((job.completedRecommendations ?? 0) / (job.totalRecommendations ?? 1)) * 100}%`
+                        }}
+                      />
+                    </div>
+                    <span className="text-xs font-medium text-success">
+                      {job.completedRecommendations ?? 0}/{job.totalRecommendations}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Gaps indicator */}
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-xs text-muted-foreground">
+                  {job.gapsCount} skill gap{job.gapsCount !== 1 ? 's' : ''} to close
                 </span>
+                <ChevronRight className="h-3.5 w-3.5 text-muted-foreground group-hover:translate-x-0.5 group-hover:text-accent transition-all" />
               </div>
             </div>
           </div>
