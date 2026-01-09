@@ -90,18 +90,18 @@ export function Sidebar({ collapsed = false, onCollapse }: SidebarProps) {
         className={cn(
           "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200",
           "hover:bg-sidebar-accent",
-          isActive 
-            ? "bg-sidebar-accent text-sidebar-primary font-medium" 
-            : "text-sidebar-foreground/80"
+          isActive
+            ? "bg-sidebar-accent text-sidebar-primary font-medium"
+            : "text-sidebar-foreground opacity-80"
         )}
       >
-        <item.icon className={cn(
-          "h-5 w-5 flex-shrink-0",
-          isActive ? "text-sidebar-primary" : ""
-        )} />
-        {!isCollapsed && (
-          <span className="truncate">{item.name}</span>
-        )}
+        <item.icon
+          className={cn(
+            "h-5 w-5 flex-shrink-0",
+            isActive ? "text-sidebar-primary" : ""
+          )}
+        />
+        {!isCollapsed && <span className="truncate">{item.name}</span>}
       </Link>
     );
 
@@ -144,11 +144,11 @@ export function Sidebar({ collapsed = false, onCollapse }: SidebarProps) {
           )}
         </Link>
         {!isCollapsed && (
-          <Button 
-            variant="ghost" 
-            size="icon" 
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={handleCollapse}
-            className="text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent"
+            className="text-sidebar-foreground opacity-70 hover:opacity-100 hover:bg-sidebar-accent"
           >
             <ChevronLeft className="h-4 w-4" />
           </Button>
@@ -158,11 +158,11 @@ export function Sidebar({ collapsed = false, onCollapse }: SidebarProps) {
       {/* Collapse button when collapsed */}
       {isCollapsed && (
         <div className="px-2 py-2">
-          <Button 
-            variant="ghost" 
-            size="icon" 
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={handleCollapse}
-            className="w-full text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent"
+            className="w-full text-sidebar-foreground opacity-70 hover:opacity-100 hover:bg-sidebar-accent"
           >
             <ChevronLeft className="h-4 w-4 rotate-180" />
           </Button>
@@ -178,7 +178,7 @@ export function Sidebar({ collapsed = false, onCollapse }: SidebarProps) {
         {/* Student Learning Section */}
         {!isCollapsed && (
           <div className="pt-4 mt-4 border-t border-sidebar-border">
-            <p className="px-3 mb-2 text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider">
+            <p className="px-3 mb-2 text-xs font-semibold text-sidebar-foreground opacity-60 uppercase tracking-wider">
               Learning
             </p>
           </div>
@@ -192,7 +192,7 @@ export function Sidebar({ collapsed = false, onCollapse }: SidebarProps) {
           <>
             {!isCollapsed && (
               <div className="pt-4 mt-4 border-t border-sidebar-border">
-                <p className="px-3 mb-2 text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider">
+                <p className="px-3 mb-2 text-xs font-semibold text-sidebar-foreground opacity-60 uppercase tracking-wider">
                   Instructor
                 </p>
               </div>
@@ -208,7 +208,7 @@ export function Sidebar({ collapsed = false, onCollapse }: SidebarProps) {
           <>
             {!isCollapsed && (
               <div className="pt-4 mt-4 border-t border-sidebar-border">
-                <p className="px-3 mb-2 text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider">
+                <p className="px-3 mb-2 text-xs font-semibold text-sidebar-foreground opacity-60 uppercase tracking-wider">
                   Admin
                 </p>
               </div>
@@ -244,7 +244,7 @@ export function Sidebar({ collapsed = false, onCollapse }: SidebarProps) {
               <p className="text-sm font-medium text-sidebar-foreground truncate">
                 {profile?.full_name || 'Student'}
               </p>
-              <p className="text-xs text-sidebar-foreground/60 truncate">
+              <p className="text-xs text-sidebar-foreground opacity-70 truncate">
                 {user?.email || 'student@university.edu'}
               </p>
             </div>
@@ -252,11 +252,11 @@ export function Sidebar({ collapsed = false, onCollapse }: SidebarProps) {
           {!isCollapsed && (
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button 
-                  variant="ghost" 
+                <Button
+                  variant="ghost"
                   size="icon"
                   onClick={handleLogout}
-                  className="text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent"
+                  className="text-sidebar-foreground opacity-70 hover:opacity-100 hover:bg-sidebar-accent"
                 >
                   <LogOut className="h-4 w-4" />
                 </Button>

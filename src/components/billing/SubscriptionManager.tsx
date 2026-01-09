@@ -19,7 +19,6 @@ import { useSubscription, TIER_INFO } from '@/hooks/useSubscription';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
-import { Link } from 'react-router-dom';
 
 export function SubscriptionManager() {
   const { subscription, tier, isLoading } = useSubscription();
@@ -156,8 +155,49 @@ export function SubscriptionManager() {
         {/* Actions */}
         <div className="flex flex-wrap gap-3">
           {tier === 'free' ? (
-            <Button asChild>
-              <Link to="/billing#pricing">Upgrade to Pro</Link>
+            <Button
+              onClick={async () => {
+                const popup = window.open('about:blank', '_blank');
+
+                try {
+                  const { data, error } = await supabase.functions.invoke('create-checkout-session', {
+                    body: {
+                      tier: 'pro',
+                      isAnnual: false,
+                      successUrl: `${window.location.origin}/billing?success=true`,
+                      cancelUrl: `${window.location.origin}/billing?canceled=true`,
+                    },
+                  });
+
+                  if (error) throw error;
+
+                  if (data?.url) {
+                    if (popup) {
+                      try {
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        (popup as any).opener = null;
+                      } catch {
+                        // ignore
+                      }
+                      popup.location.href = data.url;
+                    } else {
+                      window.location.href = data.url;
+                    }
+                  } else {
+                    throw new Error('Checkout URL missing');
+                  }
+                } catch (err) {
+                  if (popup) popup.close();
+                  console.error('Checkout error:', err);
+                  toast({
+                    title: 'Checkout failed',
+                    description: 'Unable to start checkout. Please try again.',
+                    variant: 'destructive',
+                  });
+                }
+              }}
+            >
+              Upgrade to Pro
             </Button>
           ) : (
             <>

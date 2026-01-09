@@ -65,7 +65,7 @@ export default function BillingPage() {
           </CardHeader>
           <CardContent>
             {/* Avoid redundant "Upgrade" CTA here; Pricing tab owns checkout */}
-            <UsageMeter showUpgrade={false} />
+            <UsageMeter variant="full" showUpgrade={false} />
           </CardContent>
         </Card>
 

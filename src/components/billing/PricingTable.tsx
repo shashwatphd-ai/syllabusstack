@@ -21,7 +21,6 @@ export function PricingTable({ showCurrentBadge = true }: PricingTableProps) {
 
   const handleUpgrade = async (tier: SubscriptionTier) => {
     if (tier === 'university') {
-      // Open contact form or email
       window.open('mailto:enterprise@syllabusstack.com?subject=University Plan Inquiry', '_blank');
       return;
     }
@@ -34,10 +33,12 @@ export function PricingTable({ showCurrentBadge = true }: PricingTableProps) {
       return;
     }
 
+    // Pre-open a tab to avoid popup blockers (browsers block window.open after async)
+    const popup = window.open('about:blank', '_blank');
+
     setLoadingTier(tier);
 
     try {
-      // Call Stripe checkout session creation
       const { data, error } = await supabase.functions.invoke('create-checkout-session', {
         body: {
           tier,
@@ -49,15 +50,25 @@ export function PricingTable({ showCurrentBadge = true }: PricingTableProps) {
 
       if (error) throw error;
 
-      // Open Stripe Checkout in a new tab (Stripe blocks iframe embeds)
       if (data?.url) {
-        const opened = window.open(data.url, '_blank', 'noopener,noreferrer');
-        if (!opened) {
+        if (popup) {
+          try {
+            // prevent the new page from having a reference back to this window
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (popup as any).opener = null;
+          } catch {
+            // ignore
+          }
+          popup.location.href = data.url;
+        } else {
           // Fallback if popups are blocked
           window.location.href = data.url;
         }
+      } else {
+        throw new Error('Checkout URL missing');
       }
     } catch (error) {
+      if (popup) popup.close();
       console.error('Checkout error:', error);
       toast({
         title: 'Checkout failed',
