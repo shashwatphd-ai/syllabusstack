@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CreditCard, History, Settings } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -7,20 +7,50 @@ import { PricingTable } from '@/components/billing/PricingTable';
 import { SubscriptionManager } from '@/components/billing/SubscriptionManager';
 import { BillingHistory } from '@/components/billing/BillingHistory';
 import { useSubscription } from '@/hooks/useSubscription';
+import { AppShell } from '@/components/layout';
+import { PageContainer, PageHeader } from '@/components/layout/PageContainer';
+
+const TABS = ['overview', 'pricing', 'history'] as const;
+type BillingTab = (typeof TABS)[number];
+
+function getTabFromHash(hash: string): BillingTab | null {
+  const cleaned = hash.replace('#', '').trim();
+  return (TABS as readonly string[]).includes(cleaned) ? (cleaned as BillingTab) : null;
+}
 
 export default function BillingPage() {
-  const [activeTab, setActiveTab] = useState('overview');
   const { subscription, isLoading } = useSubscription();
+  const [activeTab, setActiveTab] = useState<BillingTab>(() => getTabFromHash(window.location.hash) ?? 'overview');
+
+  useEffect(() => {
+    const applyFromHash = () => {
+      const tab = getTabFromHash(window.location.hash);
+      if (tab) setActiveTab(tab);
+    };
+
+    applyFromHash();
+    window.addEventListener('hashchange', applyFromHash);
+    return () => window.removeEventListener('hashchange', applyFromHash);
+  }, []);
+
+  const handleTabChange = (value: string) => {
+    if (!(TABS as readonly string[]).includes(value)) return;
+
+    const next = value as BillingTab;
+    setActiveTab(next);
+
+    // Keep URL in sync so "Upgrade" links to /billing#pricing work reliably
+    const nextUrl = `${window.location.pathname}${window.location.search}#${next}`;
+    window.history.replaceState(null, '', nextUrl);
+  };
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="container max-w-6xl py-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold">Billing & Subscription</h1>
-          <p className="text-muted-foreground mt-2">
-            Manage your subscription, view usage, and access billing history.
-          </p>
-        </div>
+    <AppShell>
+      <PageContainer maxWidth="2xl">
+        <PageHeader
+          title="Billing & Subscription"
+          description="Manage your subscription, view usage, and access billing history."
+        />
 
         {/* Current Plan Overview */}
         <Card className="mb-8">
@@ -30,18 +60,17 @@ export default function BillingPage() {
               Current Plan
             </CardTitle>
             <CardDescription>
-              {isLoading
-                ? 'Loading...'
-                : `You're on the ${subscription?.tier || 'Free'} plan`}
+              {isLoading ? 'Loading...' : `You're on the ${subscription?.tier || 'Free'} plan`}
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <UsageMeter />
+            {/* Avoid redundant "Upgrade" CTA here; Pricing tab owns checkout */}
+            <UsageMeter showUpgrade={false} />
           </CardContent>
         </Card>
 
         {/* Tabs for different sections */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="overview" className="gap-2">
               <Settings className="h-4 w-4" />
@@ -69,7 +98,7 @@ export default function BillingPage() {
             <BillingHistory />
           </TabsContent>
         </Tabs>
-      </div>
-    </div>
+      </PageContainer>
+    </AppShell>
   );
 }

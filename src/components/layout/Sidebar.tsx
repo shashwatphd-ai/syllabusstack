@@ -124,7 +124,7 @@ export function Sidebar({ collapsed = false, onCollapse }: SidebarProps) {
   return (
     <aside 
       className={cn(
-        "h-screen flex flex-col bg-sidebar-background border-r border-sidebar-border transition-all duration-300",
+        "h-screen flex flex-col bg-sidebar border-r border-sidebar-border transition-all duration-300",
         isCollapsed ? "w-16" : "w-64"
       )}
     >

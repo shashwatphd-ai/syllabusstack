@@ -74,15 +74,15 @@
     --shadow-xl: 0 20px 25px -5px hsl(240 30% 13% / 0.1), 0 8px 10px -6px hsl(240 30% 13% / 0.05);
     --shadow-glow: 0 0 40px hsl(25 95% 55% / 0.25);
 
-    /* Sidebar - Dark theme for contrast in both modes */
-    --sidebar-background: 262 50% 15%;
-    --sidebar-foreground: 0 0% 98%;
-    --sidebar-primary: 25 95% 55%;
+    /* Sidebar - light mode: light surface with high contrast */
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 240 30% 13%;
+    --sidebar-primary: 262 65% 45%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 262 40% 22%;
-    --sidebar-accent-foreground: 0 0% 98%;
-    --sidebar-border: 262 35% 22%;
-    --sidebar-ring: 25 95% 55%;
+    --sidebar-accent: 262 30% 95%;
+    --sidebar-accent-foreground: 262 40% 25%;
+    --sidebar-border: 240 15% 88%;
+    --sidebar-ring: 262 65% 45%;
   }
 
   .dark {
