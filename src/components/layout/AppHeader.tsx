@@ -68,8 +68,13 @@ export function AppHeader({ onMenuClick, showSearch = true }: AppHeaderProps) {
     if (path.startsWith('/dream-jobs')) return 'Dream Jobs';
     if (path.startsWith('/analysis')) return 'Gap Analysis';
     if (path.startsWith('/recommendations')) return 'Recommendations';
+    if (path.startsWith('/billing')) return 'Billing';
+    if (path.startsWith('/usage')) return 'AI Usage';
     if (path.startsWith('/settings')) return 'Settings';
     if (path.startsWith('/profile')) return 'Profile';
+    if (path.startsWith('/learn')) return 'My Learning';
+    if (path.startsWith('/instructor')) return 'Instructor Portal';
+    if (path.startsWith('/admin')) return 'Admin';
     return 'SyllabusStack';
   };
 
