@@ -108,6 +108,12 @@ const handler = async (req: Request): Promise<Response> => {
         } else {
           console.log(`Successfully sent digest to ${user.email}`);
           emailsSent.push(user.email);
+
+          // Track when digest was sent
+          await supabase
+            .from('profiles')
+            .update({ last_digest_sent_at: new Date().toISOString() })
+            .eq('user_id', user.user_id);
         }
       } catch (userError) {
         console.error(`Error processing user ${user.user_id}:`, userError);

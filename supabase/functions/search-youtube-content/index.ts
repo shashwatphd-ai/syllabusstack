@@ -1,5 +1,12 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
+import {
+  checkCache,
+  saveToCache,
+  checkYouTubeQuota,
+  trackApiUsage,
+  extractKeywords
+} from "../_shared/content-cache.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -207,10 +214,148 @@ serve(async (req) => {
       .from("content_matches")
       .select(`content:content_id(source_id)`)
       .eq("learning_objective_id", learning_objective_id);
-    
+
     existingMatches?.forEach((m: any) => {
       if (m.content?.source_id) existingVideoIds.add(m.content.source_id);
     });
+
+    // Step 0: Check cache before making YouTube API calls
+    const searchConcept = lo_text || core_concept || '';
+    const cacheResult = await checkCache(searchConcept, 'youtube');
+
+    if (cacheResult.found && cacheResult.results.length > 0) {
+      console.log(`Cache HIT for: "${searchConcept.substring(0, 50)}..." (source: ${cacheResult.source})`);
+
+      // Use cached results - filter out already matched videos and save to database
+      const cachedVideos = cacheResult.results.filter((v: any) => !existingVideoIds.has(v.id));
+
+      if (cachedVideos.length > 0) {
+        // Save cached content to database
+        const savedMatches = [];
+        for (const video of cachedVideos.slice(0, 6)) {
+          let contentId: string;
+          const { data: existingContent } = await supabaseClient
+            .from("content")
+            .select("id")
+            .eq("source_id", video.id)
+            .eq("source_type", video.source || "youtube")
+            .maybeSingle();
+
+          if (existingContent) {
+            contentId = existingContent.id;
+          } else {
+            const { data: newContent, error: contentError } = await supabaseClient
+              .from("content")
+              .insert({
+                source_type: video.source || "youtube",
+                source_id: video.id,
+                source_url: video.url,
+                title: video.title,
+                description: video.description,
+                duration_seconds: parseDuration(video.duration || "PT0S"),
+                thumbnail_url: video.thumbnail_url,
+                channel_name: video.channel_title,
+                quality_score: 0.7, // Default score for cached content
+                is_available: true,
+                last_availability_check: new Date().toISOString(),
+                created_by: user.id,
+              })
+              .select()
+              .single();
+
+            if (contentError) {
+              console.error("Error saving cached content:", contentError);
+              continue;
+            }
+            contentId = newContent.id;
+          }
+
+          // Create content match
+          const { data: match, error: matchError } = await supabaseClient
+            .from("content_matches")
+            .insert({
+              learning_objective_id,
+              content_id: contentId,
+              match_score: 0.7,
+              status: "pending",
+              created_by: user.id,
+            })
+            .select()
+            .single();
+
+          if (!matchError && match) {
+            savedMatches.push(match);
+          }
+        }
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            cached: true,
+            cache_source: cacheResult.source,
+            matches_found: savedMatches.length,
+            message: `Found ${savedMatches.length} cached results for this learning objective`
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+
+    // Check YouTube quota before proceeding
+    const quotaStatus = await checkYouTubeQuota();
+    if (!quotaStatus.canSearch) {
+      console.warn(`YouTube quota exhausted: ${quotaStatus.usedToday}/${10000} units used today - using Khan Academy as primary source`);
+
+      // Fallback to Khan Academy when YouTube quota is exhausted
+      try {
+        const khanResponse = await fetch(`${supabaseUrl}/functions/v1/search-khan-academy`, {
+          method: 'POST',
+          headers: {
+            'Authorization': authHeader,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            learning_objective_id,
+            core_concept,
+            search_keywords,
+            lo_text,
+            max_results: 6,
+          }),
+        });
+
+        if (khanResponse.ok) {
+          const khanData = await khanResponse.json();
+          return new Response(
+            JSON.stringify({
+              success: true,
+              content_matches: khanData.content_matches || [],
+              total_found: khanData.total_found || 0,
+              auto_approved_count: khanData.auto_approved_count || 0,
+              youtube_quota_exhausted: true,
+              fallback_source: 'khan_academy',
+              cached: khanData.cached || false,
+              message: "YouTube quota exhausted. Using Khan Academy as primary source."
+            }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+      } catch (khanError) {
+        console.error('Khan Academy fallback also failed:', khanError);
+      }
+
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "YouTube API quota limit reached for today",
+          quota_status: quotaStatus,
+          message: "Try again tomorrow or add Khan Academy content"
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 429 }
+      );
+    }
+
+    console.log(`Cache MISS for: "${searchConcept.substring(0, 50)}..." - proceeding with YouTube search`);
+    console.log(`YouTube quota remaining: ${quotaStatus.remaining} units`);
 
     // Step 1: Get AI-generated search strategies or fallback to rule-based
     let queries: string[] = [];
@@ -631,6 +776,39 @@ serve(async (req) => {
 
     const allMatches = [...savedMatches, ...khanMatches];
 
+    // Save YouTube results to cache for future searches
+    if (topCandidates.length > 0) {
+      const cacheableResults = topCandidates.map(candidate => ({
+        id: candidate.video.id,
+        title: candidate.video.title,
+        description: candidate.video.description,
+        url: `https://www.youtube.com/watch?v=${candidate.video.id}`,
+        thumbnail_url: candidate.video.thumbnailUrl,
+        duration: `PT${Math.floor(candidate.video.duration / 60)}M${candidate.video.duration % 60}S`,
+        channel_title: candidate.video.channelTitle,
+        source: 'youtube' as const,
+        view_count: candidate.video.viewCount,
+        quality_score: candidate.scores.total,
+      }));
+
+      try {
+        await saveToCache(searchConcept, cacheableResults, 'youtube');
+        console.log(`Cached ${cacheableResults.length} YouTube results for: "${searchConcept.substring(0, 50)}..."`);
+      } catch (cacheError) {
+        console.error('Error saving to cache:', cacheError);
+        // Non-blocking - continue even if cache save fails
+      }
+    }
+
+    // Track YouTube API quota usage (100 units per search query)
+    const queriesUsed = queries.length;
+    try {
+      await trackApiUsage('youtube', queriesUsed * 100);
+      console.log(`Tracked YouTube API usage: ${queriesUsed * 100} units`);
+    } catch (quotaError) {
+      console.error('Error tracking quota:', quotaError);
+    }
+
     return new Response(
       JSON.stringify({
         success: true,
@@ -642,6 +820,8 @@ serve(async (req) => {
         ai_evaluation_used: use_ai_evaluation,
         khan_academy_fallback_used: needsFallback && khanMatches.length > 0,
         khan_academy_results: khanMatches.length,
+        cached: false,
+        queries_used: queriesUsed,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
