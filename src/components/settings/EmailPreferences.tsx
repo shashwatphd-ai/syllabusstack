@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Bell, Mail, TrendingUp, Lightbulb } from 'lucide-react';
+import { Bell, Mail, TrendingUp, Lightbulb, Trophy, BookOpen, Target, Sparkles } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
+import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
@@ -12,12 +13,18 @@ interface EmailPreferencesData {
   weekly_digest: boolean;
   progress_updates: boolean;
   new_recommendations: boolean;
+  achievement_notifications: boolean;
+  new_content_alerts: boolean;
+  gap_analysis_reminders: boolean;
 }
 
 const defaultPreferences: EmailPreferencesData = {
   weekly_digest: true,
   progress_updates: true,
   new_recommendations: true,
+  achievement_notifications: true,
+  new_content_alerts: true,
+  gap_analysis_reminders: true,
 };
 
 export function EmailPreferences() {
@@ -49,6 +56,9 @@ export function EmailPreferences() {
           weekly_digest: Boolean(prefs.weekly_digest ?? defaultPreferences.weekly_digest),
           progress_updates: Boolean(prefs.progress_updates ?? defaultPreferences.progress_updates),
           new_recommendations: Boolean(prefs.new_recommendations ?? defaultPreferences.new_recommendations),
+          achievement_notifications: Boolean(prefs.achievement_notifications ?? defaultPreferences.achievement_notifications),
+          new_content_alerts: Boolean(prefs.new_content_alerts ?? defaultPreferences.new_content_alerts),
+          gap_analysis_reminders: Boolean(prefs.gap_analysis_reminders ?? defaultPreferences.gap_analysis_reminders),
         });
       }
     } catch (error) {
@@ -172,6 +182,66 @@ export function EmailPreferences() {
             id="new-recommendations"
             checked={preferences.new_recommendations}
             onCheckedChange={(checked) => updatePreference('new_recommendations', checked)}
+          />
+        </div>
+
+        <Separator />
+
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Trophy className="h-4 w-4 text-muted-foreground" />
+            <div>
+              <Label htmlFor="achievement-notifications" className="flex items-center gap-2">
+                Achievement Notifications
+                <Badge variant="secondary" className="text-xs">New</Badge>
+              </Label>
+              <p className="text-sm text-muted-foreground">
+                Celebrate when you earn new achievements and XP
+              </p>
+            </div>
+          </div>
+          <Switch
+            id="achievement-notifications"
+            checked={preferences.achievement_notifications}
+            onCheckedChange={(checked) => updatePreference('achievement_notifications', checked)}
+          />
+        </div>
+
+        <Separator />
+
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <BookOpen className="h-4 w-4 text-muted-foreground" />
+            <div>
+              <Label htmlFor="new-content-alerts">New Content Alerts</Label>
+              <p className="text-sm text-muted-foreground">
+                Get notified when new learning content is added to your courses
+              </p>
+            </div>
+          </div>
+          <Switch
+            id="new-content-alerts"
+            checked={preferences.new_content_alerts}
+            onCheckedChange={(checked) => updatePreference('new_content_alerts', checked)}
+          />
+        </div>
+
+        <Separator />
+
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Target className="h-4 w-4 text-muted-foreground" />
+            <div>
+              <Label htmlFor="gap-analysis-reminders">Gap Analysis Reminders</Label>
+              <p className="text-sm text-muted-foreground">
+                Periodic reminders about your top priority skill gaps
+              </p>
+            </div>
+          </div>
+          <Switch
+            id="gap-analysis-reminders"
+            checked={preferences.gap_analysis_reminders}
+            onCheckedChange={(checked) => updatePreference('gap_analysis_reminders', checked)}
           />
         </div>
       </CardContent>
