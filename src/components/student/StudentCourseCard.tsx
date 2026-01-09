@@ -1,16 +1,19 @@
 import { useNavigate } from 'react-router-dom';
-import { BookOpen, CheckCircle2, Clock, ArrowRight } from 'lucide-react';
+import { BookOpen, CheckCircle2, Clock, ArrowRight, Layers } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { StudentEnrollment } from '@/hooks/useStudentCourses';
+import { ProgressRing } from '@/components/common/ProgressRing';
 
 interface StudentCourseCardProps {
   enrollment: StudentEnrollment;
+  modulesCompleted?: number;
+  totalModules?: number;
 }
 
-export function StudentCourseCard({ enrollment }: StudentCourseCardProps) {
+export function StudentCourseCard({ enrollment, modulesCompleted, totalModules }: StudentCourseCardProps) {
   const navigate = useNavigate();
   const course = enrollment.instructor_course;
   const progress = enrollment.overall_progress || 0;
@@ -57,12 +60,30 @@ export function StudentCourseCard({ enrollment }: StudentCourseCardProps) {
           </p>
         )}
 
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">Progress</span>
-            <span className="font-medium">{Math.round(progress)}%</span>
+        <div className="space-y-3">
+          {/* Visual Progress Ring */}
+          <div className="flex items-center gap-4">
+            <ProgressRing
+              progress={progress}
+              size="md"
+              color={isCompleted ? 'success' : progress >= 75 ? 'accent' : 'primary'}
+            />
+            <div className="flex-1 space-y-1">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Overall Progress</span>
+                <span className="font-semibold">{Math.round(progress)}%</span>
+              </div>
+              <Progress value={progress} className="h-2" />
+              {totalModules !== undefined && totalModules > 0 && (
+                <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <Layers className="h-3 w-3" />
+                  <span>
+                    {modulesCompleted ?? 0}/{totalModules} modules completed
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
-          <Progress value={progress} className="h-2" />
         </div>
 
         <div className="flex items-center justify-between pt-2">
