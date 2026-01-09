@@ -53,8 +53,7 @@ export function DreamJobSuggestions({
       title: job.title,
       company_type: job.companyTypes?.[0] || null,
       location: null,
-      salary_min: parseSalaryMin(job.salaryRange),
-      salary_max: parseSalaryMax(job.salaryRange),
+      salary_range: job.salaryRange || null,
       description: job.description,
       is_primary: false,
     });
@@ -269,25 +268,6 @@ export function DreamJobSuggestions({
       )}
     </div>
   );
-}
-
-// Helper functions to parse salary range
-function parseSalaryMin(salaryRange: string): number | null {
-  const match = salaryRange.match(/\$(\d+)/);
-  if (match) {
-    const value = parseInt(match[1], 10);
-    return value > 1000 ? value : value * 1000; // Handle K notation
-  }
-  return null;
-}
-
-function parseSalaryMax(salaryRange: string): number | null {
-  const matches = salaryRange.match(/\$(\d+)/g);
-  if (matches && matches.length >= 2) {
-    const value = parseInt(matches[1].replace('$', ''), 10);
-    return value > 1000 ? value : value * 1000;
-  }
-  return null;
 }
 
 // Compact version for sidebars or smaller spaces

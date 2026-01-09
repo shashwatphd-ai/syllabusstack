@@ -281,24 +281,28 @@ export function getLevelProgress(totalXP: number, level: number): number {
 // Tier colors and icons
 export const tierConfig = {
   bronze: {
+    tier: 'bronze' as const,
     color: 'text-orange-600',
     bgColor: 'bg-orange-100',
     borderColor: 'border-orange-300',
     label: 'Bronze',
   },
   silver: {
+    tier: 'silver' as const,
     color: 'text-slate-500',
     bgColor: 'bg-slate-100',
     borderColor: 'border-slate-300',
     label: 'Silver',
   },
   gold: {
+    tier: 'gold' as const,
     color: 'text-yellow-600',
     bgColor: 'bg-yellow-100',
     borderColor: 'border-yellow-300',
     label: 'Gold',
   },
   platinum: {
+    tier: 'platinum' as const,
     color: 'text-purple-600',
     bgColor: 'bg-purple-100',
     borderColor: 'border-purple-300',
