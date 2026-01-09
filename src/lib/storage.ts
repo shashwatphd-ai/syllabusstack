@@ -1,4 +1,4 @@
-// EduThree Storage Utilities
+// SyllabusStack Storage Utilities
 // Handles file upload/download for syllabi
 
 import { supabase } from '@/integrations/supabase/client';

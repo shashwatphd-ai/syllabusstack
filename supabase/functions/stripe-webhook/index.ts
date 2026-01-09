@@ -214,9 +214,9 @@ async function handlePaymentFailed(
   // Find user by Stripe customer ID
   const { data: profile } = await supabase
     .from("profiles")
-    .select("user_id, email")
+    .select("user_id, email, full_name")
     .eq("stripe_customer_id", customerId)
-    .single() as { data: { user_id: string; email: string } | null };
+    .single() as { data: { user_id: string; email: string; full_name: string | null } | null };
 
   if (!profile) {
     console.error("No profile found for customer:", customerId);
@@ -229,7 +229,51 @@ async function handlePaymentFailed(
     .update({ subscription_status: "past_due" })
     .eq("user_id", profile.user_id);
 
-  // TODO: Send payment failed email notification
+  // Send payment failed email notification
+  const resendApiKey = Deno.env.get("RESEND_API_KEY");
+  if (resendApiKey && profile.email) {
+    try {
+      const emailResponse = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${resendApiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from: "SyllabusStack <noreply@syllabusstack.com>",
+          to: [profile.email],
+          subject: "Payment Failed - Action Required",
+          html: `
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+              <h1 style="color: #4F46E5;">Payment Failed</h1>
+              <p>Hi ${profile.full_name || "there"},</p>
+              <p>We were unable to process your recent payment for your SyllabusStack Pro subscription.</p>
+              <p>Please update your payment method to avoid service interruption:</p>
+              <p style="margin: 24px 0;">
+                <a href="https://syllabusstack.com/billing"
+                   style="background: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px;">
+                  Update Payment Method
+                </a>
+              </p>
+              <p>If you have any questions, please contact our support team.</p>
+              <p style="color: #666; font-size: 14px; margin-top: 32px;">
+                — The SyllabusStack Team
+              </p>
+            </div>
+          `,
+        }),
+      });
+
+      if (!emailResponse.ok) {
+        console.error("Failed to send payment failed email:", await emailResponse.text());
+      } else {
+        console.log(`Payment failed email sent to ${profile.email}`);
+      }
+    } catch (emailError) {
+      console.error("Error sending payment failed email:", emailError);
+    }
+  }
+
   console.log(`Payment failed for user ${profile.user_id}`);
 }
 

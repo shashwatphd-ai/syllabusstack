@@ -85,7 +85,7 @@ export default function Auth() {
     } else {
       toast({
         title: 'Account Created!',
-        description: 'Welcome to EduThree. Let\'s get you set up.',
+        description: 'Welcome to SyllabusStack. Let\'s get you set up.',
       });
       navigate('/onboarding');
     }
@@ -106,7 +106,7 @@ export default function Auth() {
       <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-primary to-primary/80 p-12 flex-col justify-between">
         <div className="flex items-center gap-3">
           <GraduationCap className="h-10 w-10 text-primary-foreground" />
-          <span className="text-2xl font-bold text-primary-foreground">EduThree</span>
+          <span className="text-2xl font-bold text-primary-foreground">SyllabusStack</span>
         </div>
         
         <div className="space-y-6">
@@ -114,7 +114,7 @@ export default function Auth() {
             Transform Your Education Into Career Readiness
           </h1>
           <p className="text-xl text-primary-foreground/80">
-            EduThree helps you connect your coursework to your dream job through AI-powered analysis and personalized recommendations.
+            SyllabusStack helps you connect your coursework to your dream job through AI-powered analysis and personalized recommendations.
           </p>
         </div>
 
@@ -131,7 +131,7 @@ export default function Auth() {
           <CardHeader className="text-center lg:hidden">
             <div className="flex items-center justify-center gap-2 mb-4">
               <GraduationCap className="h-8 w-8 text-primary" />
-              <span className="text-xl font-bold">EduThree</span>
+              <span className="text-xl font-bold">SyllabusStack</span>
             </div>
           </CardHeader>
           

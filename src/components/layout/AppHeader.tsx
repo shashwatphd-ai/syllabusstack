@@ -141,10 +141,9 @@ export function AppHeader({ onMenuClick, showSearch = true }: AppHeaderProps) {
             </Button>
           )}
 
-          {/* Notifications */}
-          <Button variant="ghost" size="icon" className="relative">
+          {/* Notifications - placeholder for future implementation */}
+          <Button variant="ghost" size="icon" className="relative" title="Notifications coming soon">
             <Bell className="h-5 w-5" />
-            <span className="absolute top-1 right-1 w-2 h-2 bg-accent rounded-full" />
           </Button>
 
           {/* User menu */}
@@ -227,7 +226,10 @@ export function MobileNav({ open, onClose }: { open: boolean; onClose: () => voi
     { name: 'Dream Jobs', href: '/dream-jobs' },
     { name: 'Gap Analysis', href: '/analysis' },
     { name: 'Recommendations', href: '/recommendations' },
+    { name: 'My Learning', href: '/learn/courses' },
     { name: 'Profile', href: '/profile' },
+    { name: 'AI Usage', href: '/usage' },
+    { name: 'Billing', href: '/billing' },
     { name: 'Settings', href: '/settings' },
   ];
 
