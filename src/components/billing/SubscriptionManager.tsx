@@ -27,6 +27,19 @@ export function SubscriptionManager() {
 
   const tierInfo = TIER_INFO[tier];
 
+  const openCheckoutInNewTab = (nextTier: 'pro', annual = false) => {
+    const url = `/checkout?tier=${encodeURIComponent(nextTier)}&isAnnual=${annual ? '1' : '0'}&returnTo=${encodeURIComponent('/billing#pricing')}`;
+    const opened = window.open(url, '_blank', 'noopener,noreferrer');
+
+    if (!opened) {
+      toast({
+        title: 'Popup blocked',
+        description: 'Please allow popups to continue to checkout.',
+        variant: 'destructive',
+      });
+    }
+  };
+
   const handleManageBilling = async () => {
     setIsManaging(true);
     try {
@@ -41,7 +54,11 @@ export function SubscriptionManager() {
       if (data?.url) {
         const opened = window.open(data.url, '_blank', 'noopener,noreferrer');
         if (!opened) {
-          window.location.href = data.url;
+          toast({
+            title: 'Popup blocked',
+            description: 'Please allow popups to open the billing portal.',
+            variant: 'destructive',
+          });
         }
       }
     } catch (error) {
@@ -155,48 +172,7 @@ export function SubscriptionManager() {
         {/* Actions */}
         <div className="flex flex-wrap gap-3">
           {tier === 'free' ? (
-            <Button
-              onClick={async () => {
-                const popup = window.open('about:blank', '_blank');
-
-                try {
-                  const { data, error } = await supabase.functions.invoke('create-checkout-session', {
-                    body: {
-                      tier: 'pro',
-                      isAnnual: false,
-                      successUrl: `${window.location.origin}/billing?success=true`,
-                      cancelUrl: `${window.location.origin}/billing?canceled=true`,
-                    },
-                  });
-
-                  if (error) throw error;
-
-                  if (data?.url) {
-                    if (popup) {
-                      try {
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        (popup as any).opener = null;
-                      } catch {
-                        // ignore
-                      }
-                      popup.location.href = data.url;
-                    } else {
-                      window.location.href = data.url;
-                    }
-                  } else {
-                    throw new Error('Checkout URL missing');
-                  }
-                } catch (err) {
-                  if (popup) popup.close();
-                  console.error('Checkout error:', err);
-                  toast({
-                    title: 'Checkout failed',
-                    description: 'Unable to start checkout. Please try again.',
-                    variant: 'destructive',
-                  });
-                }
-              }}
-            >
+            <Button onClick={() => openCheckoutInNewTab('pro', false)}>
               Upgrade to Pro
             </Button>
           ) : (
