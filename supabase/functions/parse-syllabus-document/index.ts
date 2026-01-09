@@ -109,16 +109,40 @@ serve(async (req) => {
     // Use Google Cloud Vision API for OCR (part of Document AI but simpler to call)
     // This works well for PDFs, images, and scanned documents
     const visionUrl = `https://vision.googleapis.com/v1/images:annotate?key=${GOOGLE_CLOUD_API_KEY}`;
-    
-    // For PDFs, we need to use Document AI's document processing
-    // For images and simple PDFs, Vision API works well
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GOOGLE_CLOUD_API_KEY}`;
+
     let extractedText = "";
 
-    if (mimeType === "application/pdf") {
-      // Use Gemini for PDF text extraction (it handles PDFs directly)
-      // This is more cost-effective than Document AI for simple text extraction
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GOOGLE_CLOUD_API_KEY}`;
-      
+    // Use Gemini for all document types - it handles PDFs and images well
+    // and is more reliable than Vision API which requires separate enablement
+    const extractionPrompt = mimeType === "application/pdf"
+      ? `Extract ALL text content from this syllabus document.
+
+Include:
+- Course title and code
+- Instructor information
+- Course description and objectives
+- Weekly schedule and topics
+- Assignments and grading criteria
+- Required textbooks and materials
+- Learning outcomes
+
+Format the extracted text clearly, preserving the document structure.
+Do NOT summarize - extract the complete text content.`
+      : `Extract ALL text content from this syllabus image using OCR.
+
+Include all visible text:
+- Course title and code
+- Instructor information
+- Course description and objectives
+- Weekly schedule and topics
+- Assignments and grading
+- Any other visible text
+
+Format the extracted text clearly, preserving the document structure.
+Do NOT summarize - extract the complete text content.`;
+
+    try {
       const geminiResponse = await fetch(geminiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -131,21 +155,7 @@ serve(async (req) => {
                   data: base64Content
                 }
               },
-              {
-                text: `Extract ALL text content from this syllabus document. 
-                
-Include:
-- Course title and code
-- Instructor information
-- Course description and objectives
-- Weekly schedule and topics
-- Assignments and grading criteria
-- Required textbooks and materials
-- Learning outcomes
-
-Format the extracted text clearly, preserving the document structure.
-Do NOT summarize - extract the complete text content.`
-              }
+              { text: extractionPrompt }
             ]
           }],
           generationConfig: {
@@ -157,39 +167,55 @@ Do NOT summarize - extract the complete text content.`
 
       if (!geminiResponse.ok) {
         const errorText = await geminiResponse.text();
-        console.error("Gemini PDF extraction error:", errorText);
-        throw new Error(`Failed to extract text from PDF: ${geminiResponse.status}`);
+        console.error("Gemini extraction error:", errorText);
+        throw new Error(`Gemini API error: ${geminiResponse.status}`);
       }
 
       const geminiData = await geminiResponse.json();
       extractedText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || "";
-      
-      console.log(`Extracted ${extractedText.length} characters from PDF`);
-    } else {
-      // For images, use Vision API OCR
-      const visionResponse = await fetch(visionUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          requests: [{
-            image: { content: base64Content },
-            features: [
-              { type: "DOCUMENT_TEXT_DETECTION", maxResults: 50 }
-            ]
-          }]
-        })
-      });
 
-      if (!visionResponse.ok) {
-        const errorText = await visionResponse.text();
-        console.error("Vision API error:", errorText);
-        throw new Error(`Failed to extract text from image: ${visionResponse.status}`);
+      console.log(`Extracted ${extractedText.length} characters from ${mimeType} via Gemini`);
+    } catch (geminiError) {
+      console.error("Gemini extraction failed:", geminiError);
+
+      // Fallback to Vision API for images only
+      if (mimeType.startsWith("image/")) {
+        console.log("Attempting fallback to Vision API...");
+
+        const visionResponse = await fetch(visionUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            requests: [{
+              image: { content: base64Content },
+              features: [
+                { type: "DOCUMENT_TEXT_DETECTION", maxResults: 50 }
+              ]
+            }]
+          })
+        });
+
+        if (!visionResponse.ok) {
+          const errorText = await visionResponse.text();
+          console.error("Vision API error:", errorText);
+
+          // Provide helpful error message
+          if (visionResponse.status === 403) {
+            throw new Error(
+              "Image OCR failed: Google Cloud Vision API may not be enabled. " +
+              "Please enable the Vision API in Google Cloud Console, or upload a PDF file instead."
+            );
+          }
+          throw new Error(`Failed to extract text from image: ${visionResponse.status}`);
+        }
+
+        const visionData = await visionResponse.json();
+        extractedText = visionData.responses?.[0]?.fullTextAnnotation?.text || "";
+
+        console.log(`Extracted ${extractedText.length} characters via Vision API fallback`);
+      } else {
+        throw geminiError;
       }
-
-      const visionData = await visionResponse.json();
-      extractedText = visionData.responses?.[0]?.fullTextAnnotation?.text || "";
-      
-      console.log(`Extracted ${extractedText.length} characters via OCR`);
     }
 
     if (!extractedText || extractedText.length < 50) {
