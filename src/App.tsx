@@ -21,6 +21,7 @@ import RecommendationsPage from "./pages/Recommendations";
 import ProfilePage from "./pages/Profile";
 import SettingsPage from "./pages/Settings";
 import BillingPage from "./pages/Billing";
+import CheckoutPage from "./pages/Checkout";
 import SyllabusScannerPage from "./pages/SyllabusScanner";
 import UsagePage from "./pages/Usage";
 import TestResultsPage from "./pages/TestResults";
@@ -76,6 +77,7 @@ const App = () => (
             <Route path="/profile" element={<AuthGuard><ProfilePage /></AuthGuard>} />
             <Route path="/settings" element={<AuthGuard><SettingsPage /></AuthGuard>} />
             <Route path="/billing" element={<AuthGuard><BillingPage /></AuthGuard>} />
+            <Route path="/checkout" element={<AuthGuard><CheckoutPage /></AuthGuard>} />
             <Route path="/usage" element={<AuthGuard><UsagePage /></AuthGuard>} />
 
             {/* Student learning routes */}
