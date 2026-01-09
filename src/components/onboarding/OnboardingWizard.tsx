@@ -1,15 +1,16 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  ChevronRight, 
-  ChevronLeft, 
+import {
+  ChevronRight,
+  ChevronLeft,
   User,
   BookOpen,
   Briefcase,
   Sparkles,
   Check,
   Loader2,
-  Gift
+  Gift,
+  Lightbulb
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,10 +23,12 @@ import {
 } from '@/components/ui/select';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 import { CourseUploader, CourseData } from './CourseUploader';
 import { DreamJobSelector, DreamJob } from './DreamJobSelector';
 import { AIProcessingIndicator } from './AIProcessingIndicator';
+import { DreamJobSuggestions } from '@/components/dreamjobs/DreamJobSuggestions';
 import { toast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { useUpdateProfile, useCompleteOnboarding } from '@/hooks/useProfile';
@@ -437,18 +440,66 @@ export function OnboardingWizard() {
 
         {/* Dream Jobs Step */}
         {currentStep === 'dream-jobs' && (
-          <Card>
-            <CardHeader>
-              <CardTitle>What roles are you targeting?</CardTitle>
-              <CardDescription>
-                Tell us your dream jobs and we'll analyze what they actually require.
-                Add up to 5 target roles.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <DreamJobSelector onJobsChange={setDreamJobs} />
-            </CardContent>
-          </Card>
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>What roles are you targeting?</CardTitle>
+                <CardDescription>
+                  Get AI-powered suggestions based on your courses, or manually add your dream jobs.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Tabs defaultValue="suggestions" className="w-full">
+                  <TabsList className="grid w-full grid-cols-2 mb-4">
+                    <TabsTrigger value="suggestions" className="gap-2">
+                      <Lightbulb className="h-4 w-4" />
+                      AI Suggestions
+                    </TabsTrigger>
+                    <TabsTrigger value="manual" className="gap-2">
+                      <Briefcase className="h-4 w-4" />
+                      Add Manually
+                    </TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="suggestions">
+                    <DreamJobSuggestions
+                      onJobAdded={() => {
+                        // Refresh dream jobs list
+                        toast({
+                          title: 'Dream job added!',
+                          description: 'Your gap analysis will be updated.',
+                        });
+                      }}
+                      showDiscoverButton={true}
+                    />
+                  </TabsContent>
+                  <TabsContent value="manual">
+                    <DreamJobSelector onJobsChange={setDreamJobs} />
+                  </TabsContent>
+                </Tabs>
+              </CardContent>
+            </Card>
+
+            {/* Added Dream Jobs Counter */}
+            {dreamJobs.length > 0 && (
+              <Card className="border-success/30 bg-success/5">
+                <CardContent className="py-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-success/10 flex items-center justify-center">
+                      <Check className="h-5 w-5 text-success" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium">
+                        {dreamJobs.length} dream job{dreamJobs.length !== 1 ? 's' : ''} added
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Gap analysis will run automatically
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
         )}
 
         {/* Complete Step */}
