@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { AuthGuard, GuestGuard } from "@/components/auth/AuthGuard";
 import { queryClient } from "@/lib/query-client";
+import { AchievementToastProvider } from "@/components/achievements/AchievementUnlockToast";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 import Auth from "./pages/Auth";
@@ -19,6 +20,7 @@ import AnalysisPage from "./pages/Analysis";
 import RecommendationsPage from "./pages/Recommendations";
 import ProfilePage from "./pages/Profile";
 import SettingsPage from "./pages/Settings";
+import BillingPage from "./pages/Billing";
 import SyllabusScannerPage from "./pages/SyllabusScanner";
 import UsagePage from "./pages/Usage";
 import TestResultsPage from "./pages/TestResults";
@@ -32,6 +34,12 @@ import InstructorCoursesPage from "./pages/instructor/InstructorCourses";
 import InstructorCourseDetailPage from "./pages/instructor/InstructorCourseDetail";
 import QuickCourseSetupPage from "./pages/instructor/QuickCourseSetup";
 import { StudentCoursesPage, StudentCourseDetailPage, LearningObjectivePage, AssessmentPage } from "./pages/student";
+// Admin pages
+import AdminDashboard from "./pages/admin/AdminDashboard";
+import UserManagement from "./pages/admin/UserManagement";
+import OutcomesReport from "./pages/admin/OutcomesReport";
+import CourseManagement from "./pages/admin/CourseManagement";
+import BrandingSettings from "./pages/admin/BrandingSettings";
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -39,6 +47,7 @@ const App = () => (
       <TooltipProvider>
         <Toaster />
         <Sonner />
+        <AchievementToastProvider />
         <BrowserRouter>
           <Routes>
             {/* Public routes */}
@@ -66,6 +75,7 @@ const App = () => (
             <Route path="/recommendations" element={<AuthGuard><RecommendationsPage /></AuthGuard>} />
             <Route path="/profile" element={<AuthGuard><ProfilePage /></AuthGuard>} />
             <Route path="/settings" element={<AuthGuard><SettingsPage /></AuthGuard>} />
+            <Route path="/billing" element={<AuthGuard><BillingPage /></AuthGuard>} />
             <Route path="/usage" element={<AuthGuard><UsagePage /></AuthGuard>} />
 
             {/* Student learning routes */}
@@ -78,6 +88,13 @@ const App = () => (
             <Route path="/instructor/courses" element={<AuthGuard><InstructorCoursesPage /></AuthGuard>} />
             <Route path="/instructor/courses/:id" element={<AuthGuard><InstructorCourseDetailPage /></AuthGuard>} />
             <Route path="/instructor/quick-setup" element={<AuthGuard><QuickCourseSetupPage /></AuthGuard>} />
+
+            {/* Admin routes (University tier) */}
+            <Route path="/admin" element={<AuthGuard><AdminDashboard /></AuthGuard>} />
+            <Route path="/admin/users" element={<AuthGuard><UserManagement /></AuthGuard>} />
+            <Route path="/admin/outcomes" element={<AuthGuard><OutcomesReport /></AuthGuard>} />
+            <Route path="/admin/courses" element={<AuthGuard><CourseManagement /></AuthGuard>} />
+            <Route path="/admin/branding" element={<AuthGuard><BrandingSettings /></AuthGuard>} />
 
             {/* Catch-all */}
             <Route path="*" element={<NotFound />} />
