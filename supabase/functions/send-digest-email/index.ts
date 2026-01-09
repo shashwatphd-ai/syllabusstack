@@ -156,7 +156,7 @@ const handler = async (req: Request): Promise<Response> => {
 };
 
 async function gatherDigestData(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   user: { user_id: string; email: string; full_name: string | null; last_active_at: string | null },
   oneWeekAgo: Date
 ): Promise<DigestData> {
@@ -165,50 +165,49 @@ async function gatherDigestData(
   // Get recommendations stats
   const { data: recommendations } = await supabase
     .from('recommendations')
-    .select('title, status, completed_at')
-    .eq('user_id', userId);
+    .select('title, status, updated_at')
+    .eq('user_id', userId) as { data: Array<{ title: string; status: string; updated_at: string }> | null };
 
   const completedThisWeek = recommendations?.filter(
-    r => r.status === 'completed' && r.completed_at && new Date(r.completed_at) > oneWeekAgo
+    (r: any) => r.status === 'completed' && r.updated_at && new Date(r.updated_at) > oneWeekAgo
   ).length || 0;
-  const pendingTotal = recommendations?.filter(r => r.status === 'pending').length || 0;
+  const pendingTotal = recommendations?.filter((r: any) => r.status === 'pending').length || 0;
 
-  // Get learning progress
+  // Get learning progress from course_enrollments
   const { data: enrollments } = await supabase
-    .from('enrollments')
-    .select('course_id, progress_percent')
-    .eq('user_id', userId);
+    .from('course_enrollments')
+    .select('instructor_course_id, overall_progress')
+    .eq('student_id', userId) as { data: Array<{ instructor_course_id: string; overall_progress: number | null }> | null };
 
   const avgProgress = enrollments?.length
-    ? Math.round(enrollments.reduce((sum, e) => sum + (e.progress_percent || 0), 0) / enrollments.length)
+    ? Math.round(enrollments.reduce((sum: number, e: any) => sum + (e.overall_progress || 0), 0) / enrollments.length)
     : 0;
 
-  // Get content watched this week
+  // Get content watched this week from consumption_records
   const { count: contentWatchedCount } = await supabase
-    .from('user_progress')
+    .from('consumption_records')
     .select('id', { count: 'exact' })
     .eq('user_id', userId)
     .gte('created_at', oneWeekAgo.toISOString());
 
-  // Get top priority from gap analysis
+  // Get top priority from gap_analyses
   const { data: gapAnalysis } = await supabase
-    .from('gap_analysis_results')
-    .select('skill_name, importance')
+    .from('gap_analyses')
+    .select('critical_gaps, priority_gaps')
     .eq('user_id', userId)
-    .eq('status', 'gap')
-    .order('importance', { ascending: false })
-    .limit(1);
+    .order('created_at', { ascending: false })
+    .limit(1) as { data: Array<{ critical_gaps: any; priority_gaps: any }> | null };
 
-  const topPriorityGap = gapAnalysis?.[0] ? {
-    skill: gapAnalysis[0].skill_name,
-    importance: gapAnalysis[0].importance,
+  const topPriorityGap = gapAnalysis?.[0]?.critical_gaps?.[0] ? {
+    skill: gapAnalysis[0].critical_gaps[0].skill || 'Skill gap identified',
+    importance: gapAnalysis[0].critical_gaps[0].importance || 'high',
   } : undefined;
 
   // Get next recommendation
-  const nextRec = recommendations?.find(r => r.status === 'pending')?.title;
+  const nextRec = recommendations?.find((r: any) => r.status === 'pending')?.title;
 
   // Get new content added to enrolled courses
-  const courseIds = enrollments?.map(e => e.course_id) || [];
+  const courseIds = enrollments?.map((e: any) => e.instructor_course_id) || [];
   let newContentItems: DigestData['new_content_items'] = [];
   let newContentCount = 0;
 
@@ -251,7 +250,7 @@ async function gatherDigestData(
     .from('user_xp')
     .select('total_xp, level')
     .eq('user_id', userId)
-    .single();
+    .single() as { data: { total_xp: number; level: number } | null };
 
   // Calculate days since active
   const lastActive = user.last_active_at ? new Date(user.last_active_at) : new Date(0);

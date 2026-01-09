@@ -14,6 +14,45 @@ export type Database = {
   }
   public: {
     Tables: {
+      achievements: {
+        Row: {
+          created_at: string | null
+          description: string
+          icon: string
+          id: string
+          key: string
+          name: string
+          requirement_count: number | null
+          requirement_type: string
+          tier: string | null
+          xp_reward: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          description: string
+          icon: string
+          id?: string
+          key: string
+          name: string
+          requirement_count?: number | null
+          requirement_type: string
+          tier?: string | null
+          xp_reward?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          description?: string
+          icon?: string
+          id?: string
+          key?: string
+          name?: string
+          requirement_count?: number | null
+          requirement_type?: string
+          tier?: string | null
+          xp_reward?: number | null
+        }
+        Relationships: []
+      }
       ai_cache: {
         Row: {
           cache_key: string
@@ -465,11 +504,13 @@ export type Database = {
       }
       content: {
         Row: {
+          average_rating: number | null
           channel_id: string | null
           channel_name: string | null
           created_at: string | null
           created_by: string | null
           description: string | null
+          difficulty_distribution: Json | null
           duration_seconds: number | null
           id: string
           is_available: boolean | null
@@ -478,6 +519,7 @@ export type Database = {
           like_ratio: number | null
           published_at: string | null
           quality_score: number | null
+          rating_count: number | null
           source_id: string | null
           source_type: string
           source_url: string | null
@@ -487,11 +529,13 @@ export type Database = {
           view_count: number | null
         }
         Insert: {
+          average_rating?: number | null
           channel_id?: string | null
           channel_name?: string | null
           created_at?: string | null
           created_by?: string | null
           description?: string | null
+          difficulty_distribution?: Json | null
           duration_seconds?: number | null
           id?: string
           is_available?: boolean | null
@@ -500,6 +544,7 @@ export type Database = {
           like_ratio?: number | null
           published_at?: string | null
           quality_score?: number | null
+          rating_count?: number | null
           source_id?: string | null
           source_type: string
           source_url?: string | null
@@ -509,11 +554,13 @@ export type Database = {
           view_count?: number | null
         }
         Update: {
+          average_rating?: number | null
           channel_id?: string | null
           channel_name?: string | null
           created_at?: string | null
           created_by?: string | null
           description?: string | null
+          difficulty_distribution?: Json | null
           duration_seconds?: number | null
           id?: string
           is_available?: boolean | null
@@ -522,6 +569,7 @@ export type Database = {
           like_ratio?: number | null
           published_at?: string | null
           quality_score?: number | null
+          rating_count?: number | null
           source_id?: string | null
           source_type?: string
           source_url?: string | null
@@ -651,6 +699,53 @@ export type Database = {
           },
         ]
       }
+      content_ratings: {
+        Row: {
+          comment: string | null
+          content_id: string
+          created_at: string | null
+          difficulty: string | null
+          helpful: boolean | null
+          id: string
+          rating: number
+          updated_at: string | null
+          user_id: string
+          watch_percentage: number | null
+        }
+        Insert: {
+          comment?: string | null
+          content_id: string
+          created_at?: string | null
+          difficulty?: string | null
+          helpful?: boolean | null
+          id?: string
+          rating: number
+          updated_at?: string | null
+          user_id: string
+          watch_percentage?: number | null
+        }
+        Update: {
+          comment?: string | null
+          content_id?: string
+          created_at?: string | null
+          difficulty?: string | null
+          helpful?: boolean | null
+          id?: string
+          rating?: number
+          updated_at?: string | null
+          user_id?: string
+          watch_percentage?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "content_ratings_content_id_fkey"
+            columns: ["content_id"]
+            isOneToOne: false
+            referencedRelation: "content"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       content_search_strategies: {
         Row: {
           created_at: string | null
@@ -685,6 +780,65 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "content_search_strategies_learning_objective_id_fkey"
+            columns: ["learning_objective_id"]
+            isOneToOne: false
+            referencedRelation: "learning_objectives"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      content_suggestions: {
+        Row: {
+          created_at: string | null
+          description: string | null
+          id: string
+          learning_objective_id: string
+          reviewed_at: string | null
+          reviewer_id: string | null
+          reviewer_notes: string | null
+          source_type: string | null
+          status: string | null
+          title: string | null
+          updated_at: string | null
+          url: string
+          user_id: string
+          votes: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          learning_objective_id: string
+          reviewed_at?: string | null
+          reviewer_id?: string | null
+          reviewer_notes?: string | null
+          source_type?: string | null
+          status?: string | null
+          title?: string | null
+          updated_at?: string | null
+          url: string
+          user_id: string
+          votes?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          learning_objective_id?: string
+          reviewed_at?: string | null
+          reviewer_id?: string | null
+          reviewer_notes?: string | null
+          source_type?: string | null
+          status?: string | null
+          title?: string | null
+          updated_at?: string | null
+          url?: string
+          user_id?: string
+          votes?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "content_suggestions_learning_objective_id_fkey"
             columns: ["learning_objective_id"]
             isOneToOne: false
             referencedRelation: "learning_objectives"
@@ -1260,6 +1414,8 @@ export type Database = {
       }
       profiles: {
         Row: {
+          ai_calls_reset_at: string | null
+          ai_calls_this_month: number | null
           avatar_url: string | null
           created_at: string
           email: string | null
@@ -1272,12 +1428,20 @@ export type Database = {
           onboarding_completed: boolean | null
           onboarding_step: number | null
           preferences: Json | null
+          stripe_customer_id: string | null
+          stripe_subscription_id: string | null
           student_level: string | null
+          subscription_ends_at: string | null
+          subscription_started_at: string | null
+          subscription_status: string | null
+          subscription_tier: string | null
           university: string | null
           updated_at: string
           user_id: string
         }
         Insert: {
+          ai_calls_reset_at?: string | null
+          ai_calls_this_month?: number | null
           avatar_url?: string | null
           created_at?: string
           email?: string | null
@@ -1290,12 +1454,20 @@ export type Database = {
           onboarding_completed?: boolean | null
           onboarding_step?: number | null
           preferences?: Json | null
+          stripe_customer_id?: string | null
+          stripe_subscription_id?: string | null
           student_level?: string | null
+          subscription_ends_at?: string | null
+          subscription_started_at?: string | null
+          subscription_status?: string | null
+          subscription_tier?: string | null
           university?: string | null
           updated_at?: string
           user_id: string
         }
         Update: {
+          ai_calls_reset_at?: string | null
+          ai_calls_this_month?: number | null
           avatar_url?: string | null
           created_at?: string
           email?: string | null
@@ -1308,7 +1480,13 @@ export type Database = {
           onboarding_completed?: boolean | null
           onboarding_step?: number | null
           preferences?: Json | null
+          stripe_customer_id?: string | null
+          stripe_subscription_id?: string | null
           student_level?: string | null
+          subscription_ends_at?: string | null
+          subscription_started_at?: string | null
+          subscription_status?: string | null
+          subscription_tier?: string | null
           university?: string | null
           updated_at?: string
           user_id?: string
@@ -1444,6 +1622,109 @@ export type Database = {
         }
         Relationships: []
       }
+      suggestion_votes: {
+        Row: {
+          created_at: string | null
+          id: string
+          suggestion_id: string
+          user_id: string
+          vote: number
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          suggestion_id: string
+          user_id: string
+          vote: number
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          suggestion_id?: string
+          user_id?: string
+          vote?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "suggestion_votes_suggestion_id_fkey"
+            columns: ["suggestion_id"]
+            isOneToOne: false
+            referencedRelation: "content_suggestions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tier_limits: {
+        Row: {
+          can_access_advanced_analytics: boolean | null
+          can_access_premium_content: boolean | null
+          can_export_pdf: boolean | null
+          can_see_all_recommendations: boolean | null
+          created_at: string | null
+          max_ai_calls_per_month: number
+          max_courses: number
+          max_dream_jobs: number
+          priority_support: boolean | null
+          tier: string
+        }
+        Insert: {
+          can_access_advanced_analytics?: boolean | null
+          can_access_premium_content?: boolean | null
+          can_export_pdf?: boolean | null
+          can_see_all_recommendations?: boolean | null
+          created_at?: string | null
+          max_ai_calls_per_month: number
+          max_courses: number
+          max_dream_jobs: number
+          priority_support?: boolean | null
+          tier: string
+        }
+        Update: {
+          can_access_advanced_analytics?: boolean | null
+          can_access_premium_content?: boolean | null
+          can_export_pdf?: boolean | null
+          can_see_all_recommendations?: boolean | null
+          created_at?: string | null
+          max_ai_calls_per_month?: number
+          max_courses?: number
+          max_dream_jobs?: number
+          priority_support?: boolean | null
+          tier?: string
+        }
+        Relationships: []
+      }
+      user_achievements: {
+        Row: {
+          achievement_id: string
+          earned_at: string | null
+          id: string
+          notified: boolean | null
+          user_id: string
+        }
+        Insert: {
+          achievement_id: string
+          earned_at?: string | null
+          id?: string
+          notified?: boolean | null
+          user_id: string
+        }
+        Update: {
+          achievement_id?: string
+          earned_at?: string | null
+          id?: string
+          notified?: boolean | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_achievements_achievement_id_fkey"
+            columns: ["achievement_id"]
+            isOneToOne: false
+            referencedRelation: "achievements"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_roles: {
         Row: {
           created_at: string | null
@@ -1465,11 +1746,51 @@ export type Database = {
         }
         Relationships: []
       }
+      user_xp: {
+        Row: {
+          level: number | null
+          total_xp: number | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          level?: number | null
+          total_xp?: number | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          level?: number | null
+          total_xp?: number | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
+      award_xp: {
+        Args: { p_amount: number; p_user_id: string }
+        Returns: {
+          leveled_up: boolean
+          new_level: number
+          new_total_xp: number
+        }[]
+      }
+      calculate_level: { Args: { xp: number }; Returns: number }
+      check_achievements: {
+        Args: { p_user_id: string }
+        Returns: {
+          newly_earned: string[]
+        }[]
+      }
+      check_tier_limit: {
+        Args: { p_limit_type: string; p_user_id: string }
+        Returns: boolean
+      }
       find_similar_capabilities: {
         Args: {
           result_limit?: number
@@ -1483,9 +1804,34 @@ export type Database = {
           similarity_score: number
         }[]
       }
+      get_subscription_details: {
+        Args: { p_user_id: string }
+        Returns: {
+          ai_calls_limit: number
+          ai_calls_used: number
+          can_access_advanced_analytics: boolean
+          can_export_pdf: boolean
+          can_see_all_recommendations: boolean
+          courses_limit: number
+          courses_used: number
+          dream_jobs_limit: number
+          dream_jobs_used: number
+          status: string
+          subscription_ends_at: string
+          tier: string
+        }[]
+      }
       get_user_role: {
         Args: { _user_id: string }
         Returns: Database["public"]["Enums"]["app_role"]
+      }
+      grant_achievement: {
+        Args: { p_achievement_key: string; p_user_id: string }
+        Returns: {
+          achievement_granted: boolean
+          achievement_name: string
+          xp_awarded: number
+        }[]
       }
       has_role: {
         Args: {
@@ -1494,6 +1840,15 @@ export type Database = {
         }
         Returns: boolean
       }
+      increment_ai_usage: {
+        Args: { p_user_id: string }
+        Returns: {
+          allowed: boolean
+          current_usage: number
+          max_usage: number
+          tier: string
+        }[]
+      }
       keyword_similarity: {
         Args: { arr1: string[]; arr2: string[] }
         Returns: number
@@ -1501,6 +1856,7 @@ export type Database = {
     }
     Enums: {
       app_role: "student" | "instructor" | "admin"
+      subscription_tier: "free" | "pro" | "university"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1629,6 +1985,7 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["student", "instructor", "admin"],
+      subscription_tier: ["free", "pro", "university"],
     },
   },
 } as const

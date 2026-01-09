@@ -69,10 +69,22 @@ export function useLOSuggestions(learningObjectiveId: string | undefined) {
         }
       }
 
-      return suggestions?.map(s => ({
-        ...s,
-        user_vote: userVotes[s.id] || 0,
-      })) as ContentSuggestion[];
+      return (suggestions || []).map(s => {
+        let userFullName: string | null = null;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const userData = s.user as any;
+        if (userData && typeof userData === 'object' && 'full_name' in userData) {
+          userFullName = userData.full_name;
+        }
+        
+        return {
+          ...s,
+          source_type: (s.source_type || 'other') as ContentSuggestion['source_type'],
+          status: (s.status || 'pending') as ContentSuggestion['status'],
+          user: { full_name: userFullName },
+          user_vote: userVotes[s.id] || 0,
+        };
+      }) as ContentSuggestion[];
     },
     enabled: !!learningObjectiveId,
   });

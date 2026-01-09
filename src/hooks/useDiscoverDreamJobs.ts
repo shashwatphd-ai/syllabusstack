@@ -34,7 +34,7 @@ async function getUserProfileForDiscovery(): Promise<DiscoverJobsInput> {
   // Get profile data
   const { data: profile } = await supabase
     .from('profiles')
-    .select('full_name, interests, career_goals')
+    .select('full_name, major')
     .eq('user_id', user.id)
     .single();
 
@@ -52,11 +52,18 @@ async function getUserProfileForDiscovery(): Promise<DiscoverJobsInput> {
     .eq('user_id', user.id)
     .limit(10);
 
+  // Get user's dream jobs for career goals context
+  const { data: dreamJobs } = await supabase
+    .from('dream_jobs')
+    .select('title, description')
+    .eq('user_id', user.id)
+    .limit(3);
+
   return {
-    interests: profile?.interests?.join(', ') || '',
+    interests: profile?.major || '',
     skills: capabilities?.map(c => c.name).join(', ') || '',
     major: courses?.[0]?.title || '',
-    careerGoals: profile?.career_goals || '',
+    careerGoals: dreamJobs?.map(j => j.title).join(', ') || '',
   };
 }
 

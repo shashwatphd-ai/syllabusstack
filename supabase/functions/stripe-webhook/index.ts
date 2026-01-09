@@ -105,7 +105,7 @@ serve(async (req) => {
 });
 
 async function handleCheckoutComplete(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   stripe: Stripe,
   session: Stripe.Checkout.Session
 ) {
@@ -142,7 +142,7 @@ async function handleCheckoutComplete(
 }
 
 async function handleSubscriptionUpdate(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   subscription: Stripe.Subscription
 ) {
   console.log("Handling subscription update");
@@ -178,7 +178,7 @@ async function handleSubscriptionUpdate(
 }
 
 async function handleSubscriptionCanceled(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   subscription: Stripe.Subscription
 ) {
   console.log("Handling subscription canceled");
@@ -204,7 +204,7 @@ async function handleSubscriptionCanceled(
 }
 
 async function handlePaymentFailed(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   invoice: Stripe.Invoice
 ) {
   console.log("Handling payment failed");
@@ -216,7 +216,7 @@ async function handlePaymentFailed(
     .from("profiles")
     .select("user_id, email")
     .eq("stripe_customer_id", customerId)
-    .single();
+    .single() as { data: { user_id: string; email: string } | null };
 
   if (!profile) {
     console.error("No profile found for customer:", customerId);
@@ -234,7 +234,7 @@ async function handlePaymentFailed(
 }
 
 async function handlePaymentSucceeded(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   invoice: Stripe.Invoice
 ) {
   console.log("Handling payment succeeded");
@@ -246,7 +246,7 @@ async function handlePaymentSucceeded(
     .from("profiles")
     .select("user_id")
     .eq("stripe_customer_id", customerId)
-    .single();
+    .single() as { data: { user_id: string } | null };
 
   if (!profile) {
     console.error("No profile found for customer:", customerId);
