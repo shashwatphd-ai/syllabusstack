@@ -311,7 +311,7 @@ export function BulkSyllabusUploader({ onSuccess, onCancel }: BulkSyllabusUpload
             )}
           </CardHeader>
           <CardContent className="p-0">
-            <ScrollArea className="max-h-[400px]">
+            <ScrollArea className="h-[400px]" type="always">
               <div className="divide-y">
                 {files.map((fileItem) => (
                   <div
