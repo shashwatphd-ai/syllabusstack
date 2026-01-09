@@ -7,10 +7,9 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Stripe price IDs - these should be configured in your Stripe dashboard
+// Stripe price IDs for EduThree Pro
 const STRIPE_PRICES = {
-  pro_monthly: Deno.env.get("STRIPE_PRICE_PRO_MONTHLY") || "price_pro_monthly",
-  pro_annual: Deno.env.get("STRIPE_PRICE_PRO_ANNUAL") || "price_pro_annual",
+  pro_monthly: "price_1SnXUZRsfnRI3vWDGdLskq3C", // $9.99/month
 };
 
 serve(async (req) => {
@@ -94,8 +93,8 @@ serve(async (req) => {
         .eq("user_id", user.id);
     }
 
-    // Select price based on billing period
-    const priceId = isAnnual ? STRIPE_PRICES.pro_annual : STRIPE_PRICES.pro_monthly;
+    // Use Pro monthly price
+    const priceId = STRIPE_PRICES.pro_monthly;
 
     // Create checkout session
     const session = await stripe.checkout.sessions.create({
