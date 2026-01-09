@@ -179,8 +179,8 @@ export function useAchievementProgress() {
 
       // Get counts for different requirement types
       const [coursesResult, jobsResult, ratingsResult, suggestionsResult] = await Promise.all([
-        supabase.from('courses').select('id', { count: 'exact' }).eq('created_by', user.id),
-        supabase.from('user_dream_jobs').select('id', { count: 'exact' }).eq('user_id', user.id),
+        supabase.from('courses').select('id', { count: 'exact' }).eq('user_id', user.id),
+        supabase.from('dream_jobs').select('id', { count: 'exact' }).eq('user_id', user.id),
         supabase.from('content_ratings').select('id', { count: 'exact' }).eq('user_id', user.id),
         supabase.from('content_suggestions').select('id', { count: 'exact' }).eq('user_id', user.id).eq('status', 'approved'),
       ]);

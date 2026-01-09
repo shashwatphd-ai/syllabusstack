@@ -107,7 +107,7 @@ export function ReviewSuggestions({ courseId }: ReviewSuggestionsProps) {
           </div>
         ) : (
           <div className="space-y-4">
-            {filteredSuggestions.map((suggestion) => (
+            {filteredSuggestions.map((suggestion: any) => (
               <ReviewCard key={suggestion.id} suggestion={suggestion} />
             ))}
           </div>
@@ -118,7 +118,7 @@ export function ReviewSuggestions({ courseId }: ReviewSuggestionsProps) {
 }
 
 interface ReviewCardProps {
-  suggestion: ContentSuggestion;
+  suggestion: any;
 }
 
 function ReviewCard({ suggestion }: ReviewCardProps) {
@@ -223,7 +223,7 @@ function ReviewCard({ suggestion }: ReviewCardProps) {
               )}
 
               {/* Learning Objective Context */}
-              {suggestion.learning_objective && (
+              {suggestion.learning_objective?.text && (
                 <div className="bg-muted/50 rounded-md p-2 text-xs">
                   <span className="font-medium">Learning Objective:</span>{' '}
                   <span className="text-muted-foreground">

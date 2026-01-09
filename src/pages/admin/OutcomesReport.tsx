@@ -57,55 +57,78 @@ export default function OutcomesReport() {
         .select('*', { count: 'exact', head: true })
         .gte('last_active_at', daysAgo.toISOString());
 
-      // Get gap analysis stats
-      const { data: gapStats } = await supabase
-        .from('gap_analysis_results')
-        .select('skill_name, status')
+      // Get gap analysis stats from gap_analyses table
+      const { data: gapAnalyses } = await supabase
+        .from('gap_analyses')
+        .select('critical_gaps, strong_overlaps')
         .gte('created_at', daysAgo.toISOString());
 
-      const totalGaps = gapStats?.length || 0;
-      const closedGaps = gapStats?.filter(g => g.status === 'covered').length || 0;
-
-      // Get top skill gaps
+      // Count gaps and overlaps from JSON arrays
+      let totalGaps = 0;
+      let closedGaps = 0;
       const skillCounts: Record<string, number> = {};
-      gapStats?.filter(g => g.status === 'gap').forEach(g => {
-        skillCounts[g.skill_name] = (skillCounts[g.skill_name] || 0) + 1;
+
+      gapAnalyses?.forEach((ga: any) => {
+        const criticalGaps = ga.critical_gaps || [];
+        const overlaps = ga.strong_overlaps || [];
+        totalGaps += criticalGaps.length;
+        closedGaps += overlaps.length;
+        
+        criticalGaps.forEach((gap: any) => {
+          const skill = gap?.skill || gap?.name || 'Unknown skill';
+          skillCounts[skill] = (skillCounts[skill] || 0) + 1;
+        });
       });
+
       const topSkillGaps = Object.entries(skillCounts)
         .sort((a, b) => b[1] - a[1])
         .slice(0, 5)
         .map(([skill, count]) => ({ skill, count }));
 
-      // Get top dream jobs
+      // Get top dream jobs from dream_jobs table
       const { data: dreamJobs } = await supabase
-        .from('user_dream_jobs')
-        .select('job_title');
+        .from('dream_jobs')
+        .select('title');
 
       const jobCounts: Record<string, number> = {};
-      dreamJobs?.forEach(j => {
-        jobCounts[j.job_title] = (jobCounts[j.job_title] || 0) + 1;
+      dreamJobs?.forEach((j: any) => {
+        jobCounts[j.title] = (jobCounts[j.title] || 0) + 1;
       });
       const topDreamJobs = Object.entries(jobCounts)
         .sort((a, b) => b[1] - a[1])
         .slice(0, 5)
         .map(([title, count]) => ({ title, count }));
 
-      // Get course utilization
-      const { data: courses } = await supabase
-        .from('courses')
+      // Get course utilization from course_enrollments
+      const { data: enrollments } = await supabase
+        .from('course_enrollments')
         .select(`
-          title,
-          enrollments(progress_percent)
+          instructor_course_id,
+          overall_progress,
+          instructor_course:instructor_courses(title)
         `)
-        .limit(10);
+        .limit(100);
 
-      const courseUtilization = courses?.map(c => ({
-        course: c.title,
-        students: c.enrollments?.length || 0,
-        avgProgress: c.enrollments?.length
-          ? Math.round(c.enrollments.reduce((sum: number, e: any) => sum + (e.progress_percent || 0), 0) / c.enrollments.length)
-          : 0,
-      })).sort((a, b) => b.students - a.students).slice(0, 5) || [];
+      // Aggregate by course
+      const courseStats: Record<string, { students: number; totalProgress: number; title: string }> = {};
+      enrollments?.forEach((e: any) => {
+        const courseId = e.instructor_course_id;
+        const title = e.instructor_course?.title || 'Unknown Course';
+        if (!courseStats[courseId]) {
+          courseStats[courseId] = { students: 0, totalProgress: 0, title };
+        }
+        courseStats[courseId].students++;
+        courseStats[courseId].totalProgress += e.overall_progress || 0;
+      });
+
+      const courseUtilization = Object.values(courseStats)
+        .map(c => ({
+          course: c.title,
+          students: c.students,
+          avgProgress: c.students ? Math.round(c.totalProgress / c.students) : 0,
+        }))
+        .sort((a, b) => b.students - a.students)
+        .slice(0, 5);
 
       // Get completion rate
       const { data: recommendations } = await supabase
