@@ -82,23 +82,36 @@ ${SYLLABUS_EXTRACTION_PROMPT}`;
           },
           {
             role: "user",
-            content: `Analyze this course syllabus and extract ALL marketable capabilities a student would develop.
+            content: `Analyze this course syllabus and extract course information and marketable capabilities.
 
 SYLLABUS CONTENT:
 ${syllabusText}
 
 EXTRACTION REQUIREMENTS:
-1. Extract 5-15 distinct, marketable capabilities
-2. Use the "Can do X" format for each capability name
-3. Be specific - use industry terminology
-4. Include both technical and soft skills
-5. Consider what employers would actually value
+
+1. COURSE METADATA (extract these FIRST):
+   - course_title: The OFFICIAL course name (e.g., "Introduction to Machine Learning", "Strategic Management"). 
+     NOT random sentences, instructions, or book text.
+   - course_code: Academic code in format like "CS 101", "MGT 471", "ENT 315" (2-4 letters + 3-4 digits).
+     NOT ISBN numbers, book codes, or phone numbers.
+   - semester: If mentioned (e.g., "Fall 2024", "Spring 2023")
+   - credits: Credit hours if mentioned (typically 1-4)
+
+2. CAPABILITIES (5-15 distinct skills):
+   - Use "Can do X" format for each capability name
+   - Be specific with industry terminology
+   - Include both technical AND soft skills
+   - Consider what employers would value
 
 For each capability, provide:
 - name: Specific skill using "Can do X" format
 - category: technical, analytical, communication, leadership, creative, research, or interpersonal
 - proficiency_level: beginner, intermediate, advanced, or expert
-- evidence_type: How a student could demonstrate this skill`
+- evidence_type: How a student could demonstrate this skill
+
+IMPORTANT:
+- course_title should be the OFFICIAL name, not random text from the document
+- If you can't find a clear title, use the course code + main topic`
           }
         ],
         tools: [createToolDefinition(SYLLABUS_EXTRACTION_SCHEMA)],
@@ -126,6 +139,12 @@ For each capability, provide:
     const capabilities = parsed.capabilities || [];
     const courseThemes = parsed.course_themes || [];
     const toolsLearned = parsed.tools_learned || [];
+    
+    // NEW: Extract course metadata
+    const courseTitle = parsed.course_title || null;
+    const courseCode = parsed.course_code || null;
+    const semester = parsed.semester || null;
+    const credits = parsed.credits || null;
 
     // If courseId provided, save capabilities to database
     if (courseId) {
@@ -209,7 +228,11 @@ For each capability, provide:
       JSON.stringify({ 
         capabilities,
         course_themes: courseThemes,
-        tools_learned: toolsLearned
+        tools_learned: toolsLearned,
+        course_title: courseTitle,
+        course_code: courseCode,
+        semester: semester,
+        credits: credits
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

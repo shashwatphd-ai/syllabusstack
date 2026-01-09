@@ -37,6 +37,7 @@ interface ExtractedCourse {
   title: string;
   code: string;
   semester: string;
+  credits: number;
   capabilities: Capability[];
   error?: string;
   file: File;
@@ -63,6 +64,7 @@ export function BulkSyllabusUploader({ onSuccess, onCancel }: BulkSyllabusUpload
       title: file.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " "),
       code: "",
       semester: "",
+      credits: 3, // Default, will be overwritten by AI extraction
       capabilities: [],
       file,
     }));
@@ -169,19 +171,27 @@ export function BulkSyllabusUploader({ onSuccess, onCancel }: BulkSyllabusUpload
         proficiency_level: typeof c === "object" && c.proficiency_level ? c.proficiency_level : "intermediate",
       }));
 
-      // Extract title with validation
+      // Extract title with validation - prefer AI-extracted metadata
       const extractedText = data.extracted_text || "";
       const title = extractTitle(extractedText, fileItem.fileName, data.analysis);
       
-      // Extract course code
+      // Use AI-extracted course code, fallback to regex
+      const aiCourseCode = data.analysis?.course_code;
       const codeMatch = extractedText.match(/([A-Z]{2,4}\s*\d{3,4}[A-Z]?)/);
+      const courseCode = aiCourseCode || codeMatch?.[1]?.trim() || "";
+      
+      // Use AI-extracted semester and credits
+      const semester = data.analysis?.semester || "";
+      const credits = data.analysis?.credits || 3;
 
       return {
         ...fileItem,
         status: "complete",
         title,
-        code: codeMatch?.[1]?.trim() || "",
-        capabilities: capabilities.slice(0, 8),
+        code: courseCode,
+        semester,
+        credits,
+        capabilities: capabilities, // Don't slice - show all capabilities
       };
     } catch (error) {
       console.error(`Error processing ${fileItem.fileName}:`, error);
@@ -255,6 +265,7 @@ export function BulkSyllabusUploader({ onSuccess, onCancel }: BulkSyllabusUpload
           title: fileItem.title,
           code: fileItem.code || null,
           semester: fileItem.semester || null,
+          credits: fileItem.credits || 3,
           key_capabilities: fileItem.capabilities.map(c => c.name),
         });
         
