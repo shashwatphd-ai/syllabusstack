@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { 
-  LayoutDashboard, 
-  BookOpen, 
-  Briefcase, 
-  Target, 
+import {
+  LayoutDashboard,
+  BookOpen,
+  Briefcase,
+  Target,
   Sparkles,
   Settings,
   ChevronLeft,
@@ -13,7 +13,9 @@ import {
   GraduationCap,
   BarChart3,
   School,
-  PlayCircle
+  PlayCircle,
+  CreditCard,
+  Shield
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -46,9 +48,14 @@ const studentLearningNav = [
   { name: 'My Learning', href: '/learn/courses', icon: PlayCircle },
 ];
 
+const adminNav = [
+  { name: 'Admin Portal', href: '/admin', icon: Shield },
+];
+
 const secondaryNavigation = [
   { name: 'Profile', href: '/profile', icon: User },
   { name: 'AI Usage', href: '/usage', icon: BarChart3 },
+  { name: 'Billing', href: '/billing', icon: CreditCard },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
 
@@ -60,6 +67,7 @@ export function Sidebar({ collapsed = false, onCollapse }: SidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(collapsed);
   
   const isInstructor = roles?.some(r => r.role === 'instructor' || r.role === 'admin');
+  const isAdmin = roles?.some(r => r.role === 'admin');
 
   const handleCollapse = () => {
     const newState = !isCollapsed;
@@ -190,6 +198,22 @@ export function Sidebar({ collapsed = false, onCollapse }: SidebarProps) {
               </div>
             )}
             {instructorNav.map((item) => (
+              <NavItem key={item.name} item={item} />
+            ))}
+          </>
+        )}
+
+        {/* Admin Section */}
+        {isAdmin && (
+          <>
+            {!isCollapsed && (
+              <div className="pt-4 mt-4 border-t border-sidebar-border">
+                <p className="px-3 mb-2 text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider">
+                  Admin
+                </p>
+              </div>
+            )}
+            {adminNav.map((item) => (
               <NavItem key={item.name} item={item} />
             ))}
           </>
