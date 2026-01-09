@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
-import JSZip from "https://esm.sh/jszip@3.10.1";
+import { SignJWT, importPKCS8 } from "https://deno.land/x/jose@v5.2.0/index.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -12,11 +12,48 @@ const corsHeaders = {
  * 
  * This function handles:
  * - PDFs: Uses Gemini for text extraction (OCR capable)
- * - DOCX: Extracts text directly from XML (no Gemini needed)
+ * - DOCX: Uses Google Cloud Document AI for reliable extraction
  * - Images: Uses Gemini with Vision API fallback
  * 
  * The extracted text is then passed to analyze-syllabus for capability extraction.
  */
+
+// Helper function to get OAuth2 access token from service account
+async function getGoogleAccessToken(serviceAccountKeyJson: string): Promise<string> {
+  const key = JSON.parse(serviceAccountKeyJson);
+  const now = Math.floor(Date.now() / 1000);
+  
+  const privateKey = await importPKCS8(key.private_key, "RS256");
+  
+  const jwt = await new SignJWT({
+    iss: key.client_email,
+    scope: "https://www.googleapis.com/auth/cloud-platform",
+    aud: "https://oauth2.googleapis.com/token",
+    iat: now,
+    exp: now + 3600,
+  })
+    .setProtectedHeader({ alg: "RS256", typ: "JWT" })
+    .sign(privateKey);
+  
+  const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion: jwt,
+    }),
+  });
+  
+  if (!tokenResponse.ok) {
+    const errorText = await tokenResponse.text();
+    console.error("OAuth token error:", errorText);
+    throw new Error("Failed to get Google access token");
+  }
+  
+  const tokenData = await tokenResponse.json();
+  return tokenData.access_token;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -121,65 +158,61 @@ serve(async (req) => {
     let extractedText = "";
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 
-    // Handle DOCX files - extract text directly without Gemini
+    // Handle DOCX files - use Google Cloud Document AI
     if (isDocx) {
-      console.log("Processing DOCX file - extracting text from XML...");
+      console.log("Processing DOCX file via Document AI...");
+      
+      const projectId = Deno.env.get("DOCUMENT_AI_PROJECT_ID");
+      const location = Deno.env.get("DOCUMENT_AI_LOCATION");
+      const processorId = Deno.env.get("DOCUMENT_AI_PROCESSOR_ID");
+      const serviceAccountKey = Deno.env.get("GOOGLE_SERVICE_ACCOUNT_KEY");
+      
+      if (!projectId || !location || !processorId || !serviceAccountKey) {
+        console.error("Document AI config missing:", { 
+          hasProjectId: !!projectId, 
+          hasLocation: !!location, 
+          hasProcessorId: !!processorId, 
+          hasServiceKey: !!serviceAccountKey 
+        });
+        throw new Error("Document AI configuration is incomplete. Please configure DOCUMENT_AI_PROJECT_ID, DOCUMENT_AI_LOCATION, DOCUMENT_AI_PROCESSOR_ID, and GOOGLE_SERVICE_ACCOUNT_KEY secrets.");
+      }
       
       try {
-        // Decode base64 to binary
-        const binaryString = atob(base64Content);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
+        const accessToken = await getGoogleAccessToken(serviceAccountKey);
+        
+        const documentAiUrl = `https://${location}-documentai.googleapis.com/v1/projects/${projectId}/locations/${location}/processors/${processorId}:process`;
+        
+        console.log(`Calling Document AI at ${location} for project ${projectId}`);
+        
+        const response = await fetch(documentAiUrl, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            skipHumanReview: true,
+            rawDocument: {
+              content: base64Content,
+              mimeType: mimeType,
+            },
+          }),
+        });
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error("Document AI error:", response.status, errorText);
+          throw new Error(`Document AI processing failed: ${response.status} - ${errorText}`);
         }
         
-        // DOCX is a ZIP file - use JSZip to extract
-        const zip = await JSZip.loadAsync(bytes);
+        const result = await response.json();
+        extractedText = result.document?.text || "";
         
-        // Get the main document content
-        const documentXml = await zip.file("word/document.xml")?.async("string");
+        console.log(`Extracted ${extractedText.length} characters from DOCX via Document AI`);
         
-        if (!documentXml) {
-          throw new Error("Could not find document.xml in DOCX file");
-        }
-        
-        // Extract text from XML - remove tags and get text content
-        // Match all text between <w:t> tags (Word text elements)
-        const textMatches = documentXml.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g);
-        const textParts: string[] = [];
-        
-        for (const match of textMatches) {
-          if (match[1]) {
-            textParts.push(match[1]);
-          }
-        }
-        
-        // Also check for paragraph breaks to preserve structure
-        let structuredText = documentXml
-          // Replace paragraph ends with newlines
-          .replace(/<\/w:p>/g, '\n')
-          // Replace tab characters
-          .replace(/<w:tab\/>/g, '\t')
-          // Remove all XML tags
-          .replace(/<[^>]+>/g, '')
-          // Decode XML entities
-          .replace(/&amp;/g, '&')
-          .replace(/&lt;/g, '<')
-          .replace(/&gt;/g, '>')
-          .replace(/&quot;/g, '"')
-          .replace(/&apos;/g, "'")
-          // Clean up multiple spaces and newlines
-          .replace(/\s+/g, ' ')
-          .replace(/\n\s+/g, '\n')
-          .replace(/\n{3,}/g, '\n\n')
-          .trim();
-        
-        extractedText = structuredText;
-        console.log(`Extracted ${extractedText.length} characters from DOCX`);
-        
-      } catch (docxError) {
-        console.error("DOCX extraction failed:", docxError);
-        throw new Error(`Failed to extract text from DOCX: ${docxError instanceof Error ? docxError.message : 'Unknown error'}`);
+      } catch (docAiError) {
+        console.error("Document AI extraction failed:", docAiError);
+        throw new Error(`Failed to extract text from DOCX: ${docAiError instanceof Error ? docAiError.message : 'Unknown error'}`);
       }
     }
     // Handle plain text files

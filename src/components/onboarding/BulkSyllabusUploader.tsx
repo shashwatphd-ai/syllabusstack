@@ -23,6 +23,13 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+// Full capability object with AI-extracted metadata
+interface Capability {
+  name: string;
+  category: string;
+  proficiency_level: string;
+}
+
 interface ExtractedCourse {
   id: string;
   fileName: string;
@@ -30,7 +37,7 @@ interface ExtractedCourse {
   title: string;
   code: string;
   semester: string;
-  capabilities: string[];
+  capabilities: Capability[];
   error?: string;
   file: File;
 }
@@ -88,6 +95,46 @@ export function BulkSyllabusUploader({ onSuccess, onCancel }: BulkSyllabusUpload
     updateFile(id, { status: "pending", error: undefined });
   };
 
+  // Extract a clean title from text with validation
+  const extractTitle = (extractedText: string, fileName: string, analysisData?: any): string => {
+    // Default to filename-based title
+    const fileBasedTitle = fileName.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ");
+    
+    // If AI analysis returned a course title, prefer that (with validation)
+    if (analysisData?.course_title) {
+      const aiTitle = analysisData.course_title.trim();
+      if (aiTitle.length >= 3 && aiTitle.length <= 100) {
+        return aiTitle;
+      }
+    }
+    
+    // Try multiple regex patterns with length validation
+    const patterns = [
+      /(?:course\s+title|course\s+name):\s*([^\n]{5,100})/i,
+      /(?:class):\s*([^\n]{5,100})/i,
+      /^([A-Z]{2,4}\s*\d{3,4}[A-Z]?\s*[-–:]\s*[^\n]{5,80})/m,
+    ];
+    
+    for (const pattern of patterns) {
+      const match = extractedText.match(pattern);
+      if (match?.[1]) {
+        const candidate = match[1].trim();
+        // Validate: must be reasonable length and mostly alphabetic
+        const letterCount = (candidate.match(/[a-zA-Z]/g) || []).length;
+        if (
+          candidate.length >= 5 && 
+          candidate.length <= 100 && 
+          !/^\d+$/.test(candidate) && 
+          letterCount > candidate.length * 0.4
+        ) {
+          return candidate;
+        }
+      }
+    }
+    
+    return fileBasedTitle;
+  };
+
   // Process a single file - extract text and analyze
   const processFile = async (fileItem: ExtractedCourse): Promise<ExtractedCourse> => {
     try {
@@ -114,21 +161,25 @@ export function BulkSyllabusUploader({ onSuccess, onCancel }: BulkSyllabusUpload
 
       updateFile(fileItem.id, { status: "analyzing" });
 
-      // Extract course info from the analysis
-      const capabilities = data.analysis?.capabilities?.map((c: any) => 
-        typeof c === "string" ? c : c.name
-      ) || [];
+      // Extract capabilities with full metadata (not just names)
+      const rawCapabilities = data.analysis?.capabilities || [];
+      const capabilities: Capability[] = rawCapabilities.map((c: any) => ({
+        name: typeof c === "string" ? c : (c.name || c),
+        category: typeof c === "object" && c.category ? c.category : "technical",
+        proficiency_level: typeof c === "object" && c.proficiency_level ? c.proficiency_level : "intermediate",
+      }));
 
-      // Try to auto-detect title and code from extracted text
+      // Extract title with validation
       const extractedText = data.extracted_text || "";
-      const titleMatch = extractedText.match(/(?:course|class):\s*([^\n]+)/i) ||
-        extractedText.match(/^([A-Z][A-Z0-9\s]+\d{3}[A-Z]?)/m);
+      const title = extractTitle(extractedText, fileItem.fileName, data.analysis);
+      
+      // Extract course code
       const codeMatch = extractedText.match(/([A-Z]{2,4}\s*\d{3,4}[A-Z]?)/);
 
       return {
         ...fileItem,
         status: "complete",
-        title: titleMatch?.[1]?.trim() || fileItem.title,
+        title,
         code: codeMatch?.[1]?.trim() || "",
         capabilities: capabilities.slice(0, 8),
       };
@@ -199,26 +250,29 @@ export function BulkSyllabusUploader({ onSuccess, onCancel }: BulkSyllabusUpload
     
     for (const fileItem of completedFiles) {
       try {
-        // Create course
+        // Create course with capability names for key_capabilities field
         const course = await createCourse.mutateAsync({
           title: fileItem.title,
           code: fileItem.code || null,
           semester: fileItem.semester || null,
-          key_capabilities: fileItem.capabilities,
+          key_capabilities: fileItem.capabilities.map(c => c.name),
         });
         
-        // Save capabilities if extracted
+        // Save capabilities with AI-extracted metadata (not hardcoded)
         if (fileItem.capabilities.length > 0) {
           const capabilitiesToInsert = fileItem.capabilities.map(cap => ({
             user_id: user.id,
             course_id: course.id,
-            name: cap,
-            category: 'General',
-            proficiency_level: 'developing',
+            name: cap.name,
+            category: cap.category,           // Use AI-extracted value
+            proficiency_level: cap.proficiency_level, // Use AI-extracted value
             source: 'course',
           }));
           
-          await supabase.from('capabilities').insert(capabilitiesToInsert);
+          const { error: capError } = await supabase.from('capabilities').insert(capabilitiesToInsert);
+          if (capError) {
+            console.error(`Failed to save capabilities for ${fileItem.title}:`, capError);
+          }
         }
         
         savedCount++;
@@ -375,7 +429,11 @@ export function BulkSyllabusUploader({ onSuccess, onCancel }: BulkSyllabusUpload
                       ) : (
                         <>
                           <div className="flex items-center gap-2">
-                            <p className="font-medium truncate">{fileItem.title}</p>
+                            <p className="font-medium truncate max-w-[300px]" title={fileItem.title}>
+                              {fileItem.title.length > 50 
+                                ? `${fileItem.title.slice(0, 50)}...` 
+                                : fileItem.title}
+                            </p>
                             {fileItem.status === "complete" && (
                               <Button
                                 size="sm"
@@ -393,7 +451,7 @@ export function BulkSyllabusUploader({ onSuccess, onCancel }: BulkSyllabusUpload
                           </p>
                           {fileItem.status === "extracting" && (
                             <p className="text-xs text-primary mt-1">
-                              Extracting text from PDF...
+                              Extracting text from document...
                             </p>
                           )}
                           {fileItem.status === "analyzing" && (
@@ -422,8 +480,8 @@ export function BulkSyllabusUploader({ onSuccess, onCancel }: BulkSyllabusUpload
                             <div className="flex flex-wrap gap-1 mt-2">
                               {fileItem.capabilities.slice(0, 4).map((cap, i) => (
                                 <Badge key={i} variant="secondary" className="text-xs">
-                                  {cap.replace(/^Can\s+/i, "").slice(0, 25)}
-                                  {cap.length > 25 ? "..." : ""}
+                                  {cap.name.replace(/^Can\s+/i, "").slice(0, 25)}
+                                  {cap.name.length > 25 ? "..." : ""}
                                 </Badge>
                               ))}
                               {fileItem.capabilities.length > 4 && (
@@ -474,16 +532,16 @@ export function BulkSyllabusUploader({ onSuccess, onCancel }: BulkSyllabusUpload
               ) : (
                 <>
                   <Sparkles className="h-4 w-4 mr-2" />
-                  Analyze {pendingCount} {pendingCount === 1 ? "Syllabus" : "Syllabi"}
+                  Analyze {pendingCount} {pendingCount === 1 ? "File" : "Files"}
                 </>
               )}
             </Button>
           )}
-          {completedCount > 0 && pendingCount === 0 && (
+          {completedCount > 0 && (
             <Button
               onClick={saveAllCourses}
-              disabled={isSaving}
-              className="bg-green-600 hover:bg-green-700"
+              disabled={isSaving || isProcessing}
+              variant="default"
             >
               {isSaving ? (
                 <>
@@ -493,7 +551,7 @@ export function BulkSyllabusUploader({ onSuccess, onCancel }: BulkSyllabusUpload
               ) : (
                 <>
                   <CheckCircle2 className="h-4 w-4 mr-2" />
-                  Save All {completedCount} Courses
+                  Save {completedCount} {completedCount === 1 ? "Course" : "Courses"}
                 </>
               )}
             </Button>
