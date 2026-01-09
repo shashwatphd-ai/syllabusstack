@@ -18,18 +18,47 @@ interface CourseCardProps {
   priority?: 'high' | 'medium' | 'low';
 }
 
-const providerColors: Record<string, string> = {
-  'Coursera': 'bg-blue-500/10 text-blue-600 border-blue-500/30',
-  'Udemy': 'bg-purple-500/10 text-purple-600 border-purple-500/30',
-  'edX': 'bg-red-500/10 text-red-600 border-red-500/30',
-  'LinkedIn Learning': 'bg-sky-500/10 text-sky-600 border-sky-500/30',
-  'Pluralsight': 'bg-pink-500/10 text-pink-600 border-pink-500/30',
+const providerConfig: Record<string, { 
+  color: string; 
+  logo: string;
+  bgColor: string;
+}> = {
+  'Coursera': { 
+    color: 'text-blue-600', 
+    logo: '🎓',
+    bgColor: 'bg-blue-500/10 border-blue-500/30'
+  },
+  'Udemy': { 
+    color: 'text-purple-600', 
+    logo: '📚',
+    bgColor: 'bg-purple-500/10 border-purple-500/30'
+  },
+  'edX': { 
+    color: 'text-red-600', 
+    logo: '🏛️',
+    bgColor: 'bg-red-500/10 border-red-500/30'
+  },
+  'LinkedIn Learning': { 
+    color: 'text-sky-600', 
+    logo: '💼',
+    bgColor: 'bg-sky-500/10 border-sky-500/30'
+  },
+  'Pluralsight': { 
+    color: 'text-pink-600', 
+    logo: '🔷',
+    bgColor: 'bg-pink-500/10 border-pink-500/30'
+  },
+  'Khan Academy': { 
+    color: 'text-green-600', 
+    logo: '🌱',
+    bgColor: 'bg-green-500/10 border-green-500/30'
+  },
 };
 
 const priorityStyles: Record<string, string> = {
-  high: 'border-l-4 border-l-red-500',
-  medium: 'border-l-4 border-l-yellow-500',
-  low: 'border-l-4 border-l-green-500',
+  high: 'border-l-4 border-l-destructive',
+  medium: 'border-l-4 border-l-warning',
+  low: 'border-l-4 border-l-success',
 };
 
 export function CourseCard({
@@ -45,7 +74,16 @@ export function CourseCard({
   onSave,
   priority,
 }: CourseCardProps) {
-  const providerStyle = providerColors[provider] || 'bg-muted text-muted-foreground';
+  const config = providerConfig[provider] || { 
+    color: 'text-muted-foreground', 
+    logo: '📖',
+    bgColor: 'bg-muted border-muted-foreground/30'
+  };
+  
+  // Determine price display
+  const priceDisplay = price || 'Check pricing';
+  const isPriceFree = price?.toLowerCase() === 'free';
+  const isPriceUnknown = !price;
   
   return (
     <Card className={cn(
@@ -56,17 +94,17 @@ export function CourseCard({
         <div className="flex items-start justify-between gap-2">
           <div className="space-y-1 flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <Badge variant="outline" className={providerStyle}>
-                <GraduationCap className="h-3 w-3 mr-1" />
+              <Badge variant="outline" className={cn("gap-1.5", config.bgColor, config.color)}>
+                <span className="text-sm">{config.logo}</span>
                 {provider}
               </Badge>
               {priority && (
                 <Badge 
                   variant="outline" 
                   className={cn(
-                    priority === 'high' && 'bg-red-500/10 text-red-600 border-red-500/30',
-                    priority === 'medium' && 'bg-yellow-500/10 text-yellow-700 border-yellow-500/30',
-                    priority === 'low' && 'bg-green-500/10 text-green-600 border-green-500/30',
+                    priority === 'high' && 'bg-destructive/10 text-destructive border-destructive/30',
+                    priority === 'medium' && 'bg-warning/10 text-warning border-warning/30',
+                    priority === 'low' && 'bg-success/10 text-success border-success/30',
                   )}
                 >
                   {priority === 'high' ? 'Top Pick' : priority === 'medium' ? 'Recommended' : 'Good Option'}
@@ -99,22 +137,20 @@ export function CourseCard({
               <span>{rating}</span>
             </div>
           )}
-          {price && (
-            <div className={cn(
-              "flex items-center gap-1",
-              price.toLowerCase() === 'free' ? 'text-green-600' : 'text-muted-foreground'
-            )}>
-              <DollarSign className="h-3.5 w-3.5" />
-              <span>{price}</span>
-            </div>
-          )}
+          <div className={cn(
+            "flex items-center gap-1",
+            isPriceFree ? 'text-success font-medium' : isPriceUnknown ? 'text-muted-foreground italic' : 'text-muted-foreground'
+          )}>
+            <DollarSign className="h-3.5 w-3.5" />
+            <span>{priceDisplay}</span>
+          </div>
         </div>
         
         {/* Gap addressed */}
         {gapAddressed && (
-          <div className="text-xs bg-accent/50 rounded-md px-2 py-1.5">
-            <span className="text-muted-foreground">Addresses: </span>
-            <span className="font-medium">{gapAddressed}</span>
+          <div className="text-xs bg-secondary rounded-md px-2 py-1.5">
+            <span className="text-muted-foreground">Addresses skill gap: </span>
+            <span className="font-medium text-foreground">{gapAddressed}</span>
           </div>
         )}
         

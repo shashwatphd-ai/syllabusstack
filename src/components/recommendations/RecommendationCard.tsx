@@ -199,7 +199,15 @@ export function RecommendationCard({ recommendation, onStatusChange, isUpdating 
 
   // Compact time display
   const timeDisplay = effort_hours ? `${effort_hours}h` : estimatedTime || null;
-  const costDisplay = cost_usd === 0 || !cost_usd ? 'Free' : `$${cost_usd}`;
+  const costDisplay = cost_usd === 0 ? 'Free' : cost_usd ? `$${cost_usd}` : 'Check pricing';
+  
+  // Handle start action - open URL and change status
+  const handleStart = () => {
+    if (url) {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
+    handleStatusChange('in_progress');
+  };
 
   return (
     <Card className={cn(
@@ -236,11 +244,11 @@ export function RecommendationCard({ recommendation, onStatusChange, isUpdating 
                   {title}
                 </h4>
               </div>
-              {displayGap && (
-                <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">
-                  → {displayGap}
-                </p>
-              )}
+            {displayGap && (
+              <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">
+                <span className="font-medium">Skill gap:</span> {displayGap}
+              </p>
+            )}
             </div>
 
             {/* Right side: Status + expand */}
@@ -290,7 +298,7 @@ export function RecommendationCard({ recommendation, onStatusChange, isUpdating 
                 <Button
                   variant="default"
                   size="sm"
-                  onClick={() => handleStatusChange('in_progress')}
+                  onClick={handleStart}
                   disabled={!!updatingStatus}
                   className="h-7 text-xs gap-1"
                 >
@@ -299,7 +307,7 @@ export function RecommendationCard({ recommendation, onStatusChange, isUpdating 
                   ) : (
                     <PlayCircle className="h-3 w-3" />
                   )}
-                  Start
+                  {url ? 'Start Learning' : 'Start'}
                 </Button>
                 <Button
                   variant="ghost"
