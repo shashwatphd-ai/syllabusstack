@@ -1,11 +1,13 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, Loader2, Sparkles, Target } from 'lucide-react';
+import { ChevronDown, ChevronRight, Loader2, Sparkles, Target, FileQuestion, CheckCircle2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { LearningObjective, useSearchYouTubeContent } from '@/hooks/useLearningObjectives';
 import { useLOContentStatus } from '@/hooks/useContentStats';
+import { useGenerateAssessmentQuestions } from '@/hooks/useAssessment';
+import { useToast } from '@/hooks/use-toast';
 import { UnifiedLOCard } from './UnifiedLOCard';
 
 interface Module {
@@ -23,14 +25,18 @@ interface UnifiedModuleCardProps {
 export function UnifiedModuleCard({ module, learningObjectives }: UnifiedModuleCardProps) {
   const [isOpen, setIsOpen] = useState(true);
   const [bulkSearching, setBulkSearching] = useState(false);
+  const [generatingQuiz, setGeneratingQuiz] = useState(false);
+  const [quizGenerated, setQuizGenerated] = useState(false);
   const searchContent = useSearchYouTubeContent();
+  const generateQuestions = useGenerateAssessmentQuestions();
+  const { toast } = useToast();
 
   const loIds = learningObjectives.map(lo => lo.id);
   const { data: loContentStatus } = useLOContentStatus(loIds);
 
   // Calculate module stats
   const losWithContent = learningObjectives.filter(lo => loContentStatus?.[lo.id]?.approvedCount).length;
-  const losWithPending = learningObjectives.filter(lo => 
+  const losWithPending = learningObjectives.filter(lo =>
     loContentStatus?.[lo.id]?.pendingCount && !loContentStatus?.[lo.id]?.approvedCount
   ).length;
   const losWithoutContent = learningObjectives.filter(lo => !loContentStatus?.[lo.id]?.hasContent).length;
@@ -53,6 +59,52 @@ export function UnifiedModuleCard({ module, learningObjectives }: UnifiedModuleC
     }
     
     setBulkSearching(false);
+  };
+
+  // Generate quiz questions for all LOs in this module
+  const handleGenerateQuiz = async () => {
+    if (learningObjectives.length === 0) {
+      toast({
+        title: 'No learning objectives',
+        description: 'Add learning objectives to this module first.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setGeneratingQuiz(true);
+    let totalQuestionsGenerated = 0;
+
+    try {
+      for (const lo of learningObjectives) {
+        try {
+          const result = await generateQuestions.mutateAsync({
+            learningObjectiveId: lo.id,
+            learningObjectiveText: lo.text,
+          });
+          totalQuestionsGenerated += result?.count || 0;
+        } catch (e) {
+          console.error('Error generating questions for LO:', lo.id, e);
+        }
+      }
+
+      setQuizGenerated(true);
+      toast({
+        title: 'Quiz Generated',
+        description: `Created ${totalQuestionsGenerated} questions for ${learningObjectives.length} learning objectives in "${module.title}"`,
+      });
+
+      // Reset the success indicator after 3 seconds
+      setTimeout(() => setQuizGenerated(false), 3000);
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to generate quiz questions',
+        variant: 'destructive',
+      });
+    } finally {
+      setGeneratingQuiz(false);
+    }
   };
 
   return (
@@ -85,6 +137,34 @@ export function UnifiedModuleCard({ module, learningObjectives }: UnifiedModuleC
                 )}
               </div>
               <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                {/* Generate Quiz Button */}
+                {learningObjectives.length > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={handleGenerateQuiz}
+                    disabled={generatingQuiz}
+                  >
+                    {generatingQuiz ? (
+                      <>
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Generating...
+                      </>
+                    ) : quizGenerated ? (
+                      <>
+                        <CheckCircle2 className="h-3 w-3 text-success" />
+                        Generated!
+                      </>
+                    ) : (
+                      <>
+                        <FileQuestion className="h-3 w-3" />
+                        Generate Quiz
+                      </>
+                    )}
+                  </Button>
+                )}
+                {/* Find Content Button */}
                 {losWithoutContent > 0 && (
                   <Button
                     variant="outline"
