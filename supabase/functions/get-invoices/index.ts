@@ -74,7 +74,7 @@ serve(async (req) => {
       limit: Math.min(limit, 100),
     });
 
-    const formattedInvoices = invoices.data.map((invoice) => ({
+    const formattedInvoices = invoices.data.map((invoice: Stripe.Invoice) => ({
       id: invoice.id,
       number: invoice.number,
       amount: invoice.amount_due / 100,
