@@ -95,6 +95,14 @@ serve(async (req) => {
     // Use Pro monthly price
     const priceId = STRIPE_PRICES.pro_monthly;
 
+    // Get origin for redirect URLs - use provided URLs or fallback
+    const origin = req.headers.get("origin") || 
+                   req.headers.get("referer")?.replace(/\/[^/]*$/, '') ||
+                   Deno.env.get("PUBLIC_APP_URL") ||
+                   "https://eduthree.lovable.app";
+    
+    console.log(`Using origin: ${origin} for checkout redirects`);
+
     // Create checkout session
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
@@ -105,8 +113,8 @@ serve(async (req) => {
           quantity: 1,
         },
       ],
-      success_url: successUrl || `${req.headers.get("origin")}/billing?success=true`,
-      cancel_url: cancelUrl || `${req.headers.get("origin")}/billing?canceled=true`,
+      success_url: successUrl || `${origin}/billing?success=true`,
+      cancel_url: cancelUrl || `${origin}/billing?canceled=true`,
       subscription_data: {
         metadata: {
           supabase_user_id: user.id,
