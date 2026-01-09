@@ -49,6 +49,18 @@ async function fetchDreamJobById(id: string): Promise<DreamJob | null> {
   return data;
 }
 
+// Check if gap analysis already exists for this dream job
+async function hasExistingAnalysis(dreamJobId: string, userId: string): Promise<boolean> {
+  const { data } = await supabase
+    .from('gap_analyses')
+    .select('id')
+    .eq('dream_job_id', dreamJobId)
+    .eq('user_id', userId)
+    .limit(1);
+
+  return data !== null && data.length > 0;
+}
+
 // Create a new dream job with automated analysis workflow
 async function createDreamJobWithWorkflow(job: Omit<DreamJobInsert, 'user_id'>): Promise<DreamJob> {
   const { data: { user } } = await supabase.auth.getUser();
@@ -86,14 +98,19 @@ async function createDreamJobWithWorkflow(job: Omit<DreamJobInsert, 'user_id'>):
           })
           .eq('id', newJob.id);
 
-        // 3. Auto-trigger gap analysis after job analysis
-        console.log('[Workflow] Auto-triggering gap analysis for:', newJob.id);
-        const gapResult = await performGapAnalysis(newJob.id);
+        // 3. Check if gap analysis already exists before running
+        const analysisExists = await hasExistingAnalysis(newJob.id, user.id);
+        if (!analysisExists) {
+          console.log('[Workflow] Auto-triggering gap analysis for:', newJob.id);
+          const gapResult = await performGapAnalysis(newJob.id);
 
-        // 4. Auto-generate recommendations based on gaps
-        if (gapResult.gaps && gapResult.gaps.length > 0) {
-          console.log('[Workflow] Auto-generating recommendations for:', newJob.id);
-          await generateRecommendations(newJob.id, gapResult.gaps);
+          // 4. Auto-generate recommendations based on gaps
+          if (gapResult.gaps && gapResult.gaps.length > 0) {
+            console.log('[Workflow] Auto-generating recommendations for:', newJob.id);
+            await generateRecommendations(newJob.id, gapResult.gaps);
+          }
+        } else {
+          console.log('[Workflow] Gap analysis already exists, skipping for:', newJob.id);
         }
       }
     } catch (workflowError) {

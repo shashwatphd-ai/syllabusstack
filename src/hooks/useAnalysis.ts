@@ -36,16 +36,19 @@ async function fetchGapAnalysisFromDB(dreamJobId: string): Promise<GapAnalysisDa
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
 
+  // Use limit(1) and handle array result - the unique constraint ensures only one exists now
   const { data, error } = await supabase
     .from('gap_analyses')
     .select('*')
     .eq('dream_job_id', dreamJobId)
     .eq('user_id', user.id)
     .order('created_at', { ascending: false })
-    .maybeSingle();
+    .limit(1);
 
   if (error) throw error;
-  return data;
+  
+  // Return first result or null (handles both array and empty cases)
+  return data && data.length > 0 ? data[0] : null;
 }
 
 // Run AI gap analysis (expensive, only on demand)

@@ -63,7 +63,24 @@ async function createCourse(course: Omit<CourseInsert, 'user_id'>): Promise<Cour
   return data;
 }
 
+// Check if gap analysis is fresh (less than 24 hours old)
+async function isAnalysisFresh(dreamJobId: string, userId: string): Promise<boolean> {
+  const { data } = await supabase
+    .from('gap_analyses')
+    .select('updated_at')
+    .eq('dream_job_id', dreamJobId)
+    .eq('user_id', userId)
+    .limit(1);
+
+  if (!data || data.length === 0) return false;
+  
+  const analysisAge = Date.now() - new Date(data[0].updated_at).getTime();
+  const twentyFourHours = 24 * 60 * 60 * 1000;
+  return analysisAge < twentyFourHours;
+}
+
 // Auto-refresh gap analyses for all dream jobs when courses change
+// Only refreshes if existing analysis is older than 24 hours
 async function refreshAllGapAnalyses() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return;
@@ -75,11 +92,18 @@ async function refreshAllGapAnalyses() {
 
   if (!dreamJobs || dreamJobs.length === 0) return;
 
-  console.log('[Workflow] Refreshing gap analyses for', dreamJobs.length, 'dream jobs');
+  console.log('[Workflow] Checking gap analyses freshness for', dreamJobs.length, 'dream jobs');
   
-  // Refresh analyses in parallel (but don't block the main flow)
+  // Only refresh stale analyses to save AI costs
   for (const job of dreamJobs) {
     try {
+      const isFresh = await isAnalysisFresh(job.id, user.id);
+      if (isFresh) {
+        console.log('[Workflow] Skipping fresh analysis for job:', job.id);
+        continue;
+      }
+      
+      console.log('[Workflow] Refreshing stale analysis for job:', job.id);
       const gapResult = await performGapAnalysis(job.id);
       if (gapResult.gaps && gapResult.gaps.length > 0) {
         await generateRecommendations(job.id, gapResult.gaps);

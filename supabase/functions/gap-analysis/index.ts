@@ -284,10 +284,11 @@ Focus on:
       .update({ match_score: analysis.match_score })
       .eq("id", dreamJobId);
 
-    // Persist gap analysis to database with keyword analysis metadata
-    const { data: gapAnalysisRecord, error: insertError } = await supabase
+    // Persist gap analysis to database using UPSERT (update if exists, insert if not)
+    // This prevents duplicate records for the same user/dream_job combination
+    const { data: gapAnalysisRecord, error: upsertError } = await supabase
       .from("gap_analyses")
-      .insert({
+      .upsert({
         user_id: userId,
         dream_job_id: dreamJobId,
         analysis_text: analysis.honest_assessment,
@@ -300,13 +301,16 @@ Focus on:
         job_success_prediction: analysis.job_success_prediction,
         priority_gaps: analysis.priority_gaps,
         match_score: analysis.match_score,
-        ai_model_used: "google/gemini-2.5-flash"
+        ai_model_used: "google/gemini-2.5-flash",
+        updated_at: new Date().toISOString()
+      }, {
+        onConflict: 'user_id,dream_job_id'
       })
       .select()
       .single();
 
-    if (insertError) {
-      console.error("Error saving gap analysis:", insertError);
+    if (upsertError) {
+      console.error("Error saving gap analysis:", upsertError);
     } else {
       console.log("Saved gap analysis with ID:", gapAnalysisRecord?.id);
     }
