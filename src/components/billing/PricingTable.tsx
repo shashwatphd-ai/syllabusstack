@@ -49,9 +49,13 @@ export function PricingTable({ showCurrentBadge = true }: PricingTableProps) {
 
       if (error) throw error;
 
-      // Redirect to Stripe Checkout
+      // Open Stripe Checkout in a new tab (Stripe blocks iframe embeds)
       if (data?.url) {
-        window.location.href = data.url;
+        const opened = window.open(data.url, '_blank', 'noopener,noreferrer');
+        if (!opened) {
+          // Fallback if popups are blocked
+          window.location.href = data.url;
+        }
       }
     } catch (error) {
       console.error('Checkout error:', error);

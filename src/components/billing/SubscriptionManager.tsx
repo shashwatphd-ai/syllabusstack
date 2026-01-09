@@ -40,7 +40,10 @@ export function SubscriptionManager() {
       if (error) throw error;
 
       if (data?.url) {
-        window.location.href = data.url;
+        const opened = window.open(data.url, '_blank', 'noopener,noreferrer');
+        if (!opened) {
+          window.location.href = data.url;
+        }
       }
     } catch (error) {
       console.error('Portal error:', error);
