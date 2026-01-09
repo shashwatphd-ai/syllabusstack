@@ -212,13 +212,14 @@ function extractRating(text: string): string | undefined {
 
 function extractPrice(text: string): string | undefined {
   if (!text) return undefined;
-  if (/free/i.test(text)) return "Free";
+  if (/free\s*course|enroll\s*for\s*free/i.test(text)) return "Free";
   const match = text.match(/\$(\d+(?:\.\d{2})?)/);
   return match ? `$${match[1]}` : undefined;
 }
 
-function parseCost(price: string | undefined): number {
-  if (!price || price.toLowerCase() === "free") return 0;
+function parseCost(price: string | undefined): number | null {
+  if (!price) return null; // Unknown price, not free
+  if (price.toLowerCase() === "free") return 0;
   const match = price.match(/\$?(\d+(?:\.\d{2})?)/);
-  return match ? parseFloat(match[1]) : 0;
+  return match ? parseFloat(match[1]) : null;
 }
