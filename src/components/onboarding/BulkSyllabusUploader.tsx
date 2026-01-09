@@ -19,6 +19,7 @@ import {
   Sparkles,
   Edit2,
   Save,
+  RotateCcw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -80,6 +81,11 @@ export function BulkSyllabusUploader({ onSuccess, onCancel }: BulkSyllabusUpload
     setFiles((prev) =>
       prev.map((f) => (f.id === id ? { ...f, ...updates } : f))
     );
+  };
+
+  // Retry a failed file
+  const retryFile = (id: string) => {
+    updateFile(id, { status: "pending", error: undefined });
   };
 
   // Process a single file - extract text and analyze
@@ -278,6 +284,11 @@ export function BulkSyllabusUploader({ onSuccess, onCancel }: BulkSyllabusUpload
               <CardTitle className="text-base flex items-center gap-2">
                 <FileText className="h-5 w-5" />
                 {files.length} {files.length === 1 ? "Syllabus" : "Syllabi"}
+                {files.length > 4 && (
+                  <span className="text-xs text-muted-foreground font-normal">
+                    (scroll to see all)
+                  </span>
+                )}
               </CardTitle>
               <div className="flex items-center gap-2">
                 {completedCount > 0 && (
@@ -300,7 +311,7 @@ export function BulkSyllabusUploader({ onSuccess, onCancel }: BulkSyllabusUpload
             )}
           </CardHeader>
           <CardContent className="p-0">
-            <ScrollArea className="max-h-80">
+            <ScrollArea className="max-h-[400px]">
               <div className="divide-y">
                 {files.map((fileItem) => (
                   <div
@@ -392,9 +403,20 @@ export function BulkSyllabusUploader({ onSuccess, onCancel }: BulkSyllabusUpload
                             </p>
                           )}
                           {fileItem.status === "error" && (
-                            <p className="text-xs text-destructive mt-1">
-                              {fileItem.error}
-                            </p>
+                            <div className="flex items-center gap-2 mt-1">
+                              <p className="text-xs text-destructive flex-1">
+                                {fileItem.error}
+                              </p>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 px-2 text-xs"
+                                onClick={() => retryFile(fileItem.id)}
+                              >
+                                <RotateCcw className="h-3 w-3 mr-1" />
+                                Retry
+                              </Button>
+                            </div>
                           )}
                           {fileItem.capabilities.length > 0 && (
                             <div className="flex flex-wrap gap-1 mt-2">
