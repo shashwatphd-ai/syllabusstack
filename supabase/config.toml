@@ -77,3 +77,24 @@ verify_jwt = true
 
 [functions.search-khan-academy]
 verify_jwt = true
+
+[functions.create-checkout-session]
+verify_jwt = true
+
+[functions.stripe-webhook]
+verify_jwt = false
+
+[functions.get-invoices]
+verify_jwt = true
+
+[functions.create-portal-session]
+verify_jwt = true
+
+[functions.cancel-subscription]
+verify_jwt = true
+
+[functions.invite-users]
+verify_jwt = true
+
+[functions.remove-org-user]
+verify_jwt = true
