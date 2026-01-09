@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
-import { SignJWT, importPKCS8 } from "https://deno.land/x/jose@v5.2.0/index.ts";
+import { unzipSync, strFromU8 } from "https://esm.sh/fflate@0.8.2?target=deno";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -9,50 +9,62 @@ const corsHeaders = {
 
 /**
  * Parse Syllabus Document
- * 
+ *
  * This function handles:
  * - PDFs: Uses Gemini for text extraction (OCR capable)
- * - DOCX: Uses Google Cloud Document AI for reliable extraction
+ * - DOCX: Extracts text locally (DOCX is a ZIP; Document AI processors do not accept DOCX MIME types)
  * - Images: Uses Gemini with Vision API fallback
- * 
+ *
  * The extracted text is then passed to analyze-syllabus for capability extraction.
  */
 
-// Helper function to get OAuth2 access token from service account
-async function getGoogleAccessToken(serviceAccountKeyJson: string): Promise<string> {
-  const key = JSON.parse(serviceAccountKeyJson);
-  const now = Math.floor(Date.now() / 1000);
-  
-  const privateKey = await importPKCS8(key.private_key, "RS256");
-  
-  const jwt = await new SignJWT({
-    iss: key.client_email,
-    scope: "https://www.googleapis.com/auth/cloud-platform",
-    aud: "https://oauth2.googleapis.com/token",
-    iat: now,
-    exp: now + 3600,
-  })
-    .setProtectedHeader({ alg: "RS256", typ: "JWT" })
-    .sign(privateKey);
-  
-  const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion: jwt,
-    }),
-  });
-  
-  if (!tokenResponse.ok) {
-    const errorText = await tokenResponse.text();
-    console.error("OAuth token error:", errorText);
-    throw new Error("Failed to get Google access token");
-  }
-  
-  const tokenData = await tokenResponse.json();
-  return tokenData.access_token;
+function base64ToU8(base64: string): Uint8Array {
+  const bin = atob(base64);
+  const u8 = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  return u8;
 }
+
+function decodeXmlEntities(text: string): string {
+  return text
+    .replaceAll("&amp;", "&")
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&quot;", '"')
+    .replaceAll("&apos;", "'");
+}
+
+function extractTextFromDocxXml(documentXml: string): string {
+  // DOCX WordprocessingML: paragraphs are <w:p> ... </w:p>, text runs are <w:t>...</w:t>
+  const paragraphs = documentXml.match(/<w:p[\s\S]*?<\/w:p>/g) ?? [];
+  const lines: string[] = [];
+
+  for (const p of paragraphs) {
+    const runs = [...p.matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g)].map((m) => decodeXmlEntities(m[1] ?? ""));
+    const line = runs.join("").replace(/\s+/g, " ").trim();
+    if (line) lines.push(line);
+  }
+
+  // Fallback: if no paragraphs matched, just extract all runs
+  if (lines.length === 0) {
+    const runs = [...documentXml.matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g)].map((m) => decodeXmlEntities(m[1] ?? ""));
+    return runs.join(" ").replace(/\s+/g, " ").trim();
+  }
+
+  return lines.join("\n");
+}
+
+function extractDocxTextFromBase64(base64Content: string): string {
+  const bytes = base64ToU8(base64Content);
+  const files = unzipSync(bytes);
+  const documentXmlBytes = files["word/document.xml"];
+  if (!documentXmlBytes) {
+    throw new Error("Invalid DOCX: missing word/document.xml");
+  }
+  const documentXml = strFromU8(documentXmlBytes);
+  return extractTextFromDocxXml(documentXml);
+}
+
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -158,61 +170,18 @@ serve(async (req) => {
     let extractedText = "";
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 
-    // Handle DOCX files - use Google Cloud Document AI
+    // Handle DOCX files (DOCX is not supported by Document AI processors)
     if (isDocx) {
-      console.log("Processing DOCX file via Document AI...");
-      
-      const projectId = Deno.env.get("DOCUMENT_AI_PROJECT_ID");
-      const location = Deno.env.get("DOCUMENT_AI_LOCATION");
-      const processorId = Deno.env.get("DOCUMENT_AI_PROCESSOR_ID");
-      const serviceAccountKey = Deno.env.get("GOOGLE_SERVICE_ACCOUNT_KEY");
-      
-      if (!projectId || !location || !processorId || !serviceAccountKey) {
-        console.error("Document AI config missing:", { 
-          hasProjectId: !!projectId, 
-          hasLocation: !!location, 
-          hasProcessorId: !!processorId, 
-          hasServiceKey: !!serviceAccountKey 
-        });
-        throw new Error("Document AI configuration is incomplete. Please configure DOCUMENT_AI_PROJECT_ID, DOCUMENT_AI_LOCATION, DOCUMENT_AI_PROCESSOR_ID, and GOOGLE_SERVICE_ACCOUNT_KEY secrets.");
-      }
-      
+      console.log("Processing DOCX file locally...");
+
       try {
-        const accessToken = await getGoogleAccessToken(serviceAccountKey);
-        
-        const documentAiUrl = `https://${location}-documentai.googleapis.com/v1/projects/${projectId}/locations/${location}/processors/${processorId}:process`;
-        
-        console.log(`Calling Document AI at ${location} for project ${projectId}`);
-        
-        const response = await fetch(documentAiUrl, {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${accessToken}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            skipHumanReview: true,
-            rawDocument: {
-              content: base64Content,
-              mimeType: mimeType,
-            },
-          }),
-        });
-        
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error("Document AI error:", response.status, errorText);
-          throw new Error(`Document AI processing failed: ${response.status} - ${errorText}`);
-        }
-        
-        const result = await response.json();
-        extractedText = result.document?.text || "";
-        
-        console.log(`Extracted ${extractedText.length} characters from DOCX via Document AI`);
-        
-      } catch (docAiError) {
-        console.error("Document AI extraction failed:", docAiError);
-        throw new Error(`Failed to extract text from DOCX: ${docAiError instanceof Error ? docAiError.message : 'Unknown error'}`);
+        extractedText = extractDocxTextFromBase64(base64Content);
+        console.log(`Extracted ${extractedText.length} characters from DOCX (local unzip)`);
+      } catch (docxError) {
+        console.error("DOCX extraction failed:", docxError);
+        throw new Error(
+          `Failed to extract text from DOCX: ${docxError instanceof Error ? docxError.message : "Unknown error"}`,
+        );
       }
     }
     // Handle plain text files
