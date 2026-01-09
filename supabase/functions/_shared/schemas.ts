@@ -8,10 +8,28 @@
  */
 export const SYLLABUS_EXTRACTION_SCHEMA = {
   name: "extract_capabilities",
-  description: "Extract capabilities from a course syllabus",
+  description: "Extract capabilities and course metadata from a course syllabus",
   parameters: {
     type: "object",
     properties: {
+      // Course metadata fields
+      course_title: {
+        type: "string",
+        description: "The official course title (e.g., 'Introduction to Machine Learning', 'Strategic Management'). NOT random text or instructions."
+      },
+      course_code: {
+        type: "string",
+        description: "Academic course code like 'CS 101', 'MGT 471', 'ENT 315'. Format: 2-4 letters followed by 3-4 digits. NOT ISBN numbers or book codes."
+      },
+      semester: {
+        type: "string",
+        description: "Semester/term if mentioned (e.g., 'Fall 2024', 'Spring 2023')"
+      },
+      credits: {
+        type: "number",
+        description: "Credit hours if mentioned (typically 1-4)"
+      },
+      // Skill extraction fields
       capabilities: {
         type: "array",
         items: {
@@ -48,7 +66,7 @@ export const SYLLABUS_EXTRACTION_SCHEMA = {
         description: "Specific tools, software, or technologies covered"
       }
     },
-    required: ["capabilities"]
+    required: ["capabilities", "course_title"]
   }
 };
 
