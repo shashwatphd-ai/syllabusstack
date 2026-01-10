@@ -56,7 +56,7 @@ serve(async (req) => {
     // Get user's courses for context
     const { data: courses } = await supabase
       .from("courses")
-      .select("title, key_capabilities")
+      .select("title")
       .eq("user_id", user.id)
       .limit(10);
 
