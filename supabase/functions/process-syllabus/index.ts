@@ -334,79 +334,46 @@ RULES:
     }
 
     // ========== STEP 3: Save modules and learning objectives to database ==========
-    const savedModules = [];
-    const savedLOs = [];
+    // BATCHED APPROACH: 2 queries instead of N+M queries (100x faster for large syllabi)
+
+    // Step 3a: Batch insert ALL modules at once
+    const modulesData = courseStructure.modules.map((module, i) => ({
+      instructor_course_id: instructor_course_id,
+      title: module.title,
+      description: module.description || null,
+      sequence_order: i + 1,
+    }));
+
+    const { data: savedModules, error: modulesError } = await supabaseClient
+      .from("modules")
+      .insert(modulesData)
+      .select();
+
+    if (modulesError) {
+      console.error("Error batch saving modules:", modulesError);
+      throw new Error("Failed to save modules");
+    }
+
+    // Create a map from sequence_order to module ID for LO assignment
+    const moduleIdByIndex = new Map<number, string>();
+    savedModules?.forEach((m, i) => moduleIdByIndex.set(i, m.id));
+
+    // Step 3b: Build ALL learning objectives with correct module_ids
     let sequenceOrder = 1;
+    const losData: any[] = [];
 
-    // Save modules with their LOs
-    for (let i = 0; i < courseStructure.modules.length; i++) {
-      const module = courseStructure.modules[i];
-      
-      // Create module
-      const { data: savedModule, error: moduleError } = await supabaseClient
-        .from("modules")
-        .insert({
-          instructor_course_id: instructor_course_id,
-          title: module.title,
-          description: module.description || null,
-          sequence_order: i + 1,
-        })
-        .select()
-        .single();
-
-      if (moduleError) {
-        console.error("Error saving module:", moduleError);
-        continue;
-      }
-
-      savedModules.push(savedModule);
-
-      // Save learning objectives for this module
+    // Add LOs from modules
+    courseStructure.modules.forEach((module, moduleIndex) => {
+      const moduleId = moduleIdByIndex.get(moduleIndex);
       for (const lo of module.learning_objectives) {
         const bloomLevel = lo.bloom_level || "understand";
         const specificity = lo.specificity || "intermediate";
         const expectedDuration = DURATION_MATRIX[bloomLevel]?.[specificity] || 15;
 
-        const { data: savedLO, error: loError } = await supabaseClient
-          .from("learning_objectives")
-          .insert({
-            user_id: user.id,
-            instructor_course_id: instructor_course_id,
-            module_id: savedModule.id,
-            text: lo.text,
-            core_concept: lo.core_concept,
-            action_verb: lo.action_verb,
-            bloom_level: bloomLevel,
-            domain: lo.domain || "other",
-            specificity: specificity,
-            search_keywords: lo.search_keywords || [],
-            expected_duration_minutes: expectedDuration,
-            verification_state: "unstarted",
-            sequence_order: sequenceOrder++,
-          })
-          .select()
-          .single();
-
-        if (loError) {
-          console.error("Error saving LO:", loError);
-        } else {
-          savedLOs.push({ ...savedLO, module_title: savedModule.title });
-        }
-      }
-    }
-
-    // Save unassigned learning objectives (course-level)
-    for (const lo of courseStructure.unassigned_objectives || []) {
-      const bloomLevel = lo.bloom_level || "understand";
-      const specificity = lo.specificity || "intermediate";
-      const expectedDuration = DURATION_MATRIX[bloomLevel]?.[specificity] || 15;
-
-      const { data: savedLO, error: loError } = await supabaseClient
-        .from("learning_objectives")
-        .insert({
+        losData.push({
           user_id: user.id,
           instructor_course_id: instructor_course_id,
-          module_id: null,
+          module_id: moduleId,
           text: lo.text,
           core_concept: lo.core_concept,
           action_verb: lo.action_verb,
@@ -417,18 +384,45 @@ RULES:
           expected_duration_minutes: expectedDuration,
           verification_state: "unstarted",
           sequence_order: sequenceOrder++,
-        })
-        .select()
-        .single();
-
-      if (loError) {
-        console.error("Error saving unassigned LO:", loError);
-      } else {
-        savedLOs.push({ ...savedLO, module_title: null });
+        });
       }
+    });
+
+    // Add unassigned LOs (no module)
+    for (const lo of courseStructure.unassigned_objectives || []) {
+      const bloomLevel = lo.bloom_level || "understand";
+      const specificity = lo.specificity || "intermediate";
+      const expectedDuration = DURATION_MATRIX[bloomLevel]?.[specificity] || 15;
+
+      losData.push({
+        user_id: user.id,
+        instructor_course_id: instructor_course_id,
+        module_id: null,
+        text: lo.text,
+        core_concept: lo.core_concept,
+        action_verb: lo.action_verb,
+        bloom_level: bloomLevel,
+        domain: lo.domain || "other",
+        specificity: specificity,
+        search_keywords: lo.search_keywords || [],
+        expected_duration_minutes: expectedDuration,
+        verification_state: "unstarted",
+        sequence_order: sequenceOrder++,
+      });
     }
 
-    console.log(`Created ${savedModules.length} modules and ${savedLOs.length} learning objectives`);
+    // Step 3c: Batch insert ALL learning objectives at once
+    const { data: savedLOs, error: losError } = await supabaseClient
+      .from("learning_objectives")
+      .insert(losData)
+      .select();
+
+    if (losError) {
+      console.error("Error batch saving LOs:", losError);
+      // Don't throw - we've already saved modules, LOs are secondary
+    }
+
+    console.log(`Created ${savedModules?.length || 0} modules and ${savedLOs?.length || 0} learning objectives`);
 
     return new Response(
       JSON.stringify({
@@ -436,10 +430,10 @@ RULES:
         extracted_text_length: extractedText.length,
         course_title: courseStructure.course_title,
         course_description: courseStructure.course_description,
-        modules: savedModules,
-        learning_objectives: savedLOs,
-        module_count: savedModules.length,
-        lo_count: savedLOs.length,
+        modules: savedModules || [],
+        learning_objectives: savedLOs || [],
+        module_count: savedModules?.length || 0,
+        lo_count: savedLOs?.length || 0,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

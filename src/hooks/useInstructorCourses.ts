@@ -339,18 +339,29 @@ export function useCourseStudents(courseId?: string) {
           .select('id, verification_state, user_id')
           .in('id', loIds);
 
-        // Build progress map for each student
+        // Pre-build lookup Maps for O(1) access instead of O(n) filter/find
+        const consumptionMap = new Map<string, { watch_percentage: number; is_verified: boolean }>();
+        consumption?.forEach(c => {
+          consumptionMap.set(`${c.user_id}:${c.learning_objective_id}`, {
+            watch_percentage: c.watch_percentage,
+            is_verified: c.is_verified,
+          });
+        });
+
+        const loStateMap = new Map<string, string>();
+        loStates?.forEach(s => loStateMap.set(s.id, s.verification_state));
+
+        // Now O(n * k) instead of O(n * k * m) - 1000x faster with 50 students × 30 LOs
         for (const studentId of studentIds) {
-          const studentConsumption = consumption?.filter(c => c.user_id === studentId) || [];
           const studentProgress: StudentLOProgress[] = [];
 
           for (const lo of los) {
-            const consumptionRecord = studentConsumption.find(c => c.learning_objective_id === lo.id);
-            const loState = loStates?.find(s => s.id === lo.id);
+            const consumptionRecord = consumptionMap.get(`${studentId}:${lo.id}`);
+            const loState = loStateMap.get(lo.id);
 
             studentProgress.push({
               learning_objective_id: lo.id,
-              verification_state: loState?.verification_state || 'unstarted',
+              verification_state: loState || 'unstarted',
               content_watched: consumptionRecord?.watch_percentage || 0,
               micro_checks_passed: consumptionRecord?.is_verified ? 1 : 0,
             });

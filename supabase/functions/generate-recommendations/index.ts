@@ -62,10 +62,11 @@ serve(async (req) => {
       throw new Error(`Failed to fetch dream job: ${jobError.message}`);
     }
 
-    // Get existing capabilities
+    // Get existing capabilities for THIS USER (security + performance fix)
     const { data: capabilities } = await supabase
       .from("capabilities")
-      .select("name, category, proficiency_level");
+      .select("name, category, proficiency_level")
+      .eq("user_id", userId);
 
     // Get latest gap analysis if not provided
     let gapAnalysis = null;

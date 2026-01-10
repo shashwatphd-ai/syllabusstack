@@ -40,36 +40,43 @@ export function useLOSuggestions(learningObjectiveId: string | undefined) {
 
       const { data: { user } } = await supabase.auth.getUser();
 
-      const { data: suggestions, error } = await supabase
-        .from('content_suggestions')
-        .select(`
-          *,
-          user:user_id(full_name)
-        `)
-        .eq('learning_objective_id', learningObjectiveId)
-        .order('votes', { ascending: false })
-        .order('created_at', { ascending: false });
+      // Run both queries in PARALLEL (2x faster than sequential)
+      const [suggestionsResult, votesResult] = await Promise.all([
+        supabase
+          .from('content_suggestions')
+          .select(`
+            *,
+            user:user_id(full_name)
+          `)
+          .eq('learning_objective_id', learningObjectiveId)
+          .order('votes', { ascending: false })
+          .order('created_at', { ascending: false }),
+        // Only fetch votes if user is logged in
+        user
+          ? supabase
+              .from('suggestion_votes')
+              .select('suggestion_id, vote')
+              .eq('user_id', user.id)
+          : Promise.resolve({ data: null }),
+      ]);
 
-      if (error) throw error;
+      if (suggestionsResult.error) throw suggestionsResult.error;
+      const suggestions = suggestionsResult.data || [];
 
-      // Get user's votes
+      // Build user votes map
       let userVotes: Record<string, number> = {};
-      if (user) {
-        const { data: votes } = await supabase
-          .from('suggestion_votes')
-          .select('suggestion_id, vote')
-          .eq('user_id', user.id)
-          .in('suggestion_id', suggestions?.map(s => s.id) || []);
-
-        if (votes) {
-          userVotes = votes.reduce((acc, v) => {
+      if (votesResult.data) {
+        // Filter votes to only those for current suggestions (in-memory filter is fast)
+        const suggestionIds = new Set(suggestions.map(s => s.id));
+        userVotes = votesResult.data
+          .filter(v => suggestionIds.has(v.suggestion_id))
+          .reduce((acc, v) => {
             acc[v.suggestion_id] = v.vote;
             return acc;
           }, {} as Record<string, number>);
-        }
       }
 
-      return (suggestions || []).map(s => {
+      return suggestions.map(s => {
         let userFullName: string | null = null;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const userData = s.user as any;

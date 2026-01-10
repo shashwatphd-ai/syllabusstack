@@ -158,15 +158,15 @@ export function useCreateCourse() {
   return useMutation({
     mutationFn: createCourse,
     onSuccess: () => {
-      // Invalidate related queries for cache consistency
+      // Invalidate directly related queries only (reduces cascading refetches)
       queryClient.invalidateQueries({ queryKey: queryKeys.courses });
       queryClient.invalidateQueries({ queryKey: queryKeys.capabilities });
-      queryClient.invalidateQueries({ queryKey: queryKeys.analysis });
-      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
-      
+      // Note: Don't invalidate analysis/dashboard here - they'll refetch when accessed
+      // This prevents unnecessary API calls when user is just managing courses
+
       // Auto-refresh gap analyses in background (don't block)
       refreshAllGapAnalyses().catch(console.error);
-      
+
       toast({
         title: 'Course added',
         description: 'Your course has been added successfully.',
@@ -198,10 +198,11 @@ export function useUpdateCourse() {
       return data;
     },
     onSuccess: (_, variables) => {
+      // Invalidate directly related queries only
       queryClient.invalidateQueries({ queryKey: queryKeys.courses });
       queryClient.invalidateQueries({ queryKey: queryKeys.courseDetail(variables.id) });
       queryClient.invalidateQueries({ queryKey: queryKeys.capabilities });
-      queryClient.invalidateQueries({ queryKey: queryKeys.analysis });
+      // Note: analysis queries will refetch when user navigates to analysis page
       toast({
         title: 'Course updated',
         description: 'Your course has been updated.',
@@ -223,14 +224,14 @@ export function useDeleteCourse() {
   return useMutation({
     mutationFn: deleteCourse,
     onSuccess: () => {
+      // Invalidate directly related queries only (reduces cascading refetches)
       queryClient.invalidateQueries({ queryKey: queryKeys.courses });
       queryClient.invalidateQueries({ queryKey: queryKeys.capabilities });
-      queryClient.invalidateQueries({ queryKey: queryKeys.analysis });
-      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
-      
+      // Note: analysis/dashboard will refetch when accessed
+
       // Auto-refresh gap analyses in background after course deletion
       refreshAllGapAnalyses().catch(console.error);
-      
+
       toast({
         title: 'Course deleted',
         description: 'Your course has been removed.',
