@@ -158,6 +158,7 @@ export default function LearnPage() {
 
   // Fetch personal transcript (My Courses)
   const { data: personalCourses = [], isLoading: coursesLoading } = useCourses();
+  const createCourse = useCreateCourse();
   const deleteCourse = useDeleteCourse();
   const updateCourse = useUpdateCourse();
 
@@ -720,7 +721,37 @@ export default function LearnPage() {
 
             {showAddCourse ? (
               <AddCourseForm
-                onSubmit={async () => setShowAddCourse(false)}
+                onSubmit={async (data) => {
+                  // Create the course in database
+                  const course = await createCourse.mutateAsync({
+                    title: data.name,
+                    code: data.code || null,
+                    semester: data.semester || null,
+                    syllabus_text: data.syllabusText || null,
+                    capability_text: data.analysisResult?.extractedText || null,
+                    credits: data.analysisResult?.credits || 3,
+                    analysis_status: data.analysisResult?.capabilities?.length ? 'completed' : 'pending',
+                  });
+
+                  // If we have analyzed capabilities, save them
+                  if (data.analysisResult?.capabilities?.length && course) {
+                    const { data: { user } } = await supabase.auth.getUser();
+                    if (user) {
+                      const capabilitiesToInsert = data.analysisResult.capabilities.map(cap => ({
+                        user_id: user.id,
+                        course_id: course.id,
+                        name: cap.name,
+                        category: cap.category || 'technical',
+                        proficiency_level: cap.proficiency_level || 'intermediate',
+                        source: 'course',
+                      }));
+                      await supabase.from('capabilities').insert(capabilitiesToInsert);
+                      queryClient.invalidateQueries({ queryKey: ['capabilities'] });
+                    }
+                  }
+
+                  setShowAddCourse(false);
+                }}
                 onCancel={() => setShowAddCourse(false)}
               />
             ) : coursesLoading ? (
