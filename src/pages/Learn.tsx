@@ -376,7 +376,7 @@ export default function LearnPage() {
     }
   };
 
-  // Update course status (completion status)
+  // Update course status (completion status) - uses hook for proper cache invalidation
   const handleUpdateCourseStatus = async (course: any, newStatus: CourseStatus, grade?: string) => {
     try {
       let gradeValue: string | null = null;
@@ -386,25 +386,16 @@ export default function LearnPage() {
         gradeValue = newStatus;
       }
 
-      await supabase
-        .from('courses')
-        .update({ grade: gradeValue })
-        .eq('id', course.id);
-
-      queryClient.invalidateQueries({ queryKey: ["courses"] });
-
-      toast({
-        title: "Status updated",
-        description: `Course marked as ${newStatus.replace('_', ' ')}.`,
+      // Use the updateCourse hook for proper cache invalidation and consistency
+      await updateCourse.mutateAsync({
+        id: course.id,
+        updates: { grade: gradeValue }
       });
 
       setStatusChangeCourse(null);
     } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to update course status.",
-        variant: "destructive",
-      });
+      // Error toast already handled by the hook
+      console.error('Status update error:', error);
     }
   };
 
