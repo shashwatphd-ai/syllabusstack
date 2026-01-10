@@ -1,10 +1,57 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
+import { unzipSync, strFromU8 } from "https://esm.sh/fflate@0.8.2?target=deno";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+// ========== DOCX Local Extraction (same as parse-syllabus-document) ==========
+function base64ToU8(base64: string): Uint8Array {
+  const bin = atob(base64);
+  const u8 = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  return u8;
+}
+
+function decodeXmlEntities(text: string): string {
+  return text
+    .replaceAll("&amp;", "&")
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&quot;", '"')
+    .replaceAll("&apos;", "'");
+}
+
+function extractTextFromDocxXml(documentXml: string): string {
+  const paragraphs = documentXml.match(/<w:p[\s\S]*?<\/w:p>/g) ?? [];
+  const lines: string[] = [];
+
+  for (const p of paragraphs) {
+    const runs = [...p.matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g)].map((m) => decodeXmlEntities(m[1] ?? ""));
+    const line = runs.join("").replace(/\s+/g, " ").trim();
+    if (line) lines.push(line);
+  }
+
+  if (lines.length === 0) {
+    const runs = [...documentXml.matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g)].map((m) => decodeXmlEntities(m[1] ?? ""));
+    return runs.join(" ").replace(/\s+/g, " ").trim();
+  }
+
+  return lines.join("\n");
+}
+
+function extractDocxTextFromBase64(base64Content: string): string {
+  const bytes = base64ToU8(base64Content);
+  const files = unzipSync(bytes);
+  const documentXmlBytes = files["word/document.xml"];
+  if (!documentXmlBytes) {
+    throw new Error("Invalid DOCX: missing word/document.xml");
+  }
+  const documentXml = strFromU8(documentXmlBytes);
+  return extractTextFromDocxXml(documentXml);
+}
 
 // Duration matrix: Bloom level x Specificity (in minutes)
 const DURATION_MATRIX: Record<string, Record<string, number>> = {
@@ -89,7 +136,7 @@ serve(async (req) => {
 
     console.log(`Processing syllabus for course ${instructor_course_id}`);
 
-    // ========== STEP 1: Extract text from PDF ==========
+    // ========== STEP 1: Get document content and determine type ==========
     let base64Content: string;
     let mimeType = "application/pdf";
 
@@ -121,24 +168,41 @@ serve(async (req) => {
       base64Content = btoa(binary);
     }
 
-    // Use Gemini for PDF text extraction
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GOOGLE_CLOUD_API_KEY}`;
-    
-    const extractionResponse = await fetch(geminiUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{
-          parts: [
-            {
-              inline_data: {
-                mime_type: mimeType,
-                data: base64Content
-              }
-            },
-            {
-              text: `Extract ALL text content from this syllabus document. 
-              
+    // ========== STEP 2: Extract text from document ==========
+    // Determine if this is a DOCX file
+    const isDocx = mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+    let extractedText: string;
+
+    if (isDocx) {
+      // ========== LOCAL DOCX EXTRACTION (Gemini doesn't support DOCX) ==========
+      console.log("Extracting text from DOCX locally");
+      try {
+        extractedText = extractDocxTextFromBase64(base64Content);
+        console.log(`Extracted ${extractedText.length} characters from DOCX locally`);
+      } catch (docxError) {
+        console.error("DOCX extraction error:", docxError);
+        throw new Error("Failed to extract text from DOCX file");
+      }
+    } else {
+      // ========== GEMINI EXTRACTION (for PDF, images, etc.) ==========
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GOOGLE_CLOUD_API_KEY}`;
+      
+      const extractionResponse = await fetch(geminiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              {
+                inline_data: {
+                  mime_type: mimeType,
+                  data: base64Content
+                }
+              },
+              {
+                text: `Extract ALL text content from this syllabus document. 
+                
 Include:
 - Course title and code
 - Instructor information
@@ -150,26 +214,27 @@ Include:
 
 Format the extracted text clearly, preserving the document structure.
 Do NOT summarize - extract the complete text content.`
-            }
-          ]
-        }],
-        generationConfig: {
-          temperature: 0.1,
-          maxOutputTokens: 16384,
-        }
-      })
-    });
+              }
+            ]
+          }],
+          generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens: 16384,
+          }
+        })
+      });
 
-    if (!extractionResponse.ok) {
-      const errorText = await extractionResponse.text();
-      console.error("Gemini extraction error:", errorText);
-      throw new Error(`Failed to extract text from PDF: ${extractionResponse.status}`);
+      if (!extractionResponse.ok) {
+        const errorText = await extractionResponse.text();
+        console.error("Gemini extraction error:", errorText);
+        throw new Error(`Failed to extract text from document: ${extractionResponse.status}`);
+      }
+
+      const extractionData = await extractionResponse.json();
+      extractedText = extractionData.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      
+      console.log(`Extracted ${extractedText.length} characters from PDF via Gemini`);
     }
-
-    const extractionData = await extractionResponse.json();
-    const extractedText = extractionData.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    
-    console.log(`Extracted ${extractedText.length} characters from PDF`);
 
     if (!extractedText || extractedText.length < 50) {
       throw new Error("Could not extract sufficient text from the document");
