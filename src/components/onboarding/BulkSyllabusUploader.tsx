@@ -262,12 +262,18 @@ export function BulkSyllabusUploader({ onSuccess, onCancel }: BulkSyllabusUpload
       try {
         // Create course with capability names and analysis status
         const capabilityText = fileItem.capabilities.map(c => c.name).join("; ");
+        // Cast capabilities to Json-compatible format for Supabase
+        const keyCapabilities = fileItem.capabilities.map(cap => ({
+          name: cap.name,
+          category: cap.category,
+          proficiency_level: cap.proficiency_level,
+        }));
         const course = await createCourse.mutateAsync({
           title: fileItem.title,
           code: fileItem.code || null,
           semester: fileItem.semester || null,
           credits: fileItem.credits || 3,
-          key_capabilities: fileItem.capabilities,
+          key_capabilities: keyCapabilities as unknown as import('@/integrations/supabase/types').Json,
           capability_text: capabilityText,
           analysis_status: "completed",
         });

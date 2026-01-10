@@ -373,13 +373,20 @@ export default function CoursesPage() {
         const { capabilities, extractedText } = data.analysisResult;
         const capabilityText = capabilities.map(c => c.name).join("; ");
 
+        // Cast capabilities to Json-compatible format for Supabase
+        const keyCapabilities = capabilities.map(cap => ({
+          name: cap.name,
+          category: cap.category,
+          proficiency_level: cap.proficiency_level,
+        }));
+
         // Create course with analysis data already populated
         const course = await createCourse.mutateAsync({
           title: data.name,
           code: data.code || null,
           semester: data.semester || null,
           capability_text: capabilityText,
-          key_capabilities: capabilities,
+          key_capabilities: keyCapabilities as unknown as import('@/integrations/supabase/types').Json,
           analysis_status: "completed",
         });
 
