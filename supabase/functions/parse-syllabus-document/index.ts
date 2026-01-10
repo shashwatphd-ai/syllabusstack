@@ -314,11 +314,17 @@ Do NOT summarize - extract the complete text content.`;
     }
 
     // Now call the analyze-syllabus function with the extracted text
+    // Pass auth header to ensure user context is preserved for database operations
+    const analyzeHeaders: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (authHeader) {
+      analyzeHeaders["Authorization"] = authHeader;
+    }
+
     const analyzeResponse = await fetch(`${supabaseUrl}/functions/v1/analyze-syllabus`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: analyzeHeaders,
       body: JSON.stringify({
         syllabusText: extractedText,
         courseId: course_id,

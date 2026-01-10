@@ -2,13 +2,14 @@ import { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { useForm } from '@tanstack/react-form';
 import { z } from 'zod';
-import { 
-  Upload, 
-  FileText, 
-  X, 
+import {
+  Upload,
+  FileText,
+  X,
   Loader2,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Sparkles
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,6 +24,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { getFieldError, FormFieldWrapper } from '@/lib/tanstack-form';
+import { supabase } from '@/integrations/supabase/client';
 
 export const addCourseSchema = z.object({
   name: z.string().min(1, 'Course name is required').max(200),
@@ -30,10 +32,7 @@ export const addCourseSchema = z.object({
   university: z.string().optional(),
   semester: z.string().optional(),
   syllabusText: z.string().optional(),
-}).refine(
-  (data) => data.syllabusText && data.syllabusText.length > 50,
-  { message: 'Please provide syllabus content (at least 50 characters)', path: ['syllabusText'] }
-);
+});
 
 export type AddCourseFormValues = z.infer<typeof addCourseSchema>;
 
@@ -45,7 +44,9 @@ interface AddCourseFormProps {
 
 export function AddCourseForm({ onSubmit, onCancel, isSubmitting = false }: AddCourseFormProps) {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
-  const [analysisStatus, setAnalysisStatus] = useState<'idle' | 'extracting' | 'analyzing' | 'complete'>('idle');
+  const [analysisStatus, setAnalysisStatus] = useState<'idle' | 'extracting' | 'analyzing' | 'complete' | 'error'>('idle');
+  const [isProcessingFile, setIsProcessingFile] = useState(false);
+  const [extractedText, setExtractedText] = useState<string | null>(null);
 
   const form = useForm({
     defaultValues: {
@@ -56,40 +57,100 @@ export function AddCourseForm({ onSubmit, onCancel, isSubmitting = false }: AddC
       syllabusText: '',
     },
     onSubmit: async ({ value }) => {
-      const result = addCourseSchema.safeParse(value);
-      if (!result.success) {
+      // Validate that we have syllabus content
+      if (!value.syllabusText || value.syllabusText.length < 50) {
+        toast({
+          title: "Error",
+          description: "Please provide syllabus content (at least 50 characters)",
+          variant: "destructive",
+        });
         return;
       }
-      setAnalysisStatus('extracting');
 
       try {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        setAnalysisStatus('analyzing');
-        
         if (onSubmit) {
           await onSubmit(value);
         }
-        
-        setAnalysisStatus('complete');
-        
+
         toast({
           title: "Course added!",
-          description: "AI analysis will be performed when Lovable Cloud is enabled.",
+          description: "Your course has been added and capabilities are being analyzed.",
         });
 
         form.reset();
         setUploadedFile(null);
+        setExtractedText(null);
+        setAnalysisStatus('idle');
       } catch (error) {
         toast({
           title: "Error",
-          description: "Failed to add course. Please try again.",
+          description: error instanceof Error ? error.message : "Failed to add course. Please try again.",
           variant: "destructive",
         });
-      } finally {
-        setAnalysisStatus('idle');
       }
     },
   });
+
+  const processUploadedFile = async (file: File) => {
+    setIsProcessingFile(true);
+    setAnalysisStatus('extracting');
+
+    try {
+      // Convert file to base64
+      const arrayBuffer = await file.arrayBuffer();
+      const bytes = new Uint8Array(arrayBuffer);
+      let binary = "";
+      for (let i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      const base64 = btoa(binary);
+
+      // Call the parse-syllabus-document function
+      const { data, error } = await supabase.functions.invoke("parse-syllabus-document", {
+        body: {
+          document_base64: base64,
+          file_name: file.name,
+        },
+      });
+
+      if (error) throw error;
+
+      const text = data.extracted_text || data.text || '';
+      if (text.length < 50) {
+        throw new Error("Could not extract sufficient text from the document.");
+      }
+
+      setExtractedText(text);
+      form.setFieldValue('syllabusText', text);
+
+      // Auto-fill course metadata from AI analysis if available
+      if (data.analysis?.course_title) {
+        form.setFieldValue('name', data.analysis.course_title);
+      }
+      if (data.analysis?.course_code) {
+        form.setFieldValue('code', data.analysis.course_code);
+      }
+      if (data.analysis?.semester) {
+        form.setFieldValue('semester', data.analysis.semester);
+      }
+
+      setAnalysisStatus('complete');
+      toast({
+        title: "File processed!",
+        description: "Syllabus text extracted successfully. You can now add the course.",
+      });
+    } catch (error) {
+      console.error('Error processing file:', error);
+      setAnalysisStatus('error');
+      toast({
+        title: "Processing failed",
+        description: error instanceof Error ? error.message : "Failed to extract text from file.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessingFile(false);
+    }
+  };
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const file = acceptedFiles[0];
@@ -97,11 +158,11 @@ export function AddCourseForm({ onSubmit, onCancel, isSubmitting = false }: AddC
       setUploadedFile(file);
       const nameWithoutExt = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
       form.setFieldValue('name', nameWithoutExt);
-      
-      toast({
-        title: "File uploaded",
-        description: "Text extraction will work when Lovable Cloud is enabled.",
-      });
+      setExtractedText(null);
+      setAnalysisStatus('idle');
+
+      // Auto-process the file
+      processUploadedFile(file);
     }
   }, [form]);
 
@@ -118,9 +179,13 @@ export function AddCourseForm({ onSubmit, onCancel, isSubmitting = false }: AddC
 
   const removeFile = () => {
     setUploadedFile(null);
+    setExtractedText(null);
+    setAnalysisStatus('idle');
+    form.setFieldValue('syllabusText', '');
   };
 
-  const isProcessing = isSubmitting || analysisStatus !== 'idle';
+  const isProcessing = isSubmitting || isProcessingFile;
+  const hasContent = Boolean(extractedText || form.getFieldValue('syllabusText'));
 
   return (
     <form
@@ -229,12 +294,31 @@ export function AddCourseForm({ onSubmit, onCancel, isSubmitting = false }: AddC
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                        <FileText className="h-5 w-5 text-primary" />
+                        {isProcessingFile ? (
+                          <Loader2 className="h-5 w-5 text-primary animate-spin" />
+                        ) : analysisStatus === 'complete' ? (
+                          <CheckCircle2 className="h-5 w-5 text-green-500" />
+                        ) : analysisStatus === 'error' ? (
+                          <AlertCircle className="h-5 w-5 text-destructive" />
+                        ) : (
+                          <FileText className="h-5 w-5 text-primary" />
+                        )}
                       </div>
                       <div>
                         <p className="font-medium text-sm">{uploadedFile.name}</p>
                         <p className="text-xs text-muted-foreground">
-                          {(uploadedFile.size / 1024).toFixed(1)} KB
+                          {isProcessingFile ? (
+                            <span className="flex items-center gap-1">
+                              <Sparkles className="h-3 w-3" />
+                              Extracting text...
+                            </span>
+                          ) : analysisStatus === 'complete' ? (
+                            <span className="text-green-600">Ready to submit</span>
+                          ) : analysisStatus === 'error' ? (
+                            <span className="text-destructive">Extraction failed - try another file</span>
+                          ) : (
+                            `${(uploadedFile.size / 1024).toFixed(1)} KB`
+                          )}
                         </p>
                       </div>
                     </div>
@@ -243,6 +327,7 @@ export function AddCourseForm({ onSubmit, onCancel, isSubmitting = false }: AddC
                       variant="ghost"
                       size="icon"
                       onClick={removeFile}
+                      disabled={isProcessingFile}
                     >
                       <X className="h-4 w-4" />
                     </Button>
@@ -294,21 +379,17 @@ export function AddCourseForm({ onSubmit, onCancel, isSubmitting = false }: AddC
         </Tabs>
       </div>
 
-      {isProcessing && (
+      {isSubmitting && (
         <Card className="bg-muted/50">
           <CardContent className="p-4">
             <div className="space-y-3">
               <AnalysisStep
-                label="Extracting syllabus content"
-                status={analysisStatus === 'extracting' ? 'loading' : analysisStatus !== 'idle' ? 'complete' : 'pending'}
+                label="Creating course record"
+                status="loading"
               />
               <AnalysisStep
                 label="Analyzing capabilities with AI"
-                status={analysisStatus === 'analyzing' ? 'loading' : analysisStatus === 'complete' ? 'complete' : 'pending'}
-              />
-              <AnalysisStep
-                label="Generating capability profile"
-                status={analysisStatus === 'complete' ? 'complete' : 'pending'}
+                status="pending"
               />
             </div>
           </CardContent>
@@ -317,14 +398,22 @@ export function AddCourseForm({ onSubmit, onCancel, isSubmitting = false }: AddC
 
       <div className="flex gap-3 justify-end">
         {onCancel && (
-          <Button type="button" variant="outline" onClick={onCancel}>
+          <Button type="button" variant="outline" onClick={onCancel} disabled={isProcessing}>
             Cancel
           </Button>
         )}
         <form.Subscribe selector={(state) => [state.canSubmit, state.isSubmitting]}>
           {([canSubmit, formIsSubmitting]) => (
-            <Button type="submit" disabled={!canSubmit || isProcessing || formIsSubmitting}>
-              {isProcessing ? (
+            <Button
+              type="submit"
+              disabled={!canSubmit || isProcessing || formIsSubmitting || !hasContent}
+            >
+              {isProcessingFile ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Processing file...
+                </>
+              ) : isSubmitting ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
                   Analyzing...

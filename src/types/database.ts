@@ -1,8 +1,12 @@
-// SyllabusStack Database Types - Based on Technical Specification v3.0
+// SyllabusStack Database Types - Documentation Reference
+// NOTE: For actual type definitions, use the auto-generated types from:
+// import { Tables } from '@/integrations/supabase/types'
+// This file is kept for documentation purposes.
 
 export type StudentLevel = 'freshman' | 'sophomore' | 'junior' | 'senior' | 'graduate';
 export type RecommendationType = 'project' | 'course' | 'certification' | 'action' | 'reading';
 export type RecommendationStatus = 'not_started' | 'in_progress' | 'completed' | 'skipped';
+export type AnalysisStatus = 'pending' | 'analyzing' | 'completed' | 'failed';
 
 // User Profile
 export interface User {
@@ -22,20 +26,25 @@ export interface User {
 export interface Course {
   id: string;
   user_id: string;
-  name: string;
+  title: string;
   code?: string;
   university?: string;
   semester?: string;
-  syllabus_text?: string;
-  syllabus_file_url?: string;
+  credits?: number;
+  instructor?: string;
+  year?: number;
+  syllabus_url?: string;
   // AI-generated fields
   capability_text?: string;
-  capability_embedding?: number[];
+  capability_keywords?: string[];
   key_capabilities: KeyCapability[];
   evidence_types: string[];
   tools_methods: ToolMethod[];
   ai_model_used?: string;
   ai_cost_usd?: number;
+  // Analysis tracking
+  analysis_status?: AnalysisStatus;
+  analysis_error?: string;
   created_at: string;
   updated_at: string;
 }
