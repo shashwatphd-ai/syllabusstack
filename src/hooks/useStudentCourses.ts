@@ -243,6 +243,89 @@ export function useEnrollWithAccessCode() {
   });
 }
 
+// Unenroll from a single course
+export function useUnenrollFromCourse() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async (enrollmentId: string) => {
+      const { error } = await supabase
+        .from('course_enrollments')
+        .delete()
+        .eq('id', enrollmentId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['student-enrollments'] });
+      toast({ title: 'Unenrolled from course' });
+    },
+    onError: (error) => {
+      toast({
+        title: 'Failed to unenroll',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: 'destructive',
+      });
+    },
+  });
+}
+
+// Bulk unenroll from multiple courses
+export function useBulkUnenroll() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async (enrollmentIds: string[]) => {
+      const { error } = await supabase
+        .from('course_enrollments')
+        .delete()
+        .in('id', enrollmentIds);
+      if (error) throw error;
+      return enrollmentIds.length;
+    },
+    onSuccess: (count) => {
+      queryClient.invalidateQueries({ queryKey: ['student-enrollments'] });
+      toast({ title: `Dropped ${count} course${count > 1 ? 's' : ''}` });
+    },
+    onError: (error) => {
+      toast({
+        title: 'Failed to drop courses',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: 'destructive',
+      });
+    },
+  });
+}
+
+// Mark course(s) as completed
+export function useMarkCoursesCompleted() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async (enrollmentIds: string[]) => {
+      const { error } = await supabase
+        .from('course_enrollments')
+        .update({ completed_at: new Date().toISOString(), overall_progress: 100 })
+        .in('id', enrollmentIds);
+      if (error) throw error;
+      return enrollmentIds.length;
+    },
+    onSuccess: (count) => {
+      queryClient.invalidateQueries({ queryKey: ['student-enrollments'] });
+      toast({ title: `Marked ${count} course${count > 1 ? 's' : ''} as completed` });
+    },
+    onError: (error) => {
+      toast({
+        title: 'Failed to update courses',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: 'destructive',
+      });
+    },
+  });
+}
+
 // Get consumption progress for a learning objective
 export function useLearningObjectiveProgress(learningObjectiveId: string | undefined) {
   return useQuery({

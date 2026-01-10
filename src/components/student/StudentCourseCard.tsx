@@ -4,16 +4,28 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { StudentEnrollment } from '@/hooks/useStudentCourses';
 import { ProgressRing } from '@/components/common/ProgressRing';
+import { cn } from '@/lib/utils';
 
 interface StudentCourseCardProps {
   enrollment: StudentEnrollment;
   modulesCompleted?: number;
   totalModules?: number;
+  isSelectionMode?: boolean;
+  isSelected?: boolean;
+  onToggleSelect?: () => void;
 }
 
-export function StudentCourseCard({ enrollment, modulesCompleted, totalModules }: StudentCourseCardProps) {
+export function StudentCourseCard({ 
+  enrollment, 
+  modulesCompleted, 
+  totalModules,
+  isSelectionMode = false,
+  isSelected = false,
+  onToggleSelect,
+}: StudentCourseCardProps) {
   const navigate = useNavigate();
   const course = enrollment.instructor_course;
   const progress = enrollment.overall_progress || 0;
@@ -25,9 +37,34 @@ export function StudentCourseCard({ enrollment, modulesCompleted, totalModules }
     year: 'numeric',
   });
 
+  const handleCardClick = (e: React.MouseEvent) => {
+    if (isSelectionMode && onToggleSelect) {
+      e.preventDefault();
+      e.stopPropagation();
+      onToggleSelect();
+    }
+  };
+
   return (
-    <Card className="hover:shadow-md transition-shadow">
-      <CardHeader className="pb-3">
+    <Card 
+      className={cn(
+        "hover:shadow-md transition-all relative",
+        isSelectionMode && "cursor-pointer",
+        isSelected && "ring-2 ring-primary bg-primary/5"
+      )}
+      onClick={handleCardClick}
+    >
+      {isSelectionMode && (
+        <div className="absolute top-3 left-3 z-10">
+          <Checkbox 
+            checked={isSelected} 
+            onCheckedChange={() => onToggleSelect?.()}
+            onClick={(e) => e.stopPropagation()}
+            className="h-5 w-5 bg-background"
+          />
+        </div>
+      )}
+      <CardHeader className={cn("pb-3", isSelectionMode && "pl-12")}>
         <div className="flex items-start justify-between">
           <div className="space-y-1">
             <CardTitle className="text-lg flex items-center gap-2">
@@ -90,13 +127,15 @@ export function StudentCourseCard({ enrollment, modulesCompleted, totalModules }
           <span className="text-xs text-muted-foreground">
             Enrolled {enrolledDate}
           </span>
-          <Button
-            size="sm"
-            onClick={() => navigate(`/learn/courses/${course.id}`)}
-          >
-            Continue Learning
-            <ArrowRight className="ml-2 h-4 w-4" />
-          </Button>
+          {!isSelectionMode && (
+            <Button
+              size="sm"
+              onClick={() => navigate(`/learn/courses/${course.id}`)}
+            >
+              Continue Learning
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Button>
+          )}
         </div>
       </CardContent>
     </Card>
