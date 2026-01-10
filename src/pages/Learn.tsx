@@ -68,7 +68,7 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useStudentEnrollments } from "@/hooks/useStudentCourses";
-import { useCourses, useDeleteCourse, useUpdateCourse, Course } from "@/hooks/useCourses";
+import { useCourses, useCreateCourse, useDeleteCourse, useUpdateCourse, Course } from "@/hooks/useCourses";
 import { useCapabilities } from "@/hooks/useCapabilities";
 import { analyzeSyllabus } from "@/services";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
