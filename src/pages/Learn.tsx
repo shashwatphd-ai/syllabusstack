@@ -9,6 +9,7 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -64,11 +65,14 @@ import {
   ChevronUp,
   Filter,
   Upload,
-  Loader2
+  Loader2,
+  CheckSquare,
+  Download,
+  X,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useStudentEnrollments } from "@/hooks/useStudentCourses";
-import { useCourses, useCreateCourse, useDeleteCourse, useUpdateCourse, Course } from "@/hooks/useCourses";
+import { useCourses, useCreateCourse, useDeleteCourse, useUpdateCourse } from "@/hooks/useCourses";
 import { useCapabilities } from "@/hooks/useCapabilities";
 import { analyzeSyllabus } from "@/services";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -128,6 +132,11 @@ export default function LearnPage() {
   const [filterBy, setFilterBy] = useState<FilterOption>("all");
   const [showAllSkills, setShowAllSkills] = useState(false);
   const SKILLS_DISPLAY_LIMIT = 12;
+
+  // Transcript bulk selection state
+  const [isTranscriptSelectionMode, setIsTranscriptSelectionMode] = useState(false);
+  const [selectedTranscriptCourseIds, setSelectedTranscriptCourseIds] = useState<Set<string>>(new Set());
+  const [bulkDeleteTranscriptOpen, setBulkDeleteTranscriptOpen] = useState(false);
 
   // Edit dialog state
   const [editingCourse, setEditingCourse] = useState<any | null>(null);
@@ -218,6 +227,113 @@ export default function LearnPage() {
     if (course.analysis_status === 'failed') return 'failed';
     if (course.capability_text) return 'analyzed';
     return 'pending';
+  };
+
+  // Transcript selection helpers + bulk actions
+  const toggleTranscriptSelection = (id: string) => {
+    setSelectedTranscriptCourseIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const clearTranscriptSelection = () => {
+    setSelectedTranscriptCourseIds(new Set());
+    setIsTranscriptSelectionMode(false);
+    setBulkDeleteTranscriptOpen(false);
+  };
+
+  const selectAllTranscript = (courseIds: string[]) => {
+    setSelectedTranscriptCourseIds(new Set(courseIds));
+  };
+
+  const bulkUpdateTranscriptStatus = async (newStatus: CourseStatus, gradeOverride?: string) => {
+    const ids = Array.from(selectedTranscriptCourseIds);
+    if (ids.length === 0) return;
+
+    const gradeValue = newStatus === 'completed'
+      ? (gradeOverride || 'completed')
+      : newStatus;
+
+    const { error } = await supabase
+      .from('courses')
+      .update({ grade: gradeValue })
+      .in('id', ids);
+
+    if (error) {
+      toast({ title: 'Bulk update failed', description: error.message, variant: 'destructive' });
+      return;
+    }
+
+    queryClient.invalidateQueries({ queryKey: ['courses'] });
+    queryClient.invalidateQueries({ queryKey: ['capabilities'] });
+    queryClient.invalidateQueries({ queryKey: ['analysis'] });
+    queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+
+    toast({ title: `Updated ${ids.length} course${ids.length > 1 ? 's' : ''}` });
+    clearTranscriptSelection();
+  };
+
+  const bulkDeleteTranscriptCourses = async () => {
+    const ids = Array.from(selectedTranscriptCourseIds);
+    if (ids.length === 0) return;
+
+    // Delete capabilities first (no cascade)
+    const { error: capError } = await supabase
+      .from('capabilities')
+      .delete()
+      .in('course_id', ids);
+
+    if (capError) {
+      // non-fatal: allow course delete to proceed
+      console.error('Bulk capability delete error:', capError);
+    }
+
+    const { error } = await supabase
+      .from('courses')
+      .delete()
+      .in('id', ids);
+
+    if (error) {
+      toast({ title: 'Bulk delete failed', description: error.message, variant: 'destructive' });
+      return;
+    }
+
+    queryClient.invalidateQueries({ queryKey: ['courses'] });
+    queryClient.invalidateQueries({ queryKey: ['capabilities'] });
+    queryClient.invalidateQueries({ queryKey: ['analysis'] });
+    queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+
+    toast({ title: `Deleted ${ids.length} course${ids.length > 1 ? 's' : ''}` });
+    clearTranscriptSelection();
+  };
+
+  const exportSelectedTranscript = (courses: any[]) => {
+    const ids = selectedTranscriptCourseIds;
+    const selected = courses.filter(c => ids.has(c.id));
+    if (selected.length === 0) return;
+
+    const csv = [
+      ['Course', 'Code', 'Semester', 'Credits', 'Status', 'Skills'].join(','),
+      ...selected.map(c => [
+        `"${(c.title || '').replaceAll('"', '""')}"`,
+        c.code || '',
+        c.semester || '',
+        c.credits || '',
+        getCourseCompletionStatus(c),
+        String(getCourseSkillCount(c.id) || 0),
+      ].join(','))
+    ].join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'transcript-courses.csv';
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   // Filter and sort transcript courses
@@ -713,10 +829,24 @@ export default function LearnPage() {
               <p className="text-sm text-muted-foreground">
                 Courses from your university transcript
               </p>
-              <Button onClick={() => setShowAddCourse(true)}>
-                <Plus className="h-4 w-4 mr-2" />
-                Add Course
-              </Button>
+              <div className="flex items-center gap-2">
+                {personalCourses.length > 0 && !isTranscriptSelectionMode && (
+                  <Button variant="outline" onClick={() => setIsTranscriptSelectionMode(true)}>
+                    <CheckSquare className="h-4 w-4 mr-2" />
+                    Select
+                  </Button>
+                )}
+                {isTranscriptSelectionMode && (
+                  <Button variant="ghost" onClick={clearTranscriptSelection}>
+                    <X className="h-4 w-4 mr-2" />
+                    Cancel
+                  </Button>
+                )}
+                <Button onClick={() => setShowAddCourse(true)}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Course
+                </Button>
+              </div>
             </div>
 
             {showAddCourse ? (
