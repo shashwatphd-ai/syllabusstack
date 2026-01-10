@@ -723,12 +723,12 @@ export default function LearnPage() {
               <AddCourseForm
                 onSubmit={async (data) => {
                   // Create the course in database
+                  // Note: courses table has capability_text (NOT syllabus_text)
                   const course = await createCourse.mutateAsync({
                     title: data.name,
                     code: data.code || null,
                     semester: data.semester || null,
-                    syllabus_text: data.syllabusText || null,
-                    capability_text: data.analysisResult?.extractedText || null,
+                    capability_text: data.analysisResult?.extractedText || data.syllabusText || null,
                     credits: data.analysisResult?.credits || 3,
                     analysis_status: data.analysisResult?.capabilities?.length ? 'completed' : 'pending',
                   });
