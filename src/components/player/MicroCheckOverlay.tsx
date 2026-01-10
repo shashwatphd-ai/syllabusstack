@@ -12,6 +12,7 @@ interface MicroCheck {
   options?: { text: string; is_correct?: boolean }[];
   correct_answer: string;
   rewind_target_seconds?: number;
+  time_limit_seconds?: number;
 }
 
 interface MicroCheckOverlayProps {
@@ -23,7 +24,9 @@ interface MicroCheckOverlayProps {
 export function MicroCheckOverlay({ microCheck, onAnswer, isFailed }: MicroCheckOverlayProps) {
   const [answer, setAnswer] = useState('');
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
-  const [timeLeft, setTimeLeft] = useState(10);
+  // Use time_limit_seconds from database, default to 30 seconds
+  const timeLimit = microCheck.time_limit_seconds || 30;
+  const [timeLeft, setTimeLeft] = useState(timeLimit);
   const [hasSubmitted, setHasSubmitted] = useState(false);
 
   // Countdown timer

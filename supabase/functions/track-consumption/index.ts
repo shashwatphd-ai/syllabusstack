@@ -145,7 +145,8 @@ serve(async (req) => {
       .maybeSingle();
 
     if (fetchError && fetchError.code !== "PGRST116") {
-      throw fetchError;
+      console.error("Fetch error:", fetchError);
+      throw new Error(fetchError.message || `Database error: ${fetchError.code}`);
     }
 
     const now = new Date().toISOString();
@@ -167,7 +168,10 @@ serve(async (req) => {
         .select()
         .single();
 
-      if (createError) throw createError;
+      if (createError) {
+        console.error("Create error:", createError);
+        throw new Error(createError.message || `Failed to create consumption record: ${createError.code}`);
+      }
       record = newRecord;
     }
 
@@ -286,7 +290,10 @@ serve(async (req) => {
       .select()
       .single();
 
-    if (updateError) throw updateError;
+    if (updateError) {
+      console.error("Update error:", updateError);
+      throw new Error(updateError.message || `Failed to update consumption record: ${updateError.code}`);
+    }
 
     return new Response(
       JSON.stringify({
@@ -299,7 +306,22 @@ serve(async (req) => {
     );
   } catch (error: unknown) {
     console.error("Error in track-consumption:", error);
-    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+
+    // Handle different error types - Supabase errors are objects with message/code
+    let errorMessage = "Unknown error";
+    if (error instanceof Error) {
+      errorMessage = error.message;
+    } else if (error && typeof error === 'object') {
+      // Supabase/PostgreSQL error objects
+      const err = error as { message?: string; code?: string; details?: string; hint?: string };
+      errorMessage = err.message || err.details || err.hint || JSON.stringify(error);
+      if (err.code) {
+        errorMessage = `[${err.code}] ${errorMessage}`;
+      }
+    } else if (typeof error === 'string') {
+      errorMessage = error;
+    }
+
     return new Response(
       JSON.stringify({ error: errorMessage }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
