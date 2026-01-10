@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
+import { getWebProvider } from "../_shared/web-provider.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -46,8 +47,13 @@ serve(async (req) => {
 
     console.log(`Scraping job posting from: ${jobUrl.href}`);
 
+    // Get web provider (firecrawl or jina based on WEB_PROVIDER env var)
+    const webProvider = getWebProvider();
+    console.log(`Using web provider: ${webProvider.name}`);
+
+    // Check if provider is configured
     const FIRECRAWL_API_KEY = Deno.env.get("FIRECRAWL_API_KEY");
-    if (!FIRECRAWL_API_KEY) {
+    if (webProvider.name === 'firecrawl' && !FIRECRAWL_API_KEY) {
       console.error("FIRECRAWL_API_KEY not configured");
       return new Response(
         JSON.stringify({ error: "Firecrawl not configured. Please connect Firecrawl in Settings." }),
@@ -55,42 +61,22 @@ serve(async (req) => {
       );
     }
 
-    // Use Firecrawl to scrape the job posting
-    const scrapeResponse = await fetch("https://api.firecrawl.dev/v1/scrape", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${FIRECRAWL_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        url: jobUrl.href,
-        formats: ["markdown"],
-        onlyMainContent: true,
-        waitFor: 2000,
-      }),
+    // Use web provider abstraction to scrape the job posting
+    const scrapeResult = await webProvider.scrape(jobUrl.href, {
+      onlyMainContent: true,
+      waitFor: 2000,
     });
 
-    if (!scrapeResponse.ok) {
-      const errorText = await scrapeResponse.text();
-      console.error("Firecrawl scrape error:", scrapeResponse.status, errorText);
+    if (!scrapeResult.success) {
+      console.error(`${webProvider.name} scrape failed for: ${jobUrl.href}`);
       return new Response(
         JSON.stringify({ error: "Failed to scrape job posting. Please try a different URL." }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    const scrapeData = await scrapeResponse.json();
-    
-    if (!scrapeData.success || !scrapeData.data) {
-      console.error("Firecrawl returned no data:", scrapeData);
-      return new Response(
-        JSON.stringify({ error: "Could not extract job posting content." }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const markdown = scrapeData.data.markdown || "";
-    const metadata = scrapeData.data.metadata || {};
+    const markdown = scrapeResult.markdown || "";
+    const metadata = scrapeResult.metadata || {};
     
     console.log(`Scraped ${markdown.length} characters from ${jobUrl.host}`);
 
@@ -161,6 +147,7 @@ Return a JSON object with these fields (use null for missing fields):
         data: jobData,
         sourceUrl: jobUrl.href,
         sourceHost: jobUrl.host,
+        provider: webProvider.name,  // Track which provider was used
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
