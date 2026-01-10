@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { AppShell } from "@/components/layout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -8,6 +8,20 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   PlayCircle,
   BookOpen,
   Award,
@@ -15,18 +29,30 @@ import {
   Search,
   CheckCircle2,
   Clock,
-  TrendingUp,
   GraduationCap,
   FileText,
-  Shield
+  Shield,
+  MoreVertical,
+  Eye,
+  Pencil,
+  Trash2,
+  RefreshCw,
+  CalendarClock,
+  Sparkles,
+  ArrowUpDown,
+  ChevronDown,
+  ChevronUp,
+  Filter
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useStudentEnrollments } from "@/hooks/useStudentCourses";
-import { useCourses } from "@/hooks/useCourses";
-import { useQuery } from "@tanstack/react-query";
+import { useCourses, useDeleteCourse } from "@/hooks/useCourses";
+import { useCapabilities } from "@/hooks/useCapabilities";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { EnrollmentDialog } from "@/components/student/EnrollmentDialog";
 import { AddCourseForm } from "@/components/forms";
+import { toast } from "@/hooks/use-toast";
 
 interface SkillProfile {
   skill_name: string;
@@ -38,18 +64,31 @@ interface SkillProfile {
   evidence_url: string | null;
 }
 
+type SortOption = "newest" | "oldest" | "name" | "skills";
+type FilterOption = "all" | "analyzed" | "pending";
+
 export default function LearnPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState("active");
   const [showEnrollDialog, setShowEnrollDialog] = useState(false);
   const [showAddCourse, setShowAddCourse] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [transcriptSearch, setTranscriptSearch] = useState("");
+  const [sortBy, setSortBy] = useState<SortOption>("newest");
+  const [filterBy, setFilterBy] = useState<FilterOption>("all");
+  const [showAllSkills, setShowAllSkills] = useState(false);
+  const SKILLS_DISPLAY_LIMIT = 12;
 
   // Fetch active courses (instructor enrollments)
   const { data: enrollments = [], isLoading: enrollmentsLoading } = useStudentEnrollments();
 
   // Fetch personal transcript (My Courses)
   const { data: personalCourses = [], isLoading: coursesLoading } = useCourses();
+  const deleteCourse = useDeleteCourse();
+
+  // Fetch capabilities for skill counts
+  const { data: capabilities = [] } = useCapabilities();
 
   // Fetch unified skill profile
   const { data: skillProfile = [], isLoading: skillsLoading } = useQuery({
@@ -65,12 +104,12 @@ export default function LearnPage() {
       if (error) {
         console.error("Error fetching skill profile:", error);
         // Fallback to capabilities table if function doesn't exist yet
-        const { data: capabilities } = await supabase
+        const { data: caps } = await supabase
           .from("capabilities")
           .select("name, proficiency_level, created_at, courses(title)")
           .order("created_at", { ascending: false });
 
-        return (capabilities || []).map((c: any) => ({
+        return (caps || []).map((c: any) => ({
           skill_name: c.name,
           proficiency_level: c.proficiency_level,
           source_type: "self_reported",
@@ -92,6 +131,61 @@ export default function LearnPage() {
   const verifiedSkillsCount = skillProfile.filter(s => s.verified).length;
   const totalSkillsCount = skillProfile.length;
 
+  // Get skill count for a course
+  const getCourseSkillCount = (courseId: string) => {
+    return capabilities.filter((c: any) => c.course_id === courseId).length;
+  };
+
+  // Get course status
+  const getCourseStatus = (course: any) => {
+    if (course.analysis_status === 'completed') return 'analyzed';
+    if (course.analysis_status === 'analyzing') return 'analyzing';
+    if (course.analysis_status === 'failed') return 'failed';
+    if (course.capability_text) return 'analyzed';
+    return 'pending';
+  };
+
+  // Filter and sort transcript courses
+  const filteredAndSortedCourses = useMemo(() => {
+    let result = [...personalCourses];
+
+    // Apply search filter
+    if (transcriptSearch.trim()) {
+      const query = transcriptSearch.toLowerCase();
+      result = result.filter((c: any) =>
+        c.title.toLowerCase().includes(query) ||
+        (c.code && c.code.toLowerCase().includes(query)) ||
+        (c.semester && c.semester.toLowerCase().includes(query))
+      );
+    }
+
+    // Apply analysis status filter
+    if (filterBy !== "all") {
+      result = result.filter((c: any) => {
+        const status = getCourseStatus(c);
+        return status === filterBy;
+      });
+    }
+
+    // Apply sorting
+    result.sort((a: any, b: any) => {
+      switch (sortBy) {
+        case "newest":
+          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        case "oldest":
+          return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        case "name":
+          return a.title.localeCompare(b.title);
+        case "skills":
+          return getCourseSkillCount(b.id) - getCourseSkillCount(a.id);
+        default:
+          return 0;
+      }
+    });
+
+    return result;
+  }, [personalCourses, transcriptSearch, filterBy, sortBy, capabilities]);
+
   // Filter skills by search
   const filteredSkills = skillProfile.filter(skill =>
     skill.skill_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -105,6 +199,19 @@ export default function LearnPage() {
     acc[category].push(skill);
     return acc;
   }, {} as Record<string, SkillProfile[]>);
+
+  // Limit displayed skills
+  const displayedVerifiedSkills = showAllSkills
+    ? groupedSkills.verified || []
+    : (groupedSkills.verified || []).slice(0, SKILLS_DISPLAY_LIMIT);
+
+  const displayedSelfReportedSkills = showAllSkills
+    ? groupedSkills.self_reported || []
+    : (groupedSkills.self_reported || []).slice(0, SKILLS_DISPLAY_LIMIT);
+
+  const hasMoreSkills =
+    (groupedSkills.verified?.length || 0) > SKILLS_DISPLAY_LIMIT ||
+    (groupedSkills.self_reported?.length || 0) > SKILLS_DISPLAY_LIMIT;
 
   const getProficiencyColor = (level: string) => {
     switch (level) {
@@ -123,6 +230,25 @@ export default function LearnPage() {
       case "intermediate": return 50;
       case "beginner": return 25;
       default: return 10;
+    }
+  };
+
+  // Handle delete course
+  const handleDeleteCourse = async (course: any) => {
+    if (confirm(`Are you sure you want to delete "${course.title}"? This will also remove all associated skills.`)) {
+      try {
+        await deleteCourse.mutateAsync(course.id);
+        toast({
+          title: "Course deleted",
+          description: "The course has been removed from your transcript.",
+        });
+      } catch (error) {
+        toast({
+          title: "Error",
+          description: "Failed to delete course. Please try again.",
+          variant: "destructive",
+        });
+      }
     }
   };
 
@@ -269,10 +395,10 @@ export default function LearnPage() {
                       <div className="flex items-start justify-between">
                         <div>
                           <CardTitle className="text-lg">
-                            {enrollment.instructor_courses?.title || "Untitled Course"}
+                            {enrollment.instructor_course?.title || "Untitled Course"}
                           </CardTitle>
                           <CardDescription>
-                            {enrollment.instructor_courses?.code}
+                            {enrollment.instructor_course?.code}
                           </CardDescription>
                         </div>
                         {enrollment.completed_at ? (
@@ -350,39 +476,153 @@ export default function LearnPage() {
                 </div>
               </Card>
             ) : (
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {personalCourses.map((course: any) => (
-                  <Card key={course.id} className="hover:shadow-md transition-shadow">
-                    <CardContent className="p-4">
-                      <div className="flex items-start justify-between mb-2">
-                        <div>
-                          <h4 className="font-medium line-clamp-1">{course.title}</h4>
-                          <p className="text-sm text-muted-foreground">{course.code}</p>
-                        </div>
-                        {course.grade && (
-                          <Badge variant="outline">{course.grade}</Badge>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                        {course.semester && <span>{course.semester}</span>}
-                        {course.credits && <span>{course.credits} credits</span>}
-                      </div>
-                      {course.analysis_status === "completed" && (
-                        <div className="mt-2 flex items-center gap-1 text-xs text-green-600">
-                          <CheckCircle2 className="h-3 w-3" />
-                          Skills extracted
-                        </div>
-                      )}
-                    </CardContent>
+              <>
+                {/* Search and Filter Controls */}
+                <div className="flex flex-col sm:flex-row gap-4">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Search courses by name, code, or semester..."
+                      value={transcriptSearch}
+                      onChange={(e) => setTranscriptSearch(e.target.value)}
+                      className="pl-10"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <Select value={filterBy} onValueChange={(v) => setFilterBy(v as FilterOption)}>
+                      <SelectTrigger className="w-[130px]">
+                        <Filter className="h-4 w-4 mr-2" />
+                        <SelectValue placeholder="Filter" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All</SelectItem>
+                        <SelectItem value="analyzed">Analyzed</SelectItem>
+                        <SelectItem value="pending">Pending</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Select value={sortBy} onValueChange={(v) => setSortBy(v as SortOption)}>
+                      <SelectTrigger className="w-[130px]">
+                        <ArrowUpDown className="h-4 w-4 mr-2" />
+                        <SelectValue placeholder="Sort" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="newest">Newest</SelectItem>
+                        <SelectItem value="oldest">Oldest</SelectItem>
+                        <SelectItem value="name">By Name</SelectItem>
+                        <SelectItem value="skills">By Skills</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                {/* Results count */}
+                {(transcriptSearch || filterBy !== "all") && (
+                  <p className="text-sm text-muted-foreground">
+                    Showing {filteredAndSortedCourses.length} of {personalCourses.length} courses
+                  </p>
+                )}
+
+                {/* Course Grid */}
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  {filteredAndSortedCourses.map((course: any) => {
+                    const status = getCourseStatus(course);
+                    const skillCount = getCourseSkillCount(course.id);
+
+                    return (
+                      <Card
+                        key={course.id}
+                        className="cursor-pointer hover:shadow-md transition-shadow group"
+                        onClick={() => navigate(`/courses/${course.id}`)}
+                      >
+                        <CardContent className="p-4">
+                          <div className="flex items-start justify-between mb-2">
+                            <div className="flex-1 min-w-0 mr-2">
+                              <h4 className="font-medium line-clamp-1">{course.title}</h4>
+                              <p className="text-sm text-muted-foreground">{course.code}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {course.grade && (
+                                <Badge variant="outline">{course.grade}</Badge>
+                              )}
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                                  >
+                                    <MoreVertical className="h-4 w-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem onClick={(e) => {
+                                    e.stopPropagation();
+                                    navigate(`/courses/${course.id}`);
+                                  }}>
+                                    <Eye className="h-4 w-4 mr-2" />
+                                    View Details
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    className="text-destructive focus:text-destructive"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDeleteCourse(course);
+                                    }}
+                                  >
+                                    <Trash2 className="h-4 w-4 mr-2" />
+                                    Delete Course
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                            {course.semester && <span>{course.semester}</span>}
+                            {course.credits && <span>{course.credits} credits</span>}
+                          </div>
+                          <div className="mt-2 flex items-center justify-between">
+                            <Badge
+                              variant={status === "analyzed" ? "default" : "secondary"}
+                              className="text-[10px]"
+                            >
+                              {status === "analyzed" && <Sparkles className="h-3 w-3 mr-1" />}
+                              {status}
+                            </Badge>
+                            {skillCount > 0 && (
+                              <span className="text-xs text-accent font-medium">
+                                {skillCount} skills
+                              </span>
+                            )}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+
+                {filteredAndSortedCourses.length === 0 && personalCourses.length > 0 && (
+                  <Card className="p-8 text-center">
+                    <p className="text-muted-foreground">No courses match your filters.</p>
+                    <Button
+                      variant="outline"
+                      className="mt-4"
+                      onClick={() => {
+                        setTranscriptSearch("");
+                        setFilterBy("all");
+                      }}
+                    >
+                      Clear Filters
+                    </Button>
                   </Card>
-                ))}
-              </div>
+                )}
+              </>
             )}
           </TabsContent>
 
           {/* Skill Profile Tab */}
           <TabsContent value="skills" className="space-y-4">
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 flex-wrap">
               <div className="relative flex-1 max-w-sm">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -422,17 +662,17 @@ export default function LearnPage() {
             ) : (
               <div className="space-y-6">
                 {/* Verified Skills */}
-                {groupedSkills.verified && groupedSkills.verified.length > 0 && (
+                {displayedVerifiedSkills.length > 0 && (
                   <div>
                     <div className="flex items-center gap-2 mb-3">
                       <Shield className="h-4 w-4 text-green-500" />
                       <h3 className="font-semibold">Verified Skills</h3>
                       <Badge variant="outline" className="text-green-600 border-green-200">
-                        {groupedSkills.verified.length}
+                        {groupedSkills.verified?.length || 0}
                       </Badge>
                     </div>
                     <div className="grid gap-3">
-                      {groupedSkills.verified.map((skill, i) => (
+                      {displayedVerifiedSkills.map((skill, i) => (
                         <Card key={`verified-${i}`} className="border-green-200">
                           <CardContent className="p-4">
                             <div className="flex items-center justify-between">
@@ -467,17 +707,17 @@ export default function LearnPage() {
                 )}
 
                 {/* Self-Reported Skills */}
-                {groupedSkills.self_reported && groupedSkills.self_reported.length > 0 && (
+                {displayedSelfReportedSkills.length > 0 && (
                   <div>
                     <div className="flex items-center gap-2 mb-3">
                       <FileText className="h-4 w-4 text-amber-500" />
                       <h3 className="font-semibold">Self-Reported Skills</h3>
                       <Badge variant="outline" className="text-amber-600 border-amber-200">
-                        {groupedSkills.self_reported.length}
+                        {groupedSkills.self_reported?.length || 0}
                       </Badge>
                     </div>
                     <div className="grid gap-3 md:grid-cols-2">
-                      {groupedSkills.self_reported.map((skill, i) => (
+                      {displayedSelfReportedSkills.map((skill, i) => (
                         <Card key={`self-${i}`} className="border-amber-100">
                           <CardContent className="p-4">
                             <div className="flex items-center justify-between">
@@ -503,6 +743,29 @@ export default function LearnPage() {
                         </Card>
                       ))}
                     </div>
+                  </div>
+                )}
+
+                {/* Show More/Less Button */}
+                {hasMoreSkills && !searchQuery && (
+                  <div className="flex justify-center">
+                    <Button
+                      variant="outline"
+                      onClick={() => setShowAllSkills(!showAllSkills)}
+                      className="gap-2"
+                    >
+                      {showAllSkills ? (
+                        <>
+                          <ChevronUp className="h-4 w-4" />
+                          Show Less
+                        </>
+                      ) : (
+                        <>
+                          <ChevronDown className="h-4 w-4" />
+                          Show All Skills ({totalSkillsCount})
+                        </>
+                      )}
+                    </Button>
                   </div>
                 )}
               </div>

@@ -15,7 +15,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { useToast } from "@/hooks/use-toast";
 import { Lightbulb, Loader2 } from "lucide-react";
 
-type FilterType = "all" | "course" | "project" | "certification" | "skill" | "experience";
+type FilterType = "all" | "course" | "project" | "certification" | "skill" | "experience" | "action" | "reading" | "networking" | "portfolio" | "resource";
 
 interface RecommendationsListProps {
   dreamJobId?: string;
@@ -104,16 +104,16 @@ export function RecommendationsList({ dreamJobId }: RecommendationsListProps) {
     id: rec.id,
     title: rec.title,
     description: rec.description || '',
-    type: (rec.type as "course" | "project" | "certification" | "action" | "reading" | "skill" | "experience" | "resource" | "networking") || 'resource',
+    type: (rec.type as "course" | "project" | "certification" | "action" | "reading" | "skill" | "experience" | "resource" | "networking" | "portfolio") || 'resource',
     priority: (rec.priority as "high" | "medium" | "low" | "critical" | "important" | "nice_to_have") || 'medium',
-    estimatedTime: rec.duration || 'Varies',
+    estimatedTime: rec.duration || undefined,
     effort_hours: rec.effort_hours,
     cost_usd: rec.cost_usd,
     provider: rec.provider || undefined,
     url: rec.url || undefined,
     status: (rec.status as "pending" | "in_progress" | "completed" | "skipped" | "not_started") || 'pending',
-    relatedGap: rec.gap_addressed || 'Skill Gap',
-    gap_addressed: rec.gap_addressed,
+    relatedGap: rec.gap_addressed || undefined,
+    gap_addressed: rec.gap_addressed || undefined,
     why_this_matters: rec.why_this_matters,
     steps: rec.steps as any[],
     evidence_created: rec.evidence_created,
@@ -185,23 +185,33 @@ export function RecommendationsList({ dreamJobId }: RecommendationsListProps) {
             </div>
 
             <TabsContent value="recommendations" className="space-y-4">
-              {/* Filters - Pill style */}
+              {/* Filters - Pill style with counts */}
               <div className="flex items-center gap-2 flex-wrap">
                 {[
-                  { key: "all", label: "All" },
-                  { key: "course", label: "Courses" },
-                  { key: "project", label: "Projects" },
-                  { key: "certification", label: "Certs" },
-                  { key: "skill", label: "Skills" },
-                ].map((item) => (
+                  { key: "all", label: "All", count: recommendations.length },
+                  { key: "course", label: "Courses", count: recommendations.filter(r => r.type === "course").length },
+                  { key: "project", label: "Projects", count: recommendations.filter(r => r.type === "project").length },
+                  { key: "certification", label: "Certs", count: recommendations.filter(r => r.type === "certification").length },
+                  { key: "skill", label: "Skills", count: recommendations.filter(r => r.type === "skill").length },
+                  { key: "action", label: "Actions", count: recommendations.filter(r => r.type === "action").length },
+                  { key: "reading", label: "Reading", count: recommendations.filter(r => r.type === "reading").length },
+                  { key: "experience", label: "Experience", count: recommendations.filter(r => r.type === "experience").length },
+                ].filter(item => item.key === "all" || item.count > 0).map((item) => (
                   <Button
                     key={item.key}
                     variant={filter === item.key ? "default" : "outline"}
                     size="sm"
                     onClick={() => setFilter(item.key as FilterType)}
-                    className="h-7 text-xs"
+                    className="h-7 text-xs gap-1"
                   >
                     {item.label}
+                    {item.count > 0 && (
+                      <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] ${
+                        filter === item.key ? "bg-white/20" : "bg-muted"
+                      }`}>
+                        {item.count}
+                      </span>
+                    )}
                   </Button>
                 ))}
               </div>
