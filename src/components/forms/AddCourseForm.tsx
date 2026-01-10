@@ -26,6 +26,23 @@ import { toast } from '@/hooks/use-toast';
 import { getFieldError, FormFieldWrapper } from '@/lib/tanstack-form';
 import { supabase } from '@/integrations/supabase/client';
 
+// Capability interface matching the analysis result
+export interface AnalyzedCapability {
+  name: string;
+  category: string;
+  proficiency_level: string;
+}
+
+// Complete analysis result from parse-syllabus-document
+export interface CourseAnalysisResult {
+  extractedText: string;
+  capabilities: AnalyzedCapability[];
+  courseTitle?: string;
+  courseCode?: string;
+  semester?: string;
+  credits?: number;
+}
+
 export const addCourseSchema = z.object({
   name: z.string().min(1, 'Course name is required').max(200),
   code: z.string().optional(),
@@ -36,8 +53,13 @@ export const addCourseSchema = z.object({
 
 export type AddCourseFormValues = z.infer<typeof addCourseSchema>;
 
+// Extended form values that include the analysis result
+export interface AddCourseSubmitData extends AddCourseFormValues {
+  analysisResult?: CourseAnalysisResult;
+}
+
 interface AddCourseFormProps {
-  onSubmit?: (data: AddCourseFormValues) => Promise<void>;
+  onSubmit?: (data: AddCourseSubmitData) => Promise<void>;
   onCancel?: () => void;
   isSubmitting?: boolean;
 }
@@ -47,6 +69,8 @@ export function AddCourseForm({ onSubmit, onCancel, isSubmitting = false }: AddC
   const [analysisStatus, setAnalysisStatus] = useState<'idle' | 'extracting' | 'analyzing' | 'complete' | 'error'>('idle');
   const [isProcessingFile, setIsProcessingFile] = useState(false);
   const [extractedText, setExtractedText] = useState<string | null>(null);
+  // Store the complete analysis result for submission
+  const [analysisResult, setAnalysisResult] = useState<CourseAnalysisResult | null>(null);
 
   const form = useForm({
     defaultValues: {
@@ -69,17 +93,24 @@ export function AddCourseForm({ onSubmit, onCancel, isSubmitting = false }: AddC
 
       try {
         if (onSubmit) {
-          await onSubmit(value);
+          // Pass the complete analysis result along with form values
+          await onSubmit({
+            ...value,
+            analysisResult: analysisResult || undefined,
+          });
         }
 
         toast({
           title: "Course added!",
-          description: "Your course has been added and capabilities are being analyzed.",
+          description: analysisResult?.capabilities?.length
+            ? `${analysisResult.capabilities.length} skills extracted from your syllabus.`
+            : "Your course has been added.",
         });
 
         form.reset();
         setUploadedFile(null);
         setExtractedText(null);
+        setAnalysisResult(null);
         setAnalysisStatus('idle');
       } catch (error) {
         toast({
@@ -94,6 +125,7 @@ export function AddCourseForm({ onSubmit, onCancel, isSubmitting = false }: AddC
   const processUploadedFile = async (file: File) => {
     setIsProcessingFile(true);
     setAnalysisStatus('extracting');
+    setAnalysisResult(null);
 
     try {
       // Convert file to base64
@@ -123,6 +155,25 @@ export function AddCourseForm({ onSubmit, onCancel, isSubmitting = false }: AddC
       setExtractedText(text);
       form.setFieldValue('syllabusText', text);
 
+      // Extract and store the complete analysis result
+      const rawCapabilities = data.analysis?.capabilities || [];
+      const capabilities: AnalyzedCapability[] = rawCapabilities.map((c: any) => ({
+        name: typeof c === "string" ? c : (c.name || c),
+        category: typeof c === "object" && c.category ? c.category : "technical",
+        proficiency_level: typeof c === "object" && c.proficiency_level ? c.proficiency_level : "intermediate",
+      }));
+
+      // Store the complete analysis result for submission
+      const result: CourseAnalysisResult = {
+        extractedText: text,
+        capabilities,
+        courseTitle: data.analysis?.course_title,
+        courseCode: data.analysis?.course_code,
+        semester: data.analysis?.semester,
+        credits: data.analysis?.credits,
+      };
+      setAnalysisResult(result);
+
       // Auto-fill course metadata from AI analysis if available
       if (data.analysis?.course_title) {
         form.setFieldValue('name', data.analysis.course_title);
@@ -135,13 +186,18 @@ export function AddCourseForm({ onSubmit, onCancel, isSubmitting = false }: AddC
       }
 
       setAnalysisStatus('complete');
+
+      const capCount = capabilities.length;
       toast({
         title: "File processed!",
-        description: "Syllabus text extracted successfully. You can now add the course.",
+        description: capCount > 0
+          ? `Extracted ${capCount} skills from your syllabus. Review and submit.`
+          : "Syllabus text extracted. You can now add the course.",
       });
     } catch (error) {
       console.error('Error processing file:', error);
       setAnalysisStatus('error');
+      setAnalysisResult(null);
       toast({
         title: "Processing failed",
         description: error instanceof Error ? error.message : "Failed to extract text from file.",
@@ -159,6 +215,7 @@ export function AddCourseForm({ onSubmit, onCancel, isSubmitting = false }: AddC
       const nameWithoutExt = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
       form.setFieldValue('name', nameWithoutExt);
       setExtractedText(null);
+      setAnalysisResult(null);
       setAnalysisStatus('idle');
 
       // Auto-process the file
@@ -180,6 +237,7 @@ export function AddCourseForm({ onSubmit, onCancel, isSubmitting = false }: AddC
   const removeFile = () => {
     setUploadedFile(null);
     setExtractedText(null);
+    setAnalysisResult(null);
     setAnalysisStatus('idle');
     form.setFieldValue('syllabusText', '');
   };
