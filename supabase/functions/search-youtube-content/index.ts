@@ -13,6 +13,128 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Invidious instances (public YouTube API alternatives - NO QUOTA LIMITS)
+const INVIDIOUS_INSTANCES = [
+  "https://inv.nadeko.net",
+  "https://invidious.nerdvpn.de",
+  "https://invidious.private.coffee",
+  "https://vid.puffyan.us",
+  "https://invidious.projectsegfau.lt",
+];
+
+// Piped instances (another YouTube alternative - NO QUOTA LIMITS)
+const PIPED_INSTANCES = [
+  "https://pipedapi.kavin.rocks",
+  "https://pipedapi.tokhmi.xyz",
+  "https://api.piped.yt",
+];
+
+interface InvidiousVideo {
+  videoId: string;
+  title: string;
+  description: string;
+  author: string;
+  authorId: string;
+  lengthSeconds: number;
+  viewCount: number;
+  published: number;
+  videoThumbnails: Array<{ url: string; quality: string }>;
+}
+
+/**
+ * Search YouTube using Invidious API (NO QUOTA LIMITS)
+ * Falls back through multiple instances if one fails
+ */
+async function searchInvidious(query: string, maxResults: number = 15): Promise<YouTubeVideo[]> {
+  for (const instance of INVIDIOUS_INSTANCES) {
+    try {
+      const searchUrl = `${instance}/api/v1/search?q=${encodeURIComponent(query)}&type=video&sort=relevance`;
+      const response = await fetch(searchUrl, {
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(10000), // 10s timeout
+      });
+
+      if (!response.ok) {
+        console.log(`Invidious instance ${instance} returned ${response.status}`);
+        continue;
+      }
+
+      const data: InvidiousVideo[] = await response.json();
+      const videos: YouTubeVideo[] = data.slice(0, maxResults).map(item => ({
+        id: item.videoId,
+        title: item.title,
+        description: item.description || '',
+        channelTitle: item.author,
+        channelId: item.authorId,
+        publishedAt: new Date(item.published * 1000).toISOString(),
+        thumbnailUrl: item.videoThumbnails?.find(t => t.quality === 'medium')?.url ||
+                      item.videoThumbnails?.[0]?.url || '',
+        duration: item.lengthSeconds,
+        viewCount: item.viewCount || 0,
+        likeCount: 0, // Invidious doesn't provide likes
+      }));
+
+      console.log(`Invidious (${instance}) found ${videos.length} videos`);
+      return videos;
+    } catch (error) {
+      console.log(`Invidious instance ${instance} failed:`, error);
+      continue;
+    }
+  }
+
+  console.log('All Invidious instances failed');
+  return [];
+}
+
+/**
+ * Search YouTube using Piped API (NO QUOTA LIMITS)
+ */
+async function searchPiped(query: string, maxResults: number = 15): Promise<YouTubeVideo[]> {
+  for (const instance of PIPED_INSTANCES) {
+    try {
+      const searchUrl = `${instance}/search?q=${encodeURIComponent(query)}&filter=videos`;
+      const response = await fetch(searchUrl, {
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!response.ok) {
+        console.log(`Piped instance ${instance} returned ${response.status}`);
+        continue;
+      }
+
+      const data = await response.json();
+      const items = data.items || [];
+
+      const videos: YouTubeVideo[] = items.slice(0, maxResults).map((item: any) => {
+        // Extract video ID from URL
+        const videoId = item.url?.split('/watch?v=')[1] || item.url?.split('/').pop() || '';
+        return {
+          id: videoId,
+          title: item.title || '',
+          description: item.shortDescription || '',
+          channelTitle: item.uploaderName || '',
+          channelId: item.uploaderUrl?.split('/channel/')[1] || '',
+          publishedAt: new Date(item.uploaded || Date.now()).toISOString(),
+          thumbnailUrl: item.thumbnail || '',
+          duration: item.duration || 0,
+          viewCount: item.views || 0,
+          likeCount: 0,
+        };
+      });
+
+      console.log(`Piped (${instance}) found ${videos.length} videos`);
+      return videos;
+    } catch (error) {
+      console.log(`Piped instance ${instance} failed:`, error);
+      continue;
+    }
+  }
+
+  console.log('All Piped instances failed');
+  return [];
+}
+
 // Fallback action mapping for Bloom's taxonomy levels (used if AI strategy fails)
 const ACTION_MAP: Record<string, string[]> = {
   remember: ["introduction to", "basics of", "what is", "overview"],
@@ -303,10 +425,154 @@ serve(async (req) => {
 
     // Check YouTube quota before proceeding
     const quotaStatus = await checkYouTubeQuota();
-    if (!quotaStatus.canSearch) {
-      console.warn(`YouTube quota exhausted: ${quotaStatus.usedToday}/${10000} units used today - using Khan Academy as primary source`);
+    const useAlternativeAPIs = !quotaStatus.canSearch || quotaStatus.remaining < 500;
 
-      // Fallback to Khan Academy when YouTube quota is exhausted
+    if (useAlternativeAPIs) {
+      console.warn(`YouTube quota low/exhausted: ${quotaStatus.usedToday}/${10000} units - using Invidious/Piped/Khan Academy`);
+
+      // Try Invidious first (quota-free YouTube alternative)
+      const searchQuery = `${core_concept} ${(search_keywords || []).slice(0, 2).join(' ')} educational`.trim();
+      let altVideos = await searchInvidious(searchQuery, 15);
+
+      // If Invidious fails, try Piped
+      if (altVideos.length === 0) {
+        console.log('Invidious failed, trying Piped...');
+        altVideos = await searchPiped(searchQuery, 15);
+      }
+
+      // If we got results from alternative APIs, process them
+      if (altVideos.length > 0) {
+        console.log(`Alternative API found ${altVideos.length} videos`);
+
+        // Score and filter the videos
+        const scoredVideos: ScoredContent[] = altVideos
+          .filter(v => !existingVideoIds.has(v.id))
+          .map(video => {
+            const durationFit = calculateDurationFitScore(video.duration, expected_duration_minutes || 15);
+            const semanticSimilarity = calculateSemanticSimilarity(
+              `${video.title} ${video.description}`,
+              lo_text || core_concept,
+              search_keywords || [],
+              core_concept || ""
+            );
+            const engagementQuality = calculateEngagementScore(video.viewCount, video.likeCount);
+            const channelAuthority = calculateChannelAuthorityScore(video.channelTitle);
+            const recency = calculateRecencyScore(video.publishedAt);
+            const total = durationFit * 0.20 + semanticSimilarity * 0.35 + engagementQuality * 0.20 + channelAuthority * 0.15 + recency * 0.10;
+
+            return {
+              video,
+              scores: {
+                duration_fit: Math.round(durationFit * 100) / 100,
+                semantic_similarity: Math.round(semanticSimilarity * 100) / 100,
+                engagement_quality: Math.round(engagementQuality * 100) / 100,
+                channel_authority: Math.round(channelAuthority * 100) / 100,
+                recency: Math.round(recency * 100) / 100,
+                total: Math.round(total * 100) / 100,
+              },
+            };
+          });
+
+        scoredVideos.sort((a, b) => b.scores.total - a.scores.total);
+        const topCandidates = scoredVideos.filter(sv => sv.scores.total >= 0.40).slice(0, 6);
+
+        // Save to database
+        const savedMatches = [];
+        for (const candidate of topCandidates) {
+          let contentId: string;
+          const { data: existingContent } = await supabaseClient
+            .from("content")
+            .select("id")
+            .eq("source_id", candidate.video.id)
+            .eq("source_type", "youtube")
+            .maybeSingle();
+
+          if (existingContent) {
+            contentId = existingContent.id;
+          } else {
+            const { data: newContent, error: contentError } = await supabaseClient
+              .from("content")
+              .insert({
+                source_type: "youtube",
+                source_id: candidate.video.id,
+                source_url: `https://www.youtube.com/watch?v=${candidate.video.id}`,
+                title: candidate.video.title,
+                description: candidate.video.description,
+                duration_seconds: candidate.video.duration,
+                thumbnail_url: candidate.video.thumbnailUrl,
+                channel_name: candidate.video.channelTitle,
+                channel_id: candidate.video.channelId,
+                view_count: candidate.video.viewCount,
+                quality_score: candidate.scores.total,
+                is_available: true,
+                last_availability_check: new Date().toISOString(),
+                created_by: user.id,
+              })
+              .select()
+              .single();
+
+            if (contentError) {
+              console.error("Error saving content:", contentError);
+              continue;
+            }
+            contentId = newContent.id;
+          }
+
+          const autoApprove = candidate.scores.total >= 0.60;
+          const { data: match, error: matchError } = await supabaseClient
+            .from("content_matches")
+            .upsert({
+              learning_objective_id,
+              content_id: contentId,
+              match_score: candidate.scores.total,
+              semantic_similarity_score: candidate.scores.semantic_similarity,
+              channel_authority_score: candidate.scores.channel_authority,
+              ai_reasoning: "Found via Invidious/Piped (quota-free search)",
+              status: autoApprove ? "auto_approved" : "pending",
+              approved_by: autoApprove ? user.id : null,
+              approved_at: autoApprove ? new Date().toISOString() : null,
+            }, { onConflict: "learning_objective_id,content_id" })
+            .select(`*, content:content_id(*)`)
+            .single();
+
+          if (!matchError && match) {
+            savedMatches.push(match);
+          }
+        }
+
+        // Also get Khan Academy results to supplement
+        let khanMatches: any[] = [];
+        try {
+          const khanResponse = await fetch(`${supabaseUrl}/functions/v1/search-khan-academy`, {
+            method: 'POST',
+            headers: { 'Authorization': authHeader, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ learning_objective_id, core_concept, search_keywords, lo_text, max_results: 3 }),
+          });
+          if (khanResponse.ok) {
+            const khanData = await khanResponse.json();
+            khanMatches = khanData.content_matches || [];
+          }
+        } catch (e) {
+          console.log('Khan Academy supplement failed:', e);
+        }
+
+        const allMatches = [...savedMatches, ...khanMatches];
+        return new Response(
+          JSON.stringify({
+            success: true,
+            content_matches: allMatches,
+            total_found: altVideos.length,
+            auto_approved_count: allMatches.filter((m) => m.status === "auto_approved").length,
+            youtube_quota_exhausted: true,
+            fallback_source: 'invidious_piped',
+            khan_academy_results: khanMatches.length,
+            message: "YouTube quota exhausted. Using Invidious/Piped + Khan Academy."
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // If alternative APIs also failed, try Khan Academy only
       try {
         const khanResponse = await fetch(`${supabaseUrl}/functions/v1/search-khan-academy`, {
           method: 'POST',
@@ -346,9 +612,9 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({
           success: false,
-          error: "YouTube API quota limit reached for today",
+          error: "All content sources unavailable",
           quota_status: quotaStatus,
-          message: "Try again tomorrow or add Khan Academy content"
+          message: "YouTube quota exhausted and alternative sources failed. Try again later."
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 429 }
       );
