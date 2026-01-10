@@ -26,8 +26,11 @@ type Priority = "high" | "medium" | "low" | "critical" | "important" | "nice_to_
 type Status = "pending" | "in_progress" | "completed" | "skipped" | "not_started";
 
 interface Step {
-  step: string;
+  step?: string;
+  description?: string;
+  text?: string;
   order?: number;
+  estimated_time?: string;
 }
 
 export interface Recommendation {
@@ -178,13 +181,22 @@ export function RecommendationCard({ recommendation, onStatusChange, isUpdating 
   const StatusIcon = statusConfig.icon;
   const TypeIcon = typeConfig.icon;
   
-  // Parse steps
-  const parsedSteps = steps?.map((step) => {
+  // Parse steps - handle multiple property names (AI uses 'description', legacy uses 'step')
+  const parsedSteps = steps?.map((step, index) => {
     if (typeof step === 'string') return step;
     if (typeof step === 'object' && step !== null) {
-      return (step as Step).step || String(step);
+      const stepObj = step as Step;
+      // Try multiple property names for compatibility with different AI outputs
+      const stepText = stepObj.description || stepObj.step || stepObj.text;
+      if (stepText) {
+        // Include estimated time if available
+        const timeInfo = stepObj.estimated_time ? ` (${stepObj.estimated_time})` : '';
+        return `${stepText}${timeInfo}`;
+      }
+      // Fallback: if no recognized property, return step number
+      return `Step ${stepObj.order || index + 1}`;
     }
-    return String(step);
+    return `Step ${index + 1}`;
   }) || [];
 
   const handleStatusChange = async (newStatus: Status) => {

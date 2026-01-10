@@ -34,19 +34,16 @@ interface SidebarProps {
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'My Courses', href: '/courses', icon: BookOpen },
-  { name: 'Dream Jobs', href: '/dream-jobs', icon: Briefcase },
-  { name: 'Gap Analysis', href: '/analysis', icon: Target },
-  { name: 'Recommendations', href: '/recommendations', icon: Sparkles },
+  { name: 'My Learning', href: '/learn', icon: GraduationCap },
+  { name: 'Career Path', href: '/career', icon: Briefcase },
 ];
 
 const instructorNav = [
   { name: 'Instructor Portal', href: '/instructor/courses', icon: School },
 ];
 
-const studentLearningNav = [
-  { name: 'My Learning', href: '/learn/courses', icon: PlayCircle },
-];
+// Legacy nav items removed - redirects will handle old URLs
+const studentLearningNav: typeof navigation = [];
 
 const adminNav = [
   { name: 'Admin Portal', href: '/admin', icon: Shield },
@@ -174,19 +171,7 @@ export function Sidebar({ collapsed = false, onCollapse }: SidebarProps) {
         {navigation.map((item) => (
           <NavItem key={item.name} item={item} />
         ))}
-        
-        {/* Student Learning Section */}
-        {!isCollapsed && (
-          <div className="pt-4 mt-4 border-t border-sidebar-border">
-            <p className="px-3 mb-2 text-xs font-semibold text-sidebar-foreground opacity-60 uppercase tracking-wider">
-              Learning
-            </p>
-          </div>
-        )}
-        {studentLearningNav.map((item) => (
-          <NavItem key={item.name} item={item} />
-        ))}
-        
+
         {/* Instructor Section */}
         {isInstructor && (
           <>

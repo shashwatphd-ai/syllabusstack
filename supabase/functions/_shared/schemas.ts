@@ -272,10 +272,14 @@ export const GAP_ANALYSIS_SCHEMA = {
 /**
  * Recommendations Schema
  * Used by: generate-recommendations edge function
+ *
+ * IMPORTANT: This schema generates action plans WITHOUT URLs.
+ * Real course URLs are discovered via Firecrawl integration separately.
+ * Types: project, course, certification, action, reading, skill, experience
  */
 export const RECOMMENDATIONS_SCHEMA = {
   name: "generate_recommendations",
-  description: "Generate comprehensive, actionable learning recommendations",
+  description: "Generate comprehensive, actionable learning recommendations. Focus on actionable plans - real course URLs will be found separately via search.",
   parameters: {
     type: "object",
     properties: {
@@ -284,99 +288,98 @@ export const RECOMMENDATIONS_SCHEMA = {
         items: {
           type: "object",
           properties: {
-            title: { 
-              type: "string", 
-              description: "Clear, specific action title" 
+            title: {
+              type: "string",
+              description: "Clear, specific action title (e.g., 'Build ML Classification Project', 'Complete Python Data Science Track')"
             },
-            type: { 
-              type: "string", 
-              enum: ["project", "course", "certification", "action", "reading"]
+            type: {
+              type: "string",
+              enum: ["project", "course", "certification", "action", "reading", "skill", "experience"],
+              description: "project=build something, course=take a course, certification=get certified, action=one-time task, reading=books/articles, skill=practice specific skill, experience=get real-world experience"
             },
-            description: { 
-              type: "string", 
-              description: "What they'll learn/do" 
+            description: {
+              type: "string",
+              description: "What they'll learn or do - be specific and actionable"
             },
-            why_this_matters: { 
-              type: "string", 
-              description: "How this connects to the job requirement" 
+            why_this_matters: {
+              type: "string",
+              description: "How this directly connects to the job requirement and helps their candidacy"
             },
-            gap_addressed: { 
-              type: "string", 
-              description: "Which specific gap this closes" 
+            gap_addressed: {
+              type: "string",
+              description: "Which specific gap from the analysis this closes"
             },
             steps: {
               type: "array",
               items: {
                 type: "object",
                 properties: {
-                  order: { type: "number" },
-                  description: { type: "string" },
-                  estimated_time: { type: "string" }
+                  order: { type: "number", description: "Step number starting from 1" },
+                  description: { type: "string", description: "Clear action to take" },
+                  estimated_time: { type: "string", description: "How long this step takes (e.g., '2 hours', '1 week')" }
                 },
                 required: ["order", "description"]
               },
-              description: "Concrete steps to complete this recommendation"
+              description: "Concrete, numbered steps to complete this recommendation"
             },
-            provider: { 
-              type: "string", 
-              description: "Platform or resource provider" 
+            provider: {
+              type: "string",
+              description: "Suggested platform (Coursera, Udemy, GitHub, Kaggle, etc.) - real URLs will be found via search"
             },
-            url: { 
-              type: "string", 
-              description: "Direct link if available" 
+            duration: {
+              type: "string",
+              description: "Total estimated time to complete (e.g., '4 weeks', '20 hours')"
             },
-            duration: { 
-              type: "string", 
-              description: "Estimated time to complete" 
+            effort_hours: {
+              type: "number",
+              description: "Estimated total hours of effort"
             },
-            effort_hours: { 
-              type: "number", 
-              description: "Estimated hours of effort" 
+            cost: {
+              type: "number",
+              description: "Estimated cost in USD (0 for free resources)"
             },
-            cost: { 
-              type: "number", 
-              description: "Cost in USD (0 for free)" 
+            priority: {
+              type: "string",
+              enum: ["high", "medium", "low"],
+              description: "high=addresses critical gap, medium=important but not urgent, low=nice to have"
             },
-            priority: { 
-              type: "string", 
-              enum: ["high", "medium", "low"] 
+            evidence_created: {
+              type: "string",
+              description: "What tangible evidence they'll have after completion (GitHub repo, certificate, portfolio piece, etc.)"
             },
-            evidence_created: { 
-              type: "string", 
-              description: "What tangible evidence they'll have" 
-            },
-            how_to_demonstrate: { 
-              type: "string", 
-              description: "How to present this to employers" 
+            how_to_demonstrate: {
+              type: "string",
+              description: "How to present this accomplishment to employers in resume/interview"
             }
           },
-          required: ["title", "type", "description", "why_this_matters", "priority"]
-        }
+          required: ["title", "type", "description", "why_this_matters", "priority", "gap_addressed"]
+        },
+        description: "5-10 specific, actionable recommendations addressing the priority gaps"
       },
       anti_recommendations: {
         type: "array",
         items: {
           type: "object",
           properties: {
-            action: { 
-              type: "string", 
-              description: "What NOT to do" 
+            action: {
+              type: "string",
+              description: "What NOT to do (be specific)"
             },
-            reason: { 
-              type: "string", 
-              description: "Why this is a waste of time/money" 
+            reason: {
+              type: "string",
+              description: "Why this is a waste of time/money for THIS student and THIS role"
             }
           },
           required: ["action", "reason"]
         },
-        description: "Things the student should AVOID doing"
+        description: "3-5 things the student should AVOID doing - common mistakes for this career path"
       },
       learning_path_summary: {
         type: "string",
-        description: "Brief summary of the recommended path forward"
+        description: "Brief 2-3 sentence summary of the recommended path forward with realistic timeline"
       }
     },
-    required: ["recommendations"]
+    required: ["recommendations", "anti_recommendations", "learning_path_summary"]
   }
 };
 

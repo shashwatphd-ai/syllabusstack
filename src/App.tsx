@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { AuthGuard, GuestGuard } from "@/components/auth/AuthGuard";
 import { queryClient } from "@/lib/query-client";
@@ -41,6 +41,9 @@ import UserManagement from "./pages/admin/UserManagement";
 import OutcomesReport from "./pages/admin/OutcomesReport";
 import CourseManagement from "./pages/admin/CourseManagement";
 import BrandingSettings from "./pages/admin/BrandingSettings";
+// Unified pages (new architecture)
+import LearnPage from "./pages/Learn";
+import CareerPathPage from "./pages/CareerPath";
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -68,20 +71,31 @@ const App = () => (
             {/* Protected routes */}
             <Route path="/onboarding" element={<AuthGuard><OnboardingPage /></AuthGuard>} />
             <Route path="/dashboard" element={<AuthGuard><DashboardPage /></AuthGuard>} />
-            <Route path="/courses" element={<AuthGuard><CoursesPage /></AuthGuard>} />
+
+            {/* NEW UNIFIED PAGES */}
+            <Route path="/learn" element={<AuthGuard><LearnPage /></AuthGuard>} />
+            <Route path="/career" element={<AuthGuard><CareerPathPage /></AuthGuard>} />
+
+            {/* LEGACY REDIRECTS - redirect old URLs to new unified pages */}
+            <Route path="/courses" element={<Navigate to="/learn?tab=transcript" replace />} />
+            <Route path="/dream-jobs" element={<Navigate to="/career?tab=jobs" replace />} />
+            <Route path="/analysis" element={<Navigate to="/career?tab=gaps" replace />} />
+            <Route path="/recommendations" element={<Navigate to="/career?tab=actions" replace />} />
+            <Route path="/learn/courses" element={<Navigate to="/learn?tab=active" replace />} />
+
+            {/* Legacy detail pages still work */}
             <Route path="/courses/:id" element={<AuthGuard><CourseDetailPage /></AuthGuard>} />
-            <Route path="/dream-jobs" element={<AuthGuard><DreamJobsPage /></AuthGuard>} />
             <Route path="/dream-jobs/:jobId" element={<AuthGuard><DreamJobDetailPage /></AuthGuard>} />
-            <Route path="/analysis" element={<AuthGuard><AnalysisPage /></AuthGuard>} />
-            <Route path="/recommendations" element={<AuthGuard><RecommendationsPage /></AuthGuard>} />
+
+            {/* Account pages */}
             <Route path="/profile" element={<AuthGuard><ProfilePage /></AuthGuard>} />
             <Route path="/settings" element={<AuthGuard><SettingsPage /></AuthGuard>} />
             <Route path="/billing" element={<AuthGuard><BillingPage /></AuthGuard>} />
             <Route path="/checkout" element={<AuthGuard><CheckoutPage /></AuthGuard>} />
             <Route path="/usage" element={<AuthGuard><UsagePage /></AuthGuard>} />
 
-            {/* Student learning routes */}
-            <Route path="/learn/courses" element={<AuthGuard><StudentCoursesPage /></AuthGuard>} />
+            {/* Student learning routes - course detail and objectives */}
+            <Route path="/learn/course/:id" element={<AuthGuard><StudentCourseDetailPage /></AuthGuard>} />
             <Route path="/learn/courses/:id" element={<AuthGuard><StudentCourseDetailPage /></AuthGuard>} />
             <Route path="/learn/objective/:loId/assess" element={<AuthGuard><AssessmentPage /></AuthGuard>} />
             <Route path="/learn/objective/:loId" element={<AuthGuard><LearningObjectivePage /></AuthGuard>} />
