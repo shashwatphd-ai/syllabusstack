@@ -136,13 +136,21 @@ serve(async (req) => {
     console.log(`Processing consumption event for content: ${content_id}, event type: ${event?.type}`);
 
     // Get or create consumption record
-    let { data: record, error: fetchError } = await supabaseClient
+    // Note: .eq() doesn't work with null values, need to use .is() for NULL comparison
+    let query = supabaseClient
       .from("consumption_records")
       .select("*")
       .eq("user_id", user.id)
-      .eq("content_id", content_id)
-      .eq("learning_objective_id", learning_objective_id)
-      .maybeSingle();
+      .eq("content_id", content_id);
+
+    // Handle null/undefined learning_objective_id properly
+    if (learning_objective_id) {
+      query = query.eq("learning_objective_id", learning_objective_id);
+    } else {
+      query = query.is("learning_objective_id", null);
+    }
+
+    let { data: record, error: fetchError } = await query.maybeSingle();
 
     if (fetchError && fetchError.code !== "PGRST116") {
       console.error("Fetch error:", fetchError);
