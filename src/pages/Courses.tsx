@@ -53,7 +53,13 @@ import {
   ArrowUpDown,
   Filter,
   Sparkles,
-  CheckCircle2
+  CheckCircle2,
+  Square,
+  CheckSquare,
+  GraduationCap,
+  PlayCircle,
+  CalendarClock,
+  X
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -62,6 +68,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useCourses, useCreateCourse, useDeleteCourse, useUpdateCourse, Course } from "@/hooks/useCourses";
 import { useCapabilities } from "@/hooks/useCapabilities";
 import { useQueryClient } from "@tanstack/react-query";
@@ -69,8 +76,33 @@ import { analyzeSyllabus } from "@/services";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 
-type SortOption = "newest" | "oldest" | "name" | "skills" | "status";
+type SortOption = "newest" | "oldest" | "name" | "skills" | "status" | "course_status";
 type FilterOption = "all" | "analyzed" | "pending" | "failed";
+type CourseStatusOption = "all" | "completed" | "in_progress" | "planned";
+
+// Course completion status - stored in grade field as JSON or special value
+type CourseStatus = "completed" | "in_progress" | "planned";
+
+// Helper to get course completion status from the course data
+// Uses the 'grade' field to store status: "completed", "in_progress", "planned", or actual grade
+const getCourseCompletionStatus = (course: Course): CourseStatus => {
+  const grade = course.grade;
+  if (grade === "in_progress") return "in_progress";
+  if (grade === "planned") return "planned";
+  // If grade is set (A, B, C, etc.) or "completed", course is completed
+  if (grade && grade !== "in_progress" && grade !== "planned") return "completed";
+  // Default to in_progress for courses without explicit status
+  return "in_progress";
+};
+
+// Helper to get display grade (not the status)
+const getDisplayGrade = (course: Course): string | null => {
+  const grade = course.grade;
+  if (!grade || grade === "in_progress" || grade === "planned" || grade === "completed") {
+    return null;
+  }
+  return grade;
+};
 
 export default function CoursesPage() {
   const [showUploader, setShowUploader] = useState(false);
@@ -79,10 +111,25 @@ export default function CoursesPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("newest");
   const [filterBy, setFilterBy] = useState<FilterOption>("all");
+  const [courseStatusFilter, setCourseStatusFilter] = useState<CourseStatusOption>("all");
+
+  // Selection state for bulk operations
+  const [selectedCourses, setSelectedCourses] = useState<Set<string>>(new Set());
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
 
   // Edit dialog state
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
-  const [editForm, setEditForm] = useState({ title: "", code: "", semester: "", credits: 3 });
+  const [editForm, setEditForm] = useState({
+    title: "",
+    code: "",
+    semester: "",
+    credits: 3,
+    courseStatus: "in_progress" as CourseStatus,
+    grade: "",
+    expectedTerm: ""
+  });
   const [isEditSaving, setIsEditSaving] = useState(false);
 
   // Delete confirmation state
@@ -93,6 +140,9 @@ export default function CoursesPage() {
   const [reanalyzeCourse, setReanalyzeCourse] = useState<Course | null>(null);
   const [reanalyzeFile, setReanalyzeFile] = useState<File | null>(null);
   const [isReanalyzing, setIsReanalyzing] = useState(false);
+
+  // Status change dialog
+  const [statusChangeCourse, setStatusChangeCourse] = useState<Course | null>(null);
 
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -133,11 +183,19 @@ export default function CoursesPage() {
       );
     }
 
-    // Apply status filter
+    // Apply analysis status filter
     if (filterBy !== "all") {
       result = result.filter(c => {
         const status = getCourseStatus(c);
         return status === filterBy;
+      });
+    }
+
+    // Apply course completion status filter
+    if (courseStatusFilter !== "all") {
+      result = result.filter(c => {
+        const status = getCourseCompletionStatus(c);
+        return status === courseStatusFilter;
       });
     }
 
@@ -155,13 +213,42 @@ export default function CoursesPage() {
         case "status":
           const statusOrder = { analyzed: 0, analyzing: 1, pending: 2, failed: 3 };
           return statusOrder[getCourseStatus(a)] - statusOrder[getCourseStatus(b)];
+        case "course_status":
+          const courseStatusOrder = { completed: 0, in_progress: 1, planned: 2 };
+          return courseStatusOrder[getCourseCompletionStatus(a)] - courseStatusOrder[getCourseCompletionStatus(b)];
         default:
           return 0;
       }
     });
 
     return result;
-  }, [courses, searchQuery, filterBy, sortBy, capabilities]);
+  }, [courses, searchQuery, filterBy, courseStatusFilter, sortBy, capabilities]);
+
+  // Selection helpers
+  const toggleCourseSelection = (courseId: string) => {
+    setSelectedCourses(prev => {
+      const next = new Set(prev);
+      if (next.has(courseId)) {
+        next.delete(courseId);
+      } else {
+        next.add(courseId);
+      }
+      return next;
+    });
+  };
+
+  const selectAllVisible = () => {
+    const allIds = new Set(filteredAndSortedCourses.map(c => c.id));
+    setSelectedCourses(allIds);
+  };
+
+  const clearSelection = () => {
+    setSelectedCourses(new Set());
+    setIsSelectionMode(false);
+  };
+
+  const isAllSelected = filteredAndSortedCourses.length > 0 &&
+    filteredAndSortedCourses.every(c => selectedCourses.has(c.id));
 
   // Stats
   const analyzedCount = courses?.filter(c =>
@@ -170,6 +257,100 @@ export default function CoursesPage() {
   ).length || 0;
   const failedCount = courses?.filter(c => c.analysis_status === 'failed').length || 0;
   const totalSkills = capabilities?.length || 0;
+
+  // Course status counts
+  const completedCount = courses?.filter(c => getCourseCompletionStatus(c) === 'completed').length || 0;
+  const inProgressCount = courses?.filter(c => getCourseCompletionStatus(c) === 'in_progress').length || 0;
+  const plannedCount = courses?.filter(c => getCourseCompletionStatus(c) === 'planned').length || 0;
+
+  // Bulk delete handler
+  const handleBulkDelete = async () => {
+    if (selectedCourses.size === 0) return;
+
+    setIsBulkDeleting(true);
+    try {
+      // Delete capabilities first
+      for (const courseId of selectedCourses) {
+        await supabase.from('capabilities').delete().eq('course_id', courseId);
+      }
+
+      // Delete courses
+      const { error } = await supabase
+        .from('courses')
+        .delete()
+        .in('id', Array.from(selectedCourses));
+
+      if (error) throw error;
+
+      queryClient.invalidateQueries({ queryKey: ["courses"] });
+      queryClient.invalidateQueries({ queryKey: ["capabilities"] });
+
+      toast({
+        title: "Courses deleted",
+        description: `${selectedCourses.size} course(s) have been removed.`,
+      });
+
+      clearSelection();
+      setShowBulkDeleteConfirm(false);
+    } catch (error) {
+      console.error('Bulk delete error:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete some courses. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  };
+
+  // Update course status (completion status)
+  const handleUpdateCourseStatus = async (course: Course, newStatus: CourseStatus, grade?: string) => {
+    try {
+      // Use grade field to store status or actual grade
+      let gradeValue: string | null = null;
+      if (newStatus === 'completed') {
+        gradeValue = grade || 'completed';
+      } else {
+        gradeValue = newStatus; // 'in_progress' or 'planned'
+      }
+
+      await supabase
+        .from('courses')
+        .update({ grade: gradeValue })
+        .eq('id', course.id);
+
+      queryClient.invalidateQueries({ queryKey: ["courses"] });
+
+      toast({
+        title: "Status updated",
+        description: `Course marked as ${newStatus.replace('_', ' ')}.`,
+      });
+
+      setStatusChangeCourse(null);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update course status.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Quick status change for a course
+  const handleQuickStatusChange = async (course: Course, newStatus: CourseStatus) => {
+    if (newStatus === 'completed') {
+      // Open dialog to optionally enter grade
+      setStatusChangeCourse(course);
+      setEditForm(prev => ({
+        ...prev,
+        courseStatus: newStatus,
+        grade: ''
+      }));
+    } else {
+      await handleUpdateCourseStatus(course, newStatus);
+    }
+  };
 
   const handleBulkUploadSuccess = () => {
     queryClient.invalidateQueries({ queryKey: ["courses"] });
@@ -192,13 +373,20 @@ export default function CoursesPage() {
         const { capabilities, extractedText } = data.analysisResult;
         const capabilityText = capabilities.map(c => c.name).join("; ");
 
+        // Cast capabilities to Json-compatible format for Supabase
+        const keyCapabilities = capabilities.map(cap => ({
+          name: cap.name,
+          category: cap.category,
+          proficiency_level: cap.proficiency_level,
+        }));
+
         // Create course with analysis data already populated
         const course = await createCourse.mutateAsync({
           title: data.name,
           code: data.code || null,
           semester: data.semester || null,
           capability_text: capabilityText,
-          key_capabilities: capabilities,
+          key_capabilities: keyCapabilities as unknown as import('@/integrations/supabase/types').Json,
           analysis_status: "completed",
         });
 
@@ -283,11 +471,15 @@ export default function CoursesPage() {
 
   const handleEditCourse = (course: Course) => {
     setEditingCourse(course);
+    const displayGrade = getDisplayGrade(course);
     setEditForm({
       title: course.title,
       code: course.code || "",
       semester: course.semester || "",
       credits: course.credits || 3,
+      courseStatus: getCourseCompletionStatus(course),
+      grade: displayGrade || "",
+      expectedTerm: course.semester || ""
     });
   };
 
@@ -296,13 +488,27 @@ export default function CoursesPage() {
 
     setIsEditSaving(true);
     try {
+      // Determine grade value based on status
+      let gradeValue: string | null = null;
+      if (editForm.courseStatus === 'completed') {
+        gradeValue = editForm.grade || 'completed';
+      } else {
+        gradeValue = editForm.courseStatus; // 'in_progress' or 'planned'
+      }
+
+      // For planned courses, use expectedTerm as semester
+      const semesterValue = editForm.courseStatus === 'planned'
+        ? editForm.expectedTerm || editForm.semester
+        : editForm.semester;
+
       await updateCourse.mutateAsync({
         id: editingCourse.id,
         updates: {
           title: editForm.title,
           code: editForm.code || null,
-          semester: editForm.semester || null,
+          semester: semesterValue || null,
           credits: editForm.credits,
+          grade: gradeValue,
         },
       });
       setEditingCourse(null);
@@ -554,6 +760,95 @@ export default function CoursesPage() {
           </Card>
         ) : courses && courses.length > 0 ? (
           <>
+            {/* Selection Toolbar */}
+            {isSelectionMode && (
+              <Card className="bg-primary/5 border-primary/20">
+                <CardContent className="py-3 px-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <Checkbox
+                        checked={isAllSelected}
+                        onCheckedChange={(checked) => {
+                          if (checked) selectAllVisible();
+                          else setSelectedCourses(new Set());
+                        }}
+                      />
+                      <span className="text-sm font-medium">
+                        {selectedCourses.size} of {filteredAndSortedCourses.length} selected
+                      </span>
+                      {selectedCourses.size > 0 && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setSelectedCourses(new Set())}
+                        >
+                          Clear
+                        </Button>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {selectedCourses.size > 0 && (
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => setShowBulkDeleteConfirm(true)}
+                        >
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          Delete ({selectedCourses.size})
+                        </Button>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={clearSelection}
+                      >
+                        <X className="h-4 w-4 mr-2" />
+                        Exit Selection
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Course Status Tabs */}
+            <div className="flex gap-2 overflow-x-auto pb-2">
+              <Button
+                variant={courseStatusFilter === "all" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setCourseStatusFilter("all")}
+              >
+                All ({courses.length})
+              </Button>
+              <Button
+                variant={courseStatusFilter === "completed" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setCourseStatusFilter("completed")}
+                className="gap-2"
+              >
+                <GraduationCap className="h-4 w-4" />
+                Completed ({completedCount})
+              </Button>
+              <Button
+                variant={courseStatusFilter === "in_progress" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setCourseStatusFilter("in_progress")}
+                className="gap-2"
+              >
+                <PlayCircle className="h-4 w-4" />
+                In Progress ({inProgressCount})
+              </Button>
+              <Button
+                variant={courseStatusFilter === "planned" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setCourseStatusFilter("planned")}
+                className="gap-2"
+              >
+                <CalendarClock className="h-4 w-4" />
+                Planned ({plannedCount})
+              </Button>
+            </div>
+
             {/* Search, Filter, Sort Controls */}
             <div className="flex flex-col sm:flex-row gap-4">
               <div className="relative flex-1">
@@ -566,13 +861,23 @@ export default function CoursesPage() {
                 />
               </div>
               <div className="flex gap-2">
+                {!isSelectionMode && (
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setIsSelectionMode(true)}
+                    title="Select multiple courses"
+                  >
+                    <CheckSquare className="h-4 w-4" />
+                  </Button>
+                )}
                 <Select value={filterBy} onValueChange={(v) => setFilterBy(v as FilterOption)}>
                   <SelectTrigger className="w-[140px]">
                     <Filter className="h-4 w-4 mr-2" />
-                    <SelectValue placeholder="Filter" />
+                    <SelectValue placeholder="Analysis" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All Courses</SelectItem>
+                    <SelectItem value="all">All Analysis</SelectItem>
                     <SelectItem value="analyzed">Analyzed</SelectItem>
                     <SelectItem value="pending">Pending</SelectItem>
                     <SelectItem value="failed">Failed</SelectItem>
@@ -588,7 +893,8 @@ export default function CoursesPage() {
                     <SelectItem value="oldest">Oldest First</SelectItem>
                     <SelectItem value="name">By Name</SelectItem>
                     <SelectItem value="skills">By Skills</SelectItem>
-                    <SelectItem value="status">By Status</SelectItem>
+                    <SelectItem value="status">By Analysis</SelectItem>
+                    <SelectItem value="course_status">By Progress</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -632,21 +938,59 @@ export default function CoursesPage() {
               <div className="grid gap-4 md:grid-cols-2">
                 {filteredAndSortedCourses.map((course) => {
                   const status = getCourseStatus(course);
+                  const completionStatus = getCourseCompletionStatus(course);
                   const skillCount = getCourseSkillCount(course.id);
-                  const isReanalyzing = reanalyzingCourseId === course.id;
+                  const displayGrade = getDisplayGrade(course);
+                  const isSelected = selectedCourses.has(course.id);
 
                   return (
                     <Card
                       key={course.id}
                       className={`cursor-pointer hover:shadow-md transition-shadow ${
                         status === "failed" ? "border-destructive/50" : ""
-                      }`}
-                      onClick={() => navigate(`/courses/${course.id}`)}
+                      } ${isSelected ? "ring-2 ring-primary" : ""}`}
+                      onClick={() => {
+                        if (isSelectionMode) {
+                          toggleCourseSelection(course.id);
+                        } else {
+                          navigate(`/courses/${course.id}`);
+                        }
+                      }}
                     >
                       <CardHeader className="pb-2">
-                        <div className="flex items-start justify-between">
+                        <div className="flex items-start justify-between gap-2">
+                          {/* Selection checkbox */}
+                          {isSelectionMode && (
+                            <Checkbox
+                              checked={isSelected}
+                              onCheckedChange={() => toggleCourseSelection(course.id)}
+                              onClick={(e) => e.stopPropagation()}
+                              className="mt-1"
+                            />
+                          )}
                           <div className="flex-1 min-w-0">
-                            <CardTitle className="text-base truncate">{course.title}</CardTitle>
+                            <div className="flex items-center gap-2">
+                              <CardTitle className="text-base truncate">{course.title}</CardTitle>
+                              {/* Course completion status badge */}
+                              {completionStatus === "completed" && (
+                                <Badge variant="outline" className="text-green-600 border-green-600 text-xs">
+                                  <GraduationCap className="h-3 w-3 mr-1" />
+                                  {displayGrade || "Done"}
+                                </Badge>
+                              )}
+                              {completionStatus === "in_progress" && (
+                                <Badge variant="outline" className="text-blue-600 border-blue-600 text-xs">
+                                  <PlayCircle className="h-3 w-3 mr-1" />
+                                  Current
+                                </Badge>
+                              )}
+                              {completionStatus === "planned" && (
+                                <Badge variant="outline" className="text-amber-600 border-amber-600 text-xs">
+                                  <CalendarClock className="h-3 w-3 mr-1" />
+                                  Planned
+                                </Badge>
+                              )}
+                            </div>
                             <p className="text-sm text-muted-foreground truncate">
                               {course.code && `${course.code} • `}{course.semester || 'No semester'}
                             </p>
@@ -672,6 +1016,39 @@ export default function CoursesPage() {
                                 <Pencil className="h-4 w-4 mr-2" />
                                 Edit Course
                               </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              {/* Quick status change */}
+                              <DropdownMenuItem
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleQuickStatusChange(course, "completed");
+                                }}
+                                disabled={completionStatus === "completed"}
+                              >
+                                <GraduationCap className="h-4 w-4 mr-2" />
+                                Mark Completed
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleQuickStatusChange(course, "in_progress");
+                                }}
+                                disabled={completionStatus === "in_progress"}
+                              >
+                                <PlayCircle className="h-4 w-4 mr-2" />
+                                Mark In Progress
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleQuickStatusChange(course, "planned");
+                                }}
+                                disabled={completionStatus === "planned"}
+                              >
+                                <CalendarClock className="h-4 w-4 mr-2" />
+                                Mark Planned
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
                               {(status === "failed" || status === "pending") && (
                                 <DropdownMenuItem
                                   onClick={(e) => {
@@ -688,7 +1065,6 @@ export default function CoursesPage() {
                                   {status === "failed" ? "Retry Analysis" : "Analyze Now"}
                                 </DropdownMenuItem>
                               )}
-                              <DropdownMenuSeparator />
                               <DropdownMenuItem
                                 className="text-destructive focus:text-destructive"
                                 onClick={(e) => {
@@ -754,6 +1130,7 @@ export default function CoursesPage() {
                     onClick={() => {
                       setSearchQuery("");
                       setFilterBy("all");
+                      setCourseStatusFilter("all");
                     }}
                   >
                     Clear Filters
@@ -782,11 +1159,11 @@ export default function CoursesPage() {
 
       {/* Edit Course Dialog */}
       <Dialog open={!!editingCourse} onOpenChange={(open) => !open && setEditingCourse(null)}>
-        <DialogContent>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>Edit Course</DialogTitle>
             <DialogDescription>
-              Update the course details below.
+              Update the course details and status below.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
@@ -821,15 +1198,97 @@ export default function CoursesPage() {
                 />
               </div>
             </div>
+
+            {/* Course Status Section */}
             <div className="grid gap-2">
-              <Label htmlFor="edit-semester">Semester</Label>
-              <Input
-                id="edit-semester"
-                value={editForm.semester}
-                onChange={(e) => setEditForm(prev => ({ ...prev, semester: e.target.value }))}
-                placeholder="Fall 2024"
-              />
+              <Label>Course Status</Label>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant={editForm.courseStatus === "completed" ? "default" : "outline"}
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => setEditForm(prev => ({ ...prev, courseStatus: "completed" }))}
+                >
+                  <GraduationCap className="h-4 w-4 mr-1" />
+                  Completed
+                </Button>
+                <Button
+                  type="button"
+                  variant={editForm.courseStatus === "in_progress" ? "default" : "outline"}
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => setEditForm(prev => ({ ...prev, courseStatus: "in_progress" }))}
+                >
+                  <PlayCircle className="h-4 w-4 mr-1" />
+                  In Progress
+                </Button>
+                <Button
+                  type="button"
+                  variant={editForm.courseStatus === "planned" ? "default" : "outline"}
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => setEditForm(prev => ({ ...prev, courseStatus: "planned" }))}
+                >
+                  <CalendarClock className="h-4 w-4 mr-1" />
+                  Planned
+                </Button>
+              </div>
             </div>
+
+            {/* Conditional fields based on status */}
+            {editForm.courseStatus === "completed" && (
+              <div className="grid gap-2">
+                <Label htmlFor="edit-grade">Grade (optional)</Label>
+                <Select
+                  value={editForm.grade || "completed"}
+                  onValueChange={(v) => setEditForm(prev => ({ ...prev, grade: v }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select grade" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="completed">No grade / Pass</SelectItem>
+                    <SelectItem value="A+">A+</SelectItem>
+                    <SelectItem value="A">A</SelectItem>
+                    <SelectItem value="A-">A-</SelectItem>
+                    <SelectItem value="B+">B+</SelectItem>
+                    <SelectItem value="B">B</SelectItem>
+                    <SelectItem value="B-">B-</SelectItem>
+                    <SelectItem value="C+">C+</SelectItem>
+                    <SelectItem value="C">C</SelectItem>
+                    <SelectItem value="C-">C-</SelectItem>
+                    <SelectItem value="D">D</SelectItem>
+                    <SelectItem value="P">Pass</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {editForm.courseStatus === "in_progress" && (
+              <div className="grid gap-2">
+                <Label htmlFor="edit-semester">Current Semester</Label>
+                <Input
+                  id="edit-semester"
+                  value={editForm.semester}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, semester: e.target.value }))}
+                  placeholder="Fall 2024"
+                />
+              </div>
+            )}
+
+            {editForm.courseStatus === "planned" && (
+              <div className="grid gap-2">
+                <Label htmlFor="edit-expected-term">Expected Term</Label>
+                <Input
+                  id="edit-expected-term"
+                  value={editForm.expectedTerm}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, expectedTerm: e.target.value }))}
+                  placeholder="Spring 2025"
+                />
+                <p className="text-xs text-muted-foreground">When do you plan to take this course?</p>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditingCourse(null)}>
@@ -944,6 +1403,90 @@ export default function CoursesPage() {
                   Re-analyze
                 </>
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Delete Confirmation Dialog */}
+      <AlertDialog open={showBulkDeleteConfirm} onOpenChange={setShowBulkDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {selectedCourses.size} Course{selectedCourses.size > 1 ? 's' : ''}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete the selected course{selectedCourses.size > 1 ? 's' : ''}?
+              This will also remove all associated skills and capabilities. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isBulkDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBulkDelete}
+              disabled={isBulkDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isBulkDeleting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                `Delete ${selectedCourses.size} Course${selectedCourses.size > 1 ? 's' : ''}`
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Mark Complete Dialog (for entering grade) */}
+      <Dialog open={!!statusChangeCourse} onOpenChange={(open) => !open && setStatusChangeCourse(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Mark Course as Completed</DialogTitle>
+            <DialogDescription>
+              Optionally enter your grade for "{statusChangeCourse?.title}".
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="status-grade">Grade (optional)</Label>
+              <Select
+                value={editForm.grade || "completed"}
+                onValueChange={(v) => setEditForm(prev => ({ ...prev, grade: v }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select grade" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="completed">No grade / Pass</SelectItem>
+                  <SelectItem value="A+">A+</SelectItem>
+                  <SelectItem value="A">A</SelectItem>
+                  <SelectItem value="A-">A-</SelectItem>
+                  <SelectItem value="B+">B+</SelectItem>
+                  <SelectItem value="B">B</SelectItem>
+                  <SelectItem value="B-">B-</SelectItem>
+                  <SelectItem value="C+">C+</SelectItem>
+                  <SelectItem value="C">C</SelectItem>
+                  <SelectItem value="C-">C-</SelectItem>
+                  <SelectItem value="D">D</SelectItem>
+                  <SelectItem value="P">Pass</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setStatusChangeCourse(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (statusChangeCourse) {
+                  handleUpdateCourseStatus(statusChangeCourse, "completed", editForm.grade || "completed");
+                }
+              }}
+            >
+              <GraduationCap className="h-4 w-4 mr-2" />
+              Mark Completed
             </Button>
           </DialogFooter>
         </DialogContent>

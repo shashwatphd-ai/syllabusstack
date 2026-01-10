@@ -224,3 +224,134 @@ export function useDeleteModule() {
     },
   });
 }
+
+// Student progress interfaces
+export interface EnrolledStudent {
+  id: string;
+  student_id: string;
+  enrolled_at: string;
+  overall_progress: number;
+  completed_at: string | null;
+  profile: {
+    full_name: string | null;
+    email: string | null;
+  } | null;
+}
+
+export interface StudentLOProgress {
+  learning_objective_id: string;
+  verification_state: string | null;
+  content_watched: number;
+  micro_checks_passed: number;
+}
+
+export interface CourseStudentsProgress {
+  enrollments: EnrolledStudent[];
+  totalLOs: number;
+  loProgress: Record<string, StudentLOProgress[]>; // student_id -> LO progress
+}
+
+// Fetch enrolled students and their progress for a course
+export function useCourseStudents(courseId?: string) {
+  return useQuery({
+    queryKey: ['course-students', courseId],
+    queryFn: async (): Promise<CourseStudentsProgress> => {
+      if (!courseId) return { enrollments: [], totalLOs: 0, loProgress: {} };
+
+      // Get enrollments with profile info
+      const { data: enrollments, error: enrollError } = await supabase
+        .from('course_enrollments')
+        .select(`
+          id,
+          student_id,
+          enrolled_at,
+          overall_progress,
+          completed_at
+        `)
+        .eq('instructor_course_id', courseId)
+        .order('enrolled_at', { ascending: false });
+
+      if (enrollError) throw enrollError;
+
+      // Get profiles for enrolled students
+      const studentIds = enrollments?.map(e => e.student_id) || [];
+      let profiles: Record<string, { full_name: string | null; email: string | null }> = {};
+
+      if (studentIds.length > 0) {
+        const { data: profileData } = await supabase
+          .from('profiles')
+          .select('id, full_name, email')
+          .in('id', studentIds);
+
+        if (profileData) {
+          profiles = profileData.reduce((acc, p) => {
+            acc[p.id] = { full_name: p.full_name, email: p.email };
+            return acc;
+          }, {} as Record<string, { full_name: string | null; email: string | null }>);
+        }
+      }
+
+      // Get total LOs for the course
+      const { data: los, error: loError } = await supabase
+        .from('learning_objectives')
+        .select('id')
+        .eq('instructor_course_id', courseId);
+
+      if (loError) throw loError;
+      const totalLOs = los?.length || 0;
+
+      // Get consumption records for all students in this course
+      const loProgress: Record<string, StudentLOProgress[]> = {};
+
+      if (studentIds.length > 0 && los && los.length > 0) {
+        const loIds = los.map(lo => lo.id);
+
+        // Get consumption records for these students and LOs
+        const { data: consumption } = await supabase
+          .from('consumption_records')
+          .select('user_id, learning_objective_id, watch_percentage, is_verified')
+          .in('user_id', studentIds)
+          .in('learning_objective_id', loIds);
+
+        // Get LO verification states
+        const { data: loStates } = await supabase
+          .from('learning_objectives')
+          .select('id, verification_state, user_id')
+          .in('id', loIds);
+
+        // Build progress map for each student
+        for (const studentId of studentIds) {
+          const studentConsumption = consumption?.filter(c => c.user_id === studentId) || [];
+          const studentProgress: StudentLOProgress[] = [];
+
+          for (const lo of los) {
+            const consumptionRecord = studentConsumption.find(c => c.learning_objective_id === lo.id);
+            const loState = loStates?.find(s => s.id === lo.id);
+
+            studentProgress.push({
+              learning_objective_id: lo.id,
+              verification_state: loState?.verification_state || 'unstarted',
+              content_watched: consumptionRecord?.watch_percentage || 0,
+              micro_checks_passed: consumptionRecord?.is_verified ? 1 : 0,
+            });
+          }
+
+          loProgress[studentId] = studentProgress;
+        }
+      }
+
+      // Combine enrollments with profiles
+      const enrichedEnrollments: EnrolledStudent[] = (enrollments || []).map(e => ({
+        ...e,
+        profile: profiles[e.student_id] || null,
+      }));
+
+      return {
+        enrollments: enrichedEnrollments,
+        totalLOs,
+        loProgress,
+      };
+    },
+    enabled: !!courseId,
+  });
+}

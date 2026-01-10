@@ -1,4 +1,4 @@
-import { useRef, useCallback, useState } from 'react';
+import { useRef, useCallback, useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
 interface WatchedSegment {
@@ -19,6 +19,18 @@ interface MicroCheckResult {
   attempt_number: number;
 }
 
+export type SyncStatus = 'idle' | 'syncing' | 'success' | 'error' | 'retrying';
+
+interface PendingSync {
+  body: any;
+  retries: number;
+  timestamp: number;
+}
+
+// Max retries and delays for exponential backoff
+const MAX_RETRIES = 3;
+const RETRY_DELAYS = [2000, 4000, 8000]; // 2s, 4s, 8s
+
 // Original hook with options object
 interface UseConsumptionTrackingOptions {
   contentId: string;
@@ -32,6 +44,8 @@ export function useConsumptionTracking(options: UseConsumptionTrackingOptions): 
   engagementScore: number | null;
   isVerified: boolean;
   isTracking: boolean;
+  syncStatus: SyncStatus;
+  pendingSyncs: number;
   handlers: {
     onPlay: (currentTime: number) => void;
     onPause: (currentTime: number) => void;
@@ -43,6 +57,7 @@ export function useConsumptionTracking(options: UseConsumptionTrackingOptions): 
   };
   syncConsumption: (segments: WatchedSegment[], duration: number, microCheckResults: MicroCheckResult[]) => void;
   trackEvent: (event: ConsumptionEvent) => void;
+  retryPendingSyncs: () => void;
 };
 
 // Overload for simple two-argument call used in VerifiedVideoPlayer
@@ -51,6 +66,8 @@ export function useConsumptionTracking(contentId: string, learningObjectiveId?: 
   engagementScore: number | null;
   isVerified: boolean;
   isTracking: boolean;
+  syncStatus: SyncStatus;
+  pendingSyncs: number;
   handlers: {
     onPlay: (currentTime: number) => void;
     onPause: (currentTime: number) => void;
@@ -62,6 +79,7 @@ export function useConsumptionTracking(contentId: string, learningObjectiveId?: 
   };
   syncConsumption: (segments: WatchedSegment[], duration: number, microCheckResults: MicroCheckResult[]) => void;
   trackEvent: (event: ConsumptionEvent) => void;
+  retryPendingSyncs: () => void;
 };
 
 export function useConsumptionTracking(
@@ -79,32 +97,124 @@ export function useConsumptionTracking(
   const [engagementScore, setEngagementScore] = useState<number | null>(null);
   const [isVerified, setIsVerified] = useState(false);
   const [isTracking, setIsTracking] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
+  const [pendingSyncsQueue, setPendingSyncsQueue] = useState<PendingSync[]>([]);
 
   const segmentsRef = useRef<WatchedSegment[]>([]);
   const currentSegmentStartRef = useRef<number | null>(null);
   const lastSyncTimeRef = useRef<number>(0);
+  const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const syncWithServer = useCallback(async (event?: ConsumptionEvent) => {
+  // Retry pending syncs when queue changes
+  useEffect(() => {
+    if (pendingSyncsQueue.length > 0 && syncStatus !== 'syncing' && syncStatus !== 'retrying') {
+      const oldestPending = pendingSyncsQueue[0];
+      if (oldestPending.retries < MAX_RETRIES) {
+        const delay = RETRY_DELAYS[oldestPending.retries] || 8000;
+        setSyncStatus('retrying');
+
+        retryTimeoutRef.current = setTimeout(async () => {
+          await retrySync(oldestPending);
+        }, delay);
+      }
+    }
+
+    return () => {
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+      }
+    };
+  }, [pendingSyncsQueue, syncStatus]);
+
+  const retrySync = async (pending: PendingSync) => {
     try {
       const { data, error } = await supabase.functions.invoke('track-consumption', {
-        body: {
-          content_id: contentId,
-          learning_objective_id: learningObjectiveId,
-          event,
-          current_segments: segmentsRef.current,
-          total_duration: totalDuration,
-        },
+        body: pending.body,
+      });
+
+      if (error) {
+        console.error('Retry sync failed:', error);
+        // Increment retry count or remove if max retries reached
+        setPendingSyncsQueue(prev => {
+          const updated = prev.map(p =>
+            p.timestamp === pending.timestamp
+              ? { ...p, retries: p.retries + 1 }
+              : p
+          );
+          // Remove items that exceeded max retries
+          return updated.filter(p => p.retries < MAX_RETRIES);
+        });
+        setSyncStatus(pendingSyncsQueue.length > 1 ? 'retrying' : 'error');
+        return;
+      }
+
+      // Success - remove from queue
+      setPendingSyncsQueue(prev => prev.filter(p => p.timestamp !== pending.timestamp));
+
+      if (data?.consumption_record) {
+        setWatchPercentage(data.consumption_record.watch_percentage || 0);
+        setEngagementScore(data.consumption_record.engagement_score);
+
+        if (data.consumption_record.is_verified && !isVerified) {
+          setIsVerified(true);
+          onVerified?.();
+        }
+      }
+
+      setSyncStatus(pendingSyncsQueue.length > 1 ? 'retrying' : 'success');
+      // Reset status after a short delay
+      setTimeout(() => setSyncStatus('idle'), 2000);
+    } catch (err) {
+      console.error('Retry sync exception:', err);
+      setPendingSyncsQueue(prev => {
+        const updated = prev.map(p =>
+          p.timestamp === pending.timestamp
+            ? { ...p, retries: p.retries + 1 }
+            : p
+        );
+        return updated.filter(p => p.retries < MAX_RETRIES);
+      });
+      setSyncStatus('error');
+    }
+  };
+
+  const retryPendingSyncs = useCallback(() => {
+    // Reset retry counts and trigger retry
+    setPendingSyncsQueue(prev => prev.map(p => ({ ...p, retries: 0 })));
+  }, []);
+
+  const syncWithServer = useCallback(async (event?: ConsumptionEvent) => {
+    const requestBody = {
+      content_id: contentId,
+      learning_objective_id: learningObjectiveId,
+      event,
+      current_segments: segmentsRef.current,
+      total_duration: totalDuration,
+    };
+
+    setSyncStatus('syncing');
+
+    try {
+      const { data, error } = await supabase.functions.invoke('track-consumption', {
+        body: requestBody,
       });
 
       if (error) {
         console.error('Error syncing consumption:', error);
+        // Add to retry queue
+        setPendingSyncsQueue(prev => [...prev, {
+          body: requestBody,
+          retries: 0,
+          timestamp: Date.now(),
+        }]);
+        setSyncStatus('error');
         return;
       }
 
       if (data?.consumption_record) {
         setWatchPercentage(data.consumption_record.watch_percentage || 0);
         setEngagementScore(data.consumption_record.engagement_score);
-        
+
         if (data.consumption_record.is_verified && !isVerified) {
           setIsVerified(true);
           onVerified?.();
@@ -112,44 +222,75 @@ export function useConsumptionTracking(
       }
 
       lastSyncTimeRef.current = Date.now();
+      setSyncStatus('success');
+      // Reset status after a short delay
+      setTimeout(() => setSyncStatus('idle'), 2000);
     } catch (err) {
       console.error('Error in syncWithServer:', err);
+      // Add to retry queue
+      setPendingSyncsQueue(prev => [...prev, {
+        body: requestBody,
+        retries: 0,
+        timestamp: Date.now(),
+      }]);
+      setSyncStatus('error');
     }
   }, [contentId, learningObjectiveId, totalDuration, isVerified, onVerified]);
 
   // Explicit sync function for VerifiedVideoPlayer
   const syncConsumption = useCallback(async (
-    segments: WatchedSegment[], 
-    duration: number, 
+    segments: WatchedSegment[],
+    duration: number,
     microCheckResults: MicroCheckResult[]
   ) => {
+    const requestBody = {
+      content_id: contentId,
+      learning_objective_id: learningObjectiveId,
+      current_segments: segments,
+      total_duration: duration,
+      micro_check_results: microCheckResults,
+    };
+
+    setSyncStatus('syncing');
+
     try {
       const { data, error } = await supabase.functions.invoke('track-consumption', {
-        body: {
-          content_id: contentId,
-          learning_objective_id: learningObjectiveId,
-          current_segments: segments,
-          total_duration: duration,
-          micro_check_results: microCheckResults,
-        },
+        body: requestBody,
       });
 
       if (error) {
         console.error('Error syncing consumption:', error);
+        // Add to retry queue
+        setPendingSyncsQueue(prev => [...prev, {
+          body: requestBody,
+          retries: 0,
+          timestamp: Date.now(),
+        }]);
+        setSyncStatus('error');
         return;
       }
 
       if (data?.consumption_record) {
         setWatchPercentage(data.consumption_record.watch_percentage || 0);
         setEngagementScore(data.consumption_record.engagement_score);
-        
+
         if (data.consumption_record.is_verified && !isVerified) {
           setIsVerified(true);
           onVerified?.();
         }
       }
+
+      setSyncStatus('success');
+      setTimeout(() => setSyncStatus('idle'), 2000);
     } catch (err) {
       console.error('Error in syncConsumption:', err);
+      // Add to retry queue
+      setPendingSyncsQueue(prev => [...prev, {
+        body: requestBody,
+        retries: 0,
+        timestamp: Date.now(),
+      }]);
+      setSyncStatus('error');
     }
   }, [contentId, learningObjectiveId, isVerified, onVerified]);
 
@@ -259,6 +400,8 @@ export function useConsumptionTracking(
     engagementScore,
     isVerified,
     isTracking,
+    syncStatus,
+    pendingSyncs: pendingSyncsQueue.length,
     handlers: {
       onPlay: handlePlay,
       onPause: handlePause,
@@ -270,5 +413,6 @@ export function useConsumptionTracking(
     },
     syncConsumption,
     trackEvent,
+    retryPendingSyncs,
   };
 }

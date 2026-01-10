@@ -267,6 +267,93 @@ export function EmptySearchResults({ query, onClearSearch }: { query?: string; o
   );
 }
 
+// Instructor empty states
+export function EmptyModules({ onAddModule }: { onAddModule?: () => void }) {
+  return (
+    <EmptyState
+      icon={<FileText className="h-8 w-8 text-muted-foreground" />}
+      title="No modules yet"
+      description="Upload a syllabus to automatically extract learning objectives, or create modules manually to organize your course content."
+      action={
+        onAddModule && (
+          <Button onClick={onAddModule}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Module
+          </Button>
+        )
+      }
+    />
+  );
+}
+
+export function EmptyApprovedContent({ onFindContent }: { onFindContent?: () => void }) {
+  return (
+    <EmptyState
+      icon={<Video className="h-8 w-8 text-muted-foreground" />}
+      title="No content approved yet"
+      description="Find and approve educational videos for your learning objectives. Students need approved content to learn and verify their understanding."
+      action={
+        onFindContent && (
+          <Button onClick={onFindContent}>
+            <Sparkles className="h-4 w-4 mr-2" />
+            Find Content
+          </Button>
+        )
+      }
+    />
+  );
+}
+
+export function EmptyStudentEnrollments({ onEnroll }: { onEnroll?: () => void }) {
+  const navigate = useNavigate();
+
+  return (
+    <EmptyState
+      icon={<BookOpen className="h-8 w-8 text-muted-foreground" />}
+      title="No enrolled courses"
+      description="Join a course using an access code from your instructor, or add your own syllabus to start learning."
+      action={
+        <div className="flex flex-col sm:flex-row gap-3">
+          <Button onClick={onEnroll ?? (() => {})}>
+            <Plus className="h-4 w-4 mr-2" />
+            Enter Access Code
+          </Button>
+          <Button variant="outline" onClick={() => navigate('/courses')}>
+            <Upload className="h-4 w-4 mr-2" />
+            Add Syllabus
+          </Button>
+        </div>
+      }
+    />
+  );
+}
+
+export function EmptyMatchedContent() {
+  return (
+    <EmptyState
+      icon={<Video className="h-8 w-8 text-muted-foreground" />}
+      title="No content available"
+      description="Your instructor hasn't added content for this learning objective yet. Check back later or contact your instructor."
+    />
+  );
+}
+
+export function EmptyInstructorCourses({ onCreateCourse }: { onCreateCourse?: () => void }) {
+  return (
+    <EmptyState
+      icon={<BookOpen className="h-8 w-8 text-muted-foreground" />}
+      title="No courses created"
+      description="Create your first course, upload a syllabus, and share an access code with your students to get started."
+      action={
+        <Button onClick={onCreateCourse ?? (() => {})}>
+          <Plus className="h-4 w-4 mr-2" />
+          Create Course
+        </Button>
+      }
+    />
+  );
+}
+
 // Compact inline empty state for smaller spaces
 interface InlineEmptyStateProps {
   icon?: ReactNode;

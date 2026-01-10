@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, BookOpen, CheckCircle2, Clock, Play, Lock } from 'lucide-react';
+import { ArrowLeft, BookOpen, CheckCircle2, Clock, Play, Lock, AlertCircle } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { useEnrolledCourseDetail } from '@/hooks/useStudentCourses';
@@ -14,14 +14,20 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
+import {
+  getStateConfig,
+  isComplete,
+  type VerificationState,
+} from '@/lib/verification-state-machine';
 
-const verificationStateConfig = {
-  unstarted: { label: 'Not Started', color: 'bg-muted text-muted-foreground', icon: Clock },
-  in_progress: { label: 'In Progress', color: 'bg-warning/10 text-warning', icon: Play },
-  verified: { label: 'Verified', color: 'bg-success/10 text-success', icon: CheckCircle2 },
-  assessment_unlocked: { label: 'Ready for Assessment', color: 'bg-primary/10 text-primary', icon: BookOpen },
-  passed: { label: 'Passed', color: 'bg-success/10 text-success', icon: CheckCircle2 },
-  remediation_required: { label: 'Review Required', color: 'bg-destructive/10 text-destructive', icon: Lock },
+// Icon mapping for verification states
+const stateIcons = {
+  unstarted: Clock,
+  in_progress: Play,
+  verified: CheckCircle2,
+  assessment_unlocked: BookOpen,
+  passed: CheckCircle2,
+  remediation_required: AlertCircle,
 };
 
 export default function StudentCourseDetailPage() {
@@ -57,13 +63,13 @@ export default function StudentCourseDetailPage() {
     );
   }
 
-  // Calculate overall progress
+  // Calculate overall progress using state machine
   const allLOs = course.modules.flatMap(m => m.learning_objectives);
-  const completedLOs = allLOs.filter(lo => 
-    lo.verification_state === 'passed' || lo.verification_state === 'verified'
+  const completedLOs = allLOs.filter(lo =>
+    isComplete(lo.verification_state as VerificationState)
   );
-  const progressPercent = allLOs.length > 0 
-    ? (completedLOs.length / allLOs.length) * 100 
+  const progressPercent = allLOs.length > 0
+    ? (completedLOs.length / allLOs.length) * 100
     : 0;
 
   return (
@@ -122,11 +128,11 @@ export default function StudentCourseDetailPage() {
             <Accordion type="multiple" className="space-y-4">
               {course.modules.map((module, index) => {
                 const moduleLOs = module.learning_objectives;
-                const moduleCompleted = moduleLOs.filter(lo => 
-                  lo.verification_state === 'passed' || lo.verification_state === 'verified'
+                const moduleCompleted = moduleLOs.filter(lo =>
+                  isComplete(lo.verification_state as VerificationState)
                 ).length;
-                const moduleProgress = moduleLOs.length > 0 
-                  ? (moduleCompleted / moduleLOs.length) * 100 
+                const moduleProgress = moduleLOs.length > 0
+                  ? (moduleCompleted / moduleLOs.length) * 100
                   : 0;
 
                 return (
@@ -159,19 +165,18 @@ export default function StudentCourseDetailPage() {
                           </p>
                         ) : (
                           moduleLOs.map((lo) => {
-                            const stateConfig = verificationStateConfig[lo.verification_state as keyof typeof verificationStateConfig] 
-                              || verificationStateConfig.unstarted;
-                            const StateIcon = stateConfig.icon;
+                            const stateConfig = getStateConfig(lo.verification_state as VerificationState);
+                            const StateIcon = stateIcons[lo.verification_state as keyof typeof stateIcons] || Clock;
 
                             return (
-                              <Card 
-                                key={lo.id} 
+                              <Card
+                                key={lo.id}
                                 className="cursor-pointer hover:bg-accent/50 transition-colors"
                                 onClick={() => navigate(`/learn/objective/${lo.id}`)}
                               >
                                 <CardContent className="p-4">
                                   <div className="flex items-start gap-3">
-                                    <div className={`p-2 rounded-full ${stateConfig.color}`}>
+                                    <div className={`p-2 rounded-full ${stateConfig.bgColor} ${stateConfig.color}`}>
                                       <StateIcon className="h-4 w-4" />
                                     </div>
                                     <div className="flex-1 min-w-0">
