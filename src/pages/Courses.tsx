@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/layout";
-import { AddCourseForm, AddCourseFormValues } from "@/components/forms/AddCourseForm";
+import { AddCourseForm, AddCourseSubmitData } from "@/components/forms/AddCourseForm";
 import { BulkSyllabusUploader } from "@/components/onboarding/BulkSyllabusUploader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -52,7 +52,8 @@ import {
   Loader2,
   ArrowUpDown,
   Filter,
-  Sparkles
+  Sparkles,
+  CheckCircle2
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -66,6 +67,7 @@ import { useCapabilities } from "@/hooks/useCapabilities";
 import { useQueryClient } from "@tanstack/react-query";
 import { analyzeSyllabus } from "@/services";
 import { toast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 
 type SortOption = "newest" | "oldest" | "name" | "skills" | "status";
 type FilterOption = "all" | "analyzed" | "pending" | "failed";
@@ -88,6 +90,9 @@ export default function CoursesPage() {
 
   // Re-analyze state
   const [reanalyzingCourseId, setReanalyzingCourseId] = useState<string | null>(null);
+  const [reanalyzeCourse, setReanalyzeCourse] = useState<Course | null>(null);
+  const [reanalyzeFile, setReanalyzeFile] = useState<File | null>(null);
+  const [isReanalyzing, setIsReanalyzing] = useState(false);
 
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -176,20 +181,83 @@ export default function CoursesPage() {
     });
   };
 
-  const handleAddCourse = async (data: AddCourseFormValues) => {
+  const handleAddCourse = async (data: AddCourseSubmitData) => {
     setIsAnalyzing(true);
     try {
-      const course = await createCourse.mutateAsync({
-        title: data.name,
-        code: data.code || null,
-        semester: data.semester || null,
-      });
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
 
-      if (data.syllabusText) {
+      // If we have analysis result from file processing, use it directly
+      if (data.analysisResult && data.analysisResult.capabilities.length > 0) {
+        const { capabilities, extractedText } = data.analysisResult;
+        const capabilityText = capabilities.map(c => c.name).join("; ");
+
+        // Create course with analysis data already populated
+        const course = await createCourse.mutateAsync({
+          title: data.name,
+          code: data.code || null,
+          semester: data.semester || null,
+          capability_text: capabilityText,
+          key_capabilities: capabilities,
+          analysis_status: "completed",
+        });
+
+        // Insert capabilities into the capabilities table
+        if (capabilities.length > 0) {
+          const capabilitiesToInsert = capabilities.map(cap => ({
+            user_id: user.id,
+            course_id: course.id,
+            name: cap.name,
+            category: cap.category,
+            proficiency_level: cap.proficiency_level,
+            source: 'course',
+          }));
+
+          const { error: capError } = await supabase.from('capabilities').insert(capabilitiesToInsert);
+          if (capError) {
+            console.error('Failed to save capabilities:', capError);
+          }
+        }
+
+        // Invalidate capabilities query to refresh the skill counts
+        queryClient.invalidateQueries({ queryKey: ["capabilities"] });
+
+        toast({
+          title: "Course added!",
+          description: `${capabilities.length} skills extracted from your syllabus.`,
+        });
+      } else if (data.syllabusText) {
+        // Fallback: Create course first, then analyze (for pasted text without pre-analysis)
+        const course = await createCourse.mutateAsync({
+          title: data.name,
+          code: data.code || null,
+          semester: data.semester || null,
+          analysis_status: "pending",
+        });
+
+        // Analyze the pasted syllabus text
         await analyzeSyllabus(data.syllabusText, course.id);
+
+        // Refresh data after analysis
+        queryClient.invalidateQueries({ queryKey: ["courses"] });
+        queryClient.invalidateQueries({ queryKey: ["capabilities"] });
+
         toast({
           title: "Course analyzed!",
           description: "Skills have been extracted from your syllabus.",
+        });
+      } else {
+        // No syllabus content - just create the course
+        await createCourse.mutateAsync({
+          title: data.name,
+          code: data.code || null,
+          semester: data.semester || null,
+          analysis_status: "pending",
+        });
+
+        toast({
+          title: "Course added",
+          description: "Upload a syllabus later to extract skills.",
         });
       }
 
@@ -245,34 +313,111 @@ export default function CoursesPage() {
     }
   };
 
-  const handleReanalyze = async (course: Course) => {
-    setReanalyzingCourseId(course.id);
+  // Open the re-analyze dialog
+  const handleReanalyzeClick = (course: Course) => {
+    setReanalyzeCourse(course);
+    setReanalyzeFile(null);
+  };
 
+  // Process the re-analysis with new file
+  const handleReanalyzeSubmit = async () => {
+    if (!reanalyzeCourse || !reanalyzeFile) return;
+
+    setIsReanalyzing(true);
     try {
-      // Reset the course status
-      await updateCourse.mutateAsync({
-        id: course.id,
-        updates: {
-          analysis_status: "pending",
-          analysis_error: null,
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
+      // Convert file to base64
+      const arrayBuffer = await reanalyzeFile.arrayBuffer();
+      const bytes = new Uint8Array(arrayBuffer);
+      let binary = "";
+      for (let i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      const base64 = btoa(binary);
+
+      // First, delete existing capabilities for this course
+      await supabase
+        .from('capabilities')
+        .delete()
+        .eq('course_id', reanalyzeCourse.id);
+
+      // Update course status to analyzing
+      await supabase
+        .from('courses')
+        .update({ analysis_status: 'analyzing', analysis_error: null })
+        .eq('id', reanalyzeCourse.id);
+
+      // Call parse-syllabus-document with the course_id to trigger analysis
+      const { data, error } = await supabase.functions.invoke("parse-syllabus-document", {
+        body: {
+          document_base64: base64,
+          file_name: reanalyzeFile.name,
+          course_id: reanalyzeCourse.id,
         },
       });
 
+      if (error) throw error;
+
+      // If analysis returned capabilities, also insert them manually
+      // (The edge function should have done this, but let's be safe)
+      const capabilities = data.analysis?.capabilities || [];
+      if (capabilities.length > 0) {
+        const capabilitiesToInsert = capabilities.map((cap: any) => ({
+          user_id: user.id,
+          course_id: reanalyzeCourse.id,
+          name: typeof cap === 'string' ? cap : cap.name,
+          category: typeof cap === 'object' && cap.category ? cap.category : 'technical',
+          proficiency_level: typeof cap === 'object' && cap.proficiency_level ? cap.proficiency_level : 'intermediate',
+          source: 'course',
+        }));
+
+        // Check if capabilities were already inserted by the edge function
+        const { count } = await supabase
+          .from('capabilities')
+          .select('*', { count: 'exact', head: true })
+          .eq('course_id', reanalyzeCourse.id);
+
+        if (!count || count === 0) {
+          await supabase.from('capabilities').insert(capabilitiesToInsert);
+        }
+      }
+
+      // Refresh queries
+      queryClient.invalidateQueries({ queryKey: ["courses"] });
+      queryClient.invalidateQueries({ queryKey: ["capabilities"] });
+
       toast({
-        title: "Re-analysis started",
-        description: "Upload a new syllabus or contact support if the original syllabus needs re-processing.",
+        title: "Re-analysis complete!",
+        description: `${capabilities.length} skills extracted from your updated syllabus.`,
       });
 
-      // Navigate to the course detail page where they can see more options
-      navigate(`/courses/${course.id}`);
+      setReanalyzeCourse(null);
+      setReanalyzeFile(null);
     } catch (error) {
+      console.error('Re-analysis error:', error);
+
+      // Update course status to failed
+      if (reanalyzeCourse) {
+        await supabase
+          .from('courses')
+          .update({
+            analysis_status: 'failed',
+            analysis_error: error instanceof Error ? error.message : 'Re-analysis failed',
+          })
+          .eq('id', reanalyzeCourse.id);
+      }
+
+      queryClient.invalidateQueries({ queryKey: ["courses"] });
+
       toast({
-        title: "Error",
-        description: "Failed to reset course for re-analysis",
+        title: "Re-analysis failed",
+        description: error instanceof Error ? error.message : "Failed to re-analyze syllabus",
         variant: "destructive",
       });
     } finally {
-      setReanalyzingCourseId(null);
+      setIsReanalyzing(false);
     }
   };
 
@@ -531,11 +676,11 @@ export default function CoursesPage() {
                                 <DropdownMenuItem
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    handleReanalyze(course);
+                                    handleReanalyzeClick(course);
                                   }}
-                                  disabled={isReanalyzing}
+                                  disabled={reanalyzingCourseId === course.id}
                                 >
-                                  {isReanalyzing ? (
+                                  {reanalyzingCourseId === course.id ? (
                                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                                   ) : (
                                     <RefreshCw className="h-4 w-4 mr-2" />
@@ -728,6 +873,81 @@ export default function CoursesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Re-analyze Dialog */}
+      <Dialog open={!!reanalyzeCourse} onOpenChange={(open) => !open && setReanalyzeCourse(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Re-analyze Syllabus</DialogTitle>
+            <DialogDescription>
+              Upload a new syllabus file to re-analyze "{reanalyzeCourse?.title}" and extract updated skills.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <div
+              className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors cursor-pointer ${
+                reanalyzeFile ? "border-green-500 bg-green-50" : "border-muted-foreground/25 hover:border-primary/50"
+              }`}
+              onClick={() => {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = '.pdf,.docx,.txt';
+                input.onchange = (e) => {
+                  const file = (e.target as HTMLInputElement).files?.[0];
+                  if (file) setReanalyzeFile(file);
+                };
+                input.click();
+              }}
+            >
+              {reanalyzeFile ? (
+                <div className="flex items-center justify-center gap-3">
+                  <CheckCircle2 className="h-8 w-8 text-green-500" />
+                  <div className="text-left">
+                    <p className="font-medium">{reanalyzeFile.name}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {(reanalyzeFile.size / 1024).toFixed(1)} KB - Click to change
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <Upload className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                  <p className="text-sm font-medium">Click to select a syllabus file</p>
+                  <p className="text-xs text-muted-foreground">PDF, DOCX, or TXT</p>
+                </>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setReanalyzeCourse(null);
+                setReanalyzeFile(null);
+              }}
+              disabled={isReanalyzing}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleReanalyzeSubmit}
+              disabled={!reanalyzeFile || isReanalyzing}
+            >
+              {isReanalyzing ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Analyzing...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Re-analyze
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppShell>
   );
 }
