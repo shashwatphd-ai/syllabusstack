@@ -126,33 +126,45 @@ Be specific and explain WHY each is a waste of time for THIS student and THIS ro
 
 export const RECOMMENDATIONS_PROMPT = `You are generating specific, actionable recommendations to close skill gaps.
 
-RECOMMENDATION RULES:
+CRITICAL RULES:
 1. Every recommendation must be SPECIFIC - include actual course names, project ideas, resources
 2. Prioritize free or low-cost options (students are broke)
 3. Consider time constraints (students are busy)
 4. Focus on evidence creation - what will they have to SHOW employers?
+5. DO NOT include URLs - real course URLs will be found via search integration
+6. Generate a MIX of different types, not just courses
 
 RECOMMENDATION FORMAT:
 For each recommendation, provide:
-- Action Title: Clear, specific action
+- Action Title: Clear, specific action (e.g., "Build ML Classification Pipeline", not "Take a course")
+- Type: Choose the most appropriate type for the action
 - Why This Matters: Connect to specific job requirement
-- Steps: Numbered, concrete steps
-- Time Estimate: Realistic hours/weeks
+- Steps: 3-5 numbered, concrete steps with time estimates
+- Time Estimate: Realistic total hours/weeks
 - Evidence Created: What can they show an employer?
-- How to Demonstrate: Where to put this (resume, portfolio, interview)
+- How to Demonstrate: Where to put this (resume, portfolio, interview talking point)
 
-RECOMMENDATION TYPES:
-- PROJECT: Build something demonstrable
-- COURSE: Specific course with provider and cost
-- CERTIFICATION: Industry-recognized credential
-- ACTION: One-time task (e.g., "Set up GitHub profile")
-- READING: Specific books, articles, documentation
+RECOMMENDATION TYPES - USE A VARIETY:
+- PROJECT: Build something demonstrable (GitHub repo, portfolio piece, working app)
+- COURSE: Complete a learning track (suggest providers like Coursera/Udemy, but no URLs)
+- CERTIFICATION: Get industry-recognized credential (AWS, Google, PMP, etc.)
+- ACTION: One-time task (e.g., "Set up GitHub profile", "Connect with 5 ML engineers on LinkedIn")
+- READING: Specific books, articles, documentation (name specific resources)
+- SKILL: Deliberate practice on specific skill (e.g., "Practice SQL queries daily for 2 weeks")
+- EXPERIENCE: Get real-world experience (volunteer, freelance, open source contribution)
 
-ANTI-RECOMMENDATIONS:
-Also specify what they should NOT do:
+DISTRIBUTION GUIDANCE:
+- For technical roles: 2-3 projects, 1-2 courses, 1-2 skills, 1-2 actions
+- For non-technical roles: 1-2 projects, 1-2 courses, 2-3 experiences, 1-2 actions
+- Always include at least 1 quick win (can complete in <1 week)
+
+ANTI-RECOMMENDATIONS (REQUIRED):
+Specify 3-5 things they should NOT do:
 - Avoid generic boot camps if they have strong foundations
 - Don't pursue certifications that aren't valued in target industry
-- Don't waste time on skills that are nice-to-have when critical gaps exist`;
+- Don't waste time on skills that are nice-to-have when critical gaps exist
+- Don't over-prepare in areas they're already strong
+- Be specific to THIS student and THIS role`;
 
 export const ANTI_RECOMMENDATIONS_PROMPT = `You are identifying what a student should AVOID doing.
 

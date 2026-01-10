@@ -82,8 +82,14 @@ export function useCourseSearch() {
     },
   });
 
+  // Helper for async/await usage
+  const searchCourses = async (gaps: GapItem[], dreamJobId: string, dreamJobTitle: string) => {
+    return mutation.mutateAsync({ gaps, dreamJobId, dreamJobTitle });
+  };
+
   return {
-    searchCourses: mutation.mutate,
+    searchCourses,
+    searchCoursesMutation: mutation.mutate,
     isSearching: mutation.isPending,
     results: lastResults,
     error: mutation.error,

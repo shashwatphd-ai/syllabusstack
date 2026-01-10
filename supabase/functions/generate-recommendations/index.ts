@@ -147,18 +147,31 @@ ${criticalGapsText}` : ""}
 
 ${gapAnalysis?.honest_assessment ? `OVERALL ASSESSMENT: ${gapAnalysis.honest_assessment}` : ""}
 
-Generate 5-10 specific recommendations with:
-1. Exact resource names (specific Coursera courses, not just "take a course")
-2. Clear steps to complete
-3. Estimated time and cost
-4. What evidence they'll have to show employers
-5. How to demonstrate this in interviews
+Generate 7-10 DIVERSE recommendations using a MIX of types:
+- 2-3 PROJECTS (build demonstrable work)
+- 1-2 COURSES (specific learning tracks - suggest providers but NO URLs)
+- 1-2 SKILLS (deliberate practice)
+- 1-2 ACTIONS (quick wins, networking)
+- 1 EXPERIENCE (real-world application)
+
+For each recommendation provide:
+1. Clear title and specific type
+2. 3-5 concrete steps with time estimates
+3. Which gap it addresses (reference the gaps above)
+4. What tangible evidence they'll create
+5. How to demonstrate this to employers
+
+IMPORTANT:
+- DO NOT include URLs - real course URLs will be discovered via Firecrawl search
+- Suggest specific course/book names but not links
+- Include at least 1 quick win (completable in <1 week)
+- Include 3-5 anti-recommendations (what NOT to do)
 
 PRIORITIZE:
 - Critical gaps first
 - Free or low-cost options
-- Things that create demonstrable evidence
-- Quick wins alongside longer-term investments`
+- Evidence-creating activities
+- Quick wins alongside longer investments`
           }
         ],
         tools: [createToolDefinition(RECOMMENDATIONS_SCHEMA)],
@@ -196,11 +209,14 @@ PRIORITIZE:
     const antiRecommendations = parsed.anti_recommendations || [];
     const learningPathSummary = parsed.learning_path_summary;
 
-    // Delete existing recommendations for this dream job
+    // Soft delete existing AI-generated recommendations for this dream job
+    // (Keep Firecrawl-discovered courses by checking if url contains coursera/udemy/edx)
     await supabase
       .from("recommendations")
-      .delete()
-      .eq("dream_job_id", dreamJobId);
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("dream_job_id", dreamJobId)
+      .is("deleted_at", null)
+      .or("url.is.null,url.not.ilike.%coursera.org%,url.not.ilike.%udemy.com%,url.not.ilike.%edx.org%");
 
     // Insert new recommendations with all fields
     const recsToInsert = recommendations.map((rec: any, index: number) => ({
@@ -208,16 +224,17 @@ PRIORITIZE:
       dream_job_id: dreamJobId,
       gap_analysis_id: gapAnalysis?.id || null,
       title: rec.title,
-      type: rec.type,
+      type: rec.type || "action",
       description: rec.description,
       why_this_matters: rec.why_this_matters,
+      gap_addressed: rec.gap_addressed || null,
       steps: rec.steps || [],
       provider: rec.provider || null,
-      url: rec.url || null,
+      url: null, // Don't use AI-generated URLs - Firecrawl provides real ones
       duration: rec.duration || null,
       effort_hours: rec.effort_hours || null,
       cost_usd: rec.cost || 0,
-      priority: rec.priority,
+      priority: rec.priority || "medium",
       evidence_created: rec.evidence_created || null,
       how_to_demonstrate: rec.how_to_demonstrate || null,
       status: "pending"
