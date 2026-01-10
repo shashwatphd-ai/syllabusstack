@@ -53,8 +53,12 @@ export default function CourseDetailPage() {
   const courseCapabilities = allCapabilities?.filter(c => c.course_id === id) || [];
   const isLoading = courseLoading || capabilitiesLoading;
 
-  // Check if capability_text looks like raw syllabus (too long) vs capability summary
-  const isRawSyllabus = course?.capability_text && course.capability_text.length > 5000;
+  // Check if capability_text looks like raw syllabus vs capability summary
+  // Raw syllabus: long text with few semicolons (prose)
+  // Capability list: semicolon-separated, so many semicolons even if long
+  const isRawSyllabus = course?.capability_text && 
+    course.capability_text.length > 5000 &&
+    (course.capability_text.match(/;/g) || []).length < 5;
   const analysisNeedsRetry = course?.analysis_status === 'pending' || 
                               course?.analysis_status === 'failed' ||
                               isRawSyllabus;
