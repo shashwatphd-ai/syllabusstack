@@ -135,6 +135,7 @@ export function useConsumptionTracking(
       if (error) {
         console.error('Retry sync failed:', error);
         // Increment retry count or remove if max retries reached
+        // Fix: derive status from the updated queue, not stale closure
         setPendingSyncsQueue(prev => {
           const updated = prev.map(p =>
             p.timestamp === pending.timestamp
@@ -142,14 +143,21 @@ export function useConsumptionTracking(
               : p
           );
           // Remove items that exceeded max retries
-          return updated.filter(p => p.retries < MAX_RETRIES);
+          const filtered = updated.filter(p => p.retries < MAX_RETRIES);
+          // Set status based on NEW queue length (avoids stale closure)
+          setTimeout(() => setSyncStatus(filtered.length > 0 ? 'retrying' : 'error'), 0);
+          return filtered;
         });
-        setSyncStatus(pendingSyncsQueue.length > 1 ? 'retrying' : 'error');
         return;
       }
 
-      // Success - remove from queue
-      setPendingSyncsQueue(prev => prev.filter(p => p.timestamp !== pending.timestamp));
+      // Success - remove from queue and update status
+      setPendingSyncsQueue(prev => {
+        const remaining = prev.filter(p => p.timestamp !== pending.timestamp);
+        // Set status based on NEW queue length (avoids stale closure)
+        setTimeout(() => setSyncStatus(remaining.length > 0 ? 'retrying' : 'success'), 0);
+        return remaining;
+      });
 
       if (data?.consumption_record) {
         setWatchPercentage(data.consumption_record.watch_percentage || 0);
@@ -160,8 +168,6 @@ export function useConsumptionTracking(
           onVerified?.();
         }
       }
-
-      setSyncStatus(pendingSyncsQueue.length > 1 ? 'retrying' : 'success');
       // Reset status after a short delay
       setTimeout(() => setSyncStatus('idle'), 2000);
     } catch (err) {

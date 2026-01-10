@@ -111,37 +111,33 @@ export function useEnrolledCourseDetail(courseId: string | undefined) {
 
       if (modulesError) throw modulesError;
 
-      // Fetch learning objectives for each module
-      const modulesWithLOs = await Promise.all(
-        (modules || []).map(async (module) => {
-          // Note: LOs are created by the instructor, not the student
-          // Access is controlled via enrollment check above (lines 86-94)
-          const { data: los, error: losError } = await supabase
-            .from('learning_objectives')
-            .select('id, text, bloom_level, verification_state, expected_duration_minutes')
-            .eq('module_id', module.id)
-            .order('sequence_order', { ascending: true });
-
-          if (losError) throw losError;
-
-          return {
-            ...module,
-            learning_objectives: los || [],
-          };
-        })
-      );
-
-      // Fetch unassigned learning objectives (those without a module)
-      const { data: unassignedLOs, error: unassignedError } = await supabase
+      // Fetch ALL learning objectives for this course in ONE query (fixes N+1)
+      // Then group by module_id in-memory (O(n))
+      const { data: allLOs, error: losError } = await supabase
         .from('learning_objectives')
-        .select('id, text, bloom_level, verification_state, expected_duration_minutes')
+        .select('id, text, bloom_level, verification_state, expected_duration_minutes, module_id')
         .eq('instructor_course_id', courseId)
-        .is('module_id', null)
         .order('sequence_order', { ascending: true });
 
-      if (unassignedError) {
-        console.error('Error fetching unassigned LOs:', unassignedError);
-      }
+      if (losError) throw losError;
+
+      // Group LOs by module_id for O(1) lookups
+      const losByModule = new Map<string | null, typeof allLOs>();
+      allLOs?.forEach(lo => {
+        const key = lo.module_id;
+        const existing = losByModule.get(key) || [];
+        existing.push(lo);
+        losByModule.set(key, existing);
+      });
+
+      // Attach LOs to their respective modules
+      const modulesWithLOs = (modules || []).map(module => ({
+        ...module,
+        learning_objectives: losByModule.get(module.id) || [],
+      }));
+
+      // Get unassigned learning objectives (those without a module)
+      const unassignedLOs = losByModule.get(null) || [];
 
       // If there are unassigned LOs, create a virtual "Course Objectives" module
       const allModules = [...modulesWithLOs];

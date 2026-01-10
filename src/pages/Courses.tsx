@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/layout";
 import { AddCourseForm, AddCourseSubmitData } from "@/components/forms/AddCourseForm";
@@ -162,10 +162,19 @@ export default function CoursesPage() {
     return 'pending';
   };
 
-  // Get skill count for a course
-  const getCourseSkillCount = (courseId: string) => {
-    return capabilities?.filter(c => c.course_id === courseId).length || 0;
-  };
+  // Pre-compute skill counts ONCE using Map for O(1) lookups instead of O(n) filter per call
+  const skillCountMap = useMemo(() => {
+    const map = new Map<string, number>();
+    capabilities?.forEach(c => {
+      map.set(c.course_id, (map.get(c.course_id) || 0) + 1);
+    });
+    return map;
+  }, [capabilities]);
+
+  // Get skill count for a course - now O(1) instead of O(n)
+  const getCourseSkillCount = useCallback((courseId: string) => {
+    return skillCountMap.get(courseId) || 0;
+  }, [skillCountMap]);
 
   // Filter and sort courses
   const filteredAndSortedCourses = useMemo(() => {
@@ -222,7 +231,7 @@ export default function CoursesPage() {
     });
 
     return result;
-  }, [courses, searchQuery, filterBy, courseStatusFilter, sortBy, capabilities]);
+  }, [courses, searchQuery, filterBy, courseStatusFilter, sortBy, skillCountMap]);
 
   // Selection helpers
   const toggleCourseSelection = (courseId: string) => {
@@ -534,14 +543,16 @@ export default function CoursesPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
 
-      // Convert file to base64
+      // Convert file to base64 using chunked approach (O(n) instead of O(n²))
       const arrayBuffer = await reanalyzeFile.arrayBuffer();
       const bytes = new Uint8Array(arrayBuffer);
-      let binary = "";
-      for (let i = 0; i < bytes.byteLength; i++) {
-        binary += String.fromCharCode(bytes[i]);
+      const chunkSize = 0x8000; // 32KB chunks
+      const chunks: string[] = [];
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
+        chunks.push(String.fromCharCode.apply(null, Array.from(chunk)));
       }
-      const base64 = btoa(binary);
+      const base64 = btoa(chunks.join(''));
 
       // First, delete existing capabilities for this course
       await supabase

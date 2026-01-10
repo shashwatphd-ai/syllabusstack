@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
 import { AppShell } from "@/components/layout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -215,10 +215,19 @@ export default function LearnPage() {
   const verifiedSkillsCount = skillProfile.filter(s => s.verified).length;
   const totalSkillsCount = skillProfile.length;
 
-  // Get skill count for a course
-  const getCourseSkillCount = (courseId: string) => {
-    return capabilities.filter((c: any) => c.course_id === courseId).length;
-  };
+  // Pre-compute skill counts ONCE using Map for O(1) lookups instead of O(n) filter per call
+  const skillCountMap = useMemo(() => {
+    const map = new Map<string, number>();
+    capabilities.forEach((c: any) => {
+      map.set(c.course_id, (map.get(c.course_id) || 0) + 1);
+    });
+    return map;
+  }, [capabilities]);
+
+  // Get skill count for a course - now O(1) instead of O(n)
+  const getCourseSkillCount = useCallback((courseId: string) => {
+    return skillCountMap.get(courseId) || 0;
+  }, [skillCountMap]);
 
   // Get course status
   const getCourseStatus = (course: any) => {
@@ -375,21 +384,27 @@ export default function LearnPage() {
     });
 
     return result;
-  }, [personalCourses, transcriptSearch, filterBy, sortBy, capabilities]);
+  }, [personalCourses, transcriptSearch, filterBy, sortBy, skillCountMap]);
 
-  // Filter skills by search
-  const filteredSkills = skillProfile.filter(skill =>
-    skill.skill_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    skill.source_name.toLowerCase().includes(searchQuery.toLowerCase())
+  // Filter skills by search - memoized to avoid recalculation on every render
+  const filteredSkills = useMemo(() =>
+    skillProfile.filter(skill =>
+      skill.skill_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      skill.source_name.toLowerCase().includes(searchQuery.toLowerCase())
+    ),
+    [skillProfile, searchQuery]
   );
 
-  // Group skills by category
-  const groupedSkills = filteredSkills.reduce((acc, skill) => {
-    const category = skill.verified ? "verified" : "self_reported";
-    if (!acc[category]) acc[category] = [];
-    acc[category].push(skill);
-    return acc;
-  }, {} as Record<string, SkillProfile[]>);
+  // Group skills by category - memoized to avoid recalculation on every render
+  const groupedSkills = useMemo(() =>
+    filteredSkills.reduce((acc, skill) => {
+      const category = skill.verified ? "verified" : "self_reported";
+      if (!acc[category]) acc[category] = [];
+      acc[category].push(skill);
+      return acc;
+    }, {} as Record<string, SkillProfile[]>),
+    [filteredSkills]
+  );
 
   // Limit displayed skills
   const displayedVerifiedSkills = showAllSkills
@@ -544,14 +559,16 @@ export default function LearnPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
 
-      // Convert file to base64
+      // Convert file to base64 using chunked approach (O(n) instead of O(n²))
       const arrayBuffer = await reanalyzeFile.arrayBuffer();
       const bytes = new Uint8Array(arrayBuffer);
-      let binary = "";
-      for (let i = 0; i < bytes.byteLength; i++) {
-        binary += String.fromCharCode(bytes[i]);
+      const chunkSize = 0x8000; // 32KB chunks
+      const chunks: string[] = [];
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
+        chunks.push(String.fromCharCode.apply(null, Array.from(chunk)));
       }
-      const base64 = btoa(binary);
+      const base64 = btoa(chunks.join(''));
 
       // First, delete existing capabilities for this course
       await supabase

@@ -54,16 +54,37 @@ serve(async (req) => {
     const searchTerm = `%${query.trim().toLowerCase()}%`;
     const results: SearchResult[] = [];
 
-    // Search courses
-    const { data: courses } = await supabase
-      .from("courses")
-      .select("id, title, code, instructor")
-      .eq("user_id", user.id)
-      .or(`title.ilike.${searchTerm},code.ilike.${searchTerm},instructor.ilike.${searchTerm}`)
-      .limit(5);
+    // Run all 4 searches in PARALLEL (4x faster than sequential)
+    const [coursesResult, dreamJobsResult, recommendationsResult, capabilitiesResult] = await Promise.all([
+      supabase
+        .from("courses")
+        .select("id, title, code, instructor")
+        .eq("user_id", user.id)
+        .or(`title.ilike.${searchTerm},code.ilike.${searchTerm},instructor.ilike.${searchTerm}`)
+        .limit(5),
+      supabase
+        .from("dream_jobs")
+        .select("id, title, company_type, location")
+        .eq("user_id", user.id)
+        .or(`title.ilike.${searchTerm},company_type.ilike.${searchTerm},location.ilike.${searchTerm}`)
+        .limit(5),
+      supabase
+        .from("recommendations")
+        .select("id, title, type, provider")
+        .eq("user_id", user.id)
+        .or(`title.ilike.${searchTerm},provider.ilike.${searchTerm},description.ilike.${searchTerm}`)
+        .limit(5),
+      supabase
+        .from("capabilities")
+        .select("id, name, category, proficiency_level")
+        .eq("user_id", user.id)
+        .or(`name.ilike.${searchTerm},category.ilike.${searchTerm}`)
+        .limit(5),
+    ]);
 
-    if (courses) {
-      for (const course of courses) {
+    // Process courses
+    if (coursesResult.data) {
+      for (const course of coursesResult.data) {
         results.push({
           id: course.id,
           type: "course",
@@ -74,16 +95,9 @@ serve(async (req) => {
       }
     }
 
-    // Search dream jobs
-    const { data: dreamJobs } = await supabase
-      .from("dream_jobs")
-      .select("id, title, company_type, location")
-      .eq("user_id", user.id)
-      .or(`title.ilike.${searchTerm},company_type.ilike.${searchTerm},location.ilike.${searchTerm}`)
-      .limit(5);
-
-    if (dreamJobs) {
-      for (const job of dreamJobs) {
+    // Process dream jobs
+    if (dreamJobsResult.data) {
+      for (const job of dreamJobsResult.data) {
         results.push({
           id: job.id,
           type: "dream_job",
@@ -94,16 +108,9 @@ serve(async (req) => {
       }
     }
 
-    // Search recommendations
-    const { data: recommendations } = await supabase
-      .from("recommendations")
-      .select("id, title, type, provider")
-      .eq("user_id", user.id)
-      .or(`title.ilike.${searchTerm},provider.ilike.${searchTerm},description.ilike.${searchTerm}`)
-      .limit(5);
-
-    if (recommendations) {
-      for (const rec of recommendations) {
+    // Process recommendations
+    if (recommendationsResult.data) {
+      for (const rec of recommendationsResult.data) {
         results.push({
           id: rec.id,
           type: "recommendation",
@@ -114,16 +121,9 @@ serve(async (req) => {
       }
     }
 
-    // Search capabilities
-    const { data: capabilities } = await supabase
-      .from("capabilities")
-      .select("id, name, category, proficiency_level")
-      .eq("user_id", user.id)
-      .or(`name.ilike.${searchTerm},category.ilike.${searchTerm}`)
-      .limit(5);
-
-    if (capabilities) {
-      for (const cap of capabilities) {
+    // Process capabilities
+    if (capabilitiesResult.data) {
+      for (const cap of capabilitiesResult.data) {
         results.push({
           id: cap.id,
           type: "capability",
