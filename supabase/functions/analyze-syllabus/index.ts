@@ -187,18 +187,46 @@ IMPORTANT:
           const themeKeywords = courseThemes.flatMap((t: string) => generateKeywordVector(t));
           const allKeywords = [...new Set([...capabilityKeywords, ...toolKeywords, ...themeKeywords])];
 
+          // Fetch current course to check if metadata fields need updating
+          const { data: existingCourse } = await supabase
+            .from("courses")
+            .select("title, code, semester, credits")
+            .eq("id", courseId)
+            .single();
+
+          // Build update object with all AI fields
+          const updateData: Record<string, any> = {
+            capability_text: capabilityText,
+            key_capabilities: capabilities,
+            evidence_types: evidenceTypes,
+            tools_methods: toolsLearned,
+            capability_keywords: allKeywords,
+            ai_model_used: "google/gemini-2.5-flash",
+            analysis_status: "completed",
+            analysis_error: null
+          };
+
+          // Also update course metadata if AI extracted it and current values are empty/generic
+          if (courseTitle && existingCourse) {
+            const currentTitle = existingCourse.title?.toLowerCase() || "";
+            // Update title if it's generic (like "Syllabus", "Untitled", or matches filename pattern)
+            if (!currentTitle || currentTitle === "syllabus" || currentTitle === "untitled" || currentTitle === "untitled course") {
+              updateData.title = courseTitle;
+            }
+          }
+          if (courseCode && existingCourse && !existingCourse.code) {
+            updateData.code = courseCode;
+          }
+          if (semester && existingCourse && !existingCourse.semester) {
+            updateData.semester = semester;
+          }
+          if (credits && existingCourse && !existingCourse.credits) {
+            updateData.credits = credits;
+          }
+
           await supabase
             .from("courses")
-            .update({
-              capability_text: capabilityText,
-              key_capabilities: capabilities,
-              evidence_types: evidenceTypes,
-              tools_methods: toolsLearned,
-              capability_keywords: allKeywords, // Store extracted keywords
-              ai_model_used: "google/gemini-2.5-flash",
-              analysis_status: "completed",
-              analysis_error: null
-            })
+            .update(updateData)
             .eq("id", courseId);
 
           console.log(`Updated course ${courseId} with ${allKeywords.length} keywords`);
