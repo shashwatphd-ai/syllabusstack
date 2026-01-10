@@ -73,7 +73,15 @@ const getTypeConfig = (type: RecommendationType) => {
     case "skill":
       return { icon: Star, label: "Skill", color: "text-orange-600" };
     case "experience":
-      return { icon: Users, label: "Exp", color: "text-teal-600" };
+      return { icon: Users, label: "Experience", color: "text-teal-600" };
+    case "action":
+      return { icon: CheckCircle2, label: "Action", color: "text-indigo-600" };
+    case "reading":
+      return { icon: BookOpen, label: "Reading", color: "text-emerald-600" };
+    case "portfolio":
+      return { icon: Code, label: "Portfolio", color: "text-pink-600" };
+    case "resource":
+      return { icon: Video, label: "Resource", color: "text-cyan-600" };
     default:
       return { icon: Video, label: "Resource", color: "text-gray-600" };
   }

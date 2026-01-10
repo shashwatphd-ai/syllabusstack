@@ -128,20 +128,31 @@ serve(async (req) => {
 
     // Save courses as recommendations
     if (allCourses.length > 0 && dreamJobId) {
-      const recommendationsToInsert = allCourses.slice(0, 10).map((course, index) => ({
-        user_id: user.id,
-        dream_job_id: dreamJobId,
-        title: course.title,
-        type: "course",
-        description: course.description.slice(0, 500),
-        provider: course.provider,
-        url: course.url,
-        duration: course.duration || "Self-paced",
-        cost_usd: parseCost(course.price),
-        priority: index < 3 ? "high" : index < 6 ? "medium" : "low",
-        status: "pending",
-        gap_addressed: gapsToSearch[Math.min(index, gapsToSearch.length - 1)]?.gap || "Skill gap",
-      }));
+      const recommendationsToInsert = allCourses.slice(0, 10).map((course, index) => {
+        // Get the corresponding gap for this course
+        const gapIndex = Math.min(index, gapsToSearch.length - 1);
+        const gap = gapsToSearch[gapIndex];
+        // Extract the gap text from various possible formats
+        const gapText = typeof gap === 'string' ? gap :
+          gap?.gap || gap?.requirement || gap?.job_requirement || gap?.skill ||
+          `${dreamJobTitle} skill requirement`;
+
+        return {
+          user_id: user.id,
+          dream_job_id: dreamJobId,
+          title: course.title,
+          type: "course",
+          description: course.description.slice(0, 500),
+          provider: course.provider,
+          url: course.url,
+          duration: course.duration || "Self-paced",
+          cost_usd: parseCost(course.price),
+          priority: index < 3 ? "high" : index < 6 ? "medium" : "low",
+          status: "pending",
+          gap_addressed: gapText,
+          why_this_matters: `This course addresses a skill gap identified for your goal of becoming a ${dreamJobTitle}. Completing it will strengthen your candidacy by developing ${gapText}.`,
+        };
+      });
 
       // Insert without deleting existing - append to recommendations
       const { error: insertError } = await supabase
