@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
+import { getWebProvider, type SearchResult } from "../_shared/web-provider.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -53,8 +54,15 @@ serve(async (req) => {
       );
     }
 
+    // Get web provider (firecrawl or jina based on WEB_PROVIDER env var)
+    const webProvider = getWebProvider();
+    console.log(`Using web provider: ${webProvider.name}`);
+
+    // Check if provider is configured
     const FIRECRAWL_API_KEY = Deno.env.get("FIRECRAWL_API_KEY");
-    if (!FIRECRAWL_API_KEY) {
+    const JINA_API_KEY = Deno.env.get("JINA_API_KEY");
+
+    if (webProvider.name === 'firecrawl' && !FIRECRAWL_API_KEY) {
       console.error("FIRECRAWL_API_KEY not configured");
       return new Response(
         JSON.stringify({ error: "Firecrawl not configured. Please connect Firecrawl in Settings." }),
@@ -76,51 +84,29 @@ serve(async (req) => {
       console.log(`Searching: ${searchQuery}`);
 
       try {
-        const response = await fetch("https://api.firecrawl.dev/v1/search", {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${FIRECRAWL_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            query: searchQuery,
-            limit: 5,
-            scrapeOptions: {
-              formats: ["markdown"],
-            },
-          }),
-        });
+        // Use web provider abstraction (supports both Firecrawl and Jina)
+        const searchResults = await webProvider.search(searchQuery, { limit: 5 });
+        console.log(`Found ${searchResults.length} results for: ${gapText} (via ${webProvider.name})`);
 
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error(`Firecrawl search error for gap "${gapText}":`, response.status, errorText);
-          continue;
-        }
+        for (const result of searchResults) {
+          // Parse course info from search results
+          const course: CourseResult = {
+            title: result.title || "Untitled Course",
+            provider: getProviderFromUrl(result.url),
+            url: result.url,
+            description: result.description || extractDescription(result.markdown) || "",
+            duration: extractDuration(result.markdown || result.description),
+            rating: extractRating(result.markdown || result.description),
+            price: extractPrice(result.markdown || result.description),
+          };
 
-        const searchData = await response.json();
-        console.log(`Found ${searchData.data?.length || 0} results for: ${gapText}`);
-
-        if (searchData.success && searchData.data) {
-          for (const result of searchData.data) {
-            // Parse course info from search results
-            const course: CourseResult = {
-              title: result.title || "Untitled Course",
-              provider: getProviderFromUrl(result.url),
-              url: result.url,
-              description: result.description || extractDescription(result.markdown) || "",
-              duration: extractDuration(result.markdown || result.description),
-              rating: extractRating(result.markdown || result.description),
-              price: extractPrice(result.markdown || result.description),
-            };
-
-            // Avoid duplicates
-            if (!allCourses.some(c => c.url === course.url)) {
-              allCourses.push(course);
-            }
+          // Avoid duplicates
+          if (!allCourses.some(c => c.url === course.url)) {
+            allCourses.push(course);
           }
         }
       } catch (searchError) {
-        console.error(`Error searching for gap "${gapText}":`, searchError);
+        console.error(`Error searching for gap "${gapText}" via ${webProvider.name}:`, searchError);
       }
     }
 
@@ -172,6 +158,7 @@ serve(async (req) => {
         courses: allCourses,
         gapsSearched: gapsToSearch.length,
         totalFound: allCourses.length,
+        provider: webProvider.name,  // Track which provider was used
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

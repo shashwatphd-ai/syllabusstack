@@ -312,7 +312,7 @@ export function BulkSyllabusUploader({ onSuccess, onCancel }: BulkSyllabusUpload
           // Tools & Technologies for CourseDetail display
           tools_methods: fileItem.toolsMethods as unknown as import('@/integrations/supabase/types').Json,
           // Keywords for job matching
-          capability_keywords: fileItem.capabilityKeywords as unknown as import('@/integrations/supabase/types').Json,
+          capability_keywords: fileItem.capabilityKeywords,
           // AI model tracking (enables "AI Analyzed" badge)
           ai_model_used: "google/gemini-2.5-flash",
           analysis_status: "completed",

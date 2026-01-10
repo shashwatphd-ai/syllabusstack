@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
 import { checkCache, saveToCache, trackApiUsage } from "../_shared/content-cache.ts";
+import { getWebProvider } from "../_shared/web-provider.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -376,32 +377,21 @@ serve(async (req) => {
       console.log(`Public search found ${khanVideos.length} Khan Academy results`);
     }
 
-    // Step 3: Last resort - use Firecrawl if available
+    // Step 3: Last resort - use web provider (Firecrawl or Jina) if available
     if (khanVideos.length === 0) {
       const FIRECRAWL_API_KEY = Deno.env.get("FIRECRAWL_API_KEY");
-      if (FIRECRAWL_API_KEY) {
-        console.log('Trying Firecrawl fallback...');
-        const firecrawlQuery = `site:khanacademy.org video ${core_concept}`;
+      const webProvider = getWebProvider();
 
-        const firecrawlResponse = await fetch('https://api.firecrawl.dev/v1/search', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${FIRECRAWL_API_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            query: firecrawlQuery,
-            limit: 10,
-            scrapeOptions: { formats: ['markdown'] }
-          }),
-        });
+      // Only try fallback if we have a configured provider
+      if (FIRECRAWL_API_KEY || webProvider.name === 'jina') {
+        console.log(`Trying ${webProvider.name} fallback...`);
+        const searchQuery = `site:khanacademy.org video ${core_concept}`;
 
-        if (firecrawlResponse.ok) {
-          const firecrawlData = await firecrawlResponse.json();
-          const searchResults = firecrawlData.data || [];
+        try {
+          const searchResults = await webProvider.search(searchQuery, { limit: 10 });
 
           for (const result of searchResults) {
-            const url = result.url || result.metadata?.sourceURL;
+            const url = result.url;
             if (!url || !url.includes('khanacademy.org')) continue;
 
             const videoId = extractKhanVideoId(url);
@@ -425,7 +415,9 @@ serve(async (req) => {
 
             if (khanVideos.length >= max_results * 2) break;
           }
-          console.log(`Firecrawl found ${khanVideos.length} Khan Academy results`);
+          console.log(`${webProvider.name} found ${khanVideos.length} Khan Academy results`);
+        } catch (error) {
+          console.error(`${webProvider.name} fallback error:`, error);
         }
       }
     }
