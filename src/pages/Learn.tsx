@@ -41,7 +41,6 @@ interface SkillProfile {
 export default function LearnPage() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("active");
-  const [showEnrollDialog, setShowEnrollDialog] = useState(false);
   const [showAddCourse, setShowAddCourse] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -223,10 +222,14 @@ export default function LearnPage() {
               <p className="text-sm text-muted-foreground">
                 Courses you're enrolled in through instructors
               </p>
-              <Button onClick={() => setShowEnrollDialog(true)}>
-                <Plus className="h-4 w-4 mr-2" />
-                Enroll with Code
-              </Button>
+              <EnrollmentDialog
+                trigger={
+                  <Button>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Enroll with Code
+                  </Button>
+                }
+              />
             </div>
 
             {enrollmentsLoading ? (
@@ -251,10 +254,14 @@ export default function LearnPage() {
                       Enroll in a course using an access code from your instructor
                     </p>
                   </div>
-                  <Button onClick={() => setShowEnrollDialog(true)}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Enroll Now
-                  </Button>
+                  <EnrollmentDialog
+                    trigger={
+                      <Button>
+                        <Plus className="h-4 w-4 mr-2" />
+                        Enroll Now
+                      </Button>
+                    }
+                  />
                 </div>
               </Card>
             ) : (
@@ -319,7 +326,7 @@ export default function LearnPage() {
 
             {showAddCourse ? (
               <AddCourseForm
-                onSuccess={() => setShowAddCourse(false)}
+                onSubmit={async () => setShowAddCourse(false)}
                 onCancel={() => setShowAddCourse(false)}
               />
             ) : coursesLoading ? (
@@ -510,12 +517,6 @@ export default function LearnPage() {
           </TabsContent>
         </Tabs>
       </div>
-
-      {/* Enrollment Dialog */}
-      <EnrollmentDialog
-        open={showEnrollDialog}
-        onOpenChange={setShowEnrollDialog}
-      />
     </AppShell>
   );
 }

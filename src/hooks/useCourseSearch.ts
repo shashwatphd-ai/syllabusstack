@@ -82,9 +82,20 @@ export function useCourseSearch() {
     },
   });
 
-  // Helper for async/await usage
-  const searchCourses = async (gaps: GapItem[], dreamJobId: string, dreamJobTitle: string) => {
-    return mutation.mutateAsync({ gaps, dreamJobId, dreamJobTitle });
+  // Helper for async/await usage - supports both object and individual args
+  const searchCourses = async (
+    gapsOrParams: GapItem[] | { gaps: GapItem[]; dreamJobId: string; dreamJobTitle: string },
+    dreamJobId?: string,
+    dreamJobTitle?: string
+  ) => {
+    // Support both calling conventions
+    if (Array.isArray(gapsOrParams)) {
+      if (!dreamJobId || !dreamJobTitle) {
+        throw new Error('dreamJobId and dreamJobTitle are required');
+      }
+      return mutation.mutateAsync({ gaps: gapsOrParams, dreamJobId, dreamJobTitle });
+    }
+    return mutation.mutateAsync(gapsOrParams);
   };
 
   return {
