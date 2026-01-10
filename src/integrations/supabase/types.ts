@@ -1013,6 +1013,54 @@ export type Database = {
         }
         Relationships: []
       }
+      discovered_careers: {
+        Row: {
+          company_types: Json | null
+          created_at: string
+          day_in_life: string | null
+          description: string | null
+          discovery_input: Json | null
+          growth_outlook: string | null
+          id: string
+          is_added_to_dream_jobs: boolean | null
+          key_skills: Json | null
+          salary_range: string | null
+          title: string
+          user_id: string
+          why_it_fits: string | null
+        }
+        Insert: {
+          company_types?: Json | null
+          created_at?: string
+          day_in_life?: string | null
+          description?: string | null
+          discovery_input?: Json | null
+          growth_outlook?: string | null
+          id?: string
+          is_added_to_dream_jobs?: boolean | null
+          key_skills?: Json | null
+          salary_range?: string | null
+          title: string
+          user_id: string
+          why_it_fits?: string | null
+        }
+        Update: {
+          company_types?: Json | null
+          created_at?: string
+          day_in_life?: string | null
+          description?: string | null
+          discovery_input?: Json | null
+          growth_outlook?: string | null
+          id?: string
+          is_added_to_dream_jobs?: boolean | null
+          key_skills?: Json | null
+          salary_range?: string | null
+          title?: string
+          user_id?: string
+          why_it_fits?: string | null
+        }
+        Relationships: []
+      }
       dream_jobs: {
         Row: {
           common_misconceptions: Json | null
@@ -1144,6 +1192,7 @@ export type Database = {
           code: string | null
           created_at: string | null
           curation_mode: string | null
+          default_passing_threshold: number | null
           description: string | null
           id: string
           instructor_id: string
@@ -1157,6 +1206,7 @@ export type Database = {
           code?: string | null
           created_at?: string | null
           curation_mode?: string | null
+          default_passing_threshold?: number | null
           description?: string | null
           id?: string
           instructor_id: string
@@ -1170,6 +1220,7 @@ export type Database = {
           code?: string | null
           created_at?: string | null
           curation_mode?: string | null
+          default_passing_threshold?: number | null
           description?: string | null
           id?: string
           instructor_id?: string
@@ -1272,6 +1323,7 @@ export type Database = {
           id: string
           instructor_course_id: string | null
           module_id: string | null
+          passing_threshold: number | null
           search_keywords: string[] | null
           sequence_order: number | null
           specificity: string | null
@@ -1291,6 +1343,7 @@ export type Database = {
           id?: string
           instructor_course_id?: string | null
           module_id?: string | null
+          passing_threshold?: number | null
           search_keywords?: string[] | null
           sequence_order?: number | null
           specificity?: string | null
@@ -1310,6 +1363,7 @@ export type Database = {
           id?: string
           instructor_course_id?: string | null
           module_id?: string | null
+          passing_threshold?: number | null
           search_keywords?: string[] | null
           sequence_order?: number | null
           specificity?: string | null
@@ -1559,10 +1613,82 @@ export type Database = {
         }
         Relationships: []
       }
+      recommendation_course_links: {
+        Row: {
+          completed_at: string | null
+          created_at: string | null
+          external_course_url: string | null
+          id: string
+          instructor_course_id: string | null
+          learning_objective_id: string | null
+          link_status: string | null
+          link_type: string
+          progress_percentage: number | null
+          recommendation_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string | null
+          external_course_url?: string | null
+          id?: string
+          instructor_course_id?: string | null
+          learning_objective_id?: string | null
+          link_status?: string | null
+          link_type: string
+          progress_percentage?: number | null
+          recommendation_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string | null
+          external_course_url?: string | null
+          id?: string
+          instructor_course_id?: string | null
+          learning_objective_id?: string | null
+          link_status?: string | null
+          link_type?: string
+          progress_percentage?: number | null
+          recommendation_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "recommendation_course_links_instructor_course_id_fkey"
+            columns: ["instructor_course_id"]
+            isOneToOne: false
+            referencedRelation: "instructor_courses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recommendation_course_links_learning_objective_id_fkey"
+            columns: ["learning_objective_id"]
+            isOneToOne: false
+            referencedRelation: "learning_objectives"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recommendation_course_links_recommendation_id_fkey"
+            columns: ["recommendation_id"]
+            isOneToOne: true
+            referencedRelation: "recommendations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recommendation_course_links_recommendation_id_fkey"
+            columns: ["recommendation_id"]
+            isOneToOne: true
+            referencedRelation: "recommendations_with_links"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       recommendations: {
         Row: {
           cost_usd: number | null
           created_at: string
+          deleted_at: string | null
           description: string | null
           dream_job_id: string | null
           duration: string | null
@@ -1586,6 +1712,7 @@ export type Database = {
         Insert: {
           cost_usd?: number | null
           created_at?: string
+          deleted_at?: string | null
           description?: string | null
           dream_job_id?: string | null
           duration?: string | null
@@ -1609,6 +1736,7 @@ export type Database = {
         Update: {
           cost_usd?: number | null
           created_at?: string
+          deleted_at?: string | null
           description?: string | null
           dream_job_id?: string | null
           duration?: string | null
@@ -1833,11 +1961,151 @@ export type Database = {
         }
         Relationships: []
       }
+      verified_skills: {
+        Row: {
+          created_at: string | null
+          evidence_url: string | null
+          id: string
+          metadata: Json | null
+          proficiency_level: string | null
+          skill_name: string
+          source_id: string | null
+          source_name: string | null
+          source_type: string
+          updated_at: string | null
+          user_id: string
+          verified_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          evidence_url?: string | null
+          id?: string
+          metadata?: Json | null
+          proficiency_level?: string | null
+          skill_name: string
+          source_id?: string | null
+          source_name?: string | null
+          source_type: string
+          updated_at?: string | null
+          user_id: string
+          verified_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          evidence_url?: string | null
+          id?: string
+          metadata?: Json | null
+          proficiency_level?: string | null
+          skill_name?: string
+          source_id?: string | null
+          source_name?: string | null
+          source_type?: string
+          updated_at?: string | null
+          user_id?: string
+          verified_at?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
-      [_ in never]: never
+      recommendations_with_links: {
+        Row: {
+          cost_usd: number | null
+          created_at: string | null
+          deleted_at: string | null
+          description: string | null
+          dream_job_id: string | null
+          duration: string | null
+          effort_hours: number | null
+          enrollment_completed_at: string | null
+          enrollment_progress: number | null
+          evidence_created: string | null
+          gap_addressed: string | null
+          gap_analysis_id: string | null
+          how_to_demonstrate: string | null
+          id: string | null
+          instructor_course_id: string | null
+          learning_objective_id: string | null
+          link_progress: number | null
+          link_status: string | null
+          link_type: string | null
+          linked_course_code: string | null
+          linked_course_title: string | null
+          linked_external_url: string | null
+          priority: string | null
+          provider: string | null
+          status: string | null
+          steps: Json | null
+          title: string | null
+          type: string | null
+          updated_at: string | null
+          url: string | null
+          user_id: string | null
+          why_this_matters: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "recommendation_course_links_instructor_course_id_fkey"
+            columns: ["instructor_course_id"]
+            isOneToOne: false
+            referencedRelation: "instructor_courses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recommendation_course_links_learning_objective_id_fkey"
+            columns: ["learning_objective_id"]
+            isOneToOne: false
+            referencedRelation: "learning_objectives"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recommendations_dream_job_id_fkey"
+            columns: ["dream_job_id"]
+            isOneToOne: false
+            referencedRelation: "dream_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recommendations_gap_analysis_id_fkey"
+            columns: ["gap_analysis_id"]
+            isOneToOne: false
+            referencedRelation: "gap_analyses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
+      add_verified_skill_from_course: {
+        Args: {
+          p_course_id: string
+          p_course_name: string
+          p_evidence_url?: string
+          p_proficiency_level: string
+          p_skill_name: string
+          p_user_id: string
+        }
+        Returns: {
+          created_at: string | null
+          evidence_url: string | null
+          id: string
+          metadata: Json | null
+          proficiency_level: string | null
+          skill_name: string
+          source_id: string | null
+          source_name: string | null
+          source_type: string
+          updated_at: string | null
+          user_id: string
+          verified_at: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "verified_skills"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       award_xp: {
         Args: { p_amount: number; p_user_id: string }
         Returns: {
@@ -1909,6 +2177,18 @@ export type Database = {
         Args: { _user_id: string }
         Returns: Database["public"]["Enums"]["app_role"]
       }
+      get_user_skill_profile: {
+        Args: { p_user_id: string }
+        Returns: {
+          acquired_at: string
+          evidence_url: string
+          proficiency_level: string
+          skill_name: string
+          source_name: string
+          source_type: string
+          verified: boolean
+        }[]
+      }
       grant_achievement: {
         Args: { p_achievement_key: string; p_user_id: string }
         Returns: {
@@ -1937,6 +2217,33 @@ export type Database = {
       keyword_similarity: {
         Args: { arr1: string[]; arr2: string[] }
         Returns: number
+      }
+      link_recommendation_to_course: {
+        Args: {
+          p_external_url?: string
+          p_instructor_course_id?: string
+          p_learning_objective_id?: string
+          p_recommendation_id: string
+        }
+        Returns: {
+          completed_at: string | null
+          created_at: string | null
+          external_course_url: string | null
+          id: string
+          instructor_course_id: string | null
+          learning_objective_id: string | null
+          link_status: string | null
+          link_type: string
+          progress_percentage: number | null
+          recommendation_id: string
+          updated_at: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "recommendation_course_links"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
       track_api_usage: {
         Args: { p_api_name: string; p_units?: number }
