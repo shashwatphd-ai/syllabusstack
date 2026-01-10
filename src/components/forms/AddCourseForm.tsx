@@ -155,8 +155,12 @@ export function AddCourseForm({ onSubmit, onCancel, isSubmitting = false }: AddC
       setExtractedText(text);
       form.setFieldValue('syllabusText', text);
 
+      // Check if analysis actually completed (success: true AND capabilities exist)
+      // The edge function returns success: false when analysis fails
+      const analysisSucceeded = data.success !== false && !data.analysis_error;
+      
       // Extract and store the complete analysis result
-      const rawCapabilities = data.analysis?.capabilities || [];
+      const rawCapabilities = analysisSucceeded ? (data.analysis?.capabilities || []) : [];
       const capabilities: AnalyzedCapability[] = rawCapabilities.map((c: any) => ({
         name: typeof c === "string" ? c : (c.name || c),
         category: typeof c === "object" && c.category ? c.category : "technical",
@@ -164,13 +168,14 @@ export function AddCourseForm({ onSubmit, onCancel, isSubmitting = false }: AddC
       }));
 
       // Store the complete analysis result for submission
+      // IMPORTANT: Only include capabilities if analysis actually succeeded
       const result: CourseAnalysisResult = {
         extractedText: text,
-        capabilities,
-        courseTitle: data.analysis?.course_title,
-        courseCode: data.analysis?.course_code,
-        semester: data.analysis?.semester,
-        credits: data.analysis?.credits,
+        capabilities, // Will be empty if analysis failed
+        courseTitle: analysisSucceeded ? data.analysis?.course_title : undefined,
+        courseCode: analysisSucceeded ? data.analysis?.course_code : undefined,
+        semester: analysisSucceeded ? data.analysis?.semester : undefined,
+        credits: analysisSucceeded ? data.analysis?.credits : undefined,
       };
       setAnalysisResult(result);
 
@@ -185,15 +190,28 @@ export function AddCourseForm({ onSubmit, onCancel, isSubmitting = false }: AddC
         form.setFieldValue('semester', data.analysis.semester);
       }
 
-      setAnalysisStatus('complete');
-
-      const capCount = capabilities.length;
-      toast({
-        title: "File processed!",
-        description: capCount > 0
-          ? `Extracted ${capCount} skills from your syllabus. Review and submit.`
-          : "Syllabus text extracted. You can now add the course.",
-      });
+      // Set status based on whether analysis actually completed
+      if (capabilities.length > 0) {
+        setAnalysisStatus('complete');
+        toast({
+          title: "File processed!",
+          description: `Extracted ${capabilities.length} skills from your syllabus. Review and submit.`,
+        });
+      } else if (data.analysis_error) {
+        // Analysis failed but text was extracted
+        setAnalysisStatus('complete'); // Allow submission, but analysis_status will be 'pending'
+        toast({
+          title: "Text extracted",
+          description: "Syllabus text extracted, but skill analysis failed. You can add the course and retry later.",
+          variant: "default",
+        });
+      } else {
+        setAnalysisStatus('complete');
+        toast({
+          title: "File processed!",
+          description: "Syllabus text extracted. You can now add the course.",
+        });
+      }
     } catch (error) {
       console.error('Error processing file:', error);
       setAnalysisStatus('error');
