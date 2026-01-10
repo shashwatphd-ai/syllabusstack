@@ -294,8 +294,8 @@ export const RECOMMENDATIONS_SCHEMA = {
             },
             type: {
               type: "string",
-              enum: ["project", "course", "certification", "action", "reading", "skill", "experience"],
-              description: "project=build something, course=take a course, certification=get certified, action=one-time task, reading=books/articles, skill=practice specific skill, experience=get real-world experience"
+              enum: ["project", "course", "certification", "action", "reading", "skill", "experience", "networking", "portfolio"],
+              description: "project=build something, course=take a course, certification=get certified, action=one-time task, reading=books/articles, skill=practice specific skill, experience=get real-world experience, networking=connect with people, portfolio=build portfolio pieces"
             },
             description: {
               type: "string",

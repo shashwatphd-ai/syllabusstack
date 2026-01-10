@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-type RecommendationType = "course" | "project" | "certification" | "action" | "reading" | "skill" | "experience" | "resource" | "networking";
+type RecommendationType = "course" | "project" | "certification" | "action" | "reading" | "skill" | "experience" | "resource" | "networking" | "portfolio";
 type Priority = "high" | "medium" | "low" | "critical" | "important" | "nice_to_have";
 type Status = "pending" | "in_progress" | "completed" | "skipped" | "not_started";
 

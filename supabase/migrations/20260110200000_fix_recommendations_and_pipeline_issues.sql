@@ -13,7 +13,7 @@ DROP CONSTRAINT IF EXISTS recommendations_type_check;
 
 ALTER TABLE recommendations
 ADD CONSTRAINT recommendations_type_check
-CHECK (type IN ('course', 'certification', 'project', 'experience', 'skill', 'action', 'reading'));
+CHECK (type IN ('course', 'certification', 'project', 'experience', 'skill', 'action', 'reading', 'networking', 'portfolio'));
 
 -- ================================================================
 -- ISSUE #5: Data loss risk in generate-recommendations
