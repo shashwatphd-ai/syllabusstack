@@ -290,7 +290,8 @@ export const RECOMMENDATIONS_SCHEMA = {
             },
             type: { 
               type: "string", 
-              enum: ["project", "course", "certification", "action", "reading"]
+              enum: ["project", "course", "certification", "experience", "skill", "action", "reading", "networking", "portfolio"],
+              description: "Type of recommendation"
             },
             description: { 
               type: "string", 
