@@ -23,9 +23,9 @@ export interface RateLimitResult {
 
 // Default limits for free tier users
 export const FREE_TIER_LIMITS: RateLimitConfig = {
-  maxRequestsPerHour: 10,
-  maxRequestsPerDay: 50,
-  maxCostPerDay: 0.50, // $0.50 per day
+  maxRequestsPerHour: 20,
+  maxRequestsPerDay: 100,
+  maxCostPerDay: 2.00, // $2.00 per day (increased for testing)
 };
 
 // Pro tier limits
