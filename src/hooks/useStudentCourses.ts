@@ -131,9 +131,33 @@ export function useEnrolledCourseDetail(courseId: string | undefined) {
         })
       );
 
+      // Fetch unassigned learning objectives (those without a module)
+      const { data: unassignedLOs, error: unassignedError } = await supabase
+        .from('learning_objectives')
+        .select('id, text, bloom_level, verification_state, expected_duration_minutes')
+        .eq('instructor_course_id', courseId)
+        .is('module_id', null)
+        .order('sequence_order', { ascending: true });
+
+      if (unassignedError) {
+        console.error('Error fetching unassigned LOs:', unassignedError);
+      }
+
+      // If there are unassigned LOs, create a virtual "Course Objectives" module
+      const allModules = [...modulesWithLOs];
+      if (unassignedLOs && unassignedLOs.length > 0) {
+        allModules.unshift({
+          id: 'unassigned',
+          title: 'Course Objectives',
+          description: 'General learning objectives for this course',
+          sequence_order: 0,
+          learning_objectives: unassignedLOs,
+        });
+      }
+
       return {
         ...course,
-        modules: modulesWithLOs,
+        modules: allModules,
       } as CourseWithModules;
     },
     enabled: !!courseId,

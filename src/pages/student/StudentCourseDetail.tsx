@@ -115,12 +115,31 @@ export default function StudentCourseDetailPage() {
 
           {/* Modules */}
           {course.modules.length === 0 ? (
-            <Card>
+            <Card className="border-dashed">
               <CardContent className="py-12 text-center">
-                <BookOpen className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-                <h3 className="font-semibold mb-2">No modules yet</h3>
-                <p className="text-muted-foreground">
-                  Your instructor hasn't added any modules to this course yet.
+                <div className="mx-auto w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
+                  <BookOpen className="h-8 w-8 text-muted-foreground" />
+                </div>
+                <h3 className="font-semibold text-lg mb-2">Course content coming soon</h3>
+                <p className="text-muted-foreground max-w-md mx-auto mb-4">
+                  Your instructor is preparing the course materials. Learning modules and objectives will appear here once they're ready.
+                </p>
+                <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                  <Clock className="h-4 w-4" />
+                  <span>Check back later for updates</span>
+                </div>
+              </CardContent>
+            </Card>
+          ) : allLOs.length === 0 ? (
+            <Card className="border-dashed">
+              <CardContent className="py-12 text-center">
+                <div className="mx-auto w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
+                  <AlertCircle className="h-8 w-8 text-muted-foreground" />
+                </div>
+                <h3 className="font-semibold text-lg mb-2">No learning objectives yet</h3>
+                <p className="text-muted-foreground max-w-md mx-auto mb-4">
+                  The course has {course.modules.length} module(s) but no learning objectives have been added yet.
+                  Your instructor needs to upload a syllabus or add objectives manually.
                 </p>
               </CardContent>
             </Card>
