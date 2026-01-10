@@ -22,6 +22,7 @@ import { UnifiedModuleCard } from '@/components/instructor/UnifiedModuleCard';
 import { UnifiedLOCard } from '@/components/instructor/UnifiedLOCard';
 import { SyllabusUploader } from '@/components/instructor/SyllabusUploader';
 import { OnboardingProgress } from '@/components/instructor/OnboardingProgress';
+import { StudentProgressDashboard } from '@/components/instructor/StudentProgressDashboard';
 import { toast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -44,6 +45,7 @@ export default function InstructorCourseDetailPage() {
   const [isModuleDialogOpen, setIsModuleDialogOpen] = useState(false);
   const [newModule, setNewModule] = useState({ title: '', description: '' });
   const [bulkSearching, setBulkSearching] = useState(false);
+  const [publishValidationDialog, setPublishValidationDialog] = useState(false);
 
   const isLoading = courseLoading || modulesLoading;
 
@@ -148,11 +150,39 @@ export default function InstructorCourseDetailPage() {
     );
   }
 
+  // Validation checks for publishing
+  const publishValidation = {
+    hasModules: (modules?.length || 0) > 0,
+    hasLOs: courseLOs.length > 0,
+    hasApprovedContent: (contentStats?.approved || 0) > 0,
+    allLOsHaveContent: courseLOs.every(lo => loContentStatus?.[lo.id]?.hasContent),
+  };
+
+  const canPublish = publishValidation.hasModules &&
+    publishValidation.hasLOs &&
+    publishValidation.hasApprovedContent;
+
   const handlePublishToggle = async () => {
     if (!id) return;
+
+    // If trying to publish, validate first
+    if (!course?.is_published && !canPublish) {
+      setPublishValidationDialog(true);
+      return;
+    }
+
     await updateCourse.mutateAsync({
       courseId: id,
       updates: { is_published: !course?.is_published }
+    });
+  };
+
+  const handleForcePublish = async () => {
+    if (!id) return;
+    setPublishValidationDialog(false);
+    await updateCourse.mutateAsync({
+      courseId: id,
+      updates: { is_published: true }
     });
   };
 
@@ -449,13 +479,100 @@ export default function InstructorCourseDetailPage() {
             </TabsContent>
 
             <TabsContent value="students">
-              <EmptyState
-                icon={Users}
-                title="No students enrolled"
-                description="Students will appear here once they enroll using your course access code."
-              />
+              <StudentProgressDashboard courseId={id!} />
             </TabsContent>
           </Tabs>
+
+          {/* Publish Validation Dialog */}
+          <Dialog open={publishValidationDialog} onOpenChange={setPublishValidationDialog}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <AlertCircle className="h-5 w-5 text-warning" />
+                  Course Not Ready to Publish
+                </DialogTitle>
+                <DialogDescription>
+                  Your course is missing some required content. Please complete the following before publishing:
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3 py-4">
+                <div className={`flex items-center gap-3 p-3 rounded-lg ${publishValidation.hasModules ? 'bg-success/10' : 'bg-destructive/10'}`}>
+                  {publishValidation.hasModules ? (
+                    <CheckCircle2 className="h-5 w-5 text-success" />
+                  ) : (
+                    <AlertCircle className="h-5 w-5 text-destructive" />
+                  )}
+                  <div>
+                    <p className="font-medium">Modules</p>
+                    <p className="text-sm text-muted-foreground">
+                      {publishValidation.hasModules
+                        ? `${modules?.length} module(s) created`
+                        : 'No modules created - upload a syllabus or add modules manually'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className={`flex items-center gap-3 p-3 rounded-lg ${publishValidation.hasLOs ? 'bg-success/10' : 'bg-destructive/10'}`}>
+                  {publishValidation.hasLOs ? (
+                    <CheckCircle2 className="h-5 w-5 text-success" />
+                  ) : (
+                    <AlertCircle className="h-5 w-5 text-destructive" />
+                  )}
+                  <div>
+                    <p className="font-medium">Learning Objectives</p>
+                    <p className="text-sm text-muted-foreground">
+                      {publishValidation.hasLOs
+                        ? `${courseLOs.length} objective(s) extracted`
+                        : 'No learning objectives - upload a syllabus to extract objectives'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className={`flex items-center gap-3 p-3 rounded-lg ${publishValidation.hasApprovedContent ? 'bg-success/10' : 'bg-destructive/10'}`}>
+                  {publishValidation.hasApprovedContent ? (
+                    <CheckCircle2 className="h-5 w-5 text-success" />
+                  ) : (
+                    <AlertCircle className="h-5 w-5 text-destructive" />
+                  )}
+                  <div>
+                    <p className="font-medium">Approved Content</p>
+                    <p className="text-sm text-muted-foreground">
+                      {publishValidation.hasApprovedContent
+                        ? `${contentStats?.approved} video(s) approved`
+                        : 'No content approved - find and approve videos for your objectives'}
+                    </p>
+                  </div>
+                </div>
+
+                {!publishValidation.allLOsHaveContent && publishValidation.hasLOs && (
+                  <Alert variant="default" className="border-warning/50 bg-warning/5">
+                    <AlertCircle className="h-4 w-4 text-warning" />
+                    <AlertTitle className="text-warning">Some objectives missing content</AlertTitle>
+                    <AlertDescription>
+                      Not all learning objectives have content matched. Students won't be able to complete objectives without content.
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </div>
+              <DialogFooter className="flex gap-2">
+                <Button variant="outline" onClick={() => setPublishValidationDialog(false)}>
+                  Go Back & Fix
+                </Button>
+                {publishValidation.hasModules && publishValidation.hasLOs && (
+                  <Button
+                    variant="destructive"
+                    onClick={handleForcePublish}
+                    disabled={updateCourse.isPending}
+                  >
+                    {updateCourse.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    ) : null}
+                    Publish Anyway
+                  </Button>
+                )}
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
       </PageContainer>
     </AppShell>

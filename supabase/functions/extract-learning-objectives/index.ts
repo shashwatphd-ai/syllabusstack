@@ -55,15 +55,54 @@ serve(async (req) => {
     }
 
     const { syllabus_text, course_id, module_id } = await req.json();
-    
+
     // course_id here refers to instructor_course_id
     const instructorCourseId = course_id;
-    
+
     if (!syllabus_text) {
       throw new Error("syllabus_text is required");
     }
 
     console.log("Extracting learning objectives from syllabus...");
+
+    // Auto-create or find default module if none specified but course exists
+    let targetModuleId = module_id;
+    if (!targetModuleId && instructorCourseId) {
+      console.log("No module specified, checking for default module...");
+
+      // Check if default "Syllabus Objectives" module exists
+      const { data: existingModule } = await supabaseClient
+        .from("modules")
+        .select("id")
+        .eq("instructor_course_id", instructorCourseId)
+        .eq("title", "Syllabus Objectives")
+        .maybeSingle();
+
+      if (existingModule) {
+        targetModuleId = existingModule.id;
+        console.log("Using existing default module:", targetModuleId);
+      } else {
+        // Create default module for syllabus-extracted objectives
+        const { data: newModule, error: moduleError } = await supabaseClient
+          .from("modules")
+          .insert({
+            instructor_course_id: instructorCourseId,
+            title: "Syllabus Objectives",
+            description: "Learning objectives extracted from the course syllabus",
+            sequence_order: 0,
+          })
+          .select()
+          .single();
+
+        if (moduleError) {
+          console.error("Error creating default module:", moduleError);
+          // Continue without module - LOs will be created but not visible to students
+        } else {
+          targetModuleId = newModule.id;
+          console.log("Created default module:", targetModuleId);
+        }
+      }
+    }
 
     const systemPrompt = `You are an expert educational analyst specializing in learning objective extraction and Bloom's Taxonomy classification.
 
@@ -147,7 +186,7 @@ If no explicit learning objectives are found, infer them from course topics and 
       const loData = {
         user_id: user.id,
         instructor_course_id: instructorCourseId || null,
-        module_id: module_id || null,
+        module_id: targetModuleId || null,
         text: lo.text,
         core_concept: lo.core_concept,
         action_verb: lo.action_verb,

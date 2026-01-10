@@ -114,11 +114,12 @@ export function useEnrolledCourseDetail(courseId: string | undefined) {
       // Fetch learning objectives for each module
       const modulesWithLOs = await Promise.all(
         (modules || []).map(async (module) => {
+          // Note: LOs are created by the instructor, not the student
+          // Access is controlled via enrollment check above (lines 86-94)
           const { data: los, error: losError } = await supabase
             .from('learning_objectives')
             .select('id, text, bloom_level, verification_state, expected_duration_minutes')
             .eq('module_id', module.id)
-            .eq('user_id', user.id)
             .order('sequence_order', { ascending: true });
 
           if (losError) throw losError;
