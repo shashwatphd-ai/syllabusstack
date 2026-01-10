@@ -39,8 +39,21 @@ interface ExtractedCourse {
   semester: string;
   credits: number;
   capabilities: Capability[];
+  toolsMethods: string[];        // Tools & Technologies from AI
+  capabilityKeywords: string[];  // Generated keywords for job matching
+  courseThemes: string[];        // Course themes from AI
   error?: string;
   file: File;
+}
+
+// Helper to generate keywords from text (matches backend logic)
+function generateKeywordVector(text: string): string[] {
+  if (!text) return [];
+  const words = text.toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(w => w.length > 2);
+  return [...new Set(words)];
 }
 
 interface BulkSyllabusUploaderProps {
@@ -66,6 +79,9 @@ export function BulkSyllabusUploader({ onSuccess, onCancel }: BulkSyllabusUpload
       semester: "",
       credits: 3, // Default, will be overwritten by AI extraction
       capabilities: [],
+      toolsMethods: [],
+      capabilityKeywords: [],
+      courseThemes: [],
       file,
     }));
     setFiles((prev) => [...prev, ...newFiles]);
@@ -171,15 +187,26 @@ export function BulkSyllabusUploader({ onSuccess, onCancel }: BulkSyllabusUpload
         proficiency_level: typeof c === "object" && c.proficiency_level ? c.proficiency_level : "intermediate",
       }));
 
+      // Extract tools and themes from AI analysis
+      const toolsMethods: string[] = data.analysis?.tools_learned || [];
+      const courseThemes: string[] = data.analysis?.course_themes || [];
+
+      // Generate keywords from capabilities, tools, and themes (matches backend logic)
+      const capabilityText = capabilities.map(c => c.name).join("; ");
+      const capabilityKeywords = generateKeywordVector(capabilityText);
+      const toolKeywords = toolsMethods.flatMap(t => generateKeywordVector(t));
+      const themeKeywords = courseThemes.flatMap(t => generateKeywordVector(t));
+      const allKeywords = [...new Set([...capabilityKeywords, ...toolKeywords, ...themeKeywords])];
+
       // Extract title with validation - prefer AI-extracted metadata
       const extractedText = data.extracted_text || "";
       const title = extractTitle(extractedText, fileItem.fileName, data.analysis);
-      
+
       // Use AI-extracted course code, fallback to regex
       const aiCourseCode = data.analysis?.course_code;
       const codeMatch = extractedText.match(/([A-Z]{2,4}\s*\d{3,4}[A-Z]?)/);
       const courseCode = aiCourseCode || codeMatch?.[1]?.trim() || "";
-      
+
       // Use AI-extracted semester and credits
       const semester = data.analysis?.semester || "";
       const credits = data.analysis?.credits || 3;
@@ -191,7 +218,10 @@ export function BulkSyllabusUploader({ onSuccess, onCancel }: BulkSyllabusUpload
         code: courseCode,
         semester,
         credits,
-        capabilities: capabilities, // Don't slice - show all capabilities
+        capabilities,
+        toolsMethods,
+        capabilityKeywords: allKeywords,
+        courseThemes,
       };
     } catch (error) {
       console.error(`Error processing ${fileItem.fileName}:`, error);
@@ -199,6 +229,9 @@ export function BulkSyllabusUploader({ onSuccess, onCancel }: BulkSyllabusUpload
         ...fileItem,
         status: "error",
         error: error instanceof Error ? error.message : "Processing failed",
+        toolsMethods: [],
+        capabilityKeywords: [],
+        courseThemes: [],
       };
     }
   };
@@ -260,7 +293,7 @@ export function BulkSyllabusUploader({ onSuccess, onCancel }: BulkSyllabusUpload
     
     for (const fileItem of completedFiles) {
       try {
-        // Create course with capability names and analysis status
+        // Create course with ALL enriched fields from AI analysis
         const capabilityText = fileItem.capabilities.map(c => c.name).join("; ");
         // Cast capabilities to Json-compatible format for Supabase
         const keyCapabilities = fileItem.capabilities.map(cap => ({
@@ -273,8 +306,15 @@ export function BulkSyllabusUploader({ onSuccess, onCancel }: BulkSyllabusUpload
           code: fileItem.code || null,
           semester: fileItem.semester || null,
           credits: fileItem.credits || 3,
+          // AI-extracted structured data
           key_capabilities: keyCapabilities as unknown as import('@/integrations/supabase/types').Json,
           capability_text: capabilityText,
+          // Tools & Technologies for CourseDetail display
+          tools_methods: fileItem.toolsMethods as unknown as import('@/integrations/supabase/types').Json,
+          // Keywords for job matching
+          capability_keywords: fileItem.capabilityKeywords as unknown as import('@/integrations/supabase/types').Json,
+          // AI model tracking (enables "AI Analyzed" badge)
+          ai_model_used: "google/gemini-2.5-flash",
           analysis_status: "completed",
         });
 
