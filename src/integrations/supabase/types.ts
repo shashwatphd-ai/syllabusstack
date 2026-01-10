@@ -151,6 +151,33 @@ export type Database = {
           },
         ]
       }
+      api_quota_tracking: {
+        Row: {
+          api_name: string
+          created_at: string
+          date: string
+          id: string
+          units_used: number
+          updated_at: string
+        }
+        Insert: {
+          api_name: string
+          created_at?: string
+          date?: string
+          id?: string
+          units_used?: number
+          updated_at?: string
+        }
+        Update: {
+          api_name?: string
+          created_at?: string
+          date?: string
+          id?: string
+          units_used?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       assessment_answers: {
         Row: {
           answer_submitted_at: string | null
@@ -745,6 +772,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      content_search_cache: {
+        Row: {
+          created_at: string
+          expires_at: string
+          hit_count: number
+          id: string
+          results: Json
+          search_concept: string
+          search_keywords: string[]
+          source: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at?: string
+          hit_count?: number
+          id?: string
+          results?: Json
+          search_concept: string
+          search_keywords?: string[]
+          source?: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          hit_count?: number
+          id?: string
+          results?: Json
+          search_concept?: string
+          search_keywords?: string[]
+          source?: string
+        }
+        Relationships: []
       }
       content_search_strategies: {
         Row: {
@@ -1797,6 +1857,20 @@ export type Database = {
         Args: { p_limit_type: string; p_user_id: string }
         Returns: boolean
       }
+      cleanup_expired_cache: { Args: never; Returns: number }
+      find_similar_cached_search: {
+        Args: {
+          p_keywords: string[]
+          p_min_overlap?: number
+          p_source?: string
+        }
+        Returns: {
+          id: string
+          overlap_score: number
+          results: Json
+          search_concept: string
+        }[]
+      }
       find_similar_capabilities: {
         Args: {
           result_limit?: number
@@ -1809,6 +1883,10 @@ export type Database = {
           course_title: string
           similarity_score: number
         }[]
+      }
+      get_remaining_quota: {
+        Args: { p_api_name: string; p_daily_limit?: number }
+        Returns: number
       }
       get_subscription_details: {
         Args: { p_user_id: string }
@@ -1855,8 +1933,13 @@ export type Database = {
           tier: string
         }[]
       }
+      increment_cache_hit: { Args: { p_cache_id: string }; Returns: undefined }
       keyword_similarity: {
         Args: { arr1: string[]; arr2: string[] }
+        Returns: number
+      }
+      track_api_usage: {
+        Args: { p_api_name: string; p_units?: number }
         Returns: number
       }
     }
