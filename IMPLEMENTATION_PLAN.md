@@ -2,17 +2,30 @@
 
 **Based on:** PERFORMANCE_ANALYSIS.md (Deep Dive)
 **Created:** January 10, 2026
+**Scale Target:** 100,000 users
 
-This document provides step-by-step implementation instructions for each identified performance issue.
+This document provides step-by-step implementation instructions optimized for production scale.
 
 ---
 
-## Phase 1: Critical Fixes (Immediate - 2-3 hours)
+## Implementation Phases Overview
 
-### 1.1 Fix Missing User Filter (SECURITY + PERFORMANCE)
+| Phase | Focus | User Scale | Timeline |
+|-------|-------|------------|----------|
+| Phase 1 | Critical & Security | 0 → 10K | Immediate |
+| Phase 2 | Database & Caching | 10K → 50K | Week 1-2 |
+| Phase 3 | Frontend & UX | 50K → 100K | Week 3-4 |
+| Phase 4 | Advanced Scaling | 100K+ | Ongoing |
+
+---
+
+## Phase 1: Critical Fixes (Before 10K Users)
+
+### 1.1 Fix Missing User Filter (SECURITY CRITICAL)
 
 **File:** `supabase/functions/generate-recommendations/index.ts`
 **Effort:** 5 minutes
+**Impact:** Prevents data breach and crashes
 
 #### Current Code (Line 66-68):
 ```typescript
@@ -31,78 +44,174 @@ const { data: capabilities } = await supabase
 
 #### Verification:
 ```bash
-# Deploy and test
 supabase functions deploy generate-recommendations
-# Test with a specific user
-curl -X POST https://[project].supabase.co/functions/v1/generate-recommendations \
-  -H "Authorization: Bearer [token]" \
-  -d '{"dreamJobId": "..."}'
+# Test: Verify only returns current user's capabilities (should be ~20, not millions)
 ```
 
 ---
 
-### 1.2 Consolidate TooltipProviders
+### 1.2 Add Critical Database Indexes
 
-**File:** `src/components/instructor/UnifiedLOCard.tsx`
+**File:** Create new migration `supabase/migrations/[timestamp]_add_performance_indexes.sql`
 **Effort:** 30 minutes
+**Impact:** 100× faster queries at scale
 
-#### Step 1: Add TooltipProvider to parent component
+```sql
+-- =============================================
+-- CRITICAL INDEXES FOR 100K USERS
+-- =============================================
 
-In the file that renders `UnifiedLOCard` (likely a course detail page), wrap the list:
+-- 1. Capabilities lookup (used in gap analysis, recommendations)
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_capabilities_user_id
+ON capabilities(user_id);
 
-```tsx
-import { TooltipProvider } from '@/components/ui/tooltip';
+-- 2. Learning objectives by course (every course view)
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_lo_instructor_course
+ON learning_objectives(instructor_course_id);
 
-// In the parent component's render:
-<TooltipProvider>
-  {learningObjectives.map(lo => (
-    <UnifiedLOCard key={lo.id} learningObjective={lo} ... />
-  ))}
-</TooltipProvider>
+-- 3. Learning objectives by module (module views)
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_lo_module
+ON learning_objectives(module_id) WHERE module_id IS NOT NULL;
+
+-- 4. Consumption records (progress tracking - HOT PATH)
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_consumption_user_lo
+ON consumption_records(user_id, learning_objective_id);
+
+-- 5. Recommendations by user and dream job
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_recommendations_user_job
+ON recommendations(user_id, dream_job_id) WHERE deleted_at IS NULL;
+
+-- 6. Dream jobs by user
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_dream_jobs_user
+ON dream_jobs(user_id);
+
+-- 7. Courses by user
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_courses_user
+ON courses(user_id);
+
+-- 8. Gap analyses by user and job
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_gap_analyses_user_job
+ON gap_analyses(user_id, dream_job_id);
+
+-- 9. Modules by course (for syllabus loading)
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_modules_course
+ON modules(instructor_course_id);
+
+-- 10. Content matches by LO (for content display)
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_content_matches_lo
+ON content_matches(learning_objective_id);
+
+-- =============================================
+-- COMPOSITE INDEXES FOR COMMON QUERIES
+-- =============================================
+
+-- Dashboard queries (courses with status)
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_courses_user_status
+ON courses(user_id, analysis_status);
+
+-- Student progress queries
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_consumption_lo_user_verified
+ON consumption_records(learning_objective_id, user_id, is_verified);
+
+-- =============================================
+-- ANALYZE TABLES AFTER INDEX CREATION
+-- =============================================
+ANALYZE capabilities;
+ANALYZE learning_objectives;
+ANALYZE consumption_records;
+ANALYZE recommendations;
+ANALYZE dream_jobs;
+ANALYZE courses;
+ANALYZE gap_analyses;
+ANALYZE modules;
+ANALYZE content_matches;
 ```
-
-#### Step 2: Remove all TooltipProvider wrappers in UnifiedLOCard.tsx
-
-Search and replace all instances. Remove lines containing `<TooltipProvider>` and `</TooltipProvider>` at:
-- Lines 146, 160-161 (bloom level tooltip)
-- Lines 165, 190-191 (duration tooltip)
-- Lines 502, 515-516 (AI concern tooltip)
-- Lines 520, 554-555 (AI reasoning tooltip)
-- Lines 559, 582-583 (cross-module tooltip)
-- Lines 601, 612-613 (approval badge tooltip)
-- Lines 615, 635-636 (external link tooltip)
-- Lines 642, 656-657 (approve button tooltip)
-- Lines 658, 672-673 (reject button tooltip)
-
-Keep the `<Tooltip>`, `<TooltipTrigger>`, and `<TooltipContent>` elements.
 
 #### Verification:
-```bash
-npm run dev
-# Navigate to instructor course page with LOs
-# Verify all tooltips still work
+```sql
+-- Check indexes were created
+SELECT indexname, indexdef FROM pg_indexes
+WHERE tablename IN ('capabilities', 'learning_objectives', 'consumption_records');
+
+-- Test query performance
+EXPLAIN ANALYZE SELECT * FROM capabilities WHERE user_id = '[test-uuid]';
+-- Should show "Index Scan" not "Seq Scan"
 ```
 
 ---
 
-### 1.3 Batch Learning Objective Inserts
+### 1.3 Optimize RLS Policies
+
+**File:** Create migration `supabase/migrations/[timestamp]_optimize_rls_policies.sql`
+**Effort:** 1 hour
+**Impact:** Eliminates subquery overhead on every row
+
+```sql
+-- =============================================
+-- OPTIMIZED RLS POLICIES FOR SCALE
+-- =============================================
+
+-- Step 1: Add denormalized course access for students
+ALTER TABLE learning_objectives
+ADD COLUMN IF NOT EXISTS accessible_student_ids UUID[] DEFAULT '{}';
+
+-- Step 2: Create function to update accessible students
+CREATE OR REPLACE FUNCTION update_lo_accessible_students()
+RETURNS TRIGGER AS $$
+BEGIN
+  -- When enrollment changes, update LO access list
+  IF TG_OP = 'INSERT' THEN
+    UPDATE learning_objectives
+    SET accessible_student_ids = array_append(accessible_student_ids, NEW.student_id)
+    WHERE instructor_course_id = NEW.instructor_course_id;
+  ELSIF TG_OP = 'DELETE' THEN
+    UPDATE learning_objectives
+    SET accessible_student_ids = array_remove(accessible_student_ids, OLD.student_id)
+    WHERE instructor_course_id = OLD.instructor_course_id;
+  END IF;
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Step 3: Create trigger
+DROP TRIGGER IF EXISTS trg_update_lo_access ON course_enrollments;
+CREATE TRIGGER trg_update_lo_access
+AFTER INSERT OR DELETE ON course_enrollments
+FOR EACH ROW EXECUTE FUNCTION update_lo_accessible_students();
+
+-- Step 4: Backfill existing enrollments
+UPDATE learning_objectives lo
+SET accessible_student_ids = (
+  SELECT COALESCE(array_agg(ce.student_id), '{}')
+  FROM course_enrollments ce
+  WHERE ce.instructor_course_id = lo.instructor_course_id
+);
+
+-- Step 5: Create optimized RLS policy
+DROP POLICY IF EXISTS "Students can view LOs from enrolled courses" ON learning_objectives;
+
+CREATE POLICY "Students can view LOs - optimized"
+ON learning_objectives
+FOR SELECT
+TO authenticated
+USING (
+  user_id = auth.uid()  -- Owner check (fast)
+  OR
+  auth.uid() = ANY(accessible_student_ids)  -- Array contains check (fast with GIN index)
+);
+
+-- Step 6: Add GIN index for array lookups
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_lo_accessible_students
+ON learning_objectives USING GIN(accessible_student_ids);
+```
+
+---
+
+### 1.4 Batch Learning Objective Inserts
 
 **File:** `supabase/functions/extract-learning-objectives/index.ts`
 **Effort:** 30 minutes
-
-#### Current Code (Lines 179-212):
-```typescript
-const savedLOs = [];
-for (const lo of learningObjectives) {
-  const loData = { ... };
-  const { data: savedLO, error: saveError } = await supabaseClient
-    .from("learning_objectives")
-    .insert(loData)
-    .select()
-    .single();
-  if (!saveError) savedLOs.push(savedLO);
-}
-```
+**Impact:** 15× faster, 90% fewer connections
 
 #### Fixed Code:
 ```typescript
@@ -128,35 +237,43 @@ const loDataArray = learningObjectives.map((lo) => {
   };
 });
 
+// Validate before insert (prevents partial failures)
+const validLOs = loDataArray.filter(lo =>
+  lo.text && lo.text.trim().length > 0 &&
+  lo.core_concept && lo.core_concept.trim().length > 0
+);
+
+if (validLOs.length === 0) {
+  throw new Error("No valid learning objectives to save");
+}
+
 // Single batch insert
 const { data: savedLOs, error: saveError } = await supabaseClient
   .from("learning_objectives")
-  .insert(loDataArray)
+  .insert(validLOs)
   .select();
 
 if (saveError) {
-  console.error("Error saving learning objectives:", saveError);
-  throw new Error("Failed to save learning objectives");
+  console.error("Batch insert failed:", saveError);
+  throw new Error(`Failed to save learning objectives: ${saveError.message}`);
 }
 
-console.log(`Extracted and saved ${savedLOs?.length || 0} learning objectives`);
+console.log(`Batch inserted ${savedLOs?.length || 0} learning objectives`);
 ```
 
 ---
 
-### 1.4 Batch Module and LO Inserts in process-syllabus
+### 1.5 Batch Module and LO Inserts
 
 **File:** `supabase/functions/process-syllabus/index.ts`
 **Effort:** 45 minutes
-
-#### Current Code (Lines 276-364):
-Nested loops with individual inserts.
+**Impact:** 12× faster syllabus processing
 
 #### Fixed Code:
 ```typescript
-// ========== STEP 3: Save modules and learning objectives to database ==========
+// ========== STEP 3: Batch Save Modules and LOs ==========
 
-// Step 3a: Prepare all module data
+// Step 3a: Batch insert all modules
 const moduleDataArray = courseStructure.modules.map((module, i) => ({
   instructor_course_id: instructor_course_id,
   title: module.title,
@@ -164,26 +281,28 @@ const moduleDataArray = courseStructure.modules.map((module, i) => ({
   sequence_order: i + 1,
 }));
 
-// Step 3b: Batch insert all modules
 const { data: savedModules, error: moduleError } = await supabaseClient
   .from("modules")
   .insert(moduleDataArray)
   .select();
 
 if (moduleError) {
-  console.error("Error saving modules:", moduleError);
+  console.error("Batch module insert failed:", moduleError);
   throw new Error("Failed to save modules");
 }
 
-// Step 3c: Build module ID map (title -> id) for LO assignment
-const moduleIdMap = new Map(savedModules.map(m => [m.title, m.id]));
+// Step 3b: Build module lookup by sequence (handles duplicate titles)
+const moduleIdBySequence = new Map<number, string>();
+savedModules.forEach((m, idx) => {
+  moduleIdBySequence.set(idx, m.id);
+});
 
-// Step 3d: Prepare all LO data (including module_id references)
+// Step 3c: Build all LO data with correct module references
 let sequenceOrder = 1;
 const loDataArray: any[] = [];
 
-for (const module of courseStructure.modules) {
-  const moduleId = moduleIdMap.get(module.title);
+courseStructure.modules.forEach((module, moduleIndex) => {
+  const moduleId = moduleIdBySequence.get(moduleIndex);
 
   for (const lo of module.learning_objectives) {
     const bloomLevel = lo.bloom_level || "understand";
@@ -206,7 +325,7 @@ for (const module of courseStructure.modules) {
       sequence_order: sequenceOrder++,
     });
   }
-}
+});
 
 // Add unassigned objectives
 for (const lo of courseStructure.unassigned_objectives || []) {
@@ -231,47 +350,37 @@ for (const lo of courseStructure.unassigned_objectives || []) {
   });
 }
 
-// Step 3e: Batch insert all LOs
-const { data: savedLOs, error: loError } = await supabaseClient
-  .from("learning_objectives")
-  .insert(loDataArray)
-  .select();
+// Step 3d: Batch insert all LOs
+if (loDataArray.length > 0) {
+  const { data: savedLOs, error: loError } = await supabaseClient
+    .from("learning_objectives")
+    .insert(loDataArray)
+    .select();
 
-if (loError) {
-  console.error("Error saving learning objectives:", loError);
-  // Continue - modules were saved successfully
+  if (loError) {
+    console.error("Batch LO insert failed:", loError);
+    // Don't throw - modules were saved, log for debugging
+  }
+
+  console.log(`Created ${savedModules.length} modules and ${savedLOs?.length || 0} LOs`);
 }
-
-console.log(`Created ${savedModules.length} modules and ${savedLOs?.length || 0} learning objectives`);
 ```
 
 ---
 
-### 1.5 Fix O(n³) Nested Loop with Map Lookups
+### 1.6 Fix O(n³) Algorithm with Map Lookups
 
 **File:** `src/hooks/useInstructorCourses.ts`
 **Effort:** 30 minutes
-
-#### Current Code (Lines 343-360):
-```typescript
-for (const studentId of studentIds) {
-  const studentConsumption = consumption?.filter(c => c.user_id === studentId) || [];
-  const studentProgress: StudentLOProgress[] = [];
-
-  for (const lo of los) {
-    const consumptionRecord = studentConsumption.find(c => c.learning_objective_id === lo.id);
-    const loState = loStates?.find(s => s.id === lo.id);
-    // ...
-  }
-}
-```
+**Impact:** 1000× faster for large classes
 
 #### Fixed Code:
 ```typescript
-// Build lookup maps ONCE - O(n)
+// Build lookup maps ONCE - O(n) total
 const consumptionMap = new Map<string, typeof consumption[0]>();
 consumption?.forEach(c => {
-  consumptionMap.set(`${c.user_id}-${c.learning_objective_id}`, c);
+  // Use pipe separator to avoid collision with UUIDs containing hyphens
+  consumptionMap.set(`${c.user_id}|${c.learning_objective_id}`, c);
 });
 
 const loStateMap = new Map<string, typeof loStates[0]>();
@@ -279,12 +388,15 @@ loStates?.forEach(s => {
   loStateMap.set(s.id, s);
 });
 
-// Build progress map for each student using O(1) lookups
+// Build progress with O(1) lookups - O(students × LOs) total
+const loProgress: Record<string, StudentLOProgress[]> = {};
+
 for (const studentId of studentIds) {
   const studentProgress: StudentLOProgress[] = [];
 
   for (const lo of los) {
-    const consumptionRecord = consumptionMap.get(`${studentId}-${lo.id}`);
+    // O(1) lookup instead of O(n) find
+    const consumptionRecord = consumptionMap.get(`${studentId}|${lo.id}`);
     const loState = loStateMap.get(lo.id);
 
     studentProgress.push({
@@ -301,127 +413,336 @@ for (const studentId of studentIds) {
 
 ---
 
-## Phase 2: High Priority Fixes (Next Sprint - 3-4 hours)
+## Phase 2: Database & Caching (Before 50K Users)
 
-### 2.1 Parallelize Global Search Queries
+### 2.1 Add staleTime to All Hooks
 
-**File:** `supabase/functions/global-search/index.ts`
-**Effort:** 15 minutes
-
-#### Current Code (Lines 58-135):
-Sequential queries.
-
-#### Fixed Code:
-```typescript
-const searchTerm = `%${query.trim().toLowerCase()}%`;
-
-// Execute all searches in parallel
-const [coursesResult, dreamJobsResult, recommendationsResult, capabilitiesResult] = await Promise.all([
-  supabase
-    .from("courses")
-    .select("id, title, code, instructor")
-    .eq("user_id", user.id)
-    .or(`title.ilike.${searchTerm},code.ilike.${searchTerm},instructor.ilike.${searchTerm}`)
-    .limit(5),
-  supabase
-    .from("dream_jobs")
-    .select("id, title, company_type, location")
-    .eq("user_id", user.id)
-    .or(`title.ilike.${searchTerm},company_type.ilike.${searchTerm},location.ilike.${searchTerm}`)
-    .limit(5),
-  supabase
-    .from("recommendations")
-    .select("id, title, type, provider")
-    .eq("user_id", user.id)
-    .or(`title.ilike.${searchTerm},provider.ilike.${searchTerm},description.ilike.${searchTerm}`)
-    .limit(5),
-  supabase
-    .from("capabilities")
-    .select("id, name, category, proficiency_level")
-    .eq("user_id", user.id)
-    .or(`name.ilike.${searchTerm},category.ilike.${searchTerm}`)
-    .limit(5),
-]);
-
-const courses = coursesResult.data;
-const dreamJobs = dreamJobsResult.data;
-const recommendations = recommendationsResult.data;
-const capabilities = capabilitiesResult.data;
-
-// Rest of the code remains the same...
-```
-
----
-
-### 2.2 Add staleTime to Hooks
-
-**Files:** Multiple hooks files
+**Files:** Multiple hooks
 **Effort:** 30 minutes total
+**Impact:** 80% reduction in API calls
 
-#### useCourses.ts (Lines 140-153):
 ```typescript
+// src/hooks/useCourses.ts
 export function useCourses() {
   return useQuery({
     queryKey: queryKeys.coursesList(),
     queryFn: fetchCourses,
-    staleTime: 1000 * 60 * 5, // 5 minutes
+    staleTime: 1000 * 60 * 5,      // 5 minutes
+    gcTime: 1000 * 60 * 30,        // 30 minutes (formerly cacheTime)
   });
 }
 
-export function useCourse(id: string) {
-  return useQuery({
-    queryKey: queryKeys.courseDetail(id),
-    queryFn: () => fetchCourseById(id),
-    enabled: !!id,
-    staleTime: 1000 * 60 * 5, // 5 minutes
-  });
-}
-```
-
-#### useInstructorCourses.ts (Line 30-43):
-```typescript
-export function useInstructorCourses() {
-  return useQuery({
-    queryKey: ['instructor-courses'],
-    queryFn: async () => { ... },
-    staleTime: 1000 * 60 * 5, // 5 minutes
-  });
-}
-```
-
-#### useDashboard.ts (Lines 181-193):
-```typescript
+// src/hooks/useDashboard.ts
 export function useDashboardOverview() {
   return useQuery({
     queryKey: queryKeys.dashboard.overview,
     queryFn: fetchDashboardOverview,
-    staleTime: 1000 * 60 * 2, // 2 minutes - dashboard data changes more often
+    staleTime: 1000 * 60 * 2,      // 2 minutes (changes more often)
+    gcTime: 1000 * 60 * 10,        // 10 minutes
   });
 }
 
-export function useDashboardStats() {
+// src/hooks/useCapabilities.ts
+export function useCapabilities() {
   return useQuery({
-    queryKey: queryKeys.dashboard.stats,
-    queryFn: fetchDashboardStats,
-    staleTime: 1000 * 60 * 2, // 2 minutes
+    queryKey: queryKeys.capabilities(),
+    queryFn: fetchCapabilities,
+    staleTime: 1000 * 60 * 10,     // 10 minutes (rarely changes)
+    gcTime: 1000 * 60 * 60,        // 1 hour
+  });
+}
+
+// Apply similar pattern to:
+// - useInstructorCourses.ts (5 min)
+// - useDreamJobs.ts (10 min)
+// - useRecommendations.ts (5 min)
+// - useProfile.ts (10 min)
+```
+
+---
+
+### 2.2 Implement Rate Limiting
+
+**File:** Create `supabase/functions/_shared/rate-limit.ts`
+**Effort:** 2 hours
+**Impact:** Cost protection, abuse prevention
+
+```typescript
+// Rate limiting utility for Edge Functions
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0";
+
+interface RateLimitConfig {
+  windowMs: number;      // Time window in ms
+  maxRequests: number;   // Max requests per window
+  keyPrefix: string;     // Redis/KV key prefix
+}
+
+const DEFAULT_LIMITS: Record<string, RateLimitConfig> = {
+  'generate-recommendations': { windowMs: 60000, maxRequests: 5, keyPrefix: 'rl:rec' },
+  'gap-analysis': { windowMs: 60000, maxRequests: 10, keyPrefix: 'rl:gap' },
+  'discover-dream-jobs': { windowMs: 300000, maxRequests: 3, keyPrefix: 'rl:discover' },
+  'parse-syllabus-document': { windowMs: 60000, maxRequests: 10, keyPrefix: 'rl:parse' },
+};
+
+export async function checkRateLimit(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  functionName: string
+): Promise<{ allowed: boolean; remaining: number; resetAt: Date }> {
+  const config = DEFAULT_LIMITS[functionName] || { windowMs: 60000, maxRequests: 100, keyPrefix: 'rl:default' };
+  const key = `${config.keyPrefix}:${userId}`;
+  const now = Date.now();
+  const windowStart = now - config.windowMs;
+
+  // Use Supabase table for rate limit tracking (or Redis if available)
+  const { data: entries } = await supabase
+    .from('rate_limits')
+    .select('timestamp')
+    .eq('key', key)
+    .gte('timestamp', new Date(windowStart).toISOString());
+
+  const requestCount = entries?.length || 0;
+  const allowed = requestCount < config.maxRequests;
+
+  if (allowed) {
+    // Record this request
+    await supabase.from('rate_limits').insert({
+      key,
+      timestamp: new Date().toISOString(),
+      function_name: functionName,
+    });
+  }
+
+  // Clean up old entries (async, don't await)
+  supabase
+    .from('rate_limits')
+    .delete()
+    .lt('timestamp', new Date(windowStart).toISOString())
+    .then(() => {});
+
+  return {
+    allowed,
+    remaining: Math.max(0, config.maxRequests - requestCount - 1),
+    resetAt: new Date(now + config.windowMs),
+  };
+}
+
+// Rate limit table migration
+/*
+CREATE TABLE IF NOT EXISTS rate_limits (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  key TEXT NOT NULL,
+  timestamp TIMESTAMPTZ NOT NULL DEFAULT now(),
+  function_name TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_rate_limits_key_timestamp ON rate_limits(key, timestamp DESC);
+
+-- Auto-cleanup old entries (run daily via pg_cron)
+CREATE OR REPLACE FUNCTION cleanup_rate_limits() RETURNS void AS $$
+  DELETE FROM rate_limits WHERE timestamp < now() - interval '1 hour';
+$$ LANGUAGE sql;
+*/
+```
+
+#### Usage in Edge Functions:
+```typescript
+import { checkRateLimit } from "../_shared/rate-limit.ts";
+
+// At the start of the function:
+const { allowed, remaining, resetAt } = await checkRateLimit(supabase, user.id, 'generate-recommendations');
+
+if (!allowed) {
+  return new Response(
+    JSON.stringify({
+      error: 'Rate limit exceeded',
+      retryAfter: resetAt.toISOString(),
+    }),
+    {
+      status: 429,
+      headers: {
+        ...corsHeaders,
+        'Retry-After': Math.ceil((resetAt.getTime() - Date.now()) / 1000).toString(),
+      }
+    }
+  );
+}
+```
+
+---
+
+### 2.3 Parallelize Global Search
+
+**File:** `supabase/functions/global-search/index.ts`
+**Effort:** 15 minutes
+**Impact:** 4× faster search
+
+```typescript
+// Use Promise.allSettled for graceful degradation
+const searchTerm = `%${query.trim().toLowerCase()}%`;
+
+const [coursesResult, dreamJobsResult, recommendationsResult, capabilitiesResult] =
+  await Promise.allSettled([
+    supabase
+      .from("courses")
+      .select("id, title, code, instructor")
+      .eq("user_id", user.id)
+      .or(`title.ilike.${searchTerm},code.ilike.${searchTerm}`)
+      .limit(5),
+    supabase
+      .from("dream_jobs")
+      .select("id, title, company_type, location")
+      .eq("user_id", user.id)
+      .or(`title.ilike.${searchTerm},company_type.ilike.${searchTerm}`)
+      .limit(5),
+    supabase
+      .from("recommendations")
+      .select("id, title, type, provider")
+      .eq("user_id", user.id)
+      .is("deleted_at", null)
+      .or(`title.ilike.${searchTerm},provider.ilike.${searchTerm}`)
+      .limit(5),
+    supabase
+      .from("capabilities")
+      .select("id, name, category, proficiency_level")
+      .eq("user_id", user.id)
+      .or(`name.ilike.${searchTerm},category.ilike.${searchTerm}`)
+      .limit(5),
+  ]);
+
+// Extract results with fallback to empty arrays
+const courses = coursesResult.status === 'fulfilled' ? coursesResult.value.data || [] : [];
+const dreamJobs = dreamJobsResult.status === 'fulfilled' ? dreamJobsResult.value.data || [] : [];
+const recommendations = recommendationsResult.status === 'fulfilled' ? recommendationsResult.value.data || [] : [];
+const capabilities = capabilitiesResult.status === 'fulfilled' ? capabilitiesResult.value.data || [] : [];
+
+// Log any failures for monitoring
+[coursesResult, dreamJobsResult, recommendationsResult, capabilitiesResult].forEach((result, idx) => {
+  if (result.status === 'rejected') {
+    console.error(`Search query ${idx} failed:`, result.reason);
+  }
+});
+```
+
+---
+
+### 2.4 Add Pagination to Large Lists
+
+**File:** `src/hooks/useCourses.ts` (and similar hooks)
+**Effort:** 2 hours
+**Impact:** 90% smaller payloads
+
+```typescript
+interface PaginationParams {
+  page?: number;
+  pageSize?: number;
+}
+
+interface PaginatedResult<T> {
+  data: T[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+}
+
+export function useCoursesPaginated({ page = 1, pageSize = 20 }: PaginationParams = {}) {
+  return useQuery({
+    queryKey: ['courses', 'paginated', page, pageSize],
+    queryFn: async (): Promise<PaginatedResult<Course>> => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      const from = (page - 1) * pageSize;
+      const to = from + pageSize - 1;
+
+      // Get total count (use count query for efficiency)
+      const { count } = await supabase
+        .from('courses')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.id);
+
+      // Get paginated data
+      const { data, error } = await supabase
+        .from('courses')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .range(from, to);
+
+      if (error) throw error;
+
+      return {
+        data: data || [],
+        totalCount: count || 0,
+        page,
+        pageSize,
+        hasMore: (count || 0) > to + 1,
+      };
+    },
+    staleTime: 1000 * 60 * 5,
+  });
+}
+
+// Infinite scroll variant
+export function useCoursesInfinite(pageSize = 20) {
+  return useInfiniteQuery({
+    queryKey: ['courses', 'infinite'],
+    queryFn: async ({ pageParam = 0 }) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      const { data, error } = await supabase
+        .from('courses')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .range(pageParam, pageParam + pageSize - 1);
+
+      if (error) throw error;
+      return data || [];
+    },
+    getNextPageParam: (lastPage, allPages) => {
+      if (lastPage.length < pageSize) return undefined;
+      return allPages.flat().length;
+    },
+    staleTime: 1000 * 60 * 5,
   });
 }
 ```
 
 ---
 
-### 2.3 Add useMemo to Learn.tsx
+## Phase 3: Frontend Optimization (Before 100K Users)
+
+### 3.1 Consolidate TooltipProviders
+
+**File:** `src/components/instructor/UnifiedLOCard.tsx`
+**Effort:** 30 minutes
+
+#### Step 1: Add TooltipProvider to parent
+```tsx
+// In the parent component (e.g., CourseDetail.tsx)
+import { TooltipProvider } from '@/components/ui/tooltip';
+
+<TooltipProvider delayDuration={300}>
+  {learningObjectives.map(lo => (
+    <UnifiedLOCard key={lo.id} learningObjective={lo} />
+  ))}
+</TooltipProvider>
+```
+
+#### Step 2: Remove all TooltipProvider wrappers in UnifiedLOCard.tsx
+Search for `<TooltipProvider>` and `</TooltipProvider>` and remove them, keeping the inner `<Tooltip>` components.
+
+---
+
+### 3.2 Add useMemo/useCallback
 
 **File:** `src/pages/Learn.tsx`
 **Effort:** 15 minutes
 
-#### Current Code (Lines 264-275):
-```typescript
-const filteredSkills = skillProfile.filter(skill => ...);
-const groupedSkills = filteredSkills.reduce(...);
-```
-
-#### Fixed Code:
 ```typescript
 const filteredSkills = useMemo(() =>
   skillProfile.filter(skill =>
@@ -444,327 +765,186 @@ const groupedSkills = useMemo(() =>
 
 ---
 
-### 2.4 Optimize Dropdown Handlers in Courses.tsx
+### 3.3 Optimize Dropdown Handlers
 
 **File:** `src/pages/Courses.tsx`
 **Effort:** 45 minutes
 
-#### Step 1: Create memoized handlers at component top level:
 ```typescript
-// Add after other state declarations (~line 155)
-
-const handleViewDetails = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+// Create stable handler references
+const handleViewDetails = useCallback((e: React.MouseEvent<HTMLElement>) => {
   e.stopPropagation();
   const courseId = e.currentTarget.dataset.courseId;
   if (courseId) navigate(`/courses/${courseId}`);
 }, [navigate]);
 
-const handleEditClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+const handleEdit = useCallback((e: React.MouseEvent<HTMLElement>) => {
   e.stopPropagation();
   const courseId = e.currentTarget.dataset.courseId;
   const course = courses?.find(c => c.id === courseId);
   if (course) handleEditCourse(course);
 }, [courses, handleEditCourse]);
 
-const handleDeleteClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+const handleDelete = useCallback((e: React.MouseEvent<HTMLElement>) => {
   e.stopPropagation();
   const courseId = e.currentTarget.dataset.courseId;
   const course = courses?.find(c => c.id === courseId);
   if (course) setDeletingCourse(course);
 }, [courses]);
 
-const handleMarkCompleted = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-  e.stopPropagation();
-  const courseId = e.currentTarget.dataset.courseId;
-  const course = courses?.find(c => c.id === courseId);
-  if (course) handleQuickStatusChange(course, "completed");
-}, [courses, handleQuickStatusChange]);
-
-const handleMarkInProgress = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-  e.stopPropagation();
-  const courseId = e.currentTarget.dataset.courseId;
-  const course = courses?.find(c => c.id === courseId);
-  if (course) handleQuickStatusChange(course, "in_progress");
-}, [courses, handleQuickStatusChange]);
-
-const handleMarkPlanned = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-  e.stopPropagation();
-  const courseId = e.currentTarget.dataset.courseId;
-  const course = courses?.find(c => c.id === courseId);
-  if (course) handleQuickStatusChange(course, "planned");
-}, [courses, handleQuickStatusChange]);
-
-const handleReanalyze = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-  e.stopPropagation();
-  const courseId = e.currentTarget.dataset.courseId;
-  const course = courses?.find(c => c.id === courseId);
-  if (course) handleReanalyzeClick(course);
-}, [courses, handleReanalyzeClick]);
-```
-
-#### Step 2: Update JSX to use data attributes:
-```tsx
-<DropdownMenuItem
-  data-course-id={course.id}
-  onClick={handleViewDetails}
->
-  <Eye className="h-4 w-4 mr-2" />
-  View Details
+// Use in JSX with data attributes
+<DropdownMenuItem data-course-id={course.id} onClick={handleViewDetails}>
+  <Eye className="h-4 w-4 mr-2" /> View Details
 </DropdownMenuItem>
-
-<DropdownMenuItem
-  data-course-id={course.id}
-  onClick={handleEditClick}
->
-  <Pencil className="h-4 w-4 mr-2" />
-  Edit Course
-</DropdownMenuItem>
-
-{/* Repeat for all other menu items... */}
 ```
 
 ---
 
-### 2.5 Improve Cache Invalidation Granularity
+## Phase 4: Advanced Scaling (100K+ Users)
 
-**File:** `src/hooks/useCourses.ts`
-**Effort:** 30 minutes
+### 4.1 Background Job Queue
 
-#### Current Code (Lines 160-165):
+**Implementation:** Use Supabase Edge Functions with pg_cron or external queue (e.g., Inngest, Trigger.dev)
+
 ```typescript
-onSuccess: () => {
-  queryClient.invalidateQueries({ queryKey: queryKeys.courses });
-  queryClient.invalidateQueries({ queryKey: queryKeys.capabilities });
-  queryClient.invalidateQueries({ queryKey: queryKeys.analysis });
-  queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
-  // ...
-}
-```
-
-#### Fixed Code:
-```typescript
-// For useCreateCourse:
-onSuccess: (newCourse) => {
-  // Add to cache optimistically
-  queryClient.setQueryData<Course[]>(queryKeys.coursesList(), (old) =>
-    old ? [newCourse, ...old] : [newCourse]
-  );
-
-  // Only invalidate what's truly affected
-  queryClient.invalidateQueries({ queryKey: queryKeys.capabilities });
-  queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.overview });
-
-  // Background refresh (don't block UI)
-  refreshAllGapAnalyses().catch(console.error);
-  // ...
-}
-
-// For useUpdateCourse:
-onSuccess: (updatedCourse, variables) => {
-  // Update specific course in cache
-  queryClient.setQueryData<Course>(
-    queryKeys.courseDetail(variables.id),
-    updatedCourse
-  );
-
-  // Update in list cache
-  queryClient.setQueryData<Course[]>(queryKeys.coursesList(), (old) =>
-    old?.map(c => c.id === variables.id ? updatedCourse : c)
-  );
-
-  // Only invalidate capabilities if title/content changed
-  if (variables.updates.title || variables.updates.capability_text) {
-    queryClient.invalidateQueries({ queryKey: queryKeys.capabilities });
-  }
-  // ...
-}
-
-// For useDeleteCourse:
-onSuccess: (_, deletedId) => {
-  // Remove from cache immediately
-  queryClient.setQueryData<Course[]>(queryKeys.coursesList(), (old) =>
-    old?.filter(c => c.id !== deletedId)
-  );
-  queryClient.removeQueries({ queryKey: queryKeys.courseDetail(deletedId) });
-
-  // Invalidate related data
-  queryClient.invalidateQueries({ queryKey: queryKeys.capabilities });
-  queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.overview });
-  // ...
-}
-```
-
----
-
-## Phase 3: Medium Priority Fixes (Backlog - 2-3 hours)
-
-### 3.1 Fix O(n²) String Concatenation
-
-**Files:** 4 files with same pattern
-**Effort:** 15 minutes per file
-
-#### Pattern to find:
-```typescript
-let binary = '';
-for (let i = 0; i < bytes.byteLength; i++) {
-  binary += String.fromCharCode(bytes[i]);
-}
-```
-
-#### Replacement:
-```typescript
-const chars = new Array(bytes.byteLength);
-for (let i = 0; i < bytes.byteLength; i++) {
-  chars[i] = String.fromCharCode(bytes[i]);
-}
-const binary = chars.join('');
-```
-
-#### Files to update:
-1. `supabase/functions/process-syllabus/index.ts` (Lines 117-121)
-2. `src/pages/Learn.tsx` (Lines 433-436)
-3. `src/pages/Courses.tsx` (Lines 540-543)
-4. `src/components/onboarding/BulkSyllabusUploader.tsx` (Lines 164-167)
-
----
-
-### 3.2 Parallelize Gap Analysis Refresh
-
-**File:** `src/hooks/useCourses.ts`
-**Effort:** 30 minutes
-
-#### Current Code (Lines 84-115):
-Sequential loop.
-
-#### Fixed Code:
-```typescript
-async function refreshAllGapAnalyses() {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return;
-
-  const { data: dreamJobs } = await supabase
-    .from('dream_jobs')
-    .select('id')
-    .eq('user_id', user.id);
-
-  if (!dreamJobs || dreamJobs.length === 0) return;
-
-  console.log('[Workflow] Checking gap analyses freshness for', dreamJobs.length, 'dream jobs');
-
-  // Step 1: Check freshness in parallel
-  const freshnessResults = await Promise.all(
-    dreamJobs.map(async (job) => ({
-      job,
-      isFresh: await isAnalysisFresh(job.id, user.id),
-    }))
-  );
-
-  // Step 2: Filter to stale analyses
-  const staleJobs = freshnessResults
-    .filter(({ isFresh }) => !isFresh)
-    .map(({ job }) => job);
-
-  if (staleJobs.length === 0) {
-    console.log('[Workflow] All analyses are fresh, skipping refresh');
-    return;
-  }
-
-  console.log('[Workflow] Refreshing', staleJobs.length, 'stale analyses');
-
-  // Step 3: Refresh stale analyses in parallel (with concurrency limit)
-  const CONCURRENCY = 3; // Limit to avoid rate limiting
-  for (let i = 0; i < staleJobs.length; i += CONCURRENCY) {
-    const batch = staleJobs.slice(i, i + CONCURRENCY);
-    await Promise.all(
-      batch.map(async (job) => {
-        try {
-          const gapResult = await performGapAnalysis(job.id);
-          if (gapResult.gaps && gapResult.gaps.length > 0) {
-            await generateRecommendations(job.id, gapResult.gaps);
-          }
-        } catch (error) {
-          console.error('[Workflow] Failed to refresh analysis for job:', job.id, error);
-        }
-      })
-    );
-  }
-}
-```
-
----
-
-### 3.3 Single-Pass Counting in Dashboard
-
-**File:** `src/hooks/useDashboard.ts`
-**Effort:** 15 minutes
-
-#### Current Code (Lines 74-77):
-```typescript
-const completedRecs = recs.filter(r => r.status === 'completed').length;
-const inProgressRecs = recs.filter(r => r.status === 'in_progress').length;
-const pendingRecs = recs.filter(r => r.status === 'pending' || !r.status).length;
-const skippedRecs = recs.filter(r => r.status === 'skipped').length;
-```
-
-#### Fixed Code:
-```typescript
-// Single-pass counting
-const statusCounts = recs.reduce(
-  (acc, r) => {
-    const status = r.status || 'pending';
-    if (status === 'completed') acc.completed++;
-    else if (status === 'in_progress') acc.inProgress++;
-    else if (status === 'pending') acc.pending++;
-    else if (status === 'skipped') acc.skipped++;
-    return acc;
-  },
-  { completed: 0, inProgress: 0, pending: 0, skipped: 0 }
+// Create a job queue table
+/*
+CREATE TABLE job_queue (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES auth.users(id),
+  job_type TEXT NOT NULL,
+  payload JSONB NOT NULL DEFAULT '{}',
+  status TEXT NOT NULL DEFAULT 'pending',
+  attempts INT DEFAULT 0,
+  max_attempts INT DEFAULT 3,
+  scheduled_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  started_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ,
+  error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-const { completed: completedRecs, inProgress: inProgressRecs,
-        pending: pendingRecs, skipped: skippedRecs } = statusCounts;
+CREATE INDEX idx_job_queue_status ON job_queue(status, scheduled_at) WHERE status = 'pending';
+*/
+
+// Queue a job instead of running synchronously
+async function queueSyllabusProcessing(userId: string, courseId: string, documentBase64: string) {
+  await supabase.from('job_queue').insert({
+    user_id: userId,
+    job_type: 'process_syllabus',
+    payload: { courseId, documentBase64 },
+  });
+
+  // Return job ID for status polling
+  return { queued: true, message: 'Syllabus processing started' };
+}
+
+// Client polls for status
+export function useJobStatus(jobId: string) {
+  return useQuery({
+    queryKey: ['job', jobId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('job_queue')
+        .select('status, error, completed_at')
+        .eq('id', jobId)
+        .single();
+      return data;
+    },
+    refetchInterval: (data) =>
+      data?.status === 'completed' || data?.status === 'failed' ? false : 2000,
+  });
+}
+```
+
+---
+
+### 4.2 WebSocket for Real-time Updates
+
+**Replace polling with Supabase Realtime:**
+
+```typescript
+// Instead of polling every 30 seconds
+export function useAchievementsRealtime() {
+  const [achievements, setAchievements] = useState<Achievement[]>([]);
+
+  useEffect(() => {
+    // Initial fetch
+    fetchAchievements().then(setAchievements);
+
+    // Subscribe to changes
+    const subscription = supabase
+      .channel('achievements')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'user_achievements',
+          filter: `user_id=eq.${userId}`,
+        },
+        (payload) => {
+          setAchievements(prev => [...prev, payload.new as Achievement]);
+          // Show toast notification
+          toast({ title: 'New Achievement!', description: payload.new.title });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [userId]);
+
+  return achievements;
+}
 ```
 
 ---
 
 ## Verification Checklist
 
-### After Phase 1:
-- [ ] Generate-recommendations returns only user's capabilities
-- [ ] All tooltips work in UnifiedLOCard
-- [ ] Syllabus processing completes in < 5 seconds
-- [ ] Instructor dashboard loads without lag
+### Phase 1 Complete:
+- [ ] User filter added - verify no data leakage
+- [ ] Indexes created - verify query plans show "Index Scan"
+- [ ] RLS optimized - verify no subquery overhead
+- [ ] Batch inserts working - verify syllabus upload < 5 seconds
+- [ ] Map lookups - verify instructor dashboard loads < 1 second
 
-### After Phase 2:
-- [ ] Global search returns results in < 100ms
-- [ ] Navigation doesn't trigger unnecessary loading states
-- [ ] Course list renders without jank
-- [ ] Cache updates are targeted (check network tab)
+### Phase 2 Complete:
+- [ ] staleTime configured - verify reduced API calls in Network tab
+- [ ] Rate limiting active - verify 429 responses on abuse
+- [ ] Search parallelized - verify < 100ms response
+- [ ] Pagination working - verify payload sizes < 20KB
 
-### After Phase 3:
-- [ ] Large file uploads complete without browser hang
-- [ ] Background gap analysis doesn't block UI
-- [ ] Dashboard data fetches efficiently
+### Phase 3 Complete:
+- [ ] Single TooltipProvider - verify all tooltips work
+- [ ] useMemo/useCallback - verify React DevTools shows fewer renders
+- [ ] Handlers optimized - verify no jank on course list
+
+### Phase 4 Complete:
+- [ ] Background jobs - verify no timeout errors
+- [ ] WebSocket - verify no polling in Network tab
 
 ---
 
 ## Monitoring Recommendations
 
-1. **Add performance timing logs:**
 ```typescript
-console.time('process-syllabus');
-// ... processing code ...
-console.timeEnd('process-syllabus');
+// Add to Edge Functions
+console.time('function-name');
+// ... function code ...
+console.timeEnd('function-name');
+
+// Add custom metrics
+await supabase.from('metrics').insert({
+  function_name: 'process-syllabus',
+  duration_ms: endTime - startTime,
+  user_id: user.id,
+  success: true,
+});
 ```
-
-2. **Track query execution time in Supabase:**
-- Enable query logging in Supabase dashboard
-- Monitor slow query alerts
-
-3. **Add React DevTools Profiler checks:**
-- Record renders during navigation
-- Verify component re-render counts
 
 ---
 
-*Implementation plan created January 10, 2026*
+*Implementation plan updated for 100K user scale on January 10, 2026*
