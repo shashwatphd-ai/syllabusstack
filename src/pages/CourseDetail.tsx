@@ -63,9 +63,9 @@ export default function CourseDetailPage() {
           <p className="text-muted-foreground mb-4">
             The course you're looking for doesn't exist or you don't have access to it.
           </p>
-          <Button onClick={() => navigate("/courses")}>
+          <Button onClick={() => navigate("/learn?tab=transcript")}>
             <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Courses
+            Back to My Transcript
           </Button>
         </div>
       </AppShell>
@@ -85,7 +85,7 @@ export default function CourseDetailPage() {
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-start gap-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate("/courses")}>
+          <Button variant="ghost" size="icon" onClick={() => navigate("/learn?tab=transcript")}>
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div className="flex-1">

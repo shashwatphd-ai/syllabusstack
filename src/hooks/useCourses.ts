@@ -114,8 +114,20 @@ async function refreshAllGapAnalyses() {
   }
 }
 
-// Delete a course
+// Delete a course and its associated capabilities
 async function deleteCourse(id: string): Promise<void> {
+  // First delete associated capabilities (no cascade delete on this FK)
+  const { error: capError } = await supabase
+    .from('capabilities')
+    .delete()
+    .eq('course_id', id);
+
+  if (capError) {
+    console.error('Error deleting capabilities:', capError);
+    // Continue anyway - capabilities might not exist
+  }
+
+  // Then delete the course
   const { error } = await supabase
     .from('courses')
     .delete()
