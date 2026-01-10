@@ -723,14 +723,23 @@ export default function LearnPage() {
               <AddCourseForm
                 onSubmit={async (data) => {
                   // Create the course in database
-                  // Note: courses table has capability_text (NOT syllabus_text)
+                  // Note: Only save capability SUMMARY to capability_text, NOT raw syllabus
+                  // Raw syllabus is too large and breaks the display
+                  const capabilities = data.analysisResult?.capabilities || [];
+                  const hasCapabilities = capabilities.length > 0;
+                  
+                  // Create a summary of capabilities, not raw text
+                  const capabilitySummary = hasCapabilities
+                    ? capabilities.map(c => c.name).join('; ')
+                    : null;
+                  
                   const course = await createCourse.mutateAsync({
                     title: data.name,
                     code: data.code || null,
                     semester: data.semester || null,
-                    capability_text: data.analysisResult?.extractedText || data.syllabusText || null,
+                    capability_text: capabilitySummary,
                     credits: data.analysisResult?.credits || 3,
-                    analysis_status: data.analysisResult?.capabilities?.length ? 'completed' : 'pending',
+                    analysis_status: hasCapabilities ? 'completed' : 'pending',
                   });
 
                   // If we have analyzed capabilities, save them

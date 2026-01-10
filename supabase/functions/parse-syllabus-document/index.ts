@@ -335,14 +335,16 @@ Do NOT summarize - extract the complete text content.`;
       const errorText = await analyzeResponse.text();
       console.error("analyze-syllabus error:", errorText);
       
-      // Return partial success with just the extracted text
+      // Return partial success - analysis failed but text was extracted
+      // IMPORTANT: success: false signals to frontend that capabilities were NOT extracted
       return new Response(
         JSON.stringify({
-          success: true,
+          success: false,
+          analysisComplete: false,
           extracted_text: extractedText,
           text_length: extractedText.length,
           analysis_error: `Analysis failed: ${analyzeResponse.status}`,
-          message: "Text extracted successfully but analysis failed. You can retry analysis with the extracted text."
+          message: "Text extracted successfully but capability analysis failed. You can retry analysis."
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
