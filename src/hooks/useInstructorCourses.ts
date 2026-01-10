@@ -92,8 +92,28 @@ export function useCreateInstructorCourse() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      // Generate a unique access code
-      const accessCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+      // Generate a unique access code with collision check
+      let accessCode: string;
+      let attempts = 0;
+      const maxAttempts = 10;
+
+      do {
+        accessCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+
+        // Check if code already exists
+        const { data: existing } = await supabase
+          .from('instructor_courses')
+          .select('id')
+          .eq('access_code', accessCode)
+          .maybeSingle();
+
+        if (!existing) break; // Code is unique
+        attempts++;
+      } while (attempts < maxAttempts);
+
+      if (attempts >= maxAttempts) {
+        throw new Error('Failed to generate unique access code. Please try again.');
+      }
 
       const { data, error } = await supabase
         .from('instructor_courses')
