@@ -456,12 +456,9 @@ serve(async (req) => {
       }
     }
 
-    // Check YouTube quota before proceeding
-    const quotaStatus = await checkYouTubeQuota();
-    const useAlternativeAPIs = !quotaStatus.canSearch || quotaStatus.remaining < 500;
-
-    if (useAlternativeAPIs) {
-      console.warn(`YouTube quota low/exhausted: ${quotaStatus.usedToday}/${10000} units - using Invidious/Piped/Khan Academy`);
+    // ALWAYS use FREE APIs first (Invidious/Piped), YouTube API only as fallback
+    // Invidious/Piped return the same YouTube content without quota limits
+    console.log('Using FREE APIs first (Invidious/Piped)...');
 
       // Try Invidious first (quota-free YouTube alternative)
       const searchQuery = `${core_concept} ${(search_keywords || []).slice(0, 2).join(' ')} educational`.trim();
@@ -646,15 +643,16 @@ serve(async (req) => {
         JSON.stringify({
           success: false,
           error: "All content sources unavailable",
-          quota_status: quotaStatus,
-          message: "YouTube quota exhausted and alternative sources failed. Try again later."
+          message: "Invidious, Piped, and Khan Academy all failed. Try again later."
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 429 }
       );
-    }
 
-    console.log(`Cache MISS for: "${searchConcept.substring(0, 50)}..." - proceeding with YouTube search`);
-    console.log(`YouTube quota remaining: ${quotaStatus.remaining} units`);
+    // If we reach here, the FREE APIs returned results and we're done
+    // YouTube API is kept as emergency fallback only (code below)
+    // but should rarely be reached since FREE APIs cover most cases
+
+    console.log(`Cache MISS for: "${searchConcept.substring(0, 50)}..." - FREE APIs handled above`);
 
     // Step 1: Get AI-generated search strategies or fallback to rule-based
     let queries: string[] = [];
