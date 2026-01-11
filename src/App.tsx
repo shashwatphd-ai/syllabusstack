@@ -17,7 +17,6 @@ import CourseDetailPage from "./pages/CourseDetail";
 import DreamJobsPage from "./pages/DreamJobs";
 import DreamJobDetailPage from "./pages/DreamJobDetail";
 import AnalysisPage from "./pages/Analysis";
-import RecommendationsPage from "./pages/Recommendations";
 import ProfilePage from "./pages/Profile";
 import SettingsPage from "./pages/Settings";
 import BillingPage from "./pages/Billing";
