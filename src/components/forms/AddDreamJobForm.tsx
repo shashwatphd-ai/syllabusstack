@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useForm } from '@tanstack/react-form';
 import { z } from 'zod';
-import { Search, Plus, Loader2, Link2, Sparkles, AlertCircle } from 'lucide-react';
+import { Search, Plus, Loader2, Link2, Sparkles, AlertCircle, Briefcase, MapPin, DollarSign } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -17,6 +17,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { getFieldError, FormFieldWrapper } from '@/lib/tanstack-form';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
+import { useSearchJobs, useCreateDreamJobFromSearch, useJobSearchAvailable, Job } from '@/hooks/useJobs';
 
 export const addDreamJobSchema = z.object({
   jobQuery: z.string().min(3, 'Please enter a job title or role'),
@@ -63,6 +64,14 @@ export function AddDreamJobForm({ onSubmit, onCancel, isSubmitting = false }: Ad
   const [isScrapingUrl, setIsScrapingUrl] = useState(false);
   const [scrapeError, setScrapeError] = useState<string | null>(null);
   const [scrapedFrom, setScrapedFrom] = useState<string | null>(null);
+
+  // Job search state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchLocation, setSearchLocation] = useState('');
+  const [searchResults, setSearchResults] = useState<Job[]>([]);
+  const { data: jobSearchAvailable } = useJobSearchAvailable();
+  const searchJobs = useSearchJobs();
+  const createFromJob = useCreateDreamJobFromSearch();
   
   const form = useForm({
     defaultValues: {
@@ -155,6 +164,112 @@ export function AddDreamJobForm({ onSubmit, onCancel, isSubmitting = false }: Ad
     >
       <Card>
         <CardContent className="p-4 space-y-4">
+          {/* Job Search Section - Active Jobs DB */}
+          {jobSearchAvailable && (
+            <div className="space-y-3">
+              <label className="text-sm font-medium flex items-center gap-2">
+                <Search className="h-4 w-4 text-primary" />
+                Search real job listings
+              </label>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Job title (e.g., Software Engineer)"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="flex-1"
+                />
+                <Input
+                  placeholder="Location (optional)"
+                  value={searchLocation}
+                  onChange={(e) => setSearchLocation(e.target.value)}
+                  className="w-40"
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => {
+                    searchJobs.mutate(
+                      { title: searchQuery, location: searchLocation || undefined },
+                      { onSuccess: (data) => setSearchResults(data.jobs) }
+                    );
+                  }}
+                  disabled={searchJobs.isPending || !searchQuery.trim()}
+                >
+                  {searchJobs.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Search className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+
+              {/* Search Results */}
+              {searchResults.length > 0 && (
+                <div className="space-y-2 max-h-60 overflow-y-auto">
+                  {searchResults.slice(0, 5).map((job) => (
+                    <div
+                      key={job.id}
+                      className="p-3 border rounded-lg hover:border-primary cursor-pointer transition-colors"
+                      onClick={() => {
+                        createFromJob.mutate(job, {
+                          onSuccess: () => {
+                            setSearchResults([]);
+                            setSearchQuery('');
+                            onCancel?.();
+                          },
+                        });
+                      }}
+                    >
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h4 className="font-medium">{job.title}</h4>
+                          <p className="text-sm text-muted-foreground flex items-center gap-2">
+                            <Briefcase className="h-3 w-3" />
+                            {job.company}
+                            {job.location && (
+                              <>
+                                <MapPin className="h-3 w-3 ml-2" />
+                                {job.location}
+                              </>
+                            )}
+                          </p>
+                        </div>
+                        {(job.salary_min || job.salary_max) && (
+                          <Badge variant="secondary" className="flex items-center gap-1">
+                            <DollarSign className="h-3 w-3" />
+                            {job.salary_min && job.salary_max
+                              ? `${(job.salary_min / 1000).toFixed(0)}k - ${(job.salary_max / 1000).toFixed(0)}k`
+                              : job.salary_max
+                              ? `Up to ${(job.salary_max / 1000).toFixed(0)}k`
+                              : `From ${(job.salary_min! / 1000).toFixed(0)}k`}
+                          </Badge>
+                        )}
+                      </div>
+                      {job.requirements.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {job.requirements.slice(0, 3).map((req, i) => (
+                            <Badge key={i} variant="outline" className="text-xs">
+                              {req.length > 30 ? req.substring(0, 30) + '...' : req}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-card px-2 text-muted-foreground">or paste a job URL</span>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* URL Import Section */}
           <div className="space-y-2">
             <label className="text-sm font-medium flex items-center gap-2">
