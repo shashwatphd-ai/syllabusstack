@@ -7,15 +7,24 @@ import { toast } from '@/hooks/use-toast';
 export type Recommendation = Tables<'recommendations'>;
 export type RecommendationUpdate = TablesUpdate<'recommendations'>;
 
-// Fetch recommendations
-async function fetchRecommendations(dreamJobId?: string): Promise<Recommendation[]> {
+// Extended recommendation type with linked course data
+export interface RecommendationWithLinks extends Recommendation {
+  linked_course_id?: string | null;
+  linked_course_title?: string | null;
+  enrollment_progress?: number | null;
+}
+
+// Fetch recommendations with linked course data
+async function fetchRecommendations(dreamJobId?: string): Promise<RecommendationWithLinks[]> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return [];
 
+  // First fetch recommendations
   let query = supabase
     .from('recommendations')
     .select('*')
     .eq('user_id', user.id)
+    .is('deleted_at', null)
     .order('priority', { ascending: true })
     .order('created_at', { ascending: false });
 
@@ -23,9 +32,58 @@ async function fetchRecommendations(dreamJobId?: string): Promise<Recommendation
     query = query.eq('dream_job_id', dreamJobId);
   }
 
-  const { data, error } = await query;
+  const { data: recs, error } = await query;
   if (error) throw error;
-  return data || [];
+  if (!recs || recs.length === 0) return [];
+
+  // Then fetch linked courses for these recommendations
+  const recIds = recs.map(r => r.id);
+  const { data: links } = await supabase
+    .from('recommendation_course_links')
+    .select(`
+      recommendation_id,
+      instructor_course_id,
+      instructor_course:instructor_courses (
+        id,
+        title
+      )
+    `)
+    .in('recommendation_id', recIds)
+    .eq('link_status', 'active');
+
+  // Fetch enrollments to get progress
+  const { data: enrollments } = await supabase
+    .from('course_enrollments')
+    .select('instructor_course_id, overall_progress')
+    .eq('student_id', user.id);
+
+  // Create lookup maps
+  const linkMap = new Map<string, { courseId: string; title: string }>();
+  links?.forEach(link => {
+    if (link.instructor_course) {
+      const course = link.instructor_course as { id: string; title: string };
+      linkMap.set(link.recommendation_id, {
+        courseId: course.id,
+        title: course.title
+      });
+    }
+  });
+
+  const progressMap = new Map<string, number>();
+  enrollments?.forEach(e => {
+    progressMap.set(e.instructor_course_id, e.overall_progress || 0);
+  });
+
+  // Merge data
+  return recs.map(rec => {
+    const linkedCourse = linkMap.get(rec.id);
+    return {
+      ...rec,
+      linked_course_id: linkedCourse?.courseId || null,
+      linked_course_title: linkedCourse?.title || null,
+      enrollment_progress: linkedCourse ? (progressMap.get(linkedCourse.courseId) ?? null) : null,
+    };
+  });
 }
 
 // Update recommendation status
