@@ -91,19 +91,26 @@ export function useCreateDreamJobFromSearch() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
 
+      // Format salary range as string (schema has salary_range, not salary_min/max)
+      const salaryRange = job.salary_min && job.salary_max
+        ? `$${(job.salary_min / 1000).toFixed(0)}k - $${(job.salary_max / 1000).toFixed(0)}k`
+        : job.salary_max
+        ? `Up to $${(job.salary_max / 1000).toFixed(0)}k`
+        : job.salary_min
+        ? `From $${(job.salary_min / 1000).toFixed(0)}k`
+        : null;
+
       // Create dream job from search result
+      // Schema: user_id, title, description, location, company_type, salary_range, requirements_keywords
       const { data: dreamJob, error: createError } = await supabase
         .from("dream_jobs")
         .insert({
           user_id: user.id,
-          title: job.title,
-          company: job.company,
+          title: `${job.title} at ${job.company}`,
           description: job.description,
-          source_url: job.apply_url,
-          salary_min: job.salary_min,
-          salary_max: job.salary_max,
           location: job.location,
-          requirements_extracted: true,
+          salary_range: salaryRange,
+          requirements_keywords: job.requirements.slice(0, 10),
         })
         .select()
         .single();
@@ -111,13 +118,13 @@ export function useCreateDreamJobFromSearch() {
       if (createError) throw createError;
 
       // Store job requirements
+      // Schema: dream_job_id, skill_name (required), category, importance
       if (job.requirements.length > 0) {
         const requirements = job.requirements.map((req, index) => ({
           dream_job_id: dreamJob.id,
-          requirement: req,
+          skill_name: req,
           category: "skill",
-          priority: index < 3 ? "must_have" : "nice_to_have",
-          source: "active_jobs_db",
+          importance: index < 3 ? "required" : "preferred",
         }));
 
         await supabase.from("job_requirements").insert(requirements);

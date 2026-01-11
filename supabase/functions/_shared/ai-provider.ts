@@ -5,6 +5,14 @@
  * 1. Gemini (via Lovable Gateway) - default for complex tasks
  * 2. OpenLLM (via RapidAPI) - cheaper alternative for simpler tasks
  *
+ * NOTE: This abstraction is for simple text/JSON responses.
+ * For structured output with tool calling, use direct API calls with
+ * tools/tool_choice parameters (see analyze-dream-job as example).
+ *
+ * Required env vars:
+ * - LOVABLE_API_KEY: Required for Gemini calls
+ * - RAPIDAPI_KEY: Optional, enables OpenLLM for cost savings
+ *
  * Usage:
  *   import { makeAICall, AITask } from "../_shared/ai-provider.ts";
  *   const result = await makeAICall({
@@ -140,12 +148,18 @@ async function callOpenLLM(request: AIRequest, apiKey: string): Promise<AIRespon
  * Call Gemini via Lovable Gateway
  */
 async function callGemini(request: AIRequest): Promise<AIResponse> {
-  const LOVABLE_API_URL = "https://ai-gateway.lovable.ai/v1/chat/completions";
+  const LOVABLE_API_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
+  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
   const model = "google/gemini-2.5-flash";
+
+  if (!LOVABLE_API_KEY) {
+    throw new Error("LOVABLE_API_KEY is not configured");
+  }
 
   const response = await fetch(LOVABLE_API_URL, {
     method: "POST",
     headers: {
+      "Authorization": `Bearer ${LOVABLE_API_KEY}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
