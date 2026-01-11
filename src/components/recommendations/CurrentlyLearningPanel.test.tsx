@@ -27,6 +27,9 @@ const createMockEnrollment = (overrides: Partial<StudentEnrollment> = {}): Stude
     title: 'Introduction to React',
     code: 'CS101',
     description: 'Learn React fundamentals',
+    instructor_id: 'instructor-123',
+    verification_threshold: 80,
+    is_published: true,
   },
   ...overrides,
 });
@@ -86,8 +89,8 @@ describe('CurrentlyLearningPanel', () => {
 
   it('renders enrolled courses when enrollments exist', () => {
     const enrollments = [
-      createMockEnrollment({ instructor_course: { id: 'c1', title: 'React Fundamentals', code: 'CS101', description: null } }),
-      createMockEnrollment({ instructor_course: { id: 'c2', title: 'TypeScript Basics', code: 'CS102', description: null } }),
+      createMockEnrollment({ instructor_course: { id: 'c1', title: 'React Fundamentals', code: 'CS101', description: null, instructor_id: 'instructor-1', verification_threshold: 80, is_published: true } }),
+      createMockEnrollment({ instructor_course: { id: 'c2', title: 'TypeScript Basics', code: 'CS102', description: null, instructor_id: 'instructor-1', verification_threshold: 80, is_published: true } }),
     ];
 
     renderWithRouter(
@@ -107,7 +110,7 @@ describe('CurrentlyLearningPanel', () => {
     const enrollments = [
       createMockEnrollment({ 
         overall_progress: 75,
-        instructor_course: { id: 'c1', title: 'Advanced React', code: null, description: null } 
+        instructor_course: { id: 'c1', title: 'Advanced React', code: null, description: null, instructor_id: 'instructor-1', verification_threshold: 80, is_published: true } 
       }),
     ];
 
@@ -127,7 +130,7 @@ describe('CurrentlyLearningPanel', () => {
       createMockEnrollment({ 
         completed_at: new Date().toISOString(),
         overall_progress: 100,
-        instructor_course: { id: 'c1', title: 'Completed Course', code: null, description: null } 
+        instructor_course: { id: 'c1', title: 'Completed Course', code: null, description: null, instructor_id: 'instructor-1', verification_threshold: 80, is_published: true } 
       }),
     ];
 
@@ -146,7 +149,7 @@ describe('CurrentlyLearningPanel', () => {
     const enrollments = [
       createMockEnrollment({ 
         instructor_course_id: 'linked-course-id',
-        instructor_course: { id: 'linked-course-id', title: 'Linked Course', code: null, description: null } 
+        instructor_course: { id: 'linked-course-id', title: 'Linked Course', code: null, description: null, instructor_id: 'instructor-1', verification_threshold: 80, is_published: true } 
       }),
     ];
     const recommendations = [
@@ -167,7 +170,7 @@ describe('CurrentlyLearningPanel', () => {
   it('opens link dialog when clicking unlinked course', () => {
     const enrollments = [
       createMockEnrollment({ 
-        instructor_course: { id: 'c1', title: 'Unlinked Course', code: null, description: null } 
+        instructor_course: { id: 'c1', title: 'Unlinked Course', code: null, description: null, instructor_id: 'instructor-1', verification_threshold: 80, is_published: true } 
       }),
     ];
     const recommendations = [
@@ -190,7 +193,7 @@ describe('CurrentlyLearningPanel', () => {
   it('shows suggested matches in the dialog', () => {
     const enrollments = [
       createMockEnrollment({ 
-        instructor_course: { id: 'c1', title: 'React Development', code: null, description: null } 
+        instructor_course: { id: 'c1', title: 'React Development', code: null, description: null, instructor_id: 'instructor-1', verification_threshold: 80, is_published: true } 
       }),
     ];
     const recommendations = [
@@ -222,7 +225,7 @@ describe('CurrentlyLearningPanel', () => {
       createMockEnrollment({ 
         id: 'enr-1',
         instructor_course_id: 'course-1',
-        instructor_course: { id: 'course-1', title: 'React Course', code: null, description: null } 
+        instructor_course: { id: 'course-1', title: 'React Course', code: null, description: null, instructor_id: 'instructor-1', verification_threshold: 80, is_published: true } 
       }),
     ];
     const recommendations = [
@@ -258,7 +261,7 @@ describe('CurrentlyLearningPanel', () => {
     const enrollments = Array.from({ length: 7 }, (_, i) => 
       createMockEnrollment({ 
         id: `enr-${i}`,
-        instructor_course: { id: `c${i}`, title: `Course ${i}`, code: null, description: null } 
+        instructor_course: { id: `c${i}`, title: `Course ${i}`, code: null, description: null, instructor_id: 'instructor-1', verification_threshold: 80, is_published: true } 
       })
     );
 
@@ -277,7 +280,7 @@ describe('CurrentlyLearningPanel', () => {
     const enrollments = Array.from({ length: 7 }, (_, i) => 
       createMockEnrollment({ 
         id: `enr-${i}`,
-        instructor_course: { id: `c${i}`, title: `Course ${i}`, code: null, description: null } 
+        instructor_course: { id: `c${i}`, title: `Course ${i}`, code: null, description: null, instructor_id: 'instructor-1', verification_threshold: 80, is_published: true } 
       })
     );
 
@@ -297,7 +300,7 @@ describe('CurrentlyLearningPanel', () => {
   it('filters out non-course recommendations from link dialog', () => {
     const enrollments = [
       createMockEnrollment({ 
-        instructor_course: { id: 'c1', title: 'My Course', code: null, description: null } 
+        instructor_course: { id: 'c1', title: 'My Course', code: null, description: null, instructor_id: 'instructor-1', verification_threshold: 80, is_published: true } 
       }),
     ];
     const recommendations = [
