@@ -5,6 +5,33 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Invidious instances for quota-free YouTube search
+const INVIDIOUS_INSTANCES = [
+  "https://inv.nadeko.net",
+  "https://invidious.nerdvpn.de",
+  "https://invidious.private.coffee",
+  "https://vid.puffyan.us",
+  "https://invidious.projectsegfau.lt",
+];
+
+// Piped instances for quota-free YouTube search
+const PIPED_INSTANCES = [
+  "https://pipedapi.kavin.rocks",
+  "https://pipedapi.tokhmi.xyz",
+  "https://api.piped.yt",
+];
+
+interface VideoResult {
+  video_id: string;
+  title: string;
+  description: string;
+  channel_name: string;
+  thumbnail_url: string;
+  duration_seconds: number;
+  view_count: number;
+  published_at?: string;
+}
+
 // Parse ISO 8601 duration (e.g., PT4M32S) to seconds
 function parseDurationToSeconds(duration: string): number {
   const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
@@ -15,84 +42,184 @@ function parseDurationToSeconds(duration: string): number {
   return hours * 3600 + minutes * 60 + seconds;
 }
 
+/**
+ * Search via Invidious (YouTube without quota)
+ */
+async function searchViaInvidious(query: string): Promise<VideoResult[]> {
+  for (const instance of INVIDIOUS_INSTANCES) {
+    try {
+      const response = await fetch(
+        `${instance}/api/v1/search?q=${encodeURIComponent(query)}&type=video&sort=relevance`,
+        {
+          headers: { 'Accept': 'application/json' },
+          signal: AbortSignal.timeout(8000),
+        }
+      );
+
+      if (!response.ok) continue;
+
+      const data = await response.json();
+      return data.slice(0, 15).map((item: any) => ({
+        video_id: item.videoId,
+        title: item.title,
+        description: item.description?.substring(0, 200) || '',
+        channel_name: item.author || '',
+        thumbnail_url: item.videoThumbnails?.find((t: any) => t.quality === 'medium')?.url ||
+                       `https://img.youtube.com/vi/${item.videoId}/mqdefault.jpg`,
+        duration_seconds: item.lengthSeconds || 0,
+        view_count: item.viewCount || 0,
+        published_at: item.published ? new Date(item.published * 1000).toISOString() : undefined,
+      }));
+    } catch (e) {
+      console.log(`Invidious ${instance} failed:`, e);
+      continue;
+    }
+  }
+  return [];
+}
+
+/**
+ * Search via Piped (YouTube without quota)
+ */
+async function searchViaPiped(query: string): Promise<VideoResult[]> {
+  for (const instance of PIPED_INSTANCES) {
+    try {
+      const response = await fetch(
+        `${instance}/search?q=${encodeURIComponent(query)}&filter=videos`,
+        {
+          headers: { 'Accept': 'application/json' },
+          signal: AbortSignal.timeout(8000),
+        }
+      );
+
+      if (!response.ok) continue;
+
+      const data = await response.json();
+      return (data.items || []).slice(0, 15).map((item: any) => {
+        const videoId = item.url?.split('/watch?v=')[1] || '';
+        return {
+          video_id: videoId,
+          title: item.title || '',
+          description: item.shortDescription?.substring(0, 200) || '',
+          channel_name: item.uploaderName || '',
+          thumbnail_url: item.thumbnail || `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`,
+          duration_seconds: item.duration || 0,
+          view_count: item.views || 0,
+          published_at: item.uploaded ? new Date(item.uploaded).toISOString() : undefined,
+        };
+      });
+    } catch (e) {
+      console.log(`Piped ${instance} failed:`, e);
+      continue;
+    }
+  }
+  return [];
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const YOUTUBE_API_KEY = Deno.env.get("GOOGLE_CLOUD_API_KEY");
-    if (!YOUTUBE_API_KEY) {
-      throw new Error("GOOGLE_CLOUD_API_KEY is not configured");
-    }
+    const { query, use_alternatives = false } = await req.json();
 
-    const { query } = await req.json();
-    
     if (!query || typeof query !== 'string') {
       throw new Error("Query is required");
     }
 
-    console.log(`Manual YouTube search: "${query}"`);
+    console.log(`Manual YouTube search: "${query}" (use_alternatives: ${use_alternatives})`);
 
-    // Search for videos
-    const searchUrl = new URL("https://www.googleapis.com/youtube/v3/search");
-    searchUrl.searchParams.set("key", YOUTUBE_API_KEY);
-    searchUrl.searchParams.set("q", query);
-    searchUrl.searchParams.set("part", "snippet");
-    searchUrl.searchParams.set("type", "video");
-    searchUrl.searchParams.set("videoDuration", "medium"); // 4-20 minutes
-    searchUrl.searchParams.set("videoEmbeddable", "true");
-    searchUrl.searchParams.set("safeSearch", "strict");
-    searchUrl.searchParams.set("maxResults", "15");
+    let results: VideoResult[] = [];
+    let source = 'youtube_api';
 
-    const searchResponse = await fetch(searchUrl.toString());
-    if (!searchResponse.ok) {
-      const errorText = await searchResponse.text();
-      console.error("YouTube search error:", errorText);
-      throw new Error(`YouTube search failed: ${searchResponse.status}`);
+    // If use_alternatives is true, skip YouTube API and go directly to alternatives
+    if (!use_alternatives) {
+      const YOUTUBE_API_KEY = Deno.env.get("GOOGLE_CLOUD_API_KEY");
+
+      if (YOUTUBE_API_KEY) {
+        try {
+          // Search for videos via YouTube API
+          const searchUrl = new URL("https://www.googleapis.com/youtube/v3/search");
+          searchUrl.searchParams.set("key", YOUTUBE_API_KEY);
+          searchUrl.searchParams.set("q", query);
+          searchUrl.searchParams.set("part", "snippet");
+          searchUrl.searchParams.set("type", "video");
+          searchUrl.searchParams.set("videoDuration", "medium"); // 4-20 minutes
+          searchUrl.searchParams.set("videoEmbeddable", "true");
+          searchUrl.searchParams.set("safeSearch", "strict");
+          searchUrl.searchParams.set("maxResults", "15");
+
+          const searchResponse = await fetch(searchUrl.toString());
+
+          if (searchResponse.ok) {
+            const searchData = await searchResponse.json();
+            const videoIds = searchData.items
+              ?.map((item: any) => item.id?.videoId)
+              .filter(Boolean) || [];
+
+            if (videoIds.length > 0) {
+              // Get video details
+              const detailsUrl = new URL("https://www.googleapis.com/youtube/v3/videos");
+              detailsUrl.searchParams.set("key", YOUTUBE_API_KEY);
+              detailsUrl.searchParams.set("id", videoIds.join(","));
+              detailsUrl.searchParams.set("part", "snippet,contentDetails,statistics");
+
+              const detailsResponse = await fetch(detailsUrl.toString());
+              if (detailsResponse.ok) {
+                const detailsData = await detailsResponse.json();
+                results = (detailsData.items || []).map((item: any) => ({
+                  video_id: item.id,
+                  title: item.snippet.title,
+                  description: item.snippet.description?.substring(0, 200) || '',
+                  channel_name: item.snippet.channelTitle,
+                  thumbnail_url: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url || '',
+                  duration_seconds: parseDurationToSeconds(item.contentDetails?.duration || ''),
+                  view_count: parseInt(item.statistics?.viewCount || '0'),
+                  published_at: item.snippet.publishedAt,
+                }));
+              }
+            }
+          } else {
+            // Check if quota exceeded (403)
+            const errorText = await searchResponse.text();
+            console.log(`YouTube API failed (${searchResponse.status}): ${errorText}`);
+            if (searchResponse.status === 403 || errorText.includes('quotaExceeded')) {
+              console.log('Quota exceeded, falling back to alternatives');
+            }
+          }
+        } catch (apiError) {
+          console.error('YouTube API error:', apiError);
+        }
+      }
     }
 
-    const searchData = await searchResponse.json();
-    const videoIds = searchData.items
-      ?.map((item: any) => item.id?.videoId)
-      .filter(Boolean) || [];
-
-    if (videoIds.length === 0) {
-      return new Response(
-        JSON.stringify({ results: [], total: 0 }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    // If YouTube API didn't return results, try alternatives
+    if (results.length === 0) {
+      console.log('Trying Invidious fallback...');
+      results = await searchViaInvidious(query);
+      if (results.length > 0) {
+        source = 'invidious';
+      }
     }
 
-    // Get video details
-    const detailsUrl = new URL("https://www.googleapis.com/youtube/v3/videos");
-    detailsUrl.searchParams.set("key", YOUTUBE_API_KEY);
-    detailsUrl.searchParams.set("id", videoIds.join(","));
-    detailsUrl.searchParams.set("part", "snippet,contentDetails,statistics");
-
-    const detailsResponse = await fetch(detailsUrl.toString());
-    if (!detailsResponse.ok) {
-      throw new Error(`YouTube details failed: ${detailsResponse.status}`);
+    // If Invidious failed, try Piped
+    if (results.length === 0) {
+      console.log('Trying Piped fallback...');
+      results = await searchViaPiped(query);
+      if (results.length > 0) {
+        source = 'piped';
+      }
     }
 
-    const detailsData = await detailsResponse.json();
-
-    // Map to frontend-expected field names
-    const results = (detailsData.items || []).map((item: any) => ({
-      video_id: item.id,
-      title: item.snippet.title,
-      description: item.snippet.description?.substring(0, 200) || '',
-      channel_name: item.snippet.channelTitle,
-      thumbnail_url: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url || '',
-      duration_seconds: parseDurationToSeconds(item.contentDetails?.duration || ''),
-      view_count: parseInt(item.statistics?.viewCount || '0'),
-      published_at: item.snippet.publishedAt,
-    }));
-
-    console.log(`Found ${results.length} videos`);
+    console.log(`Found ${results.length} videos via ${source}`);
 
     return new Response(
-      JSON.stringify({ results, total: results.length }),
+      JSON.stringify({
+        results,
+        total: results.length,
+        source, // Tells the client which source was used
+      }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 

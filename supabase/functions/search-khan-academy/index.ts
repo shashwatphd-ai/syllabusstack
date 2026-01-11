@@ -11,6 +11,9 @@ const corsHeaders = {
 // Khan Academy GraphQL endpoint (internal API - free, no quota)
 const KHAN_GRAPHQL_URL = "https://www.khanacademy.org/api/internal/graphql/ContentForSearchQuery";
 
+// Khan Academy topic tree API (public, always works)
+const KHAN_TOPIC_API = "https://www.khanacademy.org/api/v1/topic";
+
 interface KhanVideo {
   id: string;
   contentId: string;
@@ -32,6 +35,20 @@ interface ScoredKhanContent {
     total: number;
   };
 }
+
+// Browser-like headers to avoid 403 errors
+const BROWSER_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Accept': 'application/json, text/plain, */*',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Accept-Encoding': 'gzip, deflate, br',
+  'Origin': 'https://www.khanacademy.org',
+  'Referer': 'https://www.khanacademy.org/',
+  'Sec-Fetch-Dest': 'empty',
+  'Sec-Fetch-Mode': 'cors',
+  'Sec-Fetch-Site': 'same-origin',
+  'Cache-Control': 'no-cache',
+};
 
 /**
  * Search Khan Academy using their internal GraphQL API
@@ -88,11 +105,8 @@ async function searchKhanGraphQL(query: string, limit: number = 10): Promise<Kha
     const response = await fetch(KHAN_GRAPHQL_URL, {
       method: 'POST',
       headers: {
+        ...BROWSER_HEADERS,
         'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        // These headers help bypass CORS and auth requirements
-        'Origin': 'https://www.khanacademy.org',
-        'Referer': 'https://www.khanacademy.org/',
       },
       body: JSON.stringify(graphqlQuery),
     });
@@ -135,9 +149,7 @@ async function searchKhanPublic(query: string): Promise<KhanVideo[]> {
     const searchUrl = `https://www.khanacademy.org/api/internal/_search?query=${encodeURIComponent(query)}`;
 
     const response = await fetch(searchUrl, {
-      headers: {
-        'Accept': 'application/json',
-      }
+      headers: BROWSER_HEADERS,
     });
 
     if (!response.ok) {
@@ -164,6 +176,168 @@ async function searchKhanPublic(query: string): Promise<KhanVideo[]> {
       }));
   } catch (error) {
     console.error('Khan public search error:', error);
+    return [];
+  }
+}
+
+/**
+ * Search Khan Academy using their public topic tree API
+ * This is the most reliable method as it doesn't require authentication
+ */
+async function searchKhanTopicTree(query: string): Promise<KhanVideo[]> {
+  try {
+    // Map common educational topics to Khan Academy's topic slugs
+    const topicMappings: Record<string, string[]> = {
+      'math': ['math', 'algebra', 'geometry', 'calculus', 'statistics'],
+      'science': ['science', 'physics', 'chemistry', 'biology'],
+      'economics': ['economics-finance-domain', 'microeconomics', 'macroeconomics'],
+      'business': ['economics-finance-domain', 'entrepreneurship'],
+      'computer': ['computing', 'computer-programming', 'computer-science'],
+      'history': ['humanities', 'world-history', 'us-history'],
+      'art': ['humanities', 'art-history'],
+    };
+
+    const queryLower = query.toLowerCase();
+    let topicSlugs: string[] = [];
+
+    // Find matching topics
+    for (const [key, slugs] of Object.entries(topicMappings)) {
+      if (queryLower.includes(key)) {
+        topicSlugs = [...topicSlugs, ...slugs];
+      }
+    }
+
+    // Default to searching across main subjects
+    if (topicSlugs.length === 0) {
+      topicSlugs = ['math', 'science', 'economics-finance-domain', 'computing', 'humanities'];
+    }
+
+    const videos: KhanVideo[] = [];
+    const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+
+    // Search each topic for matching content
+    for (const slug of topicSlugs.slice(0, 3)) { // Limit to 3 topics
+      try {
+        const topicUrl = `${KHAN_TOPIC_API}/${slug}`;
+        const response = await fetch(topicUrl, { headers: BROWSER_HEADERS });
+
+        if (!response.ok) continue;
+
+        const data = await response.json();
+        const children = data?.children || data?.child_data || [];
+
+        // Recursively find videos matching the query
+        const findVideos = (items: any[], depth: number = 0): void => {
+          if (depth > 2) return; // Limit recursion depth
+
+          for (const item of items) {
+            if (item.kind === 'Video' && item.title) {
+              const titleLower = item.title.toLowerCase();
+              const descLower = (item.description || '').toLowerCase();
+              const matches = queryWords.some(w => titleLower.includes(w) || descLower.includes(w));
+
+              if (matches) {
+                videos.push({
+                  id: item.slug || item.id,
+                  contentId: item.id,
+                  title: item.title,
+                  description: item.description || '',
+                  thumbnailUrl: item.thumbnail_url || item.image_url || '',
+                  duration: item.duration || 0,
+                  url: item.url || item.ka_url || `https://www.khanacademy.org/video/${item.slug}`,
+                  slug: item.slug,
+                  kind: 'Video',
+                });
+              }
+            }
+
+            // Recurse into children
+            if (item.children) {
+              findVideos(item.children, depth + 1);
+            }
+          }
+        };
+
+        findVideos(children);
+
+        if (videos.length >= 10) break;
+      } catch (e) {
+        console.log(`Error searching topic ${slug}:`, e);
+      }
+    }
+
+    console.log(`Khan topic tree found ${videos.length} videos`);
+    return videos.slice(0, 10);
+  } catch (error) {
+    console.error('Khan topic tree search error:', error);
+    return [];
+  }
+}
+
+/**
+ * Search using DuckDuckGo as a fallback (no API key needed)
+ */
+async function searchDuckDuckGo(query: string): Promise<KhanVideo[]> {
+  try {
+    const searchQuery = `site:khanacademy.org/video ${query}`;
+    const ddgUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(searchQuery)}`;
+
+    const response = await fetch(ddgUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'text/html',
+      }
+    });
+
+    if (!response.ok) {
+      console.log(`DuckDuckGo search failed: ${response.status}`);
+      return [];
+    }
+
+    const html = await response.text();
+    const videos: KhanVideo[] = [];
+
+    // Parse URLs from DuckDuckGo results
+    const urlMatches = html.matchAll(/href="([^"]*khanacademy\.org\/(?:video|v)\/[^"]+)"/g);
+    const seenUrls = new Set<string>();
+
+    for (const match of urlMatches) {
+      let url = match[1];
+      // DuckDuckGo wraps URLs, extract the actual URL
+      if (url.includes('uddg=')) {
+        const decoded = decodeURIComponent(url.split('uddg=')[1]?.split('&')[0] || '');
+        if (decoded) url = decoded;
+      }
+
+      if (seenUrls.has(url)) continue;
+      seenUrls.add(url);
+
+      const videoId = extractKhanVideoId(url);
+      if (!videoId) continue;
+
+      // Try to get oEmbed data for title
+      const oembed = await fetchKhanOEmbed(url);
+
+      videos.push({
+        id: videoId,
+        contentId: videoId,
+        title: oembed?.title || videoId.replace(/-/g, ' '),
+        description: oembed?.author_name || 'Khan Academy',
+        thumbnailUrl: oembed?.thumbnail_url || '',
+        duration: 0,
+        url: url,
+        slug: videoId,
+        kind: 'Video',
+        embedHtml: oembed?.html,
+      });
+
+      if (videos.length >= 8) break;
+    }
+
+    console.log(`DuckDuckGo found ${videos.length} Khan Academy videos`);
+    return videos;
+  } catch (error) {
+    console.error('DuckDuckGo search error:', error);
     return [];
   }
 }
@@ -364,10 +538,13 @@ serve(async (req) => {
       if (m.content?.source_id) existingVideoIds.add(m.content.source_id);
     });
 
-    // Step 1: Try GraphQL API first (fastest, most reliable)
+    // Build search query
     const searchQuery = `${core_concept} ${search_keywords.slice(0, 2).join(' ')}`.trim();
-    let khanVideos: KhanVideo[] = await searchKhanGraphQL(searchQuery, max_results * 2);
+    let khanVideos: KhanVideo[] = [];
 
+    // Step 1: Try GraphQL API first (fastest when it works)
+    console.log('Trying Khan GraphQL API...');
+    khanVideos = await searchKhanGraphQL(searchQuery, max_results * 2);
     console.log(`GraphQL found ${khanVideos.length} Khan Academy results`);
 
     // Step 2: Fall back to public search API if GraphQL fails
@@ -377,7 +554,21 @@ serve(async (req) => {
       console.log(`Public search found ${khanVideos.length} Khan Academy results`);
     }
 
-    // Step 3: Last resort - use web provider (Firecrawl or Jina) if available
+    // Step 3: Try topic tree API (most reliable, doesn't require auth)
+    if (khanVideos.length === 0) {
+      console.log('Public search failed, trying topic tree API...');
+      khanVideos = await searchKhanTopicTree(searchQuery);
+      console.log(`Topic tree found ${khanVideos.length} Khan Academy results`);
+    }
+
+    // Step 4: Try DuckDuckGo site search (no API key needed)
+    if (khanVideos.length === 0) {
+      console.log('Topic tree returned no results, trying DuckDuckGo...');
+      khanVideos = await searchDuckDuckGo(searchQuery);
+      console.log(`DuckDuckGo found ${khanVideos.length} Khan Academy results`);
+    }
+
+    // Step 5: Last resort - use web provider (Firecrawl or Jina) if available
     if (khanVideos.length === 0) {
       const FIRECRAWL_API_KEY = Deno.env.get("FIRECRAWL_API_KEY");
       const webProvider = getWebProvider();
@@ -385,10 +576,10 @@ serve(async (req) => {
       // Only try fallback if we have a configured provider
       if (FIRECRAWL_API_KEY || webProvider.name === 'jina') {
         console.log(`Trying ${webProvider.name} fallback...`);
-        const searchQuery = `site:khanacademy.org video ${core_concept}`;
+        const siteSearchQuery = `site:khanacademy.org video ${core_concept}`;
 
         try {
-          const searchResults = await webProvider.search(searchQuery, { limit: 10 });
+          const searchResults = await webProvider.search(siteSearchQuery, { limit: 10 });
 
           for (const result of searchResults) {
             const url = result.url;
