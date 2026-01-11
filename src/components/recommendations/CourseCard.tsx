@@ -53,6 +53,26 @@ const providerConfig: Record<string, {
     logo: '🌱',
     bgColor: 'bg-green-500/10 border-green-500/30'
   },
+  'MIT OpenCourseWare': { 
+    color: 'text-red-700', 
+    logo: '🎓',
+    bgColor: 'bg-red-500/10 border-red-500/30'
+  },
+  'YouTube': { 
+    color: 'text-red-600', 
+    logo: '▶️',
+    bgColor: 'bg-red-500/10 border-red-500/30'
+  },
+  'freeCodeCamp': { 
+    color: 'text-emerald-600', 
+    logo: '🔥',
+    bgColor: 'bg-emerald-500/10 border-emerald-500/30'
+  },
+  'Open University': { 
+    color: 'text-indigo-600', 
+    logo: '📖',
+    bgColor: 'bg-indigo-500/10 border-indigo-500/30'
+  },
 };
 
 const priorityStyles: Record<string, string> = {
@@ -87,9 +107,15 @@ export function CourseCard({
   
   return (
     <Card className={cn(
-      "group hover:shadow-lg transition-all duration-200 overflow-hidden",
+      "group hover:shadow-lg transition-all duration-200 overflow-hidden relative",
       priority && priorityStyles[priority]
     )}>
+      {/* FREE Badge - prominent overlay */}
+      {isPriceFree && (
+        <Badge className="absolute top-2 right-2 bg-success text-success-foreground z-10 shadow-md">
+          FREE
+        </Badge>
+      )}
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-2">
           <div className="space-y-1 flex-1 min-w-0">

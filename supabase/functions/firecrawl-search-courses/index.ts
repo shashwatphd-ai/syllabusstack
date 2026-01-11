@@ -15,6 +15,74 @@ interface CourseResult {
   duration?: string;
   rating?: string;
   price?: string;
+  isFree?: boolean;
+}
+
+// Free platform domains (less likely to have Cloudflare blocking)
+const FREE_DOMAINS = [
+  'khanacademy.org',
+  'ocw.mit.edu',
+  'youtube.com',
+  'freecodecamp.org',
+  'open.edu',
+  'edx.org/learn', // Free audit courses
+];
+
+// Paid platform domains
+const PAID_DOMAINS = [
+  'coursera.org',
+  'udemy.com',
+  'edx.org',
+  'linkedin.com/learning',
+  'pluralsight.com',
+  'skillshare.com',
+  'udacity.com',
+  'codecademy.com',
+];
+
+// Detect if a result is blocked by Cloudflare or bot protection
+function isBlockedResult(result: SearchResult): boolean {
+  const blockedIndicators = [
+    'just a moment',
+    'verify you are human',
+    'checking your browser',
+    'enable javascript',
+    'access denied',
+    'please wait',
+    'captcha',
+    'security check',
+    'ddos protection',
+    'cloudflare',
+  ];
+  const titleLower = (result.title || '').toLowerCase();
+  const descLower = (result.description || '').toLowerCase();
+  return blockedIndicators.some(indicator => 
+    titleLower.includes(indicator) || descLower.includes(indicator)
+  );
+}
+
+// Extract course title from URL as fallback
+function extractTitleFromUrl(url: string): string {
+  const patterns = [
+    /\/learn\/([^/?#]+)/,        // coursera.org/learn/python-programming
+    /\/course\/([^/?#]+)/,       // udemy.com/course/complete-javascript
+    /\/courses\/([^/?#]+)/,      // edx.org/courses/...
+    /\/tutorial\/([^/?#]+)/,     // various tutorials
+    /\/watch\?v=[^&]+.*[&?].*?([^&=]+)$/, // youtube
+    /\/([^/?#]+)\/?$/,           // fallback: last path segment
+  ];
+  
+  for (const pattern of patterns) {
+    const match = url.match(pattern);
+    if (match && match[1]) {
+      return match[1]
+        .replace(/-/g, ' ')
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, c => c.toUpperCase())
+        .slice(0, 80);
+    }
+  }
+  return "Online Course";
 }
 
 // Extract meaningful search keywords from gap text
@@ -56,10 +124,9 @@ function isValidCourseUrl(url: string): boolean {
   
   // Valid course platform domains
   const validDomains = [
-    'coursera.org', 'udemy.com', 'edx.org', 
-    'linkedin.com/learning', 'pluralsight.com', 
-    'skillshare.com', 'udacity.com', 'codecademy.com',
-    'khanacademy.org', 'ocw.mit.edu', 'futurelearn.com'
+    ...FREE_DOMAINS,
+    ...PAID_DOMAINS,
+    'futurelearn.com',
   ];
   
   // Accept if from valid domain
@@ -72,13 +139,19 @@ function isValidCourseUrl(url: string): boolean {
   return coursePatterns.some(p => urlLower.includes(p));
 }
 
+// Check if URL is from a free platform
+function isFreePlatform(url: string): boolean {
+  const urlLower = url.toLowerCase();
+  return FREE_DOMAINS.some(d => urlLower.includes(d));
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { gaps, dreamJobId, dreamJobTitle } = await req.json();
+    const { gaps, dreamJobId, dreamJobTitle, freeOnly = false } = await req.json();
 
     if (!gaps || !Array.isArray(gaps) || gaps.length === 0) {
       return new Response(
@@ -129,82 +202,90 @@ serve(async (req) => {
 
     const allCourses: CourseResult[] = [];
     const searchErrors: string[] = [];
+    const blockedUrls: string[] = [];
 
     // Search for each gap (limit to top 3 priority gaps to manage API calls)
     const gapsToSearch = gaps.slice(0, 3);
 
     for (const gap of gapsToSearch) {
       const gapText = gap.gap || gap.requirement || gap;
-      
-      // Extract keywords to create a shorter, more effective search query
       const keywords = extractSearchKeywords(gapText);
-      const searchQuery = `${keywords} online course site:coursera.org OR site:udemy.com OR site:edx.org`;
       
       console.log(`Gap: "${gapText.slice(0, 50)}..." -> Keywords: "${keywords}"`);
-      console.log(`Searching: ${searchQuery}`);
 
-      let searchResults: SearchResult[] = [];
+      // === SEARCH 1: Free Platforms (prioritize - less blocking) ===
+      const freeQuery = `${keywords} tutorial site:khanacademy.org OR site:ocw.mit.edu OR site:youtube.com OR site:freecodecamp.org`;
+      console.log(`Searching FREE: ${freeQuery}`);
       
       try {
-        // First attempt with full query
-        searchResults = await webProvider.search(searchQuery, { limit: 5 });
-        console.log(`Found ${searchResults.length} results for: ${keywords} (via ${webProvider.name})`);
-      } catch (searchError: any) {
-        const errorMessage = searchError?.message || String(searchError);
-        console.error(`Error searching for gap "${keywords}" via ${webProvider.name}:`, errorMessage);
+        const freeResults = await webProvider.search(freeQuery, { limit: 4 });
+        console.log(`Found ${freeResults.length} FREE results for: ${keywords}`);
         
-        // Retry with simpler query if we get a 422 or 400 error
-        if (errorMessage.includes('422') || errorMessage.includes('400') || errorMessage.includes('query')) {
-          console.log('Retrying with simplified query...');
-          try {
-            const simpleKeywords = keywords.split(' ').slice(0, 2).join(' ');
-            const simpleQuery = `${simpleKeywords} online course coursera udemy`;
-            searchResults = await webProvider.search(simpleQuery, { limit: 5 });
-            console.log(`Retry found ${searchResults.length} results with simplified query`);
-          } catch (retryError) {
-            console.error('Retry also failed:', retryError);
-            searchErrors.push(`Failed to search for: ${keywords}`);
+        for (const result of freeResults) {
+          if (!isValidCourseUrl(result.url)) continue;
+          if (isBlockedResult(result)) {
+            blockedUrls.push(result.url);
+            continue;
           }
-        } else {
-          searchErrors.push(`Failed to search for: ${keywords}`);
+          
+          const course = parseSearchResult(result, true);
+          if (!allCourses.some(c => c.url === course.url)) {
+            allCourses.push(course);
+          }
         }
+      } catch (err) {
+        console.error(`Free search error: ${err}`);
       }
 
-      // Filter and parse valid course results
-      for (const result of searchResults) {
-        // Skip invalid URLs (PDFs, papers, etc.)
-        if (!isValidCourseUrl(result.url)) {
-          console.log(`Skipping invalid URL: ${result.url}`);
-          continue;
-        }
-
-        // Parse course info from search results
-        const course: CourseResult = {
-          title: result.title || "Untitled Course",
-          provider: getProviderFromUrl(result.url),
-          url: result.url,
-          description: result.description || extractDescription(result.markdown) || "",
-          duration: extractDuration(result.markdown || result.description),
-          rating: extractRating(result.markdown || result.description),
-          price: extractPrice(result.markdown || result.description),
-        };
-
-        // Avoid duplicates
-        if (!allCourses.some(c => c.url === course.url)) {
-          allCourses.push(course);
+      // === SEARCH 2: Paid Platforms (unless freeOnly is true) ===
+      if (!freeOnly) {
+        const paidQuery = `${keywords} online course site:coursera.org OR site:udemy.com OR site:edx.org`;
+        console.log(`Searching PAID: ${paidQuery}`);
+        
+        try {
+          const paidResults = await webProvider.search(paidQuery, { limit: 5 });
+          console.log(`Found ${paidResults.length} PAID results for: ${keywords}`);
+          
+          for (const result of paidResults) {
+            if (!isValidCourseUrl(result.url)) continue;
+            
+            // Handle blocked results differently for paid platforms
+            if (isBlockedResult(result)) {
+              blockedUrls.push(result.url);
+              // Try to salvage with URL-based extraction
+              const course = salvageBlockedResult(result);
+              if (course && !allCourses.some(c => c.url === course.url)) {
+                allCourses.push(course);
+              }
+              continue;
+            }
+            
+            const course = parseSearchResult(result, false);
+            if (!allCourses.some(c => c.url === course.url)) {
+              allCourses.push(course);
+            }
+          }
+        } catch (err) {
+          console.error(`Paid search error: ${err}`);
+          searchErrors.push(`Failed to search paid platforms for: ${keywords}`);
         }
       }
     }
 
-    console.log(`Total unique courses found: ${allCourses.length}`);
+    // Sort: Free courses first
+    allCourses.sort((a, b) => {
+      if (a.isFree && !b.isFree) return -1;
+      if (!a.isFree && b.isFree) return 1;
+      return 0;
+    });
+
+    console.log(`Total unique courses found: ${allCourses.length} (${blockedUrls.length} blocked results handled)`);
 
     // Save courses as recommendations
     if (allCourses.length > 0 && dreamJobId) {
-      const recommendationsToInsert = allCourses.slice(0, 10).map((course, index) => {
-        // Get the corresponding gap for this course
+      const recommendationsToInsert = allCourses.slice(0, 12).map((course, index) => {
         const gapIndex = Math.min(index, gapsToSearch.length - 1);
         const gap = gapsToSearch[gapIndex];
-        // Extract the gap text from various possible formats
         const gapText = typeof gap === 'string' ? gap :
           gap?.gap || gap?.requirement || gap?.job_requirement || gap?.skill ||
           `${dreamJobTitle} skill requirement`;
@@ -214,19 +295,24 @@ serve(async (req) => {
           dream_job_id: dreamJobId,
           title: course.title,
           type: "course",
-          description: course.description.slice(0, 500),
+          description: course.isFree 
+            ? `[FREE] ${course.description.slice(0, 450)}`
+            : course.description.slice(0, 500),
           provider: course.provider,
           url: course.url,
           duration: course.duration || "Self-paced",
           cost_usd: parseCost(course.price),
-          priority: index < 3 ? "high" : index < 6 ? "medium" : "low",
+          priority: course.isFree 
+            ? (index < 2 ? "high" : "medium") 
+            : (index < 4 ? "high" : index < 8 ? "medium" : "low"),
           status: "pending",
           gap_addressed: gapText,
-          why_this_matters: `This course addresses a skill gap identified for your goal of becoming a ${dreamJobTitle}. Completing it will strengthen your candidacy by developing ${gapText}.`,
+          why_this_matters: course.isFree
+            ? `This FREE resource addresses a skill gap for your goal of becoming a ${dreamJobTitle}. No financial barrier to start learning ${gapText}.`
+            : `This course addresses a skill gap identified for your goal of becoming a ${dreamJobTitle}. Completing it will strengthen your candidacy by developing ${gapText}.`,
         };
       });
 
-      // Insert without deleting existing - append to recommendations
       const { error: insertError } = await supabase
         .from("recommendations")
         .insert(recommendationsToInsert);
@@ -244,7 +330,10 @@ serve(async (req) => {
         courses: allCourses,
         gapsSearched: gapsToSearch.length,
         totalFound: allCourses.length,
+        freeCount: allCourses.filter(c => c.isFree).length,
+        paidCount: allCourses.filter(c => !c.isFree).length,
         provider: webProvider.name,
+        blockedCount: blockedUrls.length,
         searchErrors: searchErrors.length > 0 ? searchErrors : undefined,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -258,24 +347,80 @@ serve(async (req) => {
   }
 });
 
+// Parse a search result into a CourseResult
+function parseSearchResult(result: SearchResult, isFree: boolean): CourseResult {
+  let title = result.title || extractTitleFromUrl(result.url);
+  
+  // Clean up title if it looks like a blocked page title
+  if (title.toLowerCase().includes('just a moment') || title.length < 5) {
+    title = extractTitleFromUrl(result.url);
+  }
+  
+  const provider = getProviderFromUrl(result.url);
+  const description = result.description || extractDescription(result.markdown) || `Learn with ${provider}`;
+  
+  // Determine price
+  let price: string;
+  if (isFree || isFreePlatform(result.url)) {
+    price = "Free";
+  } else {
+    price = extractPrice(result.markdown || result.description) || "Check pricing";
+  }
+  
+  return {
+    title,
+    provider,
+    url: result.url,
+    description,
+    duration: extractDuration(result.markdown || result.description),
+    rating: extractRating(result.markdown || result.description),
+    price,
+    isFree: price === "Free",
+  };
+}
+
+// Salvage a blocked result by extracting info from URL
+function salvageBlockedResult(result: SearchResult): CourseResult | null {
+  if (!isValidCourseUrl(result.url)) return null;
+  
+  const title = extractTitleFromUrl(result.url);
+  if (title === "Online Course") return null; // Not useful enough
+  
+  const provider = getProviderFromUrl(result.url);
+  
+  return {
+    title,
+    provider,
+    url: result.url,
+    description: `${title} on ${provider}`,
+    price: provider === "Khan Academy" || provider === "MIT OpenCourseWare" || provider === "freeCodeCamp" 
+      ? "Free" 
+      : "Check pricing",
+    isFree: isFreePlatform(result.url),
+  };
+}
+
 function getProviderFromUrl(url: string): string {
-  if (url.includes("coursera.org")) return "Coursera";
-  if (url.includes("udemy.com")) return "Udemy";
-  if (url.includes("edx.org")) return "edX";
-  if (url.includes("linkedin.com/learning")) return "LinkedIn Learning";
-  if (url.includes("pluralsight.com")) return "Pluralsight";
-  if (url.includes("skillshare.com")) return "Skillshare";
-  if (url.includes("udacity.com")) return "Udacity";
-  if (url.includes("codecademy.com")) return "Codecademy";
-  if (url.includes("khanacademy.org")) return "Khan Academy";
-  if (url.includes("ocw.mit.edu")) return "MIT OpenCourseWare";
-  if (url.includes("futurelearn.com")) return "FutureLearn";
+  const urlLower = url.toLowerCase();
+  if (urlLower.includes("coursera.org")) return "Coursera";
+  if (urlLower.includes("udemy.com")) return "Udemy";
+  if (urlLower.includes("edx.org")) return "edX";
+  if (urlLower.includes("linkedin.com/learning")) return "LinkedIn Learning";
+  if (urlLower.includes("pluralsight.com")) return "Pluralsight";
+  if (urlLower.includes("skillshare.com")) return "Skillshare";
+  if (urlLower.includes("udacity.com")) return "Udacity";
+  if (urlLower.includes("codecademy.com")) return "Codecademy";
+  if (urlLower.includes("khanacademy.org")) return "Khan Academy";
+  if (urlLower.includes("ocw.mit.edu")) return "MIT OpenCourseWare";
+  if (urlLower.includes("futurelearn.com")) return "FutureLearn";
+  if (urlLower.includes("youtube.com")) return "YouTube";
+  if (urlLower.includes("freecodecamp.org")) return "freeCodeCamp";
+  if (urlLower.includes("open.edu")) return "Open University";
   return "Online Course";
 }
 
 function extractDescription(markdown: string): string {
   if (!markdown) return "";
-  // Get first meaningful paragraph
   const lines = markdown.split("\n").filter(l => l.trim().length > 50);
   return lines[0]?.slice(0, 300) || "";
 }
@@ -302,18 +447,17 @@ function extractRating(text: string): string | undefined {
 }
 
 function extractPrice(text: string): string | undefined {
-  if (!text) return "Check pricing"; // Return "Check pricing" instead of undefined
-  if (/free\s*course|enroll\s*for\s*free|free\s*to\s*enroll/i.test(text)) return "Free";
+  if (!text) return undefined;
+  if (/free\s*course|enroll\s*for\s*free|free\s*to\s*enroll|free\s*to\s*audit/i.test(text)) return "Free";
   const match = text.match(/\$(\d+(?:\.\d{2})?)/);
   if (match) return `$${match[1]}`;
-  // If no price found, indicate it's unknown rather than assuming free
-  return "Check pricing";
+  return undefined;
 }
 
 function parseCost(price: string | undefined): number | null {
-  if (!price) return null; // Unknown price, not free
+  if (!price) return null;
   if (price.toLowerCase() === "free") return 0;
-  if (price.toLowerCase() === "check pricing") return null; // Unknown
+  if (price.toLowerCase() === "check pricing") return null;
   const match = price.match(/\$?(\d+(?:\.\d{2})?)/);
   return match ? parseFloat(match[1]) : null;
 }
