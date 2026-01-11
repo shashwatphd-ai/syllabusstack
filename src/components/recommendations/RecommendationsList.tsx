@@ -19,9 +19,11 @@ type FilterType = "all" | "course" | "project" | "certification" | "skill" | "ex
 
 interface RecommendationsListProps {
   dreamJobId?: string;
+  freeFirst?: boolean;
+  priceFilter?: 'all' | 'free' | 'paid';
 }
 
-export function RecommendationsList({ dreamJobId }: RecommendationsListProps) {
+export function RecommendationsList({ dreamJobId, freeFirst = false, priceFilter = 'all' }: RecommendationsListProps) {
   const [filter, setFilter] = useState<FilterType>("all");
   const [showReAnalysisPrompt, setShowReAnalysisPrompt] = useState(false);
   const [isReAnalyzing, setIsReAnalyzing] = useState(false);
@@ -33,9 +35,32 @@ export function RecommendationsList({ dreamJobId }: RecommendationsListProps) {
   const { data: recommendations = [], isLoading } = useRecommendations(dreamJobId);
   const updateStatus = useUpdateRecommendationStatus();
 
-  const filteredRecommendations = filter === "all" 
+  // Apply type filter first
+  const typeFilteredRecs = filter === "all" 
     ? recommendations 
     : recommendations.filter((r) => r.type === filter);
+  
+  // Apply price filter for courses
+  const priceFilteredRecs = typeFilteredRecs.filter(rec => {
+    if (rec.type !== 'course') return true; // non-courses pass through
+    if (priceFilter === 'free') return rec.cost_usd === 0 || rec.cost_usd === null;
+    if (priceFilter === 'paid') return rec.cost_usd !== null && rec.cost_usd > 0;
+    return true; // 'all'
+  });
+  
+  // Apply freeFirst sorting for courses
+  const filteredRecommendations = freeFirst 
+    ? [...priceFilteredRecs].sort((a, b) => {
+        // Only sort courses, keep other types in place
+        if (a.type === 'course' && b.type === 'course') {
+          const aFree = a.cost_usd === 0 || a.cost_usd === null;
+          const bFree = b.cost_usd === 0 || b.cost_usd === null;
+          if (aFree && !bFree) return -1;
+          if (!aFree && bFree) return 1;
+        }
+        return 0;
+      })
+    : priceFilteredRecs;
 
   const pendingCount = recommendations.filter((r) => r.status !== 'completed' && r.status !== 'skipped').length;
   const completedCount = recommendations.filter((r) => r.status === 'completed').length;

@@ -644,7 +644,11 @@ export default function CareerPathPage() {
                   </Card>
                 )}
 
-                <RecommendationsList dreamJobId={activeDreamJobId} />
+                <RecommendationsList 
+                  dreamJobId={activeDreamJobId} 
+                  freeFirst={freeFirst}
+                  priceFilter={priceFilter}
+                />
               </div>
             )}
           </TabsContent>
