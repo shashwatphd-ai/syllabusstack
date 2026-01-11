@@ -9,6 +9,7 @@ import { RecommendationCard } from "./RecommendationCard";
 import { ReAnalysisPrompt } from "./ReAnalysisPrompt";
 import { ProgressTracker } from "./ProgressTracker";
 import { useRecommendations, useUpdateRecommendationStatus } from "@/hooks/useRecommendations";
+import { useSingleCourseSearch } from "@/hooks/useSingleCourseSearch";
 import { performGapAnalysis } from "@/services";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
@@ -20,11 +21,12 @@ type FilterType = "all" | "course" | "project" | "certification" | "skill" | "ex
 
 interface RecommendationsListProps {
   dreamJobId?: string;
+  dreamJobTitle?: string;
   freeFirst?: boolean;
   priceFilter?: 'all' | 'free' | 'paid' | 'unknown';
 }
 
-export function RecommendationsList({ dreamJobId, freeFirst = false, priceFilter = 'all' }: RecommendationsListProps) {
+export function RecommendationsList({ dreamJobId, dreamJobTitle, freeFirst = false, priceFilter = 'all' }: RecommendationsListProps) {
   const [filter, setFilter] = useState<FilterType>("all");
   const [showReAnalysisPrompt, setShowReAnalysisPrompt] = useState(false);
   const [isReAnalyzing, setIsReAnalyzing] = useState(false);
@@ -35,6 +37,17 @@ export function RecommendationsList({ dreamJobId, freeFirst = false, priceFilter
   const { toast } = useToast();
   const { data: recommendations = [], isLoading } = useRecommendations(dreamJobId);
   const updateStatus = useUpdateRecommendationStatus();
+  const { searchForCourse, isSearching, searchingId } = useSingleCourseSearch();
+
+  // Handle course search for a single recommendation
+  const handleSearchCourse = async (recommendationId: string, gapAddressed: string) => {
+    if (!dreamJobId) return;
+    await searchForCourse(recommendationId, {
+      gapAddressed,
+      dreamJobId,
+      dreamJobTitle: dreamJobTitle || '',
+    });
+  };
 
   // Apply type filter first
   const typeFilteredRecs = filter === "all" 
@@ -150,6 +163,7 @@ export function RecommendationsList({ dreamJobId, freeFirst = false, priceFilter
     linked_course_id: rec.linked_course_id,
     linked_course_title: rec.linked_course_title,
     enrollment_progress: rec.enrollment_progress,
+    dream_job_id: rec.dream_job_id,
   }));
 
   if (isLoading) {
@@ -255,6 +269,9 @@ export function RecommendationsList({ dreamJobId, freeFirst = false, priceFilter
                     key={rec.id}
                     recommendation={rec}
                     onStatusChange={handleStatusChange}
+                    onSearchCourse={handleSearchCourse}
+                    isSearchingCourse={isSearching && searchingId === rec.id}
+                    dreamJobTitle={dreamJobTitle}
                   />
                 ))}
               </div>
