@@ -7,6 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -27,7 +29,8 @@ import {
   Loader2,
   Search,
   ExternalLink,
-  GraduationCap
+  GraduationCap,
+  Leaf
 } from "lucide-react";
 import { useDreamJobs, useCreateDreamJob } from "@/hooks/useDreamJobs";
 import { useGapAnalysis, useRefreshGapAnalysis, useGenerateRecommendations } from "@/hooks/useAnalysis";
@@ -53,6 +56,8 @@ export default function CareerPathPage() {
   const [showAddJob, setShowAddJob] = useState(false);
   const [showDiscover, setShowDiscover] = useState(false);
   const [isCreatingJob, setIsCreatingJob] = useState(false);
+  const [freeFirst, setFreeFirst] = useState(true);
+  const [priceFilter, setPriceFilter] = useState<'all' | 'free' | 'paid'>('all');
 
   // Dream Jobs
   const { data: dreamJobs = [], isLoading: jobsLoading } = useDreamJobs();
@@ -576,6 +581,34 @@ export default function CareerPathPage() {
                   </div>
                 </div>
 
+                {/* Course Filters - show when there are course recommendations */}
+                {recommendations.filter(r => r.type === 'course').length > 0 && (
+                  <div className="flex items-center gap-4 p-3 bg-muted/50 rounded-lg border">
+                    <div className="flex items-center gap-2 bg-green-50 px-3 py-1.5 rounded-lg border border-green-200">
+                      <Leaf className="h-4 w-4 text-green-600" />
+                      <Switch 
+                        id="free-first"
+                        checked={freeFirst}
+                        onCheckedChange={setFreeFirst}
+                      />
+                      <Label htmlFor="free-first" className="text-sm text-green-700 cursor-pointer">Free First</Label>
+                    </div>
+                    <Select value={priceFilter} onValueChange={(v) => setPriceFilter(v as 'all' | 'free' | 'paid')}>
+                      <SelectTrigger className="w-32 h-8">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Prices</SelectItem>
+                        <SelectItem value="free">Free Only</SelectItem>
+                        <SelectItem value="paid">Paid Only</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <span className="text-xs text-muted-foreground ml-auto">
+                      {recommendations.filter(r => r.type === 'course' && r.cost_usd === 0).length} free courses available
+                    </span>
+                  </div>
+                )}
+
                 {/* Currently Learning section */}
                 {enrollments.length > 0 && (
                   <Card className="border-indigo-200 bg-indigo-50/50">
@@ -597,9 +630,14 @@ export default function CareerPathPage() {
                           </Badge>
                         ))}
                         {enrollments.length > 4 && (
-                          <Badge variant="outline" className="text-muted-foreground">
-                            +{enrollments.length - 4} more
-                          </Badge>
+                          <Button 
+                            variant="ghost" 
+                            size="sm"
+                            onClick={() => navigate('/learn/courses')}
+                            className="text-xs text-indigo-600 hover:text-indigo-700"
+                          >
+                            View all {enrollments.length} →
+                          </Button>
                         )}
                       </div>
                     </CardContent>
