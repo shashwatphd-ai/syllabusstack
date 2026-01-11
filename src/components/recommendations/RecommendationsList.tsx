@@ -118,6 +118,10 @@ export function RecommendationsList({ dreamJobId }: RecommendationsListProps) {
     steps: rec.steps as any[],
     evidence_created: rec.evidence_created,
     how_to_demonstrate: rec.how_to_demonstrate,
+    // Add linked course fields
+    linked_course_id: rec.linked_course_id,
+    linked_course_title: rec.linked_course_title,
+    enrollment_progress: rec.enrollment_progress,
   }));
 
   if (isLoading) {
