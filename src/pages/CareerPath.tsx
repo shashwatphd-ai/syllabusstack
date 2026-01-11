@@ -215,7 +215,7 @@ export default function CareerPathPage() {
 
         {/* Stats Cards */}
         {selectedJob && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <Card className="cursor-pointer hover:shadow-md" onClick={() => setActiveTab("gaps")}>
               <CardContent className="p-4">
                 <div className="flex items-center gap-3">
@@ -272,20 +272,20 @@ export default function CareerPathPage() {
               </CardContent>
             </Card>
             
-            {/* New: Enrolled Courses card */}
-            <Card className="cursor-pointer hover:shadow-md col-span-2 md:col-span-1" onClick={() => navigate('/learn/courses')}>
+            {/* Enrolled Courses card */}
+            <Card className="cursor-pointer hover:shadow-md" onClick={() => navigate('/learn/courses')}>
               <CardContent className="p-4">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-lg bg-indigo-500/10 flex items-center justify-center">
                     <GraduationCap className="h-5 w-5 text-indigo-600" />
                   </div>
-                  <div className="flex-1">
+                  <div className="flex-1 min-w-0">
                     <p className="text-2xl font-bold">{enrollments.length}</p>
-                    <p className="text-xs text-muted-foreground">Enrolled Courses</p>
+                    <p className="text-xs text-muted-foreground truncate">Enrolled</p>
                   </div>
                   {enrollments.length > 0 && (
-                    <Badge variant="outline" className="text-[10px] text-indigo-600 border-indigo-300">
-                      {enrollments.filter(e => e.completed_at).length} done
+                    <Badge variant="outline" className="text-[10px] text-indigo-600 border-indigo-300 shrink-0">
+                      {enrollments.filter(e => e.completed_at).length}✓
                     </Badge>
                   )}
                 </div>
