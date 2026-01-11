@@ -130,21 +130,35 @@ export default function CareerPathPage() {
     refreshAnalysis.mutate(activeDreamJobId);
   };
 
-  // Handle generate recommendations
+  // Handle generate recommendations - uses BOTH critical and priority gaps
   const handleGenerateRecs = async () => {
     if (!activeDreamJobId || gapsCount === 0) return;
     try {
-      const gaps = criticalGaps.map(gap => ({
+      // Map critical gaps
+      const criticalGapsMapped = criticalGaps.map(gap => ({
         requirement: gap.job_requirement,
         importance: 'critical' as const,
         difficulty: 'challenging' as const,
         time_to_close: '3-6 months',
         suggested_action: gap.impact,
       }));
+      
+      // Map priority gaps - use 'important' as it's a valid importance value
+      const priorityGapsMapped = priorityGaps.map(gap => ({
+        requirement: gap.gap || gap.requirement || gap.job_requirement,
+        importance: 'important' as const,
+        difficulty: 'moderate' as const,
+        time_to_close: gap.reason || '1-3 months',
+        suggested_action: gap.reason || 'Address this skill gap',
+      }));
+      
+      // Combine both gap types
+      const gaps = [...criticalGapsMapped, ...priorityGapsMapped];
+      
       await generateRecs.mutateAsync({ dreamJobId: activeDreamJobId, gaps });
       toast({
         title: "Recommendations generated",
-        description: "New recommendations have been created based on your gaps.",
+        description: `Created actions for ${gaps.length} skill gaps (${criticalGapsMapped.length} critical, ${priorityGapsMapped.length} priority).`,
       });
     } catch (error) {
       toast({
@@ -155,14 +169,15 @@ export default function CareerPathPage() {
     }
   };
 
-  // Handle find courses (Firecrawl)
+  // Handle find courses (Firecrawl) - uses BOTH critical and priority gaps
   const handleFindCourses = async () => {
-    if (!activeDreamJobId || priorityGaps.length === 0) return;
+    const allGaps = [...criticalGaps, ...priorityGaps];
+    if (!activeDreamJobId || allGaps.length === 0) return;
     try {
-      await searchCourses(priorityGaps, activeDreamJobId, selectedJob?.title || '');
+      await searchCourses(allGaps, activeDreamJobId, selectedJob?.title || '');
       toast({
         title: "Courses found",
-        description: "Real course links have been added to your action plan.",
+        description: `Found real courses for ${allGaps.length} skill gaps.`,
       });
     } catch (error) {
       toast({
