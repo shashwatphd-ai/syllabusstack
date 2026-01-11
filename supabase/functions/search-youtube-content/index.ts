@@ -3,8 +3,6 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target
 import {
   checkCache,
   saveToCache,
-  checkYouTubeQuota,
-  trackApiUsage,
   extractKeywords
 } from "../_shared/content-cache.ts";
 import { generateSearchQueries } from "../_shared/query-intelligence/index.ts";
@@ -13,6 +11,20 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+/**
+ * UNIFIED EDUCATIONAL CONTENT SEARCH FOR INSTRUCTORS
+ * 
+ * This function provides high-quality content discovery for instructor courses.
+ * It uses quota-free APIs (Invidious/Piped) for discovery and AI for evaluation.
+ * 
+ * Pipeline:
+ * 1. Query Intelligence - Generate smart search queries from LO context
+ * 2. Multi-Source Discovery - Invidious, Piped, Khan Academy (quota-free)
+ * 3. Rule-Based Pre-Filter - Duration fit, keyword matching
+ * 4. AI Batch Evaluation - Pedagogy, relevance, quality scoring
+ * 5. Save & Auto-Approve - Strict criteria for instructor quality
+ */
 
 // Invidious instances (public YouTube API alternatives - NO QUOTA LIMITS)
 const INVIDIOUS_INSTANCES = [
@@ -41,130 +53,6 @@ interface InvidiousVideo {
   published: number;
   videoThumbnails: Array<{ url: string; quality: string }>;
 }
-
-/**
- * Search YouTube using Invidious API (NO QUOTA LIMITS)
- * Falls back through multiple instances if one fails
- */
-async function searchInvidious(query: string, maxResults: number = 15): Promise<YouTubeVideo[]> {
-  for (const instance of INVIDIOUS_INSTANCES) {
-    try {
-      const searchUrl = `${instance}/api/v1/search?q=${encodeURIComponent(query)}&type=video&sort=relevance`;
-      const response = await fetch(searchUrl, {
-        headers: { 'Accept': 'application/json' },
-        signal: AbortSignal.timeout(10000), // 10s timeout
-      });
-
-      if (!response.ok) {
-        console.log(`Invidious instance ${instance} returned ${response.status}`);
-        continue;
-      }
-
-      const data: InvidiousVideo[] = await response.json();
-      const videos: YouTubeVideo[] = data.slice(0, maxResults).map(item => ({
-        id: item.videoId,
-        title: item.title,
-        description: item.description || '',
-        channelTitle: item.author,
-        channelId: item.authorId,
-        publishedAt: new Date(item.published * 1000).toISOString(),
-        thumbnailUrl: item.videoThumbnails?.find(t => t.quality === 'medium')?.url ||
-                      item.videoThumbnails?.[0]?.url || '',
-        duration: item.lengthSeconds,
-        viewCount: item.viewCount || 0,
-        likeCount: 0, // Invidious doesn't provide likes
-      }));
-
-      console.log(`Invidious (${instance}) found ${videos.length} videos`);
-      return videos;
-    } catch (error) {
-      console.log(`Invidious instance ${instance} failed:`, error);
-      continue;
-    }
-  }
-
-  console.log('All Invidious instances failed');
-  return [];
-}
-
-/**
- * Search YouTube using Piped API (NO QUOTA LIMITS)
- */
-async function searchPiped(query: string, maxResults: number = 15): Promise<YouTubeVideo[]> {
-  for (const instance of PIPED_INSTANCES) {
-    try {
-      const searchUrl = `${instance}/search?q=${encodeURIComponent(query)}&filter=videos`;
-      const response = await fetch(searchUrl, {
-        headers: { 'Accept': 'application/json' },
-        signal: AbortSignal.timeout(10000),
-      });
-
-      if (!response.ok) {
-        console.log(`Piped instance ${instance} returned ${response.status}`);
-        continue;
-      }
-
-      const data = await response.json();
-      const items = data.items || [];
-
-      const videos: YouTubeVideo[] = items.slice(0, maxResults).map((item: any) => {
-        // Extract video ID from URL
-        const videoId = item.url?.split('/watch?v=')[1] || item.url?.split('/').pop() || '';
-        return {
-          id: videoId,
-          title: item.title || '',
-          description: item.shortDescription || '',
-          channelTitle: item.uploaderName || '',
-          channelId: item.uploaderUrl?.split('/channel/')[1] || '',
-          publishedAt: new Date(item.uploaded || Date.now()).toISOString(),
-          thumbnailUrl: item.thumbnail || '',
-          duration: item.duration || 0,
-          viewCount: item.views || 0,
-          likeCount: 0,
-        };
-      });
-
-      console.log(`Piped (${instance}) found ${videos.length} videos`);
-      return videos;
-    } catch (error) {
-      console.log(`Piped instance ${instance} failed:`, error);
-      continue;
-    }
-  }
-
-  console.log('All Piped instances failed');
-  return [];
-}
-
-// Fallback action mapping for Bloom's taxonomy levels (used if AI strategy fails)
-const ACTION_MAP: Record<string, string[]> = {
-  remember: ["introduction to", "basics of", "what is", "overview"],
-  understand: ["explained", "understanding", "how does", "concepts"],
-  apply: ["how to", "tutorial", "practical", "implementation"],
-  analyze: ["analysis of", "deep dive", "breakdown", "comparison"],
-  evaluate: ["comparing", "review", "assessment", "evaluation"],
-  create: ["tutorial", "building", "creating", "developing"],
-};
-
-// Domain-specific modifiers for better search results
-const DOMAIN_MODIFIERS: Record<string, string[]> = {
-  business: ["MBA", "business school", "management", "case study"],
-  science: ["lecture", "university", "academic", "research"],
-  humanities: ["lecture", "analysis", "history", "philosophy"],
-  technical: ["tutorial", "programming", "engineering", "tech"],
-  arts: ["creative", "design", "visual", "artistic"],
-  other: ["educational", "lecture", "course"],
-};
-
-// Scoring weights
-const WEIGHTS = {
-  duration_fit: 0.15,
-  semantic_similarity: 0.25,
-  engagement_quality: 0.15,
-  channel_authority: 0.10,
-  recency: 0.05,
-  ai_score: 0.30, // New: AI evaluation weight
-};
 
 interface YouTubeVideo {
   id: string;
@@ -195,14 +83,121 @@ interface ScoredContent {
   ai_concern?: string | null;
 }
 
-function parseDuration(duration: string): number {
-  const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
-  if (!match) return 0;
-  const hours = parseInt(match[1] || "0");
-  const minutes = parseInt(match[2] || "0");
-  const seconds = parseInt(match[3] || "0");
-  return hours * 3600 + minutes * 60 + seconds;
+// Scoring weights with AI included
+const WEIGHTS = {
+  duration_fit: 0.15,
+  semantic_similarity: 0.20,
+  engagement_quality: 0.12,
+  channel_authority: 0.08,
+  recency: 0.05,
+  ai_score: 0.40, // AI evaluation is the primary quality signal
+};
+
+// Weights for non-AI scoring (fallback)
+const WEIGHTS_NO_AI = {
+  duration_fit: 0.20,
+  semantic_similarity: 0.35,
+  engagement_quality: 0.20,
+  channel_authority: 0.15,
+  recency: 0.10,
+};
+
+/**
+ * Search YouTube using Invidious API (NO QUOTA LIMITS)
+ * Falls back through multiple instances if one fails
+ */
+async function searchInvidious(query: string, maxResults: number = 20): Promise<YouTubeVideo[]> {
+  for (const instance of INVIDIOUS_INSTANCES) {
+    try {
+      const searchUrl = `${instance}/api/v1/search?q=${encodeURIComponent(query)}&type=video&sort=relevance`;
+      const response = await fetch(searchUrl, {
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!response.ok) {
+        console.log(`Invidious instance ${instance} returned ${response.status}`);
+        continue;
+      }
+
+      const data: InvidiousVideo[] = await response.json();
+      const videos: YouTubeVideo[] = data.slice(0, maxResults).map(item => ({
+        id: item.videoId,
+        title: item.title,
+        description: item.description || '',
+        channelTitle: item.author,
+        channelId: item.authorId,
+        publishedAt: new Date(item.published * 1000).toISOString(),
+        thumbnailUrl: item.videoThumbnails?.find(t => t.quality === 'medium')?.url ||
+                      item.videoThumbnails?.[0]?.url || '',
+        duration: item.lengthSeconds,
+        viewCount: item.viewCount || 0,
+        likeCount: 0,
+      }));
+
+      console.log(`Invidious (${instance}) found ${videos.length} videos`);
+      return videos;
+    } catch (error) {
+      console.log(`Invidious instance ${instance} failed:`, error);
+      continue;
+    }
+  }
+
+  console.log('All Invidious instances failed');
+  return [];
 }
+
+/**
+ * Search YouTube using Piped API (NO QUOTA LIMITS)
+ */
+async function searchPiped(query: string, maxResults: number = 20): Promise<YouTubeVideo[]> {
+  for (const instance of PIPED_INSTANCES) {
+    try {
+      const searchUrl = `${instance}/search?q=${encodeURIComponent(query)}&filter=videos`;
+      const response = await fetch(searchUrl, {
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!response.ok) {
+        console.log(`Piped instance ${instance} returned ${response.status}`);
+        continue;
+      }
+
+      const data = await response.json();
+      const items = data.items || [];
+
+      const videos: YouTubeVideo[] = items.slice(0, maxResults).map((item: any) => {
+        const videoId = item.url?.split('/watch?v=')[1] || item.url?.split('/').pop() || '';
+        return {
+          id: videoId,
+          title: item.title || '',
+          description: item.shortDescription || '',
+          channelTitle: item.uploaderName || '',
+          channelId: item.uploaderUrl?.split('/channel/')[1] || '',
+          publishedAt: new Date(item.uploaded || Date.now()).toISOString(),
+          thumbnailUrl: item.thumbnail || '',
+          duration: item.duration || 0,
+          viewCount: item.views || 0,
+          likeCount: 0,
+        };
+      });
+
+      console.log(`Piped (${instance}) found ${videos.length} videos`);
+      return videos;
+    } catch (error) {
+      console.log(`Piped instance ${instance} failed:`, error);
+      continue;
+    }
+  }
+
+  console.log('All Piped instances failed');
+  return [];
+}
+
+// ============================================================================
+// SCORING FUNCTIONS
+// ============================================================================
 
 function calculateDurationFitScore(actualSeconds: number, expectedMinutes: number): number {
   const expectedSeconds = expectedMinutes * 60;
@@ -228,7 +223,7 @@ function calculateEngagementScore(viewCount: number, likeCount: number): number 
 }
 
 function calculateChannelAuthorityScore(channelTitle: string): number {
-  const highAuthority = ["university", "professor", "mit", "stanford", "yale", "harvard", "khan academy", "coursera", "edx"];
+  const highAuthority = ["university", "professor", "mit", "stanford", "yale", "harvard", "khan academy", "coursera", "edx", "crash course", "ted-ed"];
   const mediumAuthority = ["academy", "edu", "college", "course", "learn", "tutorial", "school", "institute"];
   const lowerTitle = channelTitle.toLowerCase();
   
@@ -246,6 +241,7 @@ function calculateRecencyScore(publishedAt: string): number {
   const now = new Date();
   const daysDiff = (now.getTime() - publishDate.getTime()) / (1000 * 60 * 60 * 24);
   
+  // Educational content ages gracefully - 1-3 years is often ideal
   if (daysDiff < 30) return 0.6;
   if (daysDiff <= 365) return 1.0;
   if (daysDiff <= 730) return 0.9;
@@ -281,17 +277,37 @@ function calculateSemanticSimilarity(videoText: string, loText: string, keywords
   return Math.min(score / maxScore, 1.0);
 }
 
+function calculateTotalScore(scores: ScoredContent['scores'], hasAI: boolean): number {
+  if (hasAI && scores.ai_score !== undefined) {
+    return (
+      scores.duration_fit * WEIGHTS.duration_fit +
+      scores.semantic_similarity * WEIGHTS.semantic_similarity +
+      scores.engagement_quality * WEIGHTS.engagement_quality +
+      scores.channel_authority * WEIGHTS.channel_authority +
+      scores.recency * WEIGHTS.recency +
+      scores.ai_score * WEIGHTS.ai_score
+    );
+  }
+  
+  return (
+    scores.duration_fit * WEIGHTS_NO_AI.duration_fit +
+    scores.semantic_similarity * WEIGHTS_NO_AI.semantic_similarity +
+    scores.engagement_quality * WEIGHTS_NO_AI.engagement_quality +
+    scores.channel_authority * WEIGHTS_NO_AI.channel_authority +
+    scores.recency * WEIGHTS_NO_AI.recency
+  );
+}
+
+// ============================================================================
+// MAIN HANDLER
+// ============================================================================
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const YOUTUBE_API_KEY = Deno.env.get("GOOGLE_CLOUD_API_KEY");
-    if (!YOUTUBE_API_KEY) {
-      throw new Error("GOOGLE_CLOUD_API_KEY is not configured");
-    }
-
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       throw new Error("No authorization header");
@@ -299,13 +315,10 @@ serve(async (req) => {
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
     const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
     
     const supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
       global: { headers: { Authorization: authHeader } }
     });
-    
-    const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
 
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
     if (userError || !user) {
@@ -321,17 +334,124 @@ serve(async (req) => {
       expected_duration_minutes, 
       lo_text, 
       instructor_course_id,
-      use_ai_strategy = true,
-      use_ai_evaluation = true 
+      use_ai_evaluation = true,
+      sources = ['invidious', 'piped', 'khan_academy']
     } = await req.json();
     
     if (!learning_objective_id) {
       throw new Error("learning_objective_id is required");
     }
 
-    console.log(`Searching YouTube content for LO: ${learning_objective_id} (AI Strategy: ${use_ai_strategy}, AI Eval: ${use_ai_evaluation})`);
+    console.log(`[UNIFIED SEARCH] LO: ${learning_objective_id}, AI Eval: ${use_ai_evaluation}, Sources: ${sources.join(',')}`);
 
-    // Fetch module and course context for query intelligence
+    // =========================================================================
+    // STEP 0: Get existing matches to avoid duplicates
+    // =========================================================================
+    const existingVideoIds = new Set<string>();
+    const { data: existingMatches } = await supabaseClient
+      .from("content_matches")
+      .select(`content:content_id(source_id)`)
+      .eq("learning_objective_id", learning_objective_id);
+
+    existingMatches?.forEach((m: any) => {
+      if (m.content?.source_id) existingVideoIds.add(m.content.source_id);
+    });
+
+    // =========================================================================
+    // STEP 1: Check cache
+    // =========================================================================
+    const searchConcept = lo_text || core_concept || '';
+    const cacheResult = await checkCache(searchConcept, 'youtube');
+
+    if (cacheResult.found && cacheResult.results.length > 0) {
+      console.log(`Cache HIT for: "${searchConcept.substring(0, 50)}..."`);
+      
+      const cachedVideos = cacheResult.results.filter((v: any) => !existingVideoIds.has(v.id));
+      
+      if (cachedVideos.length > 0) {
+        const savedMatches = [];
+        for (const video of cachedVideos.slice(0, 6)) {
+          const { data: existingContent } = await supabaseClient
+            .from("content")
+            .select("id")
+            .eq("source_id", video.id)
+            .eq("source_type", video.source || "youtube")
+            .maybeSingle();
+
+          let contentId: string;
+          if (existingContent) {
+            contentId = existingContent.id;
+          } else {
+            // Parse duration from ISO 8601 format (e.g., "PT10M30S") to seconds
+            const parseDurationToSeconds = (duration: string): number => {
+              const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+              if (!match) return 0;
+              const hours = parseInt(match[1] || "0");
+              const minutes = parseInt(match[2] || "0");
+              const seconds = parseInt(match[3] || "0");
+              return hours * 3600 + minutes * 60 + seconds;
+            };
+
+            const { data: newContent, error: contentError } = await supabaseClient
+              .from("content")
+              .insert({
+                source_type: video.source || "youtube",
+                source_id: video.id,
+                source_url: video.url,
+                title: video.title,
+                description: video.description,
+                duration_seconds: parseDurationToSeconds(video.duration || "PT0S"),
+                thumbnail_url: video.thumbnail_url,
+                channel_name: video.channel_title,
+                quality_score: 0.7,
+                is_available: true,
+                last_availability_check: new Date().toISOString(),
+                created_by: user.id,
+              })
+              .select()
+              .single();
+
+            if (contentError) {
+              console.error("Error saving cached content:", contentError);
+              continue;
+            }
+            contentId = newContent.id;
+          }
+
+          const { data: match, error: matchError } = await supabaseClient
+            .from("content_matches")
+            .insert({
+              learning_objective_id,
+              content_id: contentId,
+              match_score: 0.7,
+              ai_reasoning: `Cached result from ${cacheResult.source}`,
+              status: "pending",
+            })
+            .select()
+            .single();
+
+          if (!matchError && match) {
+            savedMatches.push(match);
+          }
+        }
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            cached: true,
+            cache_source: cacheResult.source,
+            content_matches: savedMatches,
+            total_found: savedMatches.length,
+            message: `Found ${savedMatches.length} cached results`
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+
+    // =========================================================================
+    // STEP 2: Query Intelligence - Generate smart search queries
+    // =========================================================================
     let moduleContext: { title: string; description?: string } | undefined;
     let courseContext: { title: string; description?: string; code?: string } | undefined;
 
@@ -363,450 +483,79 @@ serve(async (req) => {
       }
     }
 
-    // Get existing content IDs to avoid duplicates
-    const existingVideoIds = new Set<string>();
-    const { data: existingMatches } = await supabaseClient
-      .from("content_matches")
-      .select(`content:content_id(source_id)`)
-      .eq("learning_objective_id", learning_objective_id);
-
-    existingMatches?.forEach((m: any) => {
-      if (m.content?.source_id) existingVideoIds.add(m.content.source_id);
-    });
-
-    // Step 0: Check cache before making YouTube API calls
-    const searchConcept = lo_text || core_concept || '';
-    const cacheResult = await checkCache(searchConcept, 'youtube');
-
-    if (cacheResult.found && cacheResult.results.length > 0) {
-      console.log(`Cache HIT for: "${searchConcept.substring(0, 50)}..." (source: ${cacheResult.source})`);
-
-      // Use cached results - filter out already matched videos and save to database
-      const cachedVideos = cacheResult.results.filter((v: any) => !existingVideoIds.has(v.id));
-
-      if (cachedVideos.length > 0) {
-        // Save cached content to database
-        const savedMatches = [];
-        for (const video of cachedVideos.slice(0, 6)) {
-          let contentId: string;
-          const { data: existingContent } = await supabaseClient
-            .from("content")
-            .select("id")
-            .eq("source_id", video.id)
-            .eq("source_type", video.source || "youtube")
-            .maybeSingle();
-
-          if (existingContent) {
-            contentId = existingContent.id;
-          } else {
-            const { data: newContent, error: contentError } = await supabaseClient
-              .from("content")
-              .insert({
-                source_type: video.source || "youtube",
-                source_id: video.id,
-                source_url: video.url,
-                title: video.title,
-                description: video.description,
-                duration_seconds: parseDuration(video.duration || "PT0S"),
-                thumbnail_url: video.thumbnail_url,
-                channel_name: video.channel_title,
-                quality_score: 0.7, // Default score for cached content
-                is_available: true,
-                last_availability_check: new Date().toISOString(),
-                created_by: user.id,
-              })
-              .select()
-              .single();
-
-            if (contentError) {
-              console.error("Error saving cached content:", contentError);
-              continue;
-            }
-            contentId = newContent.id;
-          }
-
-          // Create content match
-          const { data: match, error: matchError } = await supabaseClient
-            .from("content_matches")
-            .insert({
-              learning_objective_id,
-              content_id: contentId,
-              match_score: 0.7,
-              status: "pending",
-              created_by: user.id,
-            })
-            .select()
-            .single();
-
-          if (!matchError && match) {
-            savedMatches.push(match);
-          }
-        }
-
-        return new Response(
-          JSON.stringify({
-            success: true,
-            cached: true,
-            cache_source: cacheResult.source,
-            matches_found: savedMatches.length,
-            message: `Found ${savedMatches.length} cached results for this learning objective`
-          }),
-          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-    }
-
-    // ALWAYS use FREE APIs first (Invidious/Piped), YouTube API only as fallback
-    // Invidious/Piped return the same YouTube content without quota limits
-    console.log('Using FREE APIs first (Invidious/Piped)...');
-
-      // Try Invidious first (quota-free YouTube alternative)
-      const searchQuery = `${core_concept} ${(search_keywords || []).slice(0, 2).join(' ')} educational`.trim();
-      let altVideos = await searchInvidious(searchQuery, 15);
-
-      // If Invidious fails, try Piped
-      if (altVideos.length === 0) {
-        console.log('Invidious failed, trying Piped...');
-        altVideos = await searchPiped(searchQuery, 15);
-      }
-
-      // If we got results from alternative APIs, process them
-      if (altVideos.length > 0) {
-        console.log(`Alternative API found ${altVideos.length} videos`);
-
-        // Score and filter the videos
-        const scoredVideos: ScoredContent[] = altVideos
-          .filter(v => !existingVideoIds.has(v.id))
-          .map(video => {
-            const durationFit = calculateDurationFitScore(video.duration, expected_duration_minutes || 15);
-            const semanticSimilarity = calculateSemanticSimilarity(
-              `${video.title} ${video.description}`,
-              lo_text || core_concept,
-              search_keywords || [],
-              core_concept || ""
-            );
-            const engagementQuality = calculateEngagementScore(video.viewCount, video.likeCount);
-            const channelAuthority = calculateChannelAuthorityScore(video.channelTitle);
-            const recency = calculateRecencyScore(video.publishedAt);
-            const total = durationFit * 0.20 + semanticSimilarity * 0.35 + engagementQuality * 0.20 + channelAuthority * 0.15 + recency * 0.10;
-
-            return {
-              video,
-              scores: {
-                duration_fit: Math.round(durationFit * 100) / 100,
-                semantic_similarity: Math.round(semanticSimilarity * 100) / 100,
-                engagement_quality: Math.round(engagementQuality * 100) / 100,
-                channel_authority: Math.round(channelAuthority * 100) / 100,
-                recency: Math.round(recency * 100) / 100,
-                total: Math.round(total * 100) / 100,
-              },
-            };
-          });
-
-        scoredVideos.sort((a, b) => b.scores.total - a.scores.total);
-        const topCandidates = scoredVideos.filter(sv => sv.scores.total >= 0.40).slice(0, 6);
-
-        // Save to database
-        const savedMatches = [];
-        for (const candidate of topCandidates) {
-          let contentId: string;
-          const { data: existingContent } = await supabaseClient
-            .from("content")
-            .select("id")
-            .eq("source_id", candidate.video.id)
-            .eq("source_type", "youtube")
-            .maybeSingle();
-
-          if (existingContent) {
-            contentId = existingContent.id;
-          } else {
-            const { data: newContent, error: contentError } = await supabaseClient
-              .from("content")
-              .insert({
-                source_type: "youtube",
-                source_id: candidate.video.id,
-                source_url: `https://www.youtube.com/watch?v=${candidate.video.id}`,
-                title: candidate.video.title,
-                description: candidate.video.description,
-                duration_seconds: candidate.video.duration,
-                thumbnail_url: candidate.video.thumbnailUrl,
-                channel_name: candidate.video.channelTitle,
-                channel_id: candidate.video.channelId,
-                view_count: candidate.video.viewCount,
-                quality_score: candidate.scores.total,
-                is_available: true,
-                last_availability_check: new Date().toISOString(),
-                created_by: user.id,
-              })
-              .select()
-              .single();
-
-            if (contentError) {
-              console.error("Error saving content:", contentError);
-              continue;
-            }
-            contentId = newContent.id;
-          }
-
-          const autoApprove = candidate.scores.total >= 0.60;
-          const { data: match, error: matchError } = await supabaseClient
-            .from("content_matches")
-            .upsert({
-              learning_objective_id,
-              content_id: contentId,
-              match_score: candidate.scores.total,
-              semantic_similarity_score: candidate.scores.semantic_similarity,
-              channel_authority_score: candidate.scores.channel_authority,
-              ai_reasoning: "Found via Invidious/Piped (quota-free search)",
-              status: autoApprove ? "auto_approved" : "pending",
-              approved_by: autoApprove ? user.id : null,
-              approved_at: autoApprove ? new Date().toISOString() : null,
-            }, { onConflict: "learning_objective_id,content_id" })
-            .select(`*, content:content_id(*)`)
-            .single();
-
-          if (!matchError && match) {
-            savedMatches.push(match);
-          }
-        }
-
-        // Also get Khan Academy results to supplement
-        let khanMatches: any[] = [];
-        try {
-          const khanResponse = await fetch(`${supabaseUrl}/functions/v1/search-khan-academy`, {
-            method: 'POST',
-            headers: { 'Authorization': authHeader, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ learning_objective_id, core_concept, search_keywords, lo_text, max_results: 3 }),
-          });
-          if (khanResponse.ok) {
-            const khanData = await khanResponse.json();
-            khanMatches = khanData.content_matches || [];
-          }
-        } catch (e) {
-          console.log('Khan Academy supplement failed:', e);
-        }
-
-        const allMatches = [...savedMatches, ...khanMatches];
-        return new Response(
-          JSON.stringify({
-            success: true,
-            content_matches: allMatches,
-            total_found: altVideos.length,
-            auto_approved_count: allMatches.filter((m) => m.status === "auto_approved").length,
-            youtube_quota_exhausted: true,
-            fallback_source: 'invidious_piped',
-            khan_academy_results: khanMatches.length,
-            message: "YouTube quota exhausted. Using Invidious/Piped + Khan Academy."
-          }),
-          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
-      // If alternative APIs also failed, try Khan Academy only
-      try {
-        const khanResponse = await fetch(`${supabaseUrl}/functions/v1/search-khan-academy`, {
-          method: 'POST',
-          headers: {
-            'Authorization': authHeader,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            learning_objective_id,
-            core_concept,
-            search_keywords,
-            lo_text,
-            max_results: 6,
-          }),
-        });
-
-        if (khanResponse.ok) {
-          const khanData = await khanResponse.json();
-          return new Response(
-            JSON.stringify({
-              success: true,
-              content_matches: khanData.content_matches || [],
-              total_found: khanData.total_found || 0,
-              auto_approved_count: khanData.auto_approved_count || 0,
-              youtube_quota_exhausted: true,
-              fallback_source: 'khan_academy',
-              cached: khanData.cached || false,
-              message: "YouTube quota exhausted. Using Khan Academy as primary source."
-            }),
-            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-        }
-      } catch (khanError) {
-        console.error('Khan Academy fallback also failed:', khanError);
-      }
-
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: "All content sources unavailable",
-          message: "Invidious, Piped, and Khan Academy all failed. Try again later."
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 429 }
-      );
-
-    // If we reach here, the FREE APIs returned results and we're done
-    // YouTube API is kept as emergency fallback only (code below)
-    // but should rarely be reached since FREE APIs cover most cases
-
-    console.log(`Cache MISS for: "${searchConcept.substring(0, 50)}..." - FREE APIs handled above`);
-
-    // Step 1: Get AI-generated search strategies or fallback to rule-based
     let queries: string[] = [];
-    
-    if (use_ai_strategy) {
-      try {
-        // Call generate-content-strategy function
-        const strategyResponse = await fetch(`${supabaseUrl}/functions/v1/generate-content-strategy`, {
-          method: 'POST',
-          headers: {
-            'Authorization': authHeader!,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            learning_objective: {
-              id: learning_objective_id,
-              text: lo_text,
-              bloom_level,
-              core_concept,
-              domain,
-              action_verb: search_keywords?.[0] || '',
-              search_keywords,
-              expected_duration_minutes,
-            }
-          }),
-        });
-
-        if (strategyResponse.ok) {
-          const strategyData = await strategyResponse.json();
-          if (strategyData.strategies?.length) {
-            queries = strategyData.strategies
-              .sort((a: any, b: any) => a.priority - b.priority)
-              .slice(0, 6)
-              .map((s: any) => s.query);
-            console.log('Using AI-generated search strategies:', queries);
-          }
-        } else {
-          console.error('AI strategy generation failed, using fallback');
-        }
-      } catch (strategyError) {
-        console.error('Error calling AI strategy:', strategyError);
-      }
-    }
-    
-    // Fallback to intelligent query generation (SOLID-based query intelligence layer)
-    // Uses syllabus-extracted terms with expansion and platform optimization
-    if (queries.length === 0) {
-      try {
-        console.log('Using Query Intelligence Layer for fallback queries...');
-        queries = await generateSearchQueries(
-          {
-            id: learning_objective_id,
-            text: lo_text || core_concept || '',
-            core_concept: core_concept || '',
-            action_verb: search_keywords?.[0],
-            bloom_level: bloom_level || 'understand',
-            domain: domain || 'other',
-            specificity: 'intermediate',
-            search_keywords: search_keywords || [],
-            expected_duration_minutes: expected_duration_minutes || 15,
-          },
-          moduleContext,
-          courseContext
-        );
-        console.log(`Query Intelligence generated ${queries.length} queries:`, queries.slice(0, 3));
-      } catch (qiError) {
-        console.error('Query Intelligence failed, using basic fallback:', qiError);
-        // Ultimate fallback - basic queries from syllabus terms
-        const actionModifiers = ACTION_MAP[bloom_level] || ACTION_MAP.understand;
-        const domainModifiers = DOMAIN_MODIFIERS[domain] || DOMAIN_MODIFIERS.other;
-
-        queries = [
-          `${core_concept} ${actionModifiers[0]} ${domainModifiers[0]}`,
-          `${core_concept} ${domain} lecture`,
-          `${core_concept} tutorial explained`,
-          ...(search_keywords?.slice(0, 3).map((kw: string) => `${kw} ${domain} explained`) || []),
-          `${core_concept} course`,
-          `${core_concept} education`,
-        ].slice(0, 6);
-      }
+    try {
+      console.log('Generating intelligent search queries...');
+      queries = await generateSearchQueries(
+        {
+          id: learning_objective_id,
+          text: lo_text || core_concept || '',
+          core_concept: core_concept || '',
+          action_verb: search_keywords?.[0],
+          bloom_level: bloom_level || 'understand',
+          domain: domain || 'other',
+          specificity: 'intermediate',
+          search_keywords: search_keywords || [],
+          expected_duration_minutes: expected_duration_minutes || 15,
+        },
+        moduleContext,
+        courseContext
+      );
+      console.log(`Query Intelligence generated ${queries.length} queries:`, queries.slice(0, 3));
+    } catch (qiError) {
+      console.error('Query Intelligence failed, using fallback:', qiError);
+      // Fallback to basic queries
+      queries = [
+        `${core_concept} explained tutorial`,
+        `${core_concept} lecture educational`,
+        `${core_concept} course introduction`,
+      ];
     }
 
-    // Step 2: Execute YouTube searches
-    const allVideos: YouTubeVideo[] = [];
+    // =========================================================================
+    // STEP 3: Multi-Source Discovery (Quota-Free)
+    // =========================================================================
+    let allVideos: YouTubeVideo[] = [];
     const seenVideoIds = new Set<string>();
 
-    for (const query of queries) {
-      try {
-        const searchUrl = new URL("https://www.googleapis.com/youtube/v3/search");
-        searchUrl.searchParams.set("key", YOUTUBE_API_KEY!);
-        searchUrl.searchParams.set("q", query);
-        searchUrl.searchParams.set("part", "snippet");
-        searchUrl.searchParams.set("type", "video");
-        searchUrl.searchParams.set("videoDuration", "any"); // Allow all durations for content diversity
-        searchUrl.searchParams.set("videoEmbeddable", "true");
-        searchUrl.searchParams.set("videoSyndicated", "true");
-        searchUrl.searchParams.set("safeSearch", "strict");
-        searchUrl.searchParams.set("maxResults", "15");
-
-        const searchResponse = await fetch(searchUrl.toString());
-        if (!searchResponse.ok) {
-          console.error(`YouTube search error for query "${query}":`, await searchResponse.text());
-          continue;
+    // Execute searches across all queries
+    for (const query of queries.slice(0, 4)) {
+      // Try Invidious first
+      if (sources.includes('invidious')) {
+        const invidiousVideos = await searchInvidious(query, 15);
+        for (const video of invidiousVideos) {
+          if (!seenVideoIds.has(video.id) && !existingVideoIds.has(video.id)) {
+            seenVideoIds.add(video.id);
+            allVideos.push(video);
+          }
         }
-
-        const searchData = await searchResponse.json();
-        const videoIds = searchData.items
-          ?.map((item: any) => item.id?.videoId)
-          .filter((id: string) => id && !seenVideoIds.has(id) && !existingVideoIds.has(id)) || [];
-
-        if (videoIds.length === 0) continue;
-
-        videoIds.forEach((id: string) => seenVideoIds.add(id));
-
-        const detailsUrl = new URL("https://www.googleapis.com/youtube/v3/videos");
-        detailsUrl.searchParams.set("key", YOUTUBE_API_KEY!);
-        detailsUrl.searchParams.set("id", videoIds.join(","));
-        detailsUrl.searchParams.set("part", "snippet,contentDetails,statistics");
-
-        const detailsResponse = await fetch(detailsUrl.toString());
-        if (!detailsResponse.ok) {
-          console.error("YouTube details error:", await detailsResponse.text());
-          continue;
-        }
-
-        const detailsData = await detailsResponse.json();
-
-        for (const item of detailsData.items || []) {
-          allVideos.push({
-            id: item.id,
-            title: item.snippet.title,
-            description: item.snippet.description,
-            channelTitle: item.snippet.channelTitle,
-            channelId: item.snippet.channelId,
-            publishedAt: item.snippet.publishedAt,
-            thumbnailUrl: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url,
-            duration: parseDuration(item.contentDetails?.duration || ""),
-            viewCount: parseInt(item.statistics?.viewCount || "0"),
-            likeCount: parseInt(item.statistics?.likeCount || "0"),
-          });
-        }
-      } catch (queryError) {
-        console.error(`Error processing query "${query}":`, queryError);
       }
+
+      // Try Piped if we need more
+      if (sources.includes('piped') && allVideos.length < 20) {
+        const pipedVideos = await searchPiped(query, 15);
+        for (const video of pipedVideos) {
+          if (!seenVideoIds.has(video.id) && !existingVideoIds.has(video.id)) {
+            seenVideoIds.add(video.id);
+            allVideos.push(video);
+          }
+        }
+      }
+
+      // Early exit if we have enough
+      if (allVideos.length >= 30) break;
     }
 
-    console.log(`Found ${allVideos.length} unique videos across ${queries.length} queries`);
+    console.log(`Found ${allVideos.length} unique videos from quota-free sources`);
 
-    // Step 3: Initial scoring (rule-based)
+    // =========================================================================
+    // STEP 4: Rule-Based Pre-Filter & Scoring
+    // =========================================================================
     let scoredVideos: ScoredContent[] = allVideos.map((video) => {
       const durationFit = calculateDurationFitScore(video.duration, expected_duration_minutes || 15);
       const semanticSimilarity = calculateSemanticSimilarity(
         `${video.title} ${video.description}`,
-        lo_text || core_concept,
+        lo_text || core_concept || '',
         search_keywords || [],
         core_concept || ""
       );
@@ -814,39 +563,39 @@ serve(async (req) => {
       const channelAuthority = calculateChannelAuthorityScore(video.channelTitle);
       const recency = calculateRecencyScore(video.publishedAt);
 
-      // Without AI, use standard weights
-      const total = use_ai_evaluation 
-        ? 0 // Will be recalculated after AI evaluation
-        : (durationFit * 0.20 + semanticSimilarity * 0.35 + engagementQuality * 0.20 + channelAuthority * 0.15 + recency * 0.10);
-
-      return {
-        video,
-        scores: {
-          duration_fit: Math.round(durationFit * 100) / 100,
-          semantic_similarity: Math.round(semanticSimilarity * 100) / 100,
-          engagement_quality: Math.round(engagementQuality * 100) / 100,
-          channel_authority: Math.round(channelAuthority * 100) / 100,
-          recency: Math.round(recency * 100) / 100,
-          total: Math.round(total * 100) / 100,
-        },
+      const scores = {
+        duration_fit: Math.round(durationFit * 100) / 100,
+        semantic_similarity: Math.round(semanticSimilarity * 100) / 100,
+        engagement_quality: Math.round(engagementQuality * 100) / 100,
+        channel_authority: Math.round(channelAuthority * 100) / 100,
+        recency: Math.round(recency * 100) / 100,
+        total: 0,
       };
+      scores.total = Math.round(calculateTotalScore(scores, false) * 100) / 100;
+
+      return { video, scores };
     });
 
-    // Pre-sort for AI evaluation (top candidates)
+    // Pre-sort by semantic similarity + engagement for AI evaluation
     scoredVideos.sort((a, b) => 
       (b.scores.semantic_similarity + b.scores.engagement_quality) - 
       (a.scores.semantic_similarity + a.scores.engagement_quality)
     );
 
-    // Step 4: AI evaluation for top candidates
-    if (use_ai_evaluation && scoredVideos.length > 0) {
+    // Take top candidates for AI evaluation (limit for cost/speed)
+    const topCandidatesForAI = scoredVideos.slice(0, 15);
+
+    // =========================================================================
+    // STEP 5: AI Batch Evaluation
+    // =========================================================================
+    if (use_ai_evaluation && topCandidatesForAI.length > 0) {
       try {
-        const topCandidates = scoredVideos.slice(0, 15);
+        console.log(`Calling AI evaluation for ${topCandidatesForAI.length} videos...`);
         
         const evalResponse = await fetch(`${supabaseUrl}/functions/v1/evaluate-content-batch`, {
           method: 'POST',
           headers: {
-            'Authorization': authHeader!,
+            'Authorization': authHeader,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
@@ -858,7 +607,7 @@ serve(async (req) => {
               action_verb: search_keywords?.[0] || '',
               expected_duration_minutes,
             },
-            videos: topCandidates.map(sv => ({
+            videos: topCandidatesForAI.map(sv => ({
               video_id: sv.video.id,
               title: sv.video.title,
               description: sv.video.description,
@@ -874,120 +623,74 @@ serve(async (req) => {
             (evalData.evaluations || []).map((e: any) => [e.video_id, e])
           );
 
-          // Apply AI scores
+          // Apply AI scores to scored videos
           scoredVideos = scoredVideos.map(sv => {
-            const aiEval = aiEvaluations.get(sv.video.id) as any;
+            const aiEval = aiEvaluations.get(sv.video.id);
             if (aiEval) {
               const aiScore = (aiEval.total_score || 50) / 100;
-              const total = 
-                sv.scores.duration_fit * WEIGHTS.duration_fit +
-                sv.scores.semantic_similarity * WEIGHTS.semantic_similarity +
-                sv.scores.engagement_quality * WEIGHTS.engagement_quality +
-                sv.scores.channel_authority * WEIGHTS.channel_authority +
-                sv.scores.recency * WEIGHTS.recency +
-                aiScore * WEIGHTS.ai_score;
+              const newScores = {
+                ...sv.scores,
+                ai_score: Math.round(aiScore * 100) / 100,
+                total: 0,
+              };
+              newScores.total = Math.round(calculateTotalScore(newScores, true) * 100) / 100;
 
               return {
                 ...sv,
-                scores: {
-                  ...sv.scores,
-                  ai_score: Math.round(aiScore * 100) / 100,
-                  total: Math.round(total * 100) / 100,
-                },
+                scores: newScores,
                 ai_reasoning: aiEval.reasoning as string,
                 ai_recommendation: aiEval.recommendation as string,
                 ai_concern: aiEval.concern as string | null,
               };
             }
-            // For non-evaluated videos, calculate without AI score
-            const total = 
-              sv.scores.duration_fit * 0.20 +
-              sv.scores.semantic_similarity * 0.35 +
-              sv.scores.engagement_quality * 0.20 +
-              sv.scores.channel_authority * 0.15 +
-              sv.scores.recency * 0.10;
-            return {
-              ...sv,
-              scores: {
-                ...sv.scores,
-                total: Math.round(total * 100) / 100,
-              }
-            };
+            return sv;
           });
 
-          console.log('Applied AI evaluations to', aiEvaluations.size, 'videos');
+          console.log(`Applied AI evaluations to ${aiEvaluations.size} videos`);
         } else {
-          console.error('AI evaluation failed, using rule-based scores only');
-          // Recalculate totals without AI
-          scoredVideos = scoredVideos.map(sv => ({
-            ...sv,
-            scores: {
-              ...sv.scores,
-              total: Math.round((
-                sv.scores.duration_fit * 0.20 +
-                sv.scores.semantic_similarity * 0.35 +
-                sv.scores.engagement_quality * 0.20 +
-                sv.scores.channel_authority * 0.15 +
-                sv.scores.recency * 0.10
-              ) * 100) / 100,
-            }
-          }));
+          console.error('AI evaluation failed, using rule-based scores only:', await evalResponse.text());
         }
       } catch (evalError) {
         console.error('Error in AI evaluation:', evalError);
-        // Recalculate totals without AI
-        scoredVideos = scoredVideos.map(sv => ({
-          ...sv,
-          scores: {
-            ...sv.scores,
-            total: Math.round((
-              sv.scores.duration_fit * 0.20 +
-              sv.scores.semantic_similarity * 0.35 +
-              sv.scores.engagement_quality * 0.20 +
-              sv.scores.channel_authority * 0.15 +
-              sv.scores.recency * 0.10
-            ) * 100) / 100,
-          }
-        }));
       }
     }
 
-    // Sort by total score
+    // Re-sort by total score after AI evaluation
     scoredVideos.sort((a, b) => b.scores.total - a.scores.total);
 
-    // Filter and deduplicate by channel (max 2 per channel)
-    // Phase 3: Raised minimum threshold from 0.30 to 0.45, filter AI-rejected
+    // =========================================================================
+    // STEP 6: Filter and Select Top Candidates
+    // =========================================================================
     const channelCounts = new Map<string, number>();
     const viableCandidates = scoredVideos.filter((sv) => {
-      // Minimum quality threshold - raised from 0.30 to 0.45
+      // Minimum quality threshold
       if (sv.scores.total < 0.45) return false;
       // Never save videos that AI explicitly rejected
       if (sv.ai_recommendation === 'not_recommended') return false;
+      // Limit per channel to ensure diversity
       const count = channelCounts.get(sv.video.channelId) || 0;
       if (count >= 2) return false;
       channelCounts.set(sv.video.channelId, count + 1);
       return true;
     });
-    
-    // Reduced from 12 to 6 to reduce clutter
-    const topCandidates = viableCandidates.slice(0, 6);
 
-    // Step 5: Save content and matches to database
+    const finalCandidates = viableCandidates.slice(0, 6);
+
+    // =========================================================================
+    // STEP 7: Save Content and Matches to Database
+    // =========================================================================
     const savedMatches = [];
-    for (const candidate of topCandidates) {
-      let contentId: string | null = null;
-      const { data: existingContentData } = await supabaseClient
+    for (const candidate of finalCandidates) {
+      const { data: existingContent } = await supabaseClient
         .from("content")
         .select("id")
         .eq("source_id", candidate.video.id)
         .eq("source_type", "youtube")
         .maybeSingle();
 
-      // Type-safe null check using explicit variable
-      const existingContentId = existingContentData?.id ?? null;
-      
-      if (existingContentId) {
-        contentId = existingContentId;
+      let contentId: string;
+      if (existingContent) {
+        contentId = existingContent.id;
       } else {
         const { data: newContent, error: contentError } = await supabaseClient
           .from("content")
@@ -1003,12 +706,10 @@ serve(async (req) => {
             channel_id: candidate.video.channelId,
             view_count: candidate.video.viewCount,
             like_count: candidate.video.likeCount,
-            like_ratio: candidate.video.viewCount > 0 ? candidate.video.likeCount / candidate.video.viewCount : 0,
-            published_at: candidate.video.publishedAt,
             quality_score: candidate.scores.total,
             is_available: true,
             last_availability_check: new Date().toISOString(),
-            created_by: user!.id,
+            created_by: user.id,
           })
           .select()
           .single();
@@ -1020,14 +721,13 @@ serve(async (req) => {
         contentId = newContent.id;
       }
 
-      if (!contentId) continue;
-
-      // Phase 3: Stricter auto-approval criteria
-      // Require BOTH decent score AND good AI recommendation, OR very high score
+      // Auto-approval criteria for instructors:
+      // - AI highly recommends AND decent score, OR
+      // - Very high score regardless of AI
       const isAIApproved = candidate.ai_recommendation === 'highly_recommended' && candidate.scores.total >= 0.55;
       const isScoreApproved = candidate.scores.total >= 0.75;
       const autoApprove = isAIApproved || isScoreApproved;
-      
+
       const { data: match, error: matchError } = await supabaseClient
         .from("content_matches")
         .upsert({
@@ -1040,19 +740,16 @@ serve(async (req) => {
           channel_authority_score: candidate.scores.channel_authority,
           recency_score: candidate.scores.recency,
           ai_reasoning: candidate.ai_reasoning || null,
-          ai_relevance_score: (candidate.scores.ai_score ?? 0) > 0 ? (candidate.scores.ai_score ?? 0) * 40 : null,
-          ai_pedagogy_score: (candidate.scores.ai_score ?? 0) > 0 ? (candidate.scores.ai_score ?? 0) * 35 : null,
-          ai_quality_score: (candidate.scores.ai_score ?? 0) > 0 ? (candidate.scores.ai_score ?? 0) * 25 : null,
+          ai_relevance_score: candidate.scores.ai_score ? candidate.scores.ai_score * 40 : null,
+          ai_pedagogy_score: candidate.scores.ai_score ? candidate.scores.ai_score * 35 : null,
+          ai_quality_score: candidate.scores.ai_score ? candidate.scores.ai_score * 25 : null,
           ai_recommendation: candidate.ai_recommendation || null,
           ai_concern: candidate.ai_concern || null,
           status: autoApprove ? "auto_approved" : "pending",
-          approved_by: autoApprove ? user!.id : null,
+          approved_by: autoApprove ? user.id : null,
           approved_at: autoApprove ? new Date().toISOString() : null,
         }, { onConflict: "learning_objective_id,content_id" })
-        .select(`
-          *,
-          content:content_id(*)
-        `)
+        .select(`*, content:content_id(*)`)
         .single();
 
       if (matchError) {
@@ -1064,17 +761,17 @@ serve(async (req) => {
 
     console.log(`Saved ${savedMatches.length} content matches (${savedMatches.filter(m => m.status === "auto_approved").length} auto-approved)`);
 
-    // FALLBACK: If YouTube returned too few results, try Khan Academy
+    // =========================================================================
+    // STEP 8: Supplement with Khan Academy if needed
+    // =========================================================================
     let khanMatches: any[] = [];
-    const needsFallback = savedMatches.length < 2 || allVideos.length === 0;
-    
-    if (needsFallback) {
-      console.log('YouTube returned few results, trying Khan Academy fallback...');
+    if (sources.includes('khan_academy') && savedMatches.length < 3) {
+      console.log('Supplementing with Khan Academy...');
       try {
         const khanResponse = await fetch(`${supabaseUrl}/functions/v1/search-khan-academy`, {
           method: 'POST',
           headers: {
-            'Authorization': authHeader!,
+            'Authorization': authHeader,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
@@ -1089,48 +786,49 @@ serve(async (req) => {
         if (khanResponse.ok) {
           const khanData = await khanResponse.json();
           khanMatches = khanData.content_matches || [];
-          console.log(`Khan Academy fallback found ${khanMatches.length} additional videos`);
-        } else {
-          console.log('Khan Academy fallback failed:', await khanResponse.text());
+          console.log(`Khan Academy found ${khanMatches.length} additional videos`);
         }
       } catch (khanError) {
-        console.error('Error in Khan Academy fallback:', khanError);
+        console.error('Khan Academy supplement failed:', khanError);
       }
     }
 
     const allMatches = [...savedMatches, ...khanMatches];
 
-    // Save YouTube results to cache for future searches
-    if (topCandidates.length > 0) {
-      const cacheableResults = topCandidates.map(candidate => ({
+    // =========================================================================
+    // STEP 9: Cache results for future searches
+    // =========================================================================
+    if (finalCandidates.length > 0) {
+      // Convert duration in seconds to ISO 8601 format for cache compatibility
+      const formatDuration = (seconds: number): string => {
+        const hours = Math.floor(seconds / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        const secs = seconds % 60;
+        let result = 'PT';
+        if (hours > 0) result += `${hours}H`;
+        if (minutes > 0) result += `${minutes}M`;
+        if (secs > 0 || result === 'PT') result += `${secs}S`;
+        return result;
+      };
+
+      const cacheableResults = finalCandidates.map(candidate => ({
         id: candidate.video.id,
         title: candidate.video.title,
         description: candidate.video.description,
         url: `https://www.youtube.com/watch?v=${candidate.video.id}`,
         thumbnail_url: candidate.video.thumbnailUrl,
-        duration: `PT${Math.floor(candidate.video.duration / 60)}M${candidate.video.duration % 60}S`,
+        duration: formatDuration(candidate.video.duration),
         channel_title: candidate.video.channelTitle,
         source: 'youtube' as const,
         view_count: candidate.video.viewCount,
-        quality_score: candidate.scores.total,
       }));
 
       try {
         await saveToCache(searchConcept, cacheableResults, 'youtube');
-        console.log(`Cached ${cacheableResults.length} YouTube results for: "${searchConcept.substring(0, 50)}..."`);
+        console.log(`Cached ${cacheableResults.length} results`);
       } catch (cacheError) {
-        console.error('Error saving to cache:', cacheError);
-        // Non-blocking - continue even if cache save fails
+        console.error('Cache save failed (non-blocking):', cacheError);
       }
-    }
-
-    // Track YouTube API quota usage (100 units per search query)
-    const queriesUsed = queries.length;
-    try {
-      await trackApiUsage('youtube', queriesUsed * 100);
-      console.log(`Tracked YouTube API usage: ${queriesUsed * 100} units`);
-    } catch (quotaError) {
-      console.error('Error tracking quota:', quotaError);
     }
 
     return new Response(
@@ -1139,16 +837,16 @@ serve(async (req) => {
         content_matches: allMatches,
         total_found: allVideos.length,
         viable_candidates: viableCandidates.length,
-        auto_approved_count: allMatches.filter((m) => m.status === "auto_approved").length,
-        ai_strategy_used: use_ai_strategy && queries.length > 0,
+        auto_approved_count: allMatches.filter((m: any) => m.status === "auto_approved").length,
         ai_evaluation_used: use_ai_evaluation,
-        khan_academy_fallback_used: needsFallback && khanMatches.length > 0,
-        khan_academy_results: khanMatches.length,
+        query_intelligence_used: queries.length > 0,
+        khan_academy_supplement: khanMatches.length,
+        sources_searched: sources,
         cached: false,
-        queries_used: queriesUsed,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
+
   } catch (error: unknown) {
     console.error("Error in search-youtube-content:", error);
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
