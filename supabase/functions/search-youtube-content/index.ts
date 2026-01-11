@@ -7,6 +7,7 @@ import {
   trackApiUsage,
   extractKeywords
 } from "../_shared/content-cache.ts";
+import { generateSearchQueries } from "../_shared/query-intelligence/index.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -329,6 +330,38 @@ serve(async (req) => {
     }
 
     console.log(`Searching YouTube content for LO: ${learning_objective_id} (AI Strategy: ${use_ai_strategy}, AI Eval: ${use_ai_evaluation})`);
+
+    // Fetch module and course context for query intelligence
+    let moduleContext: { title: string; description?: string } | undefined;
+    let courseContext: { title: string; description?: string; code?: string } | undefined;
+
+    const { data: loData } = await supabaseClient
+      .from('learning_objectives')
+      .select('module_id, instructor_course_id')
+      .eq('id', learning_objective_id)
+      .single();
+
+    if (loData?.module_id) {
+      const { data: module } = await supabaseClient
+        .from('modules')
+        .select('title, description')
+        .eq('id', loData.module_id)
+        .single();
+      if (module) {
+        moduleContext = { title: module.title, description: module.description };
+      }
+    }
+
+    if (loData?.instructor_course_id || instructor_course_id) {
+      const { data: course } = await supabaseClient
+        .from('instructor_courses')
+        .select('title, description, code')
+        .eq('id', loData?.instructor_course_id || instructor_course_id)
+        .single();
+      if (course) {
+        courseContext = { title: course.title, description: course.description, code: course.code };
+      }
+    }
 
     // Get existing content IDs to avoid duplicates
     const existingVideoIds = new Set<string>();
@@ -666,20 +699,42 @@ serve(async (req) => {
       }
     }
     
-    // Fallback to rule-based queries
+    // Fallback to intelligent query generation (SOLID-based query intelligence layer)
+    // Uses syllabus-extracted terms with expansion and platform optimization
     if (queries.length === 0) {
-      const actionModifiers = ACTION_MAP[bloom_level] || ACTION_MAP.understand;
-      const domainModifiers = DOMAIN_MODIFIERS[domain] || DOMAIN_MODIFIERS.other;
-      
-      queries = [
-        `${core_concept} ${actionModifiers[0]} ${domainModifiers[0]}`,
-        `${core_concept} ${domain} lecture`,
-        `${core_concept} tutorial explained`,
-        ...(search_keywords?.slice(0, 3).map((kw: string) => `${kw} ${domain} explained`) || []),
-        `${core_concept} course`,
-        `${core_concept} education`,
-      ].slice(0, 6);
-      console.log('Using fallback search queries:', queries);
+      try {
+        console.log('Using Query Intelligence Layer for fallback queries...');
+        queries = await generateSearchQueries(
+          {
+            id: learning_objective_id,
+            text: lo_text || core_concept || '',
+            core_concept: core_concept || '',
+            action_verb: search_keywords?.[0],
+            bloom_level: bloom_level || 'understand',
+            domain: domain || 'other',
+            specificity: 'intermediate',
+            search_keywords: search_keywords || [],
+            expected_duration_minutes: expected_duration_minutes || 15,
+          },
+          moduleContext,
+          courseContext
+        );
+        console.log(`Query Intelligence generated ${queries.length} queries:`, queries.slice(0, 3));
+      } catch (qiError) {
+        console.error('Query Intelligence failed, using basic fallback:', qiError);
+        // Ultimate fallback - basic queries from syllabus terms
+        const actionModifiers = ACTION_MAP[bloom_level] || ACTION_MAP.understand;
+        const domainModifiers = DOMAIN_MODIFIERS[domain] || DOMAIN_MODIFIERS.other;
+
+        queries = [
+          `${core_concept} ${actionModifiers[0]} ${domainModifiers[0]}`,
+          `${core_concept} ${domain} lecture`,
+          `${core_concept} tutorial explained`,
+          ...(search_keywords?.slice(0, 3).map((kw: string) => `${kw} ${domain} explained`) || []),
+          `${core_concept} course`,
+          `${core_concept} education`,
+        ].slice(0, 6);
+      }
     }
 
     // Step 2: Execute YouTube searches
