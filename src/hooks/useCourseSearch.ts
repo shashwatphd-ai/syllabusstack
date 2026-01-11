@@ -28,6 +28,17 @@ interface GapItem {
   priority?: number;
 }
 
+// Rate limit error class for specific handling
+export class RateLimitError extends Error {
+  retryAfter?: number;
+  
+  constructor(message: string, retryAfter?: number) {
+    super(message);
+    this.name = 'RateLimitError';
+    this.retryAfter = retryAfter;
+  }
+}
+
 async function searchCoursesWithFirecrawl(
   gaps: GapItem[],
   dreamJobId: string,
@@ -38,10 +49,23 @@ async function searchCoursesWithFirecrawl(
   });
 
   if (error) {
+    // Check for rate limit errors (429)
+    if (error.message?.includes('429') || error.message?.toLowerCase().includes('rate limit')) {
+      throw new RateLimitError(
+        'Course search limit reached. Please try again in a few minutes.',
+        60 // Default 60 second retry
+      );
+    }
     throw new Error(error.message);
   }
 
-  if (data.error) {
+  if (data?.error) {
+    if (data.error.includes('rate limit') || data.error.includes('429')) {
+      throw new RateLimitError(
+        'Course search limit reached. Please try again in a few minutes.',
+        data.retryAfter || 60
+      );
+    }
     throw new Error(data.error);
   }
 
@@ -74,6 +98,17 @@ export function useCourseSearch() {
       });
     },
     onError: (error) => {
+      // Handle rate limit errors specifically
+      if (error instanceof RateLimitError) {
+        toast({
+          title: 'Search Limit Reached ⏳',
+          description: error.message,
+          variant: 'destructive',
+          duration: 6000,
+        });
+        return;
+      }
+      
       toast({
         title: 'Course Search Failed',
         description: error instanceof Error ? error.message : 'Failed to search for courses',

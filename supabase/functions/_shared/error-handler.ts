@@ -238,3 +238,59 @@ export function logError(
     timestamp: new Date().toISOString()
   }));
 }
+
+/**
+ * Log structured warning for monitoring
+ */
+export function logWarn(
+  functionName: string,
+  message: string,
+  context?: Record<string, unknown>
+): void {
+  console.warn(JSON.stringify({
+    level: 'warn',
+    function: functionName,
+    message,
+    ...context,
+    timestamp: new Date().toISOString()
+  }));
+}
+
+/**
+ * Log rate limit event for tracking
+ */
+export function logRateLimit(
+  functionName: string,
+  userId: string,
+  remaining: number,
+  limit: number
+): void {
+  console.log(JSON.stringify({
+    level: 'info',
+    function: functionName,
+    event: 'rate_limit_check',
+    user_id: userId,
+    remaining,
+    limit,
+    is_limited: remaining <= 0,
+    timestamp: new Date().toISOString()
+  }));
+}
+
+/**
+ * Log analytics event for tracking user actions
+ */
+export function logAnalytics(
+  functionName: string,
+  event: string,
+  properties: Record<string, unknown>
+): void {
+  console.log(JSON.stringify({
+    level: 'info',
+    type: 'analytics',
+    function: functionName,
+    event,
+    properties,
+    timestamp: new Date().toISOString()
+  }));
+}

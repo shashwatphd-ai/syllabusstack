@@ -42,6 +42,7 @@ import { useToast } from "@/hooks/use-toast";
 import { AddDreamJobForm } from "@/components/forms";
 import { DreamJobDiscovery } from "@/components/dreamjobs/DreamJobDiscovery";
 import { RecommendationsList } from "@/components/recommendations/RecommendationsList";
+import { RecommendationsErrorBoundary } from "@/components/recommendations/RecommendationsErrorBoundary";
 import { AntiRecommendations } from "@/components/recommendations/AntiRecommendations";
 import { CurrentlyLearningPanel } from "@/components/recommendations/CurrentlyLearningPanel";
 import { HonestAssessment } from "@/components/analysis/HonestAssessment";
@@ -650,11 +651,14 @@ export default function CareerPathPage() {
                   isLinking={linkCourse.isPending}
                 />
 
-                <RecommendationsList 
-                  dreamJobId={activeDreamJobId} 
-                  freeFirst={freeFirst}
-                  priceFilter={priceFilter}
-                />
+                <RecommendationsErrorBoundary componentName="RecommendationsList">
+                  <RecommendationsList 
+                    dreamJobId={activeDreamJobId} 
+                    dreamJobTitle={selectedJob?.title}
+                    freeFirst={freeFirst}
+                    priceFilter={priceFilter}
+                  />
+                </RecommendationsErrorBoundary>
               </div>
             )}
           </TabsContent>
