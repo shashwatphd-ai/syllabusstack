@@ -70,6 +70,7 @@ export interface Recommendation {
   linked_course_id?: string;
   linked_course_title?: string;
   enrollment_progress?: number;
+  link_status?: string;  // 'active', 'completed', 'abandoned', 'suggested'
 }
 
 interface RecommendationCardProps {
