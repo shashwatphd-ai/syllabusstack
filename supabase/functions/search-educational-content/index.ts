@@ -379,7 +379,7 @@ serve(async (req) => {
     });
 
     // Score and sort results
-    const queryWords = searchQuery.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+    const queryWords = searchQuery.toLowerCase().split(/\s+/).filter((w: string) => w.length > 2);
     const scoredResults = uniqueResults.map(r => ({
       ...r,
       quality_score: scoreResult(r, queryWords),
