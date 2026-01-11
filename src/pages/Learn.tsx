@@ -80,6 +80,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { EnrollmentDialog } from "@/components/student/EnrollmentDialog";
 import { AddCourseForm } from "@/components/forms";
 import { toast } from "@/hooks/use-toast";
+import { useBulkSelection } from "@/hooks/useBulkSelection";
 
 interface SkillProfile {
   skill_name: string;
@@ -133,9 +134,18 @@ export default function LearnPage() {
   const [showAllSkills, setShowAllSkills] = useState(false);
   const SKILLS_DISPLAY_LIMIT = 12;
 
-  // Transcript bulk selection state
-  const [isTranscriptSelectionMode, setIsTranscriptSelectionMode] = useState(false);
-  const [selectedTranscriptCourseIds, setSelectedTranscriptCourseIds] = useState<Set<string>>(new Set());
+  // Transcript bulk selection state using shared hook
+  const {
+    selectedItems: selectedTranscriptCourseIds,
+    isSelectionMode: isTranscriptSelectionMode,
+    selectedCount: transcriptSelectedCount,
+    toggleSelection: toggleTranscriptSelection,
+    selectAll: selectAllTranscript,
+    clearSelection: clearTranscriptSelection,
+    enterSelectionMode: enterTranscriptSelectionMode,
+    isAllSelected: isAllTranscriptSelected,
+    selectedArray: selectedTranscriptArray,
+  } = useBulkSelection<string>();
   const [bulkDeleteTranscriptOpen, setBulkDeleteTranscriptOpen] = useState(false);
 
   // Edit dialog state
@@ -238,28 +248,14 @@ export default function LearnPage() {
     return 'pending';
   };
 
-  // Transcript selection helpers + bulk actions
-  const toggleTranscriptSelection = (id: string) => {
-    setSelectedTranscriptCourseIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const clearTranscriptSelection = () => {
-    setSelectedTranscriptCourseIds(new Set());
-    setIsTranscriptSelectionMode(false);
+  // Transcript bulk actions
+  const handleClearTranscriptSelection = () => {
+    clearTranscriptSelection();
     setBulkDeleteTranscriptOpen(false);
   };
 
-  const selectAllTranscript = (courseIds: string[]) => {
-    setSelectedTranscriptCourseIds(new Set(courseIds));
-  };
-
   const bulkUpdateTranscriptStatus = async (newStatus: CourseStatus, gradeOverride?: string) => {
-    const ids = Array.from(selectedTranscriptCourseIds);
+    const ids = selectedTranscriptArray;
     if (ids.length === 0) return;
 
     const gradeValue = newStatus === 'completed'
@@ -282,11 +278,11 @@ export default function LearnPage() {
     queryClient.invalidateQueries({ queryKey: ['dashboard'] });
 
     toast({ title: `Updated ${ids.length} course${ids.length > 1 ? 's' : ''}` });
-    clearTranscriptSelection();
+    handleClearTranscriptSelection();
   };
 
   const bulkDeleteTranscriptCourses = async () => {
-    const ids = Array.from(selectedTranscriptCourseIds);
+    const ids = selectedTranscriptArray;
     if (ids.length === 0) return;
 
     // Delete capabilities first (no cascade)
@@ -316,7 +312,7 @@ export default function LearnPage() {
     queryClient.invalidateQueries({ queryKey: ['dashboard'] });
 
     toast({ title: `Deleted ${ids.length} course${ids.length > 1 ? 's' : ''}` });
-    clearTranscriptSelection();
+    handleClearTranscriptSelection();
   };
 
   const exportSelectedTranscript = (courses: any[]) => {
@@ -848,7 +844,7 @@ export default function LearnPage() {
               </p>
               <div className="flex items-center gap-2">
                 {personalCourses.length > 0 && !isTranscriptSelectionMode && (
-                  <Button variant="outline" onClick={() => setIsTranscriptSelectionMode(true)}>
+                  <Button variant="outline" onClick={enterTranscriptSelectionMode}>
                     <CheckSquare className="h-4 w-4 mr-2" />
                     Select
                   </Button>
@@ -865,6 +861,73 @@ export default function LearnPage() {
                 </Button>
               </div>
             </div>
+
+            {/* Selection Toolbar */}
+            {isTranscriptSelectionMode && personalCourses.length > 0 && (
+              <Card className="bg-primary/5 border-primary/20 sticky top-0 z-10">
+                <CardContent className="py-3 px-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-4">
+                      <Checkbox
+                        checked={isAllTranscriptSelected(filteredAndSortedCourses.map(c => c.id))}
+                        onCheckedChange={(checked) => {
+                          if (checked) {
+                            selectAllTranscript(filteredAndSortedCourses.map(c => c.id));
+                          } else {
+                            clearTranscriptSelection();
+                          }
+                        }}
+                      />
+                      <span className="text-sm font-medium">
+                        {transcriptSelectedCount} of {filteredAndSortedCourses.length} selected
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {transcriptSelectedCount > 0 && (
+                        <>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => bulkUpdateTranscriptStatus("completed")}
+                          >
+                            <GraduationCap className="h-4 w-4 mr-2" />
+                            Complete
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => bulkUpdateTranscriptStatus("in_progress")}
+                          >
+                            <PlayCircle className="h-4 w-4 mr-2" />
+                            In Progress
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => exportSelectedTranscript(personalCourses)}
+                          >
+                            <Download className="h-4 w-4 mr-2" />
+                            Export
+                          </Button>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => setBulkDeleteTranscriptOpen(true)}
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Delete ({transcriptSelectedCount})
+                          </Button>
+                        </>
+                      )}
+                      <Button variant="ghost" size="sm" onClick={clearTranscriptSelection}>
+                        <X className="h-4 w-4 mr-2" />
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             {showAddCourse ? (
               <AddCourseForm
@@ -991,17 +1054,35 @@ export default function LearnPage() {
                     const completionStatus = getCourseCompletionStatus(course);
                     const skillCount = getCourseSkillCount(course.id);
                     const displayGrade = getDisplayGrade(course);
+                    const isSelected = selectedTranscriptCourseIds.has(course.id);
+
+                    const handleCardClick = () => {
+                      if (isTranscriptSelectionMode) {
+                        toggleTranscriptSelection(course.id);
+                      } else {
+                        navigate(`/courses/${course.id}`);
+                      }
+                    };
 
                     return (
                       <Card
                         key={course.id}
                         className={`cursor-pointer hover:shadow-md transition-shadow group ${
                           status === "failed" ? "border-destructive/50" : ""
-                        }`}
-                        onClick={() => navigate(`/courses/${course.id}`)}
+                        } ${isTranscriptSelectionMode && isSelected ? "ring-2 ring-primary bg-primary/5" : ""}`}
+                        onClick={handleCardClick}
                       >
                         <CardContent className="p-4">
                           <div className="flex items-start justify-between mb-2">
+                            {/* Selection checkbox - shown only in selection mode */}
+                            {isTranscriptSelectionMode && (
+                              <Checkbox
+                                checked={isSelected}
+                                onCheckedChange={() => toggleTranscriptSelection(course.id)}
+                                onClick={(e) => e.stopPropagation()}
+                                className="mr-3 mt-0.5"
+                              />
+                            )}
                             <div className="flex-1 min-w-0 mr-2">
                               <div className="flex items-center gap-2">
                                 <h4 className="font-medium line-clamp-1">{course.title}</h4>
@@ -1623,6 +1704,28 @@ export default function LearnPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Bulk Delete Transcript Courses Confirmation */}
+      <AlertDialog open={bulkDeleteTranscriptOpen} onOpenChange={setBulkDeleteTranscriptOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {transcriptSelectedCount} Course{transcriptSelectedCount > 1 ? 's' : ''}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove the selected course{transcriptSelectedCount > 1 ? 's' : ''} and all associated skills from your transcript.
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={bulkDeleteTranscriptCourses}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete Course{transcriptSelectedCount > 1 ? 's' : ''}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppShell>
   );
 }

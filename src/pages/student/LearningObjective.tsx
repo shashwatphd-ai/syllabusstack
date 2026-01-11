@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, PlayCircle, CheckCircle2, Lock, Clock, AlertCircle, ChevronDown, ClipboardCheck, XCircle } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
 import { PageContainer } from '@/components/layout/PageContainer';
@@ -15,6 +16,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 export default function LearningObjectivePage() {
   const { loId } = useParams<{ loId: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { data, isLoading, error } = useLearningObjectiveProgress(loId);
   const [selectedContentId, setSelectedContentId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -72,10 +74,25 @@ export default function LearningObjectivePage() {
     return { status: 'not_started', icon: PlayCircle, color: 'text-muted-foreground' };
   };
 
-  const handleVideoComplete = (engagementScore: number, isVerified: boolean) => {
-    // Refresh data after completion
+  const handleVideoComplete = async (engagementScore: number, isVerified: boolean) => {
+    // Refresh data after video completion
     if (isVerified) {
-      // Could trigger a refetch here
+      // Invalidate learning objective progress to update UI
+      await queryClient.invalidateQueries({
+        queryKey: ['lo-progress', loId]
+      });
+
+      // Invalidate micro-check results if we have a consumption record
+      if (selectedConsumptionRecord?.id) {
+        await queryClient.invalidateQueries({
+          queryKey: ['micro-check-results', selectedConsumptionRecord.id]
+        });
+      }
+
+      // Invalidate skill profile to reflect newly verified skills
+      await queryClient.invalidateQueries({
+        queryKey: ['skill-profile']
+      });
     }
   };
 

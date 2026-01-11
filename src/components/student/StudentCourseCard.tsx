@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { BookOpen, CheckCircle2, Clock, ArrowRight, Layers } from 'lucide-react';
+import { BookOpen, CheckCircle2, Clock, ArrowRight } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -11,17 +11,13 @@ import { cn } from '@/lib/utils';
 
 interface StudentCourseCardProps {
   enrollment: StudentEnrollment;
-  modulesCompleted?: number;
-  totalModules?: number;
   isSelectionMode?: boolean;
   isSelected?: boolean;
   onToggleSelect?: () => void;
 }
 
-export function StudentCourseCard({ 
-  enrollment, 
-  modulesCompleted, 
-  totalModules,
+export function StudentCourseCard({
+  enrollment,
   isSelectionMode = false,
   isSelected = false,
   onToggleSelect,
@@ -111,14 +107,6 @@ export function StudentCourseCard({
                 <span className="font-semibold">{Math.round(progress)}%</span>
               </div>
               <Progress value={progress} className="h-2" />
-              {totalModules !== undefined && totalModules > 0 && (
-                <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                  <Layers className="h-3 w-3" />
-                  <span>
-                    {modulesCompleted ?? 0}/{totalModules} modules completed
-                  </span>
-                </div>
-              )}
             </div>
           </div>
         </div>

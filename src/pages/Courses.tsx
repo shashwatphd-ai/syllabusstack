@@ -70,6 +70,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useCourses, useCreateCourse, useDeleteCourse, useUpdateCourse, Course } from "@/hooks/useCourses";
+import { useBulkSelection } from "@/hooks/useBulkSelection";
 import { useCapabilities } from "@/hooks/useCapabilities";
 import { useQueryClient } from "@tanstack/react-query";
 import { analyzeSyllabus } from "@/services";
@@ -113,9 +114,18 @@ export default function CoursesPage() {
   const [filterBy, setFilterBy] = useState<FilterOption>("all");
   const [courseStatusFilter, setCourseStatusFilter] = useState<CourseStatusOption>("all");
 
-  // Selection state for bulk operations
-  const [selectedCourses, setSelectedCourses] = useState<Set<string>>(new Set());
-  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  // Selection state for bulk operations using shared hook
+  const {
+    selectedItems: selectedCourses,
+    isSelectionMode,
+    selectedCount,
+    toggleSelection: toggleCourseSelection,
+    selectAll: selectAllVisible,
+    clearSelection,
+    enterSelectionMode,
+    isAllSelected,
+    selectedArray,
+  } = useBulkSelection<string>();
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
 
@@ -136,7 +146,6 @@ export default function CoursesPage() {
   const [deletingCourse, setDeletingCourse] = useState<Course | null>(null);
 
   // Re-analyze state
-  const [reanalyzingCourseId, setReanalyzingCourseId] = useState<string | null>(null);
   const [reanalyzeCourse, setReanalyzeCourse] = useState<Course | null>(null);
   const [reanalyzeFile, setReanalyzeFile] = useState<File | null>(null);
   const [isReanalyzing, setIsReanalyzing] = useState(false);
@@ -233,31 +242,8 @@ export default function CoursesPage() {
     return result;
   }, [courses, searchQuery, filterBy, courseStatusFilter, sortBy, skillCountMap]);
 
-  // Selection helpers
-  const toggleCourseSelection = (courseId: string) => {
-    setSelectedCourses(prev => {
-      const next = new Set(prev);
-      if (next.has(courseId)) {
-        next.delete(courseId);
-      } else {
-        next.add(courseId);
-      }
-      return next;
-    });
-  };
-
-  const selectAllVisible = () => {
-    const allIds = new Set(filteredAndSortedCourses.map(c => c.id));
-    setSelectedCourses(allIds);
-  };
-
-  const clearSelection = () => {
-    setSelectedCourses(new Set());
-    setIsSelectionMode(false);
-  };
-
-  const isAllSelected = filteredAndSortedCourses.length > 0 &&
-    filteredAndSortedCourses.every(c => selectedCourses.has(c.id));
+  // Computed: are all visible courses selected?
+  const allVisibleSelected = isAllSelected(filteredAndSortedCourses.map(c => c.id));
 
   // Stats
   const analyzedCount = courses?.filter(c =>
@@ -274,7 +260,7 @@ export default function CoursesPage() {
 
   // Bulk delete handler
   const handleBulkDelete = async () => {
-    if (selectedCourses.size === 0) return;
+    if (selectedCount === 0) return;
 
     setIsBulkDeleting(true);
     try {
@@ -296,7 +282,7 @@ export default function CoursesPage() {
 
       toast({
         title: "Courses deleted",
-        description: `${selectedCourses.size} course(s) have been removed.`,
+        description: `${selectedCount} course(s) have been removed.`,
       });
 
       clearSelection();
@@ -778,34 +764,34 @@ export default function CoursesPage() {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
                       <Checkbox
-                        checked={isAllSelected}
+                        checked={allVisibleSelected}
                         onCheckedChange={(checked) => {
-                          if (checked) selectAllVisible();
-                          else setSelectedCourses(new Set());
+                          if (checked) selectAllVisible(filteredAndSortedCourses.map(c => c.id));
+                          else clearSelection();
                         }}
                       />
                       <span className="text-sm font-medium">
-                        {selectedCourses.size} of {filteredAndSortedCourses.length} selected
+                        {selectedCount} of {filteredAndSortedCourses.length} selected
                       </span>
-                      {selectedCourses.size > 0 && (
+                      {selectedCount > 0 && (
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => setSelectedCourses(new Set())}
+                          onClick={clearSelection}
                         >
                           Clear
                         </Button>
                       )}
                     </div>
                     <div className="flex items-center gap-2">
-                      {selectedCourses.size > 0 && (
+                      {selectedCount > 0 && (
                         <Button
                           variant="destructive"
                           size="sm"
                           onClick={() => setShowBulkDeleteConfirm(true)}
                         >
                           <Trash2 className="h-4 w-4 mr-2" />
-                          Delete ({selectedCourses.size})
+                          Delete ({selectedCount})
                         </Button>
                       )}
                       <Button
@@ -876,7 +862,7 @@ export default function CoursesPage() {
                   <Button
                     variant="outline"
                     size="icon"
-                    onClick={() => setIsSelectionMode(true)}
+                    onClick={enterSelectionMode}
                     title="Select multiple courses"
                   >
                     <CheckSquare className="h-4 w-4" />
@@ -1066,9 +1052,9 @@ export default function CoursesPage() {
                                     e.stopPropagation();
                                     handleReanalyzeClick(course);
                                   }}
-                                  disabled={reanalyzingCourseId === course.id}
+                                  disabled={isReanalyzing && reanalyzeCourse?.id === course.id}
                                 >
-                                  {reanalyzingCourseId === course.id ? (
+                                  {isReanalyzing && reanalyzeCourse?.id === course.id ? (
                                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                                   ) : (
                                     <RefreshCw className="h-4 w-4 mr-2" />
@@ -1423,9 +1409,9 @@ export default function CoursesPage() {
       <AlertDialog open={showBulkDeleteConfirm} onOpenChange={setShowBulkDeleteConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete {selectedCourses.size} Course{selectedCourses.size > 1 ? 's' : ''}?</AlertDialogTitle>
+            <AlertDialogTitle>Delete {selectedCount} Course{selectedCount > 1 ? 's' : ''}?</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete the selected course{selectedCourses.size > 1 ? 's' : ''}?
+              Are you sure you want to delete the selected course{selectedCount > 1 ? 's' : ''}?
               This will also remove all associated skills and capabilities. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -1442,7 +1428,7 @@ export default function CoursesPage() {
                   Deleting...
                 </>
               ) : (
-                `Delete ${selectedCourses.size} Course${selectedCourses.size > 1 ? 's' : ''}`
+                `Delete ${selectedCount} Course${selectedCount > 1 ? 's' : ''}`
               )}
             </AlertDialogAction>
           </AlertDialogFooter>
