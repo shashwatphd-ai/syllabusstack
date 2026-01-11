@@ -14,6 +14,7 @@ export type ActionabilityState =
   | 'ready_to_start'      // Has URL, can click to learn
   | 'needs_course'        // No URL, no linked course - needs search
   | 'linked_learning'     // Linked to enrolled course with progress
+  | 'suggested_link'      // Auto-matched course, pending user confirmation
   | 'generic_action'      // Non-course type (project, skill, etc.)
   | 'in_progress'         // User has started but not completed
   | 'completed'           // Already done
@@ -26,6 +27,7 @@ export interface ActionableItem {
   linked_course_id?: string | null;
   linked_course_title?: string | null;
   enrollment_progress?: number | null;
+  link_status?: string | null;  // 'active', 'completed', 'abandoned', 'suggested'
 }
 
 /**
@@ -41,7 +43,11 @@ export function getActionabilityState(item: ActionableItem): ActionabilityState 
   if (item.type !== 'course') return 'generic_action';
   
   // Course-specific states
-  if (item.linked_course_id) return 'linked_learning';
+  if (item.linked_course_id) {
+    // Check if this is a suggested (unconfirmed) link
+    if (item.link_status === 'suggested') return 'suggested_link';
+    return 'linked_learning';
+  }
   if (item.url) return 'ready_to_start';
   
   return 'needs_course';
@@ -90,6 +96,17 @@ export function getActionabilityConfig(state: ActionabilityState): Actionability
         badgeVariant: 'default',
         badgeClassName: 'bg-indigo-100 text-indigo-700 border-indigo-300',
         ctaLabel: 'Continue Learning',
+        ctaVariant: 'default',
+        showSearchButton: false,
+        showLinkButton: false,
+      };
+    
+    case 'suggested_link':
+      return {
+        label: 'Suggested Match',
+        badgeVariant: 'outline',
+        badgeClassName: 'bg-amber-50 text-amber-700 border-amber-300',
+        ctaLabel: 'Confirm Link',
         ctaVariant: 'default',
         showSearchButton: false,
         showLinkButton: false,

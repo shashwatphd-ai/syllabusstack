@@ -5,7 +5,8 @@ import {
   GraduationCap, 
   PlayCircle, 
   SkipForward,
-  Sparkles
+  Sparkles,
+  Lightbulb
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { 
@@ -24,6 +25,7 @@ const stateIcons: Record<ActionabilityState, React.ComponentType<{ className?: s
   ready_to_start: Sparkles,
   needs_course: Search,
   linked_learning: GraduationCap,
+  suggested_link: Lightbulb,
   generic_action: PlayCircle,
   in_progress: PlayCircle,
   completed: CheckCircle2,
@@ -60,6 +62,21 @@ export function ActionabilityBadge({
             {enrollmentProgress}%
           </Badge>
         )}
+      </div>
+    );
+  }
+  
+  // Special rendering for suggested_link state
+  if (state === 'suggested_link' && linkedCourseTitle) {
+    return (
+      <div className={cn(
+        "flex items-center gap-1.5 text-xs rounded-md px-2 py-1",
+        "bg-amber-50 text-amber-700 border border-amber-200",
+        className
+      )}>
+        <Lightbulb className="h-3 w-3" />
+        <span>Suggested: </span>
+        <span className="truncate max-w-[120px] font-medium">{linkedCourseTitle}</span>
       </div>
     );
   }
