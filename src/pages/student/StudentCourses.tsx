@@ -19,41 +19,27 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { useBulkSelection } from '@/hooks/useBulkSelection';
 
 export default function StudentCoursesPage() {
   const { data: enrollments, isLoading, error } = useStudentEnrollments();
   const bulkUnenroll = useBulkUnenroll();
   const markCompleted = useMarkCoursesCompleted();
 
-  // Selection state
-  const [selectedCourses, setSelectedCourses] = useState<Set<string>>(new Set());
-  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  // Selection state using shared hook
+  const {
+    selectedItems: selectedCourses,
+    isSelectionMode,
+    selectedCount,
+    toggleSelection,
+    selectAll,
+    clearSelection,
+    enterSelectionMode,
+    isAllSelected,
+  } = useBulkSelection<string>();
+
   const [showDropConfirm, setShowDropConfirm] = useState(false);
   const [showCompleteConfirm, setShowCompleteConfirm] = useState(false);
-
-  // Selection helpers
-  const toggleSelection = (id: string) => {
-    const newSet = new Set(selectedCourses);
-    if (newSet.has(id)) {
-      newSet.delete(id);
-    } else {
-      newSet.add(id);
-    }
-    setSelectedCourses(newSet);
-  };
-
-  const selectAll = () => {
-    setSelectedCourses(new Set(enrollments?.map(e => e.id) || []));
-  };
-
-  const clearSelection = () => {
-    setSelectedCourses(new Set());
-    setIsSelectionMode(false);
-  };
-
-  const enterSelectionMode = () => {
-    setIsSelectionMode(true);
-  };
 
   // Actions
   const handleDropCourses = async () => {
@@ -92,8 +78,7 @@ export default function StudentCoursesPage() {
     URL.revokeObjectURL(url);
   };
 
-  const selectedCount = selectedCourses.size;
-  const allSelected = enrollments && enrollments.length > 0 && selectedCount === enrollments.length;
+  const allSelected = enrollments ? isAllSelected(enrollments.map(e => e.id)) : false;
 
   return (
     <AppShell>
@@ -129,7 +114,7 @@ export default function StudentCoursesPage() {
                 <div className="flex items-center gap-4">
                   <Checkbox
                     checked={allSelected}
-                    onCheckedChange={(checked) => checked ? selectAll() : setSelectedCourses(new Set())}
+                    onCheckedChange={(checked) => checked ? selectAll(enrollments?.map(e => e.id) || []) : clearSelection()}
                   />
                   <span className="text-sm font-medium">
                     {selectedCount} of {enrollments.length} selected
