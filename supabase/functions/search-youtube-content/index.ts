@@ -663,7 +663,7 @@ serve(async (req) => {
         const strategyResponse = await fetch(`${supabaseUrl}/functions/v1/generate-content-strategy`, {
           method: 'POST',
           headers: {
-            'Authorization': authHeader,
+            'Authorization': authHeader!,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
@@ -742,11 +742,11 @@ serve(async (req) => {
     for (const query of queries) {
       try {
         const searchUrl = new URL("https://www.googleapis.com/youtube/v3/search");
-        searchUrl.searchParams.set("key", YOUTUBE_API_KEY);
+        searchUrl.searchParams.set("key", YOUTUBE_API_KEY!);
         searchUrl.searchParams.set("q", query);
         searchUrl.searchParams.set("part", "snippet");
         searchUrl.searchParams.set("type", "video");
-        searchUrl.searchParams.set("videoDuration", "medium");
+        searchUrl.searchParams.set("videoDuration", "any"); // Allow all durations for content diversity
         searchUrl.searchParams.set("videoEmbeddable", "true");
         searchUrl.searchParams.set("videoSyndicated", "true");
         searchUrl.searchParams.set("safeSearch", "strict");
@@ -768,7 +768,7 @@ serve(async (req) => {
         videoIds.forEach((id: string) => seenVideoIds.add(id));
 
         const detailsUrl = new URL("https://www.googleapis.com/youtube/v3/videos");
-        detailsUrl.searchParams.set("key", YOUTUBE_API_KEY);
+        detailsUrl.searchParams.set("key", YOUTUBE_API_KEY!);
         detailsUrl.searchParams.set("id", videoIds.join(","));
         detailsUrl.searchParams.set("part", "snippet,contentDetails,statistics");
 
@@ -846,7 +846,7 @@ serve(async (req) => {
         const evalResponse = await fetch(`${supabaseUrl}/functions/v1/evaluate-content-batch`, {
           method: 'POST',
           headers: {
-            'Authorization': authHeader,
+            'Authorization': authHeader!,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
@@ -975,16 +975,19 @@ serve(async (req) => {
     // Step 5: Save content and matches to database
     const savedMatches = [];
     for (const candidate of topCandidates) {
-      let contentId: string;
-      const { data: existingContent } = await supabaseClient
+      let contentId: string | null = null;
+      const { data: existingContentData } = await supabaseClient
         .from("content")
         .select("id")
         .eq("source_id", candidate.video.id)
         .eq("source_type", "youtube")
         .maybeSingle();
 
-      if (existingContent) {
-        contentId = existingContent.id;
+      // Type-safe null check using explicit variable
+      const existingContentId = existingContentData?.id ?? null;
+      
+      if (existingContentId) {
+        contentId = existingContentId;
       } else {
         const { data: newContent, error: contentError } = await supabaseClient
           .from("content")
@@ -1005,17 +1008,19 @@ serve(async (req) => {
             quality_score: candidate.scores.total,
             is_available: true,
             last_availability_check: new Date().toISOString(),
-            created_by: user.id,
+            created_by: user!.id,
           })
           .select()
           .single();
 
-        if (contentError) {
+        if (contentError || !newContent) {
           console.error("Error saving content:", contentError);
           continue;
         }
         contentId = newContent.id;
       }
+
+      if (!contentId) continue;
 
       // Phase 3: Stricter auto-approval criteria
       // Require BOTH decent score AND good AI recommendation, OR very high score
@@ -1035,13 +1040,13 @@ serve(async (req) => {
           channel_authority_score: candidate.scores.channel_authority,
           recency_score: candidate.scores.recency,
           ai_reasoning: candidate.ai_reasoning || null,
-          ai_relevance_score: candidate.scores.ai_score ? candidate.scores.ai_score * 40 : null,
-          ai_pedagogy_score: candidate.scores.ai_score ? candidate.scores.ai_score * 35 : null,
-          ai_quality_score: candidate.scores.ai_score ? candidate.scores.ai_score * 25 : null,
+          ai_relevance_score: (candidate.scores.ai_score ?? 0) > 0 ? (candidate.scores.ai_score ?? 0) * 40 : null,
+          ai_pedagogy_score: (candidate.scores.ai_score ?? 0) > 0 ? (candidate.scores.ai_score ?? 0) * 35 : null,
+          ai_quality_score: (candidate.scores.ai_score ?? 0) > 0 ? (candidate.scores.ai_score ?? 0) * 25 : null,
           ai_recommendation: candidate.ai_recommendation || null,
           ai_concern: candidate.ai_concern || null,
           status: autoApprove ? "auto_approved" : "pending",
-          approved_by: autoApprove ? user.id : null,
+          approved_by: autoApprove ? user!.id : null,
           approved_at: autoApprove ? new Date().toISOString() : null,
         }, { onConflict: "learning_objective_id,content_id" })
         .select(`
@@ -1069,7 +1074,7 @@ serve(async (req) => {
         const khanResponse = await fetch(`${supabaseUrl}/functions/v1/search-khan-academy`, {
           method: 'POST',
           headers: {
-            'Authorization': authHeader,
+            'Authorization': authHeader!,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
