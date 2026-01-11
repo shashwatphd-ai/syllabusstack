@@ -37,11 +37,13 @@ import { useGapAnalysis, useRefreshGapAnalysis, useGenerateRecommendations } fro
 import { useRecommendations, useAntiRecommendations, useUpdateRecommendationStatus } from "@/hooks/useRecommendations";
 import { useCourseSearch } from "@/hooks/useCourseSearch";
 import { useStudentEnrollments } from "@/hooks/useStudentCourses";
+import { useLinkCourseToRecommendation } from "@/hooks/useLinkCourseToRecommendation";
 import { useToast } from "@/hooks/use-toast";
 import { AddDreamJobForm } from "@/components/forms";
 import { DreamJobDiscovery } from "@/components/dreamjobs/DreamJobDiscovery";
 import { RecommendationsList } from "@/components/recommendations/RecommendationsList";
 import { AntiRecommendations } from "@/components/recommendations/AntiRecommendations";
+import { CurrentlyLearningPanel } from "@/components/recommendations/CurrentlyLearningPanel";
 import { HonestAssessment } from "@/components/analysis/HonestAssessment";
 import { GapsList } from "@/components/analysis/GapsList";
 import { OverlapsList } from "@/components/analysis/OverlapsList";
@@ -81,8 +83,18 @@ export default function CareerPathPage() {
   // Course Search (Firecrawl)
   const { searchCourses, isSearching } = useCourseSearch();
   
-  // Student Enrollments
+  // Student Enrollments & Linking
   const { data: enrollments = [] } = useStudentEnrollments();
+  const linkCourse = useLinkCourseToRecommendation();
+
+  // Handler for linking courses from CurrentlyLearningPanel
+  const handleLinkCourseToRecommendation = async (
+    enrollmentId: string, 
+    courseId: string, 
+    recommendationId: string
+  ) => {
+    await linkCourse.mutateAsync({ enrollmentId, courseId, recommendationId });
+  };
 
   // Parse gap analysis data
   const strongOverlaps = (analysis?.strong_overlaps as any[]) || [];
@@ -630,40 +642,13 @@ export default function CareerPathPage() {
                   </div>
                 )}
 
-                {/* Currently Learning section */}
-                {enrollments.length > 0 && (
-                  <Card className="border-indigo-200 bg-indigo-50/50">
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm flex items-center gap-2">
-                        <GraduationCap className="h-4 w-4 text-indigo-600" />
-                        Currently Learning
-                      </CardTitle>
-                      <CardDescription className="text-xs">
-                        Link these to your recommendations to track progress
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="flex flex-wrap gap-2">
-                        {enrollments.slice(0, 4).map(e => (
-                          <Badge key={e.id} variant="outline" className="text-indigo-700 bg-white border-indigo-200">
-                            {e.instructor_course.title} 
-                            <span className="ml-1 text-indigo-500">({e.overall_progress || 0}%)</span>
-                          </Badge>
-                        ))}
-                        {enrollments.length > 4 && (
-                          <Button 
-                            variant="ghost" 
-                            size="sm"
-                            onClick={() => navigate('/learn/courses')}
-                            className="text-xs text-indigo-600 hover:text-indigo-700"
-                          >
-                            View all {enrollments.length} →
-                          </Button>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
+                {/* Currently Learning section with smart linking */}
+                <CurrentlyLearningPanel
+                  enrollments={enrollments}
+                  recommendations={recommendations}
+                  onLinkCourse={handleLinkCourseToRecommendation}
+                  isLinking={linkCourse.isPending}
+                />
 
                 <RecommendationsList 
                   dreamJobId={activeDreamJobId} 

@@ -5,3 +5,7 @@ export { ReAnalysisPrompt } from "./ReAnalysisPrompt";
 export { AntiRecommendations } from "./AntiRecommendations";
 export { CourseCard } from "./CourseCard";
 export { CourseDiscovery } from "./CourseDiscovery";
+export { CurrentlyLearningPanel } from "./CurrentlyLearningPanel";
+export { LinkedCourseProgress } from "./LinkedCourseProgress";
+export { ActionabilityBadge } from "./ActionabilityBadge";
+export { LinkCourseDialog } from "./LinkCourseDialog";
