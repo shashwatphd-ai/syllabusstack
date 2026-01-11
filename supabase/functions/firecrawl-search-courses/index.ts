@@ -290,6 +290,11 @@ serve(async (req) => {
           gap?.gap || gap?.requirement || gap?.job_requirement || gap?.skill ||
           `${dreamJobTitle} skill requirement`;
 
+        // Determine if price is known (not "Check pricing")
+        const priceKnown = course.price !== undefined && 
+                          course.price !== null && 
+                          course.price.toLowerCase() !== 'check pricing';
+
         return {
           user_id: user.id,
           dream_job_id: dreamJobId,
@@ -302,6 +307,7 @@ serve(async (req) => {
           url: course.url,
           duration: course.duration || "Self-paced",
           cost_usd: parseCost(course.price),
+          price_known: priceKnown,
           priority: course.isFree 
             ? (index < 2 ? "high" : "medium") 
             : (index < 4 ? "high" : index < 8 ? "medium" : "low"),

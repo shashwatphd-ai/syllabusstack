@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LinkCourseDialog } from "./LinkCourseDialog";
+import { formatPrice, type PriceableItem } from "@/lib/price-utils";
 
 type RecommendationType = "course" | "project" | "certification" | "action" | "reading" | "skill" | "experience" | "resource" | "networking" | "portfolio";
 type Priority = "high" | "medium" | "low" | "critical" | "important" | "nice_to_have";
@@ -45,7 +46,8 @@ export interface Recommendation {
   priority: Priority;
   estimatedTime?: string;
   effort_hours?: number;
-  cost_usd?: number;
+  cost_usd?: number | null;
+  price_known?: boolean;
   provider?: string;
   url?: string;
   status: Status;
@@ -179,6 +181,7 @@ export function RecommendationCard({ recommendation, onStatusChange, isUpdating,
     estimatedTime,
     effort_hours,
     cost_usd,
+    price_known,
     provider, 
     url, 
     status,
@@ -232,7 +235,8 @@ export function RecommendationCard({ recommendation, onStatusChange, isUpdating,
 
   // Compact time display
   const timeDisplay = effort_hours ? `${effort_hours}h` : estimatedTime || null;
-  const costDisplay = cost_usd === 0 ? 'Free' : cost_usd ? `$${cost_usd}` : 'Check pricing';
+  const priceItem: PriceableItem = { cost_usd, price_known };
+  const costDisplay = formatPrice(priceItem);
   
   // Handle start action - open URL and change status
   const handleStart = () => {

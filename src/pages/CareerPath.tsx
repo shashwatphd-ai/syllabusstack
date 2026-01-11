@@ -45,6 +45,7 @@ import { AntiRecommendations } from "@/components/recommendations/AntiRecommenda
 import { HonestAssessment } from "@/components/analysis/HonestAssessment";
 import { GapsList } from "@/components/analysis/GapsList";
 import { OverlapsList } from "@/components/analysis/OverlapsList";
+import { isPriceFree, countByPriceCategory } from "@/lib/price-utils";
 
 export default function CareerPathPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -57,7 +58,7 @@ export default function CareerPathPage() {
   const [showDiscover, setShowDiscover] = useState(false);
   const [isCreatingJob, setIsCreatingJob] = useState(false);
   const [freeFirst, setFreeFirst] = useState(true);
-  const [priceFilter, setPriceFilter] = useState<'all' | 'free' | 'paid'>('all');
+  const [priceFilter, setPriceFilter] = useState<'all' | 'free' | 'paid' | 'unknown'>('all');
 
   // Dream Jobs
   const { data: dreamJobs = [], isLoading: jobsLoading } = useDreamJobs();
@@ -608,18 +609,23 @@ export default function CareerPathPage() {
                       />
                       <Label htmlFor="free-first" className="text-sm text-green-700 cursor-pointer">Free First</Label>
                     </div>
-                    <Select value={priceFilter} onValueChange={(v) => setPriceFilter(v as 'all' | 'free' | 'paid')}>
-                      <SelectTrigger className="w-32 h-8">
+                    <Select value={priceFilter} onValueChange={(v) => setPriceFilter(v as 'all' | 'free' | 'paid' | 'unknown')}>
+                      <SelectTrigger className="w-36 h-8">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="all">All Prices</SelectItem>
                         <SelectItem value="free">Free Only</SelectItem>
                         <SelectItem value="paid">Paid Only</SelectItem>
+                        <SelectItem value="unknown">Unknown Price</SelectItem>
                       </SelectContent>
                     </Select>
                     <span className="text-xs text-muted-foreground ml-auto">
-                      {recommendations.filter(r => r.type === 'course' && r.cost_usd === 0).length} free courses available
+                      {(() => {
+                        const courseRecs = recommendations.filter(r => r.type === 'course');
+                        const counts = countByPriceCategory(courseRecs);
+                        return `${counts.free} free, ${counts.paid} paid, ${counts.unknown} unknown`;
+                      })()}
                     </span>
                   </div>
                 )}

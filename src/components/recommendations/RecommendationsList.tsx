@@ -14,13 +14,14 @@ import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { useToast } from "@/hooks/use-toast";
 import { Lightbulb, Loader2 } from "lucide-react";
+import { isPriceFree, isPricePaid, isPriceUnknown } from "@/lib/price-utils";
 
 type FilterType = "all" | "course" | "project" | "certification" | "skill" | "experience" | "action" | "reading" | "networking" | "portfolio" | "resource";
 
 interface RecommendationsListProps {
   dreamJobId?: string;
   freeFirst?: boolean;
-  priceFilter?: 'all' | 'free' | 'paid';
+  priceFilter?: 'all' | 'free' | 'paid' | 'unknown';
 }
 
 export function RecommendationsList({ dreamJobId, freeFirst = false, priceFilter = 'all' }: RecommendationsListProps) {
@@ -40,21 +41,22 @@ export function RecommendationsList({ dreamJobId, freeFirst = false, priceFilter
     ? recommendations 
     : recommendations.filter((r) => r.type === filter);
   
-  // Apply price filter for courses
+  // Apply price filter for courses using shared price utilities
   const priceFilteredRecs = typeFilteredRecs.filter(rec => {
     if (rec.type !== 'course') return true; // non-courses pass through
-    if (priceFilter === 'free') return rec.cost_usd === 0 || rec.cost_usd === null;
-    if (priceFilter === 'paid') return rec.cost_usd !== null && rec.cost_usd > 0;
+    if (priceFilter === 'free') return isPriceFree(rec);
+    if (priceFilter === 'paid') return isPricePaid(rec);
+    if (priceFilter === 'unknown') return isPriceUnknown(rec);
     return true; // 'all'
   });
   
-  // Apply freeFirst sorting for courses
+  // Apply freeFirst sorting for courses - only confirmed free courses go first
   const filteredRecommendations = freeFirst 
     ? [...priceFilteredRecs].sort((a, b) => {
         // Only sort courses, keep other types in place
         if (a.type === 'course' && b.type === 'course') {
-          const aFree = a.cost_usd === 0 || a.cost_usd === null;
-          const bFree = b.cost_usd === 0 || b.cost_usd === null;
+          const aFree = isPriceFree(a);
+          const bFree = isPriceFree(b);
           if (aFree && !bFree) return -1;
           if (!aFree && bFree) return 1;
         }
@@ -134,6 +136,7 @@ export function RecommendationsList({ dreamJobId, freeFirst = false, priceFilter
     estimatedTime: rec.duration || undefined,
     effort_hours: rec.effort_hours,
     cost_usd: rec.cost_usd,
+    price_known: rec.price_known ?? false,
     provider: rec.provider || undefined,
     url: rec.url || undefined,
     status: (rec.status as "pending" | "in_progress" | "completed" | "skipped" | "not_started") || 'pending',

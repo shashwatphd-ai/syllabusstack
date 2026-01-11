@@ -1698,6 +1698,7 @@ export type Database = {
           gap_analysis_id: string | null
           how_to_demonstrate: string | null
           id: string
+          price_known: boolean | null
           priority: string | null
           provider: string | null
           status: string | null
@@ -1722,6 +1723,7 @@ export type Database = {
           gap_analysis_id?: string | null
           how_to_demonstrate?: string | null
           id?: string
+          price_known?: boolean | null
           priority?: string | null
           provider?: string | null
           status?: string | null
@@ -1746,6 +1748,7 @@ export type Database = {
           gap_analysis_id?: string | null
           how_to_demonstrate?: string | null
           id?: string
+          price_known?: boolean | null
           priority?: string | null
           provider?: string | null
           status?: string | null

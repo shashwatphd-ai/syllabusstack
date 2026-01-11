@@ -49,6 +49,7 @@ export function createRecommendation(
     linked_course_id: null,
     linked_course_title: null,
     enrollment_progress: null,
+    price_known: false,
     ...overrides,
   };
 }
@@ -117,6 +118,7 @@ export function createFreeRecommendation(
   return createRecommendation({
     type: 'course',
     cost_usd: 0,
+    price_known: true,  // Confirmed free
     provider: 'Khan Academy',
     url: 'https://khanacademy.org/course',
     ...overrides,
@@ -129,6 +131,7 @@ export function createPaidRecommendation(
   return createRecommendation({
     type: 'course',
     cost_usd: 199,
+    price_known: true,  // Confirmed paid
     provider: 'Coursera',
     url: 'https://coursera.org/course',
     ...overrides,
@@ -141,6 +144,7 @@ export function createUnknownPriceRecommendation(
   return createRecommendation({
     type: 'course',
     cost_usd: null,
+    price_known: false,  // Unknown price
     provider: 'Various (Coursera, Udemy, edX)',
     url: null,
     ...overrides,
