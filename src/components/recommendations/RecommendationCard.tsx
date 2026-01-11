@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
 import { 
   BookOpen, 
   Video, 
@@ -17,9 +18,12 @@ import {
   PlayCircle,
   SkipForward,
   Circle,
-  Loader2
+  Loader2,
+  Link2,
+  GraduationCap
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { LinkCourseDialog } from "./LinkCourseDialog";
 
 type RecommendationType = "course" | "project" | "certification" | "action" | "reading" | "skill" | "experience" | "resource" | "networking" | "portfolio";
 type Priority = "high" | "medium" | "low" | "critical" | "important" | "nice_to_have";
@@ -51,6 +55,10 @@ export interface Recommendation {
   steps?: Step[] | string[];
   evidence_created?: string;
   how_to_demonstrate?: string;
+  // Linked course info (from view)
+  linked_course_id?: string;
+  linked_course_title?: string;
+  enrollment_progress?: number;
 }
 
 interface RecommendationCardProps {
@@ -58,6 +66,7 @@ interface RecommendationCardProps {
   onStatusChange?: (id: string, status: Status) => Promise<void>;
   onView?: (id: string) => void;
   isUpdating?: boolean;
+  showLinkOption?: boolean;
 }
 
 const getTypeConfig = (type: RecommendationType) => {
@@ -156,9 +165,10 @@ const getStatusConfig = (status: Status) => {
   }
 };
 
-export function RecommendationCard({ recommendation, onStatusChange, isUpdating }: RecommendationCardProps) {
+export function RecommendationCard({ recommendation, onStatusChange, isUpdating, showLinkOption = true }: RecommendationCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState<Status | null>(null);
+  const [showLinkDialog, setShowLinkDialog] = useState(false);
   
   const { 
     id, 
@@ -177,7 +187,10 @@ export function RecommendationCard({ recommendation, onStatusChange, isUpdating 
     why_this_matters,
     steps,
     evidence_created,
-    how_to_demonstrate
+    how_to_demonstrate,
+    linked_course_id,
+    linked_course_title,
+    enrollment_progress,
   } = recommendation;
 
   const isCompleted = status === "completed";
@@ -268,6 +281,19 @@ export function RecommendationCard({ recommendation, onStatusChange, isUpdating 
               <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">
                 <span className="font-medium">Skill gap:</span> {displayGap}
               </p>
+            )}
+            
+            {/* Show linked course indicator */}
+            {linked_course_title && (
+              <div className="mt-1.5 flex items-center gap-1.5 text-xs text-indigo-600 bg-indigo-50 rounded-md px-2 py-1 w-fit">
+                <GraduationCap className="h-3 w-3" />
+                <span>Enrolled: {linked_course_title}</span>
+                {enrollment_progress !== undefined && (
+                  <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 bg-indigo-100 border-indigo-200">
+                    {enrollment_progress}%
+                  </Badge>
+                )}
+              </div>
             )}
             </div>
 
@@ -405,6 +431,22 @@ export function RecommendationCard({ recommendation, onStatusChange, isUpdating 
                 Open
               </a>
             )}
+            
+            {/* Link to Enrolled Course option */}
+            {showLinkOption && !linked_course_id && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowLinkDialog(true);
+                }}
+                className="h-7 text-xs gap-1 text-muted-foreground hover:text-foreground"
+              >
+                <Link2 className="h-3 w-3" />
+                Link Course
+              </Button>
+            )}
           </div>
         </div>
 
@@ -459,6 +501,14 @@ export function RecommendationCard({ recommendation, onStatusChange, isUpdating 
           </div>
         )}
       </CardContent>
+      
+      {/* Link Course Dialog */}
+      <LinkCourseDialog
+        open={showLinkDialog}
+        onClose={() => setShowLinkDialog(false)}
+        recommendationId={id}
+        recommendationTitle={title}
+      />
     </Card>
   );
 }

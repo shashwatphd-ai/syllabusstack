@@ -26,12 +26,14 @@ import {
   Circle,
   Loader2,
   Search,
-  ExternalLink
+  ExternalLink,
+  GraduationCap
 } from "lucide-react";
 import { useDreamJobs, useCreateDreamJob } from "@/hooks/useDreamJobs";
 import { useGapAnalysis, useRefreshGapAnalysis, useGenerateRecommendations } from "@/hooks/useAnalysis";
 import { useRecommendations, useAntiRecommendations, useUpdateRecommendationStatus } from "@/hooks/useRecommendations";
 import { useCourseSearch } from "@/hooks/useCourseSearch";
+import { useStudentEnrollments } from "@/hooks/useStudentCourses";
 import { useToast } from "@/hooks/use-toast";
 import { AddDreamJobForm } from "@/components/forms";
 import { DreamJobDiscovery } from "@/components/dreamjobs/DreamJobDiscovery";
@@ -72,6 +74,9 @@ export default function CareerPathPage() {
 
   // Course Search (Firecrawl)
   const { searchCourses, isSearching } = useCourseSearch();
+  
+  // Student Enrollments
+  const { data: enrollments = [] } = useStudentEnrollments();
 
   // Parse gap analysis data
   const strongOverlaps = (analysis?.strong_overlaps as any[]) || [];
@@ -263,6 +268,26 @@ export default function CareerPathPage() {
                     <p className="text-2xl font-bold">{completedRecs}</p>
                     <p className="text-xs text-muted-foreground">Completed</p>
                   </div>
+                </div>
+              </CardContent>
+            </Card>
+            
+            {/* New: Enrolled Courses card */}
+            <Card className="cursor-pointer hover:shadow-md col-span-2 md:col-span-1" onClick={() => navigate('/learn/courses')}>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-indigo-500/10 flex items-center justify-center">
+                    <GraduationCap className="h-5 w-5 text-indigo-600" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-2xl font-bold">{enrollments.length}</p>
+                    <p className="text-xs text-muted-foreground">Enrolled Courses</p>
+                  </div>
+                  {enrollments.length > 0 && (
+                    <Badge variant="outline" className="text-[10px] text-indigo-600 border-indigo-300">
+                      {enrollments.filter(e => e.completed_at).length} done
+                    </Badge>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -550,6 +575,36 @@ export default function CareerPathPage() {
                     </Button>
                   </div>
                 </div>
+
+                {/* Currently Learning section */}
+                {enrollments.length > 0 && (
+                  <Card className="border-indigo-200 bg-indigo-50/50">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm flex items-center gap-2">
+                        <GraduationCap className="h-4 w-4 text-indigo-600" />
+                        Currently Learning
+                      </CardTitle>
+                      <CardDescription className="text-xs">
+                        Link these to your recommendations to track progress
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex flex-wrap gap-2">
+                        {enrollments.slice(0, 4).map(e => (
+                          <Badge key={e.id} variant="outline" className="text-indigo-700 bg-white border-indigo-200">
+                            {e.instructor_course.title} 
+                            <span className="ml-1 text-indigo-500">({e.overall_progress || 0}%)</span>
+                          </Badge>
+                        ))}
+                        {enrollments.length > 4 && (
+                          <Badge variant="outline" className="text-muted-foreground">
+                            +{enrollments.length - 4} more
+                          </Badge>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
 
                 <RecommendationsList dreamJobId={activeDreamJobId} />
               </div>

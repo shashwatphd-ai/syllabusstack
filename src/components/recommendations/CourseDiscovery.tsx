@@ -1,10 +1,12 @@
-import { useState } from "react";
-import { Search, Sparkles, Loader2, GraduationCap, AlertCircle, RefreshCw, Filter } from "lucide-react";
+import { useState, useMemo } from "react";
+import { Search, Sparkles, Loader2, GraduationCap, AlertCircle, RefreshCw, Filter, Leaf } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { 
   Select, 
   SelectContent, 
@@ -36,6 +38,7 @@ interface CourseDiscoveryProps {
 export function CourseDiscovery({ dreamJobId }: CourseDiscoveryProps) {
   const [providerFilter, setProviderFilter] = useState<string>("all");
   const [priceFilter, setPriceFilter] = useState<string>("all");
+  const [freeFirst, setFreeFirst] = useState<boolean>(true);
   
   const { data: dreamJobs } = useDreamJobs();
   const { data: gapAnalysis, isLoading: gapsLoading } = useGapAnalysis(dreamJobId || '');
@@ -65,15 +68,32 @@ export function CourseDiscovery({ dreamJobId }: CourseDiscoveryProps) {
   };
   
   // Filter results
-  const filteredResults = results.filter(course => {
-    if (providerFilter !== "all" && course.provider !== providerFilter) return false;
-    if (priceFilter === "free" && course.price?.toLowerCase() !== "free") return false;
-    if (priceFilter === "paid" && course.price?.toLowerCase() === "free") return false;
-    return true;
-  });
+  const filteredResults = useMemo(() => {
+    let filtered = results.filter(course => {
+      if (providerFilter !== "all" && course.provider !== providerFilter) return false;
+      if (priceFilter === "free" && course.price?.toLowerCase() !== "free") return false;
+      if (priceFilter === "paid" && course.price?.toLowerCase() === "free") return false;
+      return true;
+    });
+    
+    // Sort: free first if enabled
+    if (freeFirst) {
+      filtered = filtered.sort((a, b) => {
+        const aFree = a.price?.toLowerCase() === "free" ? 0 : 1;
+        const bFree = b.price?.toLowerCase() === "free" ? 0 : 1;
+        return aFree - bFree;
+      });
+    }
+    
+    return filtered;
+  }, [results, providerFilter, priceFilter, freeFirst]);
   
   // Get unique providers from results
   const providers = [...new Set(results.map(c => c.provider))];
+  
+  // Count free vs paid
+  const freeCount = results.filter(c => c.price?.toLowerCase() === "free").length;
+  const paidCount = results.length - freeCount;
   
   if (!dreamJobId) {
     return (
@@ -128,8 +148,8 @@ export function CourseDiscovery({ dreamJobId }: CourseDiscoveryProps) {
                   <Sparkles className="h-5 w-5 text-primary" />
                   Discover Courses with AI
                 </CardTitle>
-                <CardDescription className="mt-2">
-                  Firecrawl searches Coursera, Udemy, and edX for courses matching your skill gaps
+              <CardDescription className="mt-2">
+                  Search Khan Academy, MIT OCW, YouTube, Coursera, Udemy & more for courses matching your skill gaps
                 </CardDescription>
               </div>
               <Badge variant="secondary" className="shrink-0">
@@ -184,42 +204,57 @@ export function CourseDiscovery({ dreamJobId }: CourseDiscoveryProps) {
       {results.length > 0 && (
         <div className="space-y-4">
           {/* Results Header with Filters */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <h3 className="text-lg font-semibold">
-                Found {results.length} Courses
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                Courses saved to your recommendations automatically
-              </p>
-            </div>
-            
-            <div className="flex items-center gap-2">
-              <Filter className="h-4 w-4 text-muted-foreground" />
-              <Select value={providerFilter} onValueChange={setProviderFilter}>
-                <SelectTrigger className="w-[140px]">
-                  <SelectValue placeholder="Provider" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Providers</SelectItem>
-                  {providers.map(provider => (
-                    <SelectItem key={provider} value={provider}>
-                      {provider}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-semibold">
+                  Found {results.length} Courses
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  {freeCount} free, {paidCount} paid • Saved to recommendations
+                </p>
+              </div>
               
-              <Select value={priceFilter} onValueChange={setPriceFilter}>
-                <SelectTrigger className="w-[120px]">
-                  <SelectValue placeholder="Price" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Prices</SelectItem>
-                  <SelectItem value="free">Free Only</SelectItem>
-                  <SelectItem value="paid">Paid Only</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Free First Toggle - prominent */}
+                <div className="flex items-center gap-2 bg-success/10 px-3 py-1.5 rounded-lg border border-success/30">
+                  <Leaf className="h-4 w-4 text-success" />
+                  <Switch 
+                    id="free-first"
+                    checked={freeFirst}
+                    onCheckedChange={setFreeFirst}
+                  />
+                  <Label htmlFor="free-first" className="text-sm text-success cursor-pointer">
+                    Free First
+                  </Label>
+                </div>
+                
+                <Filter className="h-4 w-4 text-muted-foreground" />
+                <Select value={providerFilter} onValueChange={setProviderFilter}>
+                  <SelectTrigger className="w-[140px]">
+                    <SelectValue placeholder="Provider" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Providers</SelectItem>
+                    {providers.map(provider => (
+                      <SelectItem key={provider} value={provider}>
+                        {provider}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                
+                <Select value={priceFilter} onValueChange={setPriceFilter}>
+                  <SelectTrigger className="w-[120px]">
+                    <SelectValue placeholder="Price" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Prices</SelectItem>
+                    <SelectItem value="free">Free Only</SelectItem>
+                    <SelectItem value="paid">Paid Only</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </div>
           
