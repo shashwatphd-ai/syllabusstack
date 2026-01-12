@@ -70,16 +70,16 @@ export default function InstructorCoursesPage() {
           title="Instructor Dashboard"
           description="Manage your courses, content, and student progress"
         />
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-semibold text-foreground">Your Courses</h2>
-          <div className="flex gap-2">
-            <Button variant="default" className="gap-2" onClick={() => navigate('/instructor/quick-setup')}>
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-6">
+          <h2 className="text-lg sm:text-xl font-semibold text-foreground">Your Courses</h2>
+          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+            <Button variant="default" className="gap-2 min-h-11 w-full sm:w-auto" onClick={() => navigate('/instructor/quick-setup')}>
               <Plus className="h-4 w-4" />
               Quick Setup (AI)
             </Button>
             <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
               <DialogTrigger asChild>
-                <Button variant="outline" className="gap-2">
+                <Button variant="outline" className="gap-2 min-h-11 w-full sm:w-auto">
                   <Plus className="h-4 w-4" />
                   Manual Setup
                 </Button>

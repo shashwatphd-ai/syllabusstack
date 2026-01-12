@@ -119,7 +119,7 @@ export function CapabilitySnapshot({ capabilities = [], isLoading }: CapabilityS
           </Badge>
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4 max-h-80 overflow-y-auto">
+      <CardContent className="space-y-4 max-h-80 overflow-y-auto overflow-x-hidden">
         {Object.entries(groupedCapabilities).map(([category, caps]) => (
           <div key={category} className="space-y-2">
             <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{category}</h4>
@@ -127,22 +127,22 @@ export function CapabilitySnapshot({ capabilities = [], isLoading }: CapabilityS
               {caps.map((cap) => (
                 <div
                   key={cap.name}
-                  className="space-y-1 group cursor-pointer hover:bg-muted/50 rounded-md p-1.5 -mx-1.5 transition-colors"
+                  className="space-y-1.5 group cursor-pointer hover:bg-muted/50 rounded-md p-1.5 -mx-1.5 transition-colors"
                   onClick={() => navigate(`/analysis?skill=${encodeURIComponent(cap.name)}`)}
                   role="button"
                   tabIndex={0}
                   onKeyDown={(e) => e.key === 'Enter' && navigate(`/analysis?skill=${encodeURIComponent(cap.name)}`)}
                 >
-                  <div className="flex items-center justify-between text-xs gap-1">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between text-xs gap-1">
                     <span 
-                      className="font-medium text-foreground group-hover:text-accent transition-colors truncate flex-1"
+                      className="font-medium text-foreground group-hover:text-accent transition-colors line-clamp-2 sm:truncate sm:flex-1 text-[13px] sm:text-xs leading-snug"
                       title={cap.name}
                     >
                       {cap.name}
                     </span>
                     <Badge 
                       variant="outline" 
-                      className={`text-[10px] px-1.5 py-0 border flex-shrink-0 ${getLevelBadgeStyle(cap.level)}`}
+                      className={`text-[10px] px-1.5 py-0 border w-fit flex-shrink-0 ${getLevelBadgeStyle(cap.level)}`}
                     >
                       {getLevelLabel(cap.level)}
                     </Badge>

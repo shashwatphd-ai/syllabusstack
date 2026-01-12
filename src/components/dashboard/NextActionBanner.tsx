@@ -117,32 +117,45 @@ export function NextActionBanner({ stats, isLoading }: NextActionBannerProps) {
   return (
     <Card className={`border shadow-md overflow-hidden ${priorityStyles[nextAction.priority]}`}>
       <CardContent className="p-0">
-        <div className="flex items-center gap-4 p-6">
-          {/* Icon */}
-          <div className={`p-3 rounded-full ${
-            nextAction.priority === 'high' 
-              ? 'bg-destructive/20' 
-              : nextAction.priority === 'medium' 
-                ? 'bg-primary/20' 
-                : 'bg-success/20'
-          }`}>
-            <Icon className="h-6 w-6" />
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 p-4 sm:p-6">
+          {/* Icon & Badge row on mobile */}
+          <div className="flex items-center gap-3">
+            <div className={`p-2.5 sm:p-3 rounded-full shrink-0 ${
+              nextAction.priority === 'high' 
+                ? 'bg-destructive/20' 
+                : nextAction.priority === 'medium' 
+                  ? 'bg-primary/20' 
+                  : 'bg-success/20'
+            }`}>
+              <Icon className="h-5 w-5 sm:h-6 sm:w-6" />
+            </div>
+            
+            {/* Badge visible on mobile next to icon */}
+            <Badge className={`sm:hidden ${priorityBadgeStyles[nextAction.priority]}`}>
+              <Sparkles className="h-3 w-3 mr-1" />
+              Next Step
+            </Badge>
           </div>
 
           {/* Content */}
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1">
+          <div className="flex-1 min-w-0 space-y-0.5">
+            {/* Badge hidden on mobile, visible on desktop */}
+            <div className="hidden sm:flex items-center gap-2 mb-1">
               <Badge className={priorityBadgeStyles[nextAction.priority]}>
                 <Sparkles className="h-3 w-3 mr-1" />
                 Next Step
               </Badge>
             </div>
-            <h3 className="font-semibold text-foreground truncate">{nextAction.title}</h3>
-            <p className="text-sm text-muted-foreground truncate">{nextAction.description}</p>
+            <h3 className="font-semibold text-foreground text-sm sm:text-base line-clamp-2 sm:truncate">
+              {nextAction.title}
+            </h3>
+            <p className="text-xs sm:text-sm text-muted-foreground line-clamp-2 sm:truncate">
+              {nextAction.description}
+            </p>
           </div>
 
-          {/* CTA Button */}
-          <Button asChild className="shrink-0 gap-2">
+          {/* CTA Button - full width on mobile */}
+          <Button asChild className="w-full sm:w-auto shrink-0 gap-2 min-h-11">
             <Link to={nextAction.action}>
               Take Action
               <ArrowRight className="h-4 w-4" />
