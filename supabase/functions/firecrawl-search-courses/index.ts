@@ -85,8 +85,32 @@ function extractTitleFromUrl(url: string): string {
   return "Online Course";
 }
 
+// Safely extract string from gap object
+function extractGapText(gap: unknown): string {
+  if (typeof gap === 'string') {
+    return gap;
+  }
+  if (gap && typeof gap === 'object') {
+    const g = gap as Record<string, unknown>;
+    // Try common property names
+    for (const key of ['gap', 'requirement', 'job_requirement', 'skill', 'text', 'description']) {
+      if (typeof g[key] === 'string' && g[key]) {
+        return g[key] as string;
+      }
+    }
+  }
+  return '';
+}
+
 // Extract meaningful search keywords from gap text
-function extractSearchKeywords(gapText: string): string {
+function extractSearchKeywords(gapText: unknown): string {
+  // Ensure we have a string
+  const text = extractGapText(gapText);
+  if (!text) {
+    console.warn('extractSearchKeywords received invalid input:', typeof gapText);
+    return '';
+  }
+  
   const stopWords = new Set([
     'should', 'must', 'need', 'have', 'experience', 'with', 'and', 'or', 
     'the', 'a', 'an', 'in', 'for', 'to', 'of', 'ability', 'understanding',
@@ -96,7 +120,7 @@ function extractSearchKeywords(gapText: string): string {
     'be', 'able', 'using', 'use', 'related', 'relevant', 'including'
   ]);
   
-  const words = gapText.toLowerCase()
+  const words = text.toLowerCase()
     .replace(/[^\w\s]/g, ' ')
     .split(/\s+/)
     .filter(w => w.length > 3 && !stopWords.has(w));
@@ -208,8 +232,16 @@ serve(async (req) => {
     const gapsToSearch = gaps.slice(0, 3);
 
     for (const gap of gapsToSearch) {
-      const gapText = gap.gap || gap.requirement || gap;
+      const gapText = extractGapText(gap);
+      if (!gapText) {
+        console.warn('Skipping invalid gap:', JSON.stringify(gap));
+        continue;
+      }
       const keywords = extractSearchKeywords(gapText);
+      if (!keywords) {
+        console.warn('No keywords extracted from gap:', gapText.slice(0, 50));
+        continue;
+      }
       
       console.log(`Gap: "${gapText.slice(0, 50)}..." -> Keywords: "${keywords}"`);
 
