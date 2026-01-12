@@ -6,6 +6,11 @@ import {
   extractKeywords
 } from "../_shared/content-cache.ts";
 import { generateSearchQueries } from "../_shared/query-intelligence/index.ts";
+import {
+  searchYouTubeOrchestrated,
+  toYouTubeVideoArray,
+  YouTubeSearchResult,
+} from "../_shared/youtube-search/index.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -14,46 +19,19 @@ const corsHeaders = {
 
 /**
  * UNIFIED EDUCATIONAL CONTENT SEARCH FOR INSTRUCTORS
- * 
+ *
  * This function provides high-quality content discovery for instructor courses.
- * It uses quota-free APIs (Invidious/Piped) for discovery and AI for evaluation.
- * 
+ * Uses multi-source search orchestrator (Firecrawl, Jina, Invidious, YouTube API).
+ *
  * Pipeline:
  * 1. Query Intelligence - Generate smart search queries from LO context
- * 2. Multi-Source Discovery - Invidious, Piped, Khan Academy (quota-free)
+ * 2. Multi-Source Discovery - Firecrawl, Jina, Invidious, YouTube API (with fallbacks)
  * 3. Rule-Based Pre-Filter - Duration fit, keyword matching
  * 4. AI Batch Evaluation - Pedagogy, relevance, quality scoring
  * 5. Save & Auto-Approve - Strict criteria for instructor quality
  */
 
-// Invidious instances (public YouTube API alternatives - NO QUOTA LIMITS)
-// Updated Jan 2026 - inv.nadeko.net has multiple backends and is most resilient
-// Note: Google actively blocks Invidious instances, so they may go up/down
-const INVIDIOUS_INSTANCES = [
-  "https://inv.nadeko.net",           // Most resilient - multi-backend architecture
-  "https://yewtu.be",                 // Long-standing, Germany-based
-  "https://invidious.private.coffee", // Good backup
-  "https://vid.puffyan.us",           // US-based
-  "https://invidious.nerdvpn.de",     // May require auth now
-];
-
-// Piped instances (another YouTube alternative - NO QUOTA LIMITS)
-// Note: Piped instances are also frequently blocked/unreliable
-const PIPED_INSTANCES = [
-  "https://pipedapi.kavin.rocks",   // Official - may have SSL issues
-  "https://pipedapi.adminforge.de", // German instance
-  "https://pipedapi.r4fo.com",      // Alternative
-];
-
-// Shuffle array to distribute load across instances
-function shuffleArray<T>(array: T[]): T[] {
-  const shuffled = [...array];
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-  }
-  return shuffled;
-}
+// Note: Search instances are now managed by the orchestrator in _shared/youtube-search/
 
 interface InvidiousVideo {
   videoId: string;
@@ -115,153 +93,7 @@ const WEIGHTS_NO_AI = {
   recency: 0.10,
 };
 
-/**
- * Search YouTube using Invidious API (NO QUOTA LIMITS)
- * Falls back through multiple instances if one fails
- * Note: Google actively blocks Invidious, so instances may fail frequently
- */
-async function searchInvidious(query: string, maxResults: number = 20): Promise<YouTubeVideo[]> {
-  // Shuffle instances to distribute load
-  const instances = shuffleArray(INVIDIOUS_INSTANCES);
-
-  for (const instance of instances) {
-    try {
-      console.log(`Trying Invidious instance: ${instance}`);
-      const searchUrl = `${instance}/api/v1/search?q=${encodeURIComponent(query)}&type=video&sort=relevance`;
-      const response = await fetch(searchUrl, {
-        headers: {
-          'Accept': 'application/json',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        },
-        signal: AbortSignal.timeout(15000),
-      });
-
-      if (!response.ok) {
-        console.log(`Invidious ${instance} returned status ${response.status}`);
-        continue;
-      }
-
-      // Check content-type to avoid parsing HTML as JSON
-      const contentType = response.headers.get('content-type') || '';
-      if (!contentType.includes('application/json')) {
-        console.log(`Invidious ${instance} returned non-JSON content-type: ${contentType}`);
-        continue;
-      }
-
-      const text = await response.text();
-
-      // Double-check it's not HTML (some servers return 200 with HTML error page)
-      if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
-        console.log(`Invidious ${instance} returned HTML instead of JSON`);
-        continue;
-      }
-
-      const data: InvidiousVideo[] = JSON.parse(text);
-
-      if (!Array.isArray(data)) {
-        console.log(`Invidious ${instance} returned unexpected data format`);
-        continue;
-      }
-
-      const videos: YouTubeVideo[] = data.slice(0, maxResults).map(item => ({
-        id: item.videoId,
-        title: item.title,
-        description: item.description || '',
-        channelTitle: item.author,
-        channelId: item.authorId,
-        publishedAt: new Date(item.published * 1000).toISOString(),
-        thumbnailUrl: item.videoThumbnails?.find(t => t.quality === 'medium')?.url ||
-                      item.videoThumbnails?.[0]?.url ||
-                      `https://img.youtube.com/vi/${item.videoId}/mqdefault.jpg`,
-        duration: item.lengthSeconds,
-        viewCount: item.viewCount || 0,
-        likeCount: 0,
-      }));
-
-      console.log(`Invidious ${instance} SUCCESS: found ${videos.length} videos`);
-      return videos;
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      console.log(`Invidious ${instance} failed: ${errorMsg}`);
-      continue;
-    }
-  }
-
-  console.log('All Invidious instances failed');
-  return [];
-}
-
-/**
- * Search YouTube using Piped API (NO QUOTA LIMITS)
- * Note: Piped instances can be unreliable due to SSL/DNS issues
- */
-async function searchPiped(query: string, maxResults: number = 20): Promise<YouTubeVideo[]> {
-  // Shuffle instances to distribute load
-  const instances = shuffleArray(PIPED_INSTANCES);
-
-  for (const instance of instances) {
-    try {
-      console.log(`Trying Piped instance: ${instance}`);
-      const searchUrl = `${instance}/search?q=${encodeURIComponent(query)}&filter=videos`;
-      const response = await fetch(searchUrl, {
-        headers: {
-          'Accept': 'application/json',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        },
-        signal: AbortSignal.timeout(15000),
-      });
-
-      if (!response.ok) {
-        console.log(`Piped ${instance} returned status ${response.status}`);
-        continue;
-      }
-
-      // Check content-type
-      const contentType = response.headers.get('content-type') || '';
-      if (!contentType.includes('application/json')) {
-        console.log(`Piped ${instance} returned non-JSON content-type: ${contentType}`);
-        continue;
-      }
-
-      const text = await response.text();
-
-      // Check for HTML error pages
-      if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
-        console.log(`Piped ${instance} returned HTML instead of JSON`);
-        continue;
-      }
-
-      const data = JSON.parse(text);
-      const items = data.items || [];
-
-      const videos: YouTubeVideo[] = items.slice(0, maxResults).map((item: any) => {
-        const videoId = item.url?.split('/watch?v=')[1] || item.url?.split('/').pop() || '';
-        return {
-          id: videoId,
-          title: item.title || '',
-          description: item.shortDescription || '',
-          channelTitle: item.uploaderName || '',
-          channelId: item.uploaderUrl?.split('/channel/')[1] || '',
-          publishedAt: new Date(item.uploaded || Date.now()).toISOString(),
-          thumbnailUrl: item.thumbnail || `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`,
-          duration: item.duration || 0,
-          viewCount: item.views || 0,
-          likeCount: 0,
-        };
-      });
-
-      console.log(`Piped ${instance} SUCCESS: found ${videos.length} videos`);
-      return videos;
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      console.log(`Piped ${instance} failed: ${errorMsg}`);
-      continue;
-    }
-  }
-
-  console.log('All Piped instances failed');
-  return [];
-}
+// Note: searchInvidious and searchPiped are now handled by the orchestrator
 
 // ============================================================================
 // SCORING FUNCTIONS
@@ -581,40 +413,65 @@ serve(async (req) => {
     }
 
     // =========================================================================
-    // STEP 3: Multi-Source Discovery (Quota-Free)
+    // STEP 3: Multi-Source Discovery (Orchestrated)
+    // Uses Firecrawl, Jina, Invidious/Piped, and YouTube API with fallbacks
     // =========================================================================
     let allVideos: YouTubeVideo[] = [];
-    const seenVideoIds = new Set<string>();
+    let orchestratorSource = 'none';
+    let orchestratorFallbacks: string[] = [];
 
-    // Execute searches across all queries
-    for (const query of queries.slice(0, 4)) {
-      // Try Invidious first
-      if (sources.includes('invidious')) {
-        const invidiousVideos = await searchInvidious(query, 15);
-        for (const video of invidiousVideos) {
-          if (!seenVideoIds.has(video.id) && !existingVideoIds.has(video.id)) {
-            seenVideoIds.add(video.id);
-            allVideos.push(video);
+    // Use the first query for the orchestrated search
+    const primaryQuery = queries[0] || core_concept || lo_text || '';
+
+    if (primaryQuery) {
+      console.log(`[ORCHESTRATOR] Searching with query: "${primaryQuery.substring(0, 50)}..."`);
+
+      try {
+        const searchResult = await searchYouTubeOrchestrated({
+          query: primaryQuery,
+          max_results: 30,
+          min_results: 3,
+          allow_youtube_api: true,
+          priority: 'normal',
+          enrich_metadata: true,
+          timeout_ms: 30000,
+        });
+
+        orchestratorSource = searchResult.source;
+        orchestratorFallbacks = searchResult.fallbacks_used;
+
+        // Convert orchestrated results to YouTubeVideo format
+        // Filter out already existing videos
+        for (const result of searchResult.results) {
+          if (!existingVideoIds.has(result.video_id)) {
+            allVideos.push({
+              id: result.video_id,
+              title: result.title,
+              description: result.description,
+              channelTitle: result.channel_name,
+              channelId: result.channel_id || '',
+              publishedAt: result.published_at || new Date().toISOString(),
+              thumbnailUrl: result.thumbnail_url,
+              duration: result.duration_seconds,
+              viewCount: result.view_count,
+              likeCount: result.like_count || 0,
+            });
           }
         }
-      }
 
-      // Try Piped if we need more
-      if (sources.includes('piped') && allVideos.length < 20) {
-        const pipedVideos = await searchPiped(query, 15);
-        for (const video of pipedVideos) {
-          if (!seenVideoIds.has(video.id) && !existingVideoIds.has(video.id)) {
-            seenVideoIds.add(video.id);
-            allVideos.push(video);
-          }
+        console.log(`[ORCHESTRATOR] Found ${allVideos.length} unique videos via ${orchestratorSource}`);
+        if (orchestratorFallbacks.length > 0) {
+          console.log(`[ORCHESTRATOR] Also used fallbacks: ${orchestratorFallbacks.join(', ')}`);
         }
+        if (searchResult.debug) {
+          console.log(`[ORCHESTRATOR] Debug info:`, JSON.stringify(searchResult.debug));
+        }
+      } catch (orchestratorError) {
+        console.error('[ORCHESTRATOR] Search failed:', orchestratorError);
       }
-
-      // Early exit if we have enough
-      if (allVideos.length >= 30) break;
     }
 
-    console.log(`Found ${allVideos.length} unique videos from quota-free sources`);
+    console.log(`Found ${allVideos.length} unique videos from orchestrated sources`);
 
     // =========================================================================
     // STEP 4: Rule-Based Pre-Filter & Scoring
