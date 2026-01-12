@@ -208,114 +208,116 @@ export default function CareerPathPage() {
     <AppShell>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold font-display">Career Path</h1>
-            <p className="text-muted-foreground">
-              Track your goals, analyze gaps, and take action
-            </p>
-          </div>
-
-          {/* Dream Job Selector */}
-          {dreamJobs.length > 0 && (
-            <div className="flex items-center gap-3">
-              <Select
-                value={activeDreamJobId}
-                onValueChange={setSelectedJobId}
-              >
-                <SelectTrigger className="w-[250px]">
-                  <SelectValue placeholder="Select dream job" />
-                </SelectTrigger>
-                <SelectContent>
-                  {dreamJobs.map((job) => (
-                    <SelectItem key={job.id} value={job.id}>
-                      <div className="flex items-center gap-2">
-                        <span>{job.title}</span>
-                        {job.is_primary && <Badge variant="outline" className="text-[10px]">Primary</Badge>}
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {selectedJob && (
-                <Badge variant={matchScore >= 60 ? "default" : "secondary"} className="shrink-0">
-                  <TrendingUp className="h-3 w-3 mr-1" />
-                  {matchScore}% Match
-                </Badge>
-              )}
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-bold font-display">Career Path</h1>
+              <p className="text-muted-foreground text-sm sm:text-base">
+                Track your goals, analyze gaps, and take action
+              </p>
             </div>
-          )}
+
+            {/* Dream Job Selector - full width on mobile */}
+            {dreamJobs.length > 0 && (
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
+                <Select
+                  value={activeDreamJobId}
+                  onValueChange={setSelectedJobId}
+                >
+                  <SelectTrigger className="w-full sm:w-[250px]">
+                    <SelectValue placeholder="Select dream job" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {dreamJobs.map((job) => (
+                      <SelectItem key={job.id} value={job.id}>
+                        <div className="flex items-center gap-2">
+                          <span className="truncate">{job.title}</span>
+                          {job.is_primary && <Badge variant="outline" className="text-[10px]">Primary</Badge>}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {selectedJob && (
+                  <Badge variant={matchScore >= 60 ? "default" : "secondary"} className="shrink-0 self-start sm:self-auto">
+                    <TrendingUp className="h-3 w-3 mr-1" />
+                    {matchScore}% Match
+                  </Badge>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Stats Cards */}
+        {/* Stats Cards - 2 cols on mobile, 3 on sm, 5 on md+ */}
         {selectedJob && (
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-            <Card className="cursor-pointer hover:shadow-md" onClick={() => setActiveTab("gaps")}>
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center">
-                    <CheckCircle2 className="h-5 w-5 text-green-600" />
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 sm:gap-4">
+            <Card className="cursor-pointer hover:shadow-md active:scale-[0.98] transition-all" onClick={() => setActiveTab("gaps")}>
+              <CardContent className="p-3 sm:p-4">
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-green-500/10 flex items-center justify-center shrink-0">
+                    <CheckCircle2 className="h-4 w-4 sm:h-5 sm:w-5 text-green-600" />
                   </div>
-                  <div>
-                    <p className="text-2xl font-bold">{overlapsCount}</p>
-                    <p className="text-xs text-muted-foreground">Skills Matched</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="cursor-pointer hover:shadow-md" onClick={() => setActiveTab("gaps")}>
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-amber-500/10 flex items-center justify-center">
-                    <Target className="h-5 w-5 text-amber-600" />
-                  </div>
-                  <div>
-                    <p className="text-2xl font-bold">{gapsCount}</p>
-                    <p className="text-xs text-muted-foreground">Gaps to Close</p>
+                  <div className="min-w-0">
+                    <p className="text-xl sm:text-2xl font-bold">{overlapsCount}</p>
+                    <p className="text-[10px] sm:text-xs text-muted-foreground truncate">Skills Matched</p>
                   </div>
                 </div>
               </CardContent>
             </Card>
 
-            <Card className="cursor-pointer hover:shadow-md" onClick={() => setActiveTab("actions")}>
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
-                    <Circle className="h-5 w-5 text-blue-600" />
+            <Card className="cursor-pointer hover:shadow-md active:scale-[0.98] transition-all" onClick={() => setActiveTab("gaps")}>
+              <CardContent className="p-3 sm:p-4">
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-amber-500/10 flex items-center justify-center shrink-0">
+                    <Target className="h-4 w-4 sm:h-5 sm:w-5 text-amber-600" />
                   </div>
-                  <div>
-                    <p className="text-2xl font-bold">{pendingRecs}</p>
-                    <p className="text-xs text-muted-foreground">To Do</p>
+                  <div className="min-w-0">
+                    <p className="text-xl sm:text-2xl font-bold">{gapsCount}</p>
+                    <p className="text-[10px] sm:text-xs text-muted-foreground truncate">Gaps</p>
                   </div>
                 </div>
               </CardContent>
             </Card>
 
-            <Card className="cursor-pointer hover:shadow-md" onClick={() => setActiveTab("actions")}>
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-purple-500/10 flex items-center justify-center">
-                    <Sparkles className="h-5 w-5 text-purple-600" />
+            <Card className="cursor-pointer hover:shadow-md active:scale-[0.98] transition-all" onClick={() => setActiveTab("actions")}>
+              <CardContent className="p-3 sm:p-4">
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-blue-500/10 flex items-center justify-center shrink-0">
+                    <Circle className="h-4 w-4 sm:h-5 sm:w-5 text-blue-600" />
                   </div>
-                  <div>
-                    <p className="text-2xl font-bold">{completedRecs}</p>
-                    <p className="text-xs text-muted-foreground">Completed</p>
+                  <div className="min-w-0">
+                    <p className="text-xl sm:text-2xl font-bold">{pendingRecs}</p>
+                    <p className="text-[10px] sm:text-xs text-muted-foreground truncate">To Do</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="cursor-pointer hover:shadow-md active:scale-[0.98] transition-all" onClick={() => setActiveTab("actions")}>
+              <CardContent className="p-3 sm:p-4">
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-purple-500/10 flex items-center justify-center shrink-0">
+                    <Sparkles className="h-4 w-4 sm:h-5 sm:w-5 text-purple-600" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xl sm:text-2xl font-bold">{completedRecs}</p>
+                    <p className="text-[10px] sm:text-xs text-muted-foreground truncate">Done</p>
                   </div>
                 </div>
               </CardContent>
             </Card>
             
             {/* Enrolled Courses card */}
-            <Card className="cursor-pointer hover:shadow-md" onClick={() => navigate('/learn/courses')}>
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-indigo-500/10 flex items-center justify-center">
-                    <GraduationCap className="h-5 w-5 text-indigo-600" />
+            <Card className="cursor-pointer hover:shadow-md active:scale-[0.98] transition-all col-span-2 sm:col-span-1" onClick={() => navigate('/learn/courses')}>
+              <CardContent className="p-3 sm:p-4">
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-indigo-500/10 flex items-center justify-center shrink-0">
+                    <GraduationCap className="h-4 w-4 sm:h-5 sm:w-5 text-indigo-600" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-2xl font-bold">{enrollments.length}</p>
-                    <p className="text-xs text-muted-foreground truncate">Enrolled</p>
+                    <p className="text-xl sm:text-2xl font-bold">{enrollments.length}</p>
+                    <p className="text-[10px] sm:text-xs text-muted-foreground truncate">Enrolled</p>
                   </div>
                   {enrollments.length > 0 && (
                     <Badge variant="outline" className="text-[10px] text-indigo-600 border-indigo-300 shrink-0">
@@ -328,39 +330,42 @@ export default function CareerPathPage() {
           </div>
         )}
 
-        {/* Main Tabs */}
+        {/* Main Tabs - Responsive: hide icons on mobile, shorter labels */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="jobs" className="gap-2">
-              <Briefcase className="h-4 w-4" />
-              Dream Jobs
+          <TabsList className="grid w-full grid-cols-4 h-auto">
+            <TabsTrigger value="jobs" className="gap-1 sm:gap-2 py-2 sm:py-2.5 text-xs sm:text-sm">
+              <Briefcase className="h-4 w-4 hidden sm:block" />
+              <span className="sm:hidden">Jobs</span>
+              <span className="hidden sm:inline">Dream Jobs</span>
             </TabsTrigger>
-            <TabsTrigger value="gaps" className="gap-2">
-              <Target className="h-4 w-4" />
-              Gap Analysis
+            <TabsTrigger value="gaps" className="gap-1 sm:gap-2 py-2 sm:py-2.5 text-xs sm:text-sm">
+              <Target className="h-4 w-4 hidden sm:block" />
+              <span className="sm:hidden">Gaps</span>
+              <span className="hidden sm:inline">Gap Analysis</span>
             </TabsTrigger>
-            <TabsTrigger value="actions" className="gap-2">
-              <Sparkles className="h-4 w-4" />
-              Action Plan
+            <TabsTrigger value="actions" className="gap-1 sm:gap-2 py-2 sm:py-2.5 text-xs sm:text-sm">
+              <Sparkles className="h-4 w-4 hidden sm:block" />
+              <span className="sm:hidden">Actions</span>
+              <span className="hidden sm:inline">Action Plan</span>
             </TabsTrigger>
-            <TabsTrigger value="avoid" className="gap-2">
-              <AlertTriangle className="h-4 w-4" />
-              Avoid
+            <TabsTrigger value="avoid" className="gap-1 sm:gap-2 py-2 sm:py-2.5 text-xs sm:text-sm">
+              <AlertTriangle className="h-4 w-4 hidden sm:block" />
+              <span>Avoid</span>
             </TabsTrigger>
           </TabsList>
 
           {/* Dream Jobs Tab */}
           <TabsContent value="jobs" className="space-y-4">
-            <div className="flex justify-between items-center">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
               <p className="text-sm text-muted-foreground">
                 Your career aspirations and match scores
               </p>
-              <div className="flex gap-2">
-                <Button variant="outline" onClick={() => setShowDiscover(!showDiscover)}>
+              <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                <Button variant="outline" onClick={() => setShowDiscover(!showDiscover)} className="w-full sm:w-auto min-h-11">
                   <Search className="h-4 w-4 mr-2" />
                   {showDiscover ? "Show Jobs" : "Discover Careers"}
                 </Button>
-                <Button onClick={() => setShowAddJob(!showAddJob)}>
+                <Button onClick={() => setShowAddJob(!showAddJob)} className="w-full sm:w-auto min-h-11">
                   <Plus className="h-4 w-4 mr-2" />
                   Add Dream Job
                 </Button>
@@ -579,51 +584,55 @@ export default function CareerPathPage() {
               </Card>
             ) : (
               <div className="space-y-4">
-                <div className="flex flex-wrap justify-between items-center gap-4">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                   <h3 className="text-lg font-semibold">
                     Action Plan for {selectedJob?.title}
                   </h3>
-                  <div className="flex gap-2">
+                  <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
                     <Button
                       variant="outline"
                       onClick={handleFindCourses}
                       disabled={isSearching || priorityGaps.length === 0}
+                      className="w-full sm:w-auto min-h-11"
                     >
                       {isSearching ? (
                         <Loader2 className="h-4 w-4 animate-spin mr-2" />
                       ) : (
                         <Search className="h-4 w-4 mr-2" />
                       )}
-                      Find Real Courses
+                      <span className="sm:hidden">Find Courses</span>
+                      <span className="hidden sm:inline">Find Real Courses</span>
                     </Button>
                     <Button
                       onClick={handleGenerateRecs}
                       disabled={generateRecs.isPending || gapsCount === 0}
+                      className="w-full sm:w-auto min-h-11"
                     >
                       {generateRecs.isPending ? (
                         <Loader2 className="h-4 w-4 animate-spin mr-2" />
                       ) : (
                         <Sparkles className="h-4 w-4 mr-2" />
                       )}
-                      Generate Actions
+                      <span className="sm:hidden">Generate</span>
+                      <span className="hidden sm:inline">Generate Actions</span>
                     </Button>
                   </div>
                 </div>
 
                 {/* Course Filters - show when there are course recommendations */}
                 {recommendations.filter(r => r.type === 'course').length > 0 && (
-                  <div className="flex items-center gap-4 p-3 bg-muted/50 rounded-lg border">
-                    <div className="flex items-center gap-2 bg-green-50 px-3 py-1.5 rounded-lg border border-green-200">
-                      <Leaf className="h-4 w-4 text-green-600" />
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4 p-3 bg-muted/50 rounded-lg border">
+                    <div className="flex items-center gap-2 bg-green-50 px-3 py-2 sm:py-1.5 rounded-lg border border-green-200">
+                      <Leaf className="h-4 w-4 text-green-600 shrink-0" />
                       <Switch 
                         id="free-first"
                         checked={freeFirst}
                         onCheckedChange={setFreeFirst}
                       />
-                      <Label htmlFor="free-first" className="text-sm text-green-700 cursor-pointer">Free First</Label>
+                      <Label htmlFor="free-first" className="text-sm text-green-700 cursor-pointer whitespace-nowrap">Free First</Label>
                     </div>
                     <Select value={priceFilter} onValueChange={(v) => setPriceFilter(v as 'all' | 'free' | 'paid' | 'unknown')}>
-                      <SelectTrigger className="w-36 h-8">
+                      <SelectTrigger className="w-full sm:w-36 h-10 sm:h-8">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -633,7 +642,7 @@ export default function CareerPathPage() {
                         <SelectItem value="unknown">Unknown Price</SelectItem>
                       </SelectContent>
                     </Select>
-                    <span className="text-xs text-muted-foreground ml-auto">
+                    <span className="text-xs text-muted-foreground sm:ml-auto text-center sm:text-left">
                       {(() => {
                         const courseRecs = recommendations.filter(r => r.type === 'course');
                         const counts = countByPriceCategory(courseRecs);

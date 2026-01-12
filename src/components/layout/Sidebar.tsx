@@ -1,21 +1,10 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
-  LayoutDashboard,
-  BookOpen,
-  Briefcase,
-  Target,
-  Sparkles,
-  Settings,
+  GraduationCap,
   ChevronLeft,
   LogOut,
   User,
-  GraduationCap,
-  BarChart3,
-  School,
-  PlayCircle,
-  CreditCard,
-  Shield
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -26,35 +15,19 @@ import {
 } from "@/components/ui/tooltip";
 import { useAuth } from '@/contexts/AuthContext';
 import { useUserRoles } from '@/hooks/useUserRoles';
+import { 
+  mainNavigation, 
+  secondaryNavigation, 
+  instructorNavigation, 
+  adminNavigation,
+  isPathActive,
+  type NavItem 
+} from '@/config/navigation';
 
 interface SidebarProps {
   collapsed?: boolean;
   onCollapse?: (collapsed: boolean) => void;
 }
-
-const navigation = [
-  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'My Learning', href: '/learn', icon: GraduationCap },
-  { name: 'Career Path', href: '/career', icon: Briefcase },
-];
-
-const instructorNav = [
-  { name: 'Instructor Portal', href: '/instructor/courses', icon: School },
-];
-
-// Legacy nav items removed - redirects will handle old URLs
-const studentLearningNav: typeof navigation = [];
-
-const adminNav = [
-  { name: 'Admin Portal', href: '/admin', icon: Shield },
-];
-
-const secondaryNavigation = [
-  { name: 'Profile', href: '/profile', icon: User },
-  { name: 'AI Usage', href: '/usage', icon: BarChart3 },
-  { name: 'Billing', href: '/billing', icon: CreditCard },
-  { name: 'Settings', href: '/settings', icon: Settings },
-];
 
 export function Sidebar({ collapsed = false, onCollapse }: SidebarProps) {
   const location = useLocation();
@@ -77,9 +50,9 @@ export function Sidebar({ collapsed = false, onCollapse }: SidebarProps) {
     navigate('/');
   };
 
-  const NavItem = ({ item }: { item: typeof navigation[0] }) => {
-    const isActive = location.pathname === item.href || 
-                     location.pathname.startsWith(item.href + '/');
+  const NavItem = ({ item }: { item: NavItem }) => {
+    const isActive = isPathActive(location.pathname, item.href);
+    const Icon = item.icon;
     
     const content = (
       <Link
@@ -92,7 +65,7 @@ export function Sidebar({ collapsed = false, onCollapse }: SidebarProps) {
             : "text-sidebar-foreground opacity-80"
         )}
       >
-        <item.icon
+        <Icon
           className={cn(
             "h-5 w-5 flex-shrink-0",
             isActive ? "text-sidebar-primary" : ""
@@ -168,7 +141,7 @@ export function Sidebar({ collapsed = false, onCollapse }: SidebarProps) {
 
       {/* Main Navigation */}
       <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
-        {navigation.map((item) => (
+        {mainNavigation.map((item) => (
           <NavItem key={item.name} item={item} />
         ))}
 
@@ -182,7 +155,7 @@ export function Sidebar({ collapsed = false, onCollapse }: SidebarProps) {
                 </p>
               </div>
             )}
-            {instructorNav.map((item) => (
+            {instructorNavigation.map((item) => (
               <NavItem key={item.name} item={item} />
             ))}
           </>
@@ -198,7 +171,7 @@ export function Sidebar({ collapsed = false, onCollapse }: SidebarProps) {
                 </p>
               </div>
             )}
-            {adminNav.map((item) => (
+            {adminNavigation.map((item) => (
               <NavItem key={item.name} item={item} />
             ))}
           </>
