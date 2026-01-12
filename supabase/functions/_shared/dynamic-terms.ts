@@ -1,7 +1,7 @@
 /**
  * Dynamic Term Extraction and Synonym Learning
  *
- * Extracts domain-specific terms from syllabi and learns synonyms automatically.
+ * Extracts domain-specific terms from instructor_courses and learns synonyms automatically.
  * No hardcoded concept lists - everything is derived from the syllabus content.
  */
 
@@ -21,7 +21,7 @@ export interface LearnedSynonym {
   canonical_term: string;
   synonyms: string[];
   domain: string;
-  syllabus_id?: string;
+  instructor_course_id?: string;
   confidence: number;
 }
 
@@ -225,20 +225,22 @@ Return ONLY a JSON array of strings, no explanation. Example: ["synonym1", "syno
 }
 
 /**
- * Get or create learned synonyms for a syllabus
+ * Get or create learned synonyms for an instructor course
+ * @param courseId - The instructor_course_id
+ * @param syllabusText - Optional syllabus text to learn synonyms from
  */
 export async function getLearnedSynonyms(
-  syllabusId: string,
+  courseId: string,
   syllabusText?: string
 ): Promise<Map<string, string[]>> {
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
   const synonymMap = new Map<string, string[]>();
 
-  // Try to get cached synonyms for this syllabus
+  // Try to get cached synonyms for this course
   const { data: cached } = await supabase
     .from('learned_synonyms')
     .select('canonical_term, synonyms')
-    .eq('syllabus_id', syllabusId);
+    .eq('instructor_course_id', courseId);
 
   if (cached && cached.length > 0) {
     for (const row of cached) {
@@ -251,7 +253,7 @@ export async function getLearnedSynonyms(
   const { data: domainSynonyms } = await supabase
     .from('learned_synonyms')
     .select('canonical_term, synonyms')
-    .is('syllabus_id', null);
+    .is('instructor_course_id', null);
 
   if (domainSynonyms) {
     for (const row of domainSynonyms) {
@@ -261,7 +263,7 @@ export async function getLearnedSynonyms(
 
   // If we have syllabus text and no cached synonyms, learn new ones
   if (syllabusText && (!cached || cached.length === 0)) {
-    console.log(`[DYNAMIC-TERMS] Learning synonyms for syllabus ${syllabusId}`);
+    console.log(`[DYNAMIC-TERMS] Learning synonyms for course ${courseId}`);
     const domain = detectDomain(syllabusText);
     const terms = extractDomainTerms(syllabusText);
 
@@ -269,7 +271,7 @@ export async function getLearnedSynonyms(
     const topTerms = terms.slice(0, 20);
 
     // Learn in background (fire and forget for speed)
-    learnAndStoreSynonyms(supabase, syllabusId, domain, topTerms).catch(e => {
+    learnAndStoreSynonyms(supabase, courseId, domain, topTerms).catch(e => {
       console.log(`[DYNAMIC-TERMS] Background synonym learning error: ${e}`);
     });
   }
@@ -282,7 +284,7 @@ export async function getLearnedSynonyms(
  */
 async function learnAndStoreSynonyms(
   supabase: ReturnType<typeof createClient>,
-  syllabusId: string,
+  courseId: string,
   domain: string,
   terms: ExtractedTerm[]
 ): Promise<void> {
@@ -292,14 +294,14 @@ async function learnAndStoreSynonyms(
 
       if (synonyms.length > 0) {
         await supabase.from('learned_synonyms').upsert({
-          syllabus_id: syllabusId,
+          instructor_course_id: courseId,
           canonical_term: term.term.toLowerCase(),
           synonyms,
           domain,
           confidence: 0.8,
           created_at: new Date().toISOString(),
         }, {
-          onConflict: 'syllabus_id,canonical_term',
+          onConflict: 'instructor_course_id,canonical_term',
         });
       }
     } catch (e) {
@@ -312,11 +314,13 @@ async function learnAndStoreSynonyms(
 }
 
 /**
- * Get dynamic synonyms for a search concept (syllabus-aware)
+ * Get dynamic synonyms for a search concept (course-aware)
+ * @param concept - The search concept
+ * @param courseId - Optional instructor_course_id for course-specific synonyms
  */
 export async function getDynamicSynonyms(
   concept: string,
-  syllabusId?: string
+  courseId?: string
 ): Promise<string[]> {
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
   const lowerConcept = concept.toLowerCase();
@@ -328,12 +332,12 @@ export async function getDynamicSynonyms(
     .select('canonical_term, synonyms')
     .or(`canonical_term.ilike.%${lowerConcept}%`);
 
-  // If we have a syllabus ID, prioritize its synonyms
-  if (syllabusId) {
+  // If we have a course ID, prioritize its synonyms
+  if (courseId) {
     const { data } = await supabase
       .from('learned_synonyms')
       .select('canonical_term, synonyms')
-      .eq('syllabus_id', syllabusId);
+      .eq('instructor_course_id', courseId);
 
     if (data) {
       for (const row of data) {
@@ -465,10 +469,13 @@ export function calculateDynamicSimilarity(
 }
 
 /**
- * Store extracted terms for a syllabus
+ * Store extracted terms for a course
+ * @param courseId - The instructor_course_id
+ * @param terms - Extracted terms from the syllabus
+ * @param domain - Detected academic domain
  */
 export async function storeExtractedTerms(
-  syllabusId: string,
+  courseId: string,
   terms: ExtractedTerm[],
   domain: string
 ): Promise<void> {
@@ -476,19 +483,19 @@ export async function storeExtractedTerms(
 
   // Store domain detection result
   await supabase
-    .from('syllabi')
+    .from('instructor_courses')
     .update({ detected_domain: domain })
-    .eq('id', syllabusId);
+    .eq('id', courseId);
 
   // Store extracted terms
   const termRecords = terms.slice(0, 50).map(t => ({
-    syllabus_id: syllabusId,
+    instructor_course_id: courseId,
     term: t.term,
     frequency: t.frequency,
     domain,
   }));
 
   await supabase
-    .from('syllabus_terms')
-    .upsert(termRecords, { onConflict: 'syllabus_id,term' });
+    .from('course_terms')
+    .upsert(termRecords, { onConflict: 'instructor_course_id,term' });
 }

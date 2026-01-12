@@ -258,10 +258,10 @@ serve(async (req) => {
     });
 
     // =========================================================================
-    // STEP 1: Check cache
+    // STEP 1: Check cache (with course context for dynamic synonym matching)
     // =========================================================================
     const searchConcept = lo_text || core_concept || '';
-    const cacheResult = await checkCache(searchConcept, 'youtube');
+    const cacheResult = await checkCache(searchConcept, 'youtube', instructor_course_id);
 
     if (cacheResult.found && cacheResult.results.length > 0) {
       console.log(`Cache HIT for: "${searchConcept.substring(0, 50)}..."`);

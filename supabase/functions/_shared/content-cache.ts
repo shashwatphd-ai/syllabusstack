@@ -72,9 +72,9 @@ const YOUTUBE_SEARCH_COST = 100; // Each search costs 100 quota units
  */
 export async function getConceptSynonyms(
   concept: string,
-  syllabusId?: string
+  courseId?: string
 ): Promise<string[]> {
-  return getDynamicSynonyms(concept, syllabusId);
+  return getDynamicSynonyms(concept, courseId);
 }
 
 /**
@@ -145,12 +145,12 @@ export function extractKeywords(text: string): string[] {
  *
  * @param searchConcept - The concept to search for
  * @param source - Content source type
- * @param syllabusId - Optional syllabus ID for syllabus-specific synonyms
+ * @param courseId - Optional instructor_course_id for course-specific synonyms
  */
 export async function checkCache(
   searchConcept: string,
   source: 'youtube' | 'khan_academy' | 'library' = 'youtube',
-  syllabusId?: string
+  courseId?: string
 ): Promise<CacheSearchResult> {
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
   const keywords = extractKeywords(searchConcept);
@@ -209,7 +209,7 @@ export async function checkCache(
     p_keywords: keywords,
     p_source: source,
     p_min_overlap: dynamicThreshold,
-    p_syllabus_id: syllabusId || null,
+    p_course_id: courseId || null,
   });
 
   if (similarMatch && similarMatch.length > 0) {
@@ -246,7 +246,7 @@ export async function checkCache(
   }
 
   // Step 4: Try DYNAMIC synonym match (learned from syllabus)
-  const synonyms = await getConceptSynonyms(searchConcept, syllabusId);
+  const synonyms = await getConceptSynonyms(searchConcept, courseId);
   if (synonyms.length > 0 && normalizedMatch) {
     for (const cache of normalizedMatch) {
       const cacheLower = cache.search_concept.toLowerCase();

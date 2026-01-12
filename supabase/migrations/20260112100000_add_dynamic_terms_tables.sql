@@ -2,10 +2,11 @@
 -- Purpose: Enable automatic synonym learning from syllabus content
 -- instead of hardcoded concept mappings
 
--- Table to store learned synonyms (per-syllabus and domain-wide)
+-- Table to store learned synonyms (per-course and domain-wide)
+-- Note: Uses instructor_courses instead of syllabi (syllabi table doesn't exist in this schema)
 CREATE TABLE IF NOT EXISTS learned_synonyms (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  syllabus_id UUID REFERENCES syllabi(id) ON DELETE CASCADE,
+  instructor_course_id UUID REFERENCES instructor_courses(id) ON DELETE CASCADE,
   canonical_term TEXT NOT NULL,
   synonyms TEXT[] NOT NULL DEFAULT '{}',
   domain TEXT NOT NULL DEFAULT 'general',
@@ -13,36 +14,43 @@ CREATE TABLE IF NOT EXISTS learned_synonyms (
   hit_count INTEGER DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now(),
-  UNIQUE(syllabus_id, canonical_term)
+  UNIQUE(instructor_course_id, canonical_term)
 );
 
 -- Index for fast lookups
 CREATE INDEX IF NOT EXISTS idx_learned_synonyms_canonical ON learned_synonyms(canonical_term);
-CREATE INDEX IF NOT EXISTS idx_learned_synonyms_syllabus ON learned_synonyms(syllabus_id);
+CREATE INDEX IF NOT EXISTS idx_learned_synonyms_course ON learned_synonyms(instructor_course_id);
 CREATE INDEX IF NOT EXISTS idx_learned_synonyms_domain ON learned_synonyms(domain);
 
--- Table to store extracted terms from syllabi
-CREATE TABLE IF NOT EXISTS syllabus_terms (
+-- Table to store extracted terms from course syllabi
+CREATE TABLE IF NOT EXISTS course_terms (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  syllabus_id UUID NOT NULL REFERENCES syllabi(id) ON DELETE CASCADE,
+  instructor_course_id UUID NOT NULL REFERENCES instructor_courses(id) ON DELETE CASCADE,
   term TEXT NOT NULL,
   frequency INTEGER DEFAULT 1,
   domain TEXT NOT NULL DEFAULT 'general',
   created_at TIMESTAMPTZ DEFAULT now(),
-  UNIQUE(syllabus_id, term)
+  UNIQUE(instructor_course_id, term)
 );
 
-CREATE INDEX IF NOT EXISTS idx_syllabus_terms_syllabus ON syllabus_terms(syllabus_id);
-CREATE INDEX IF NOT EXISTS idx_syllabus_terms_term ON syllabus_terms(term);
+CREATE INDEX IF NOT EXISTS idx_course_terms_course ON course_terms(instructor_course_id);
+CREATE INDEX IF NOT EXISTS idx_course_terms_term ON course_terms(term);
 
--- Add detected_domain column to syllabi if not exists
+-- Add detected_domain and syllabus_text columns to instructor_courses if not exists
 DO $$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM information_schema.columns
-    WHERE table_name = 'syllabi' AND column_name = 'detected_domain'
+    WHERE table_name = 'instructor_courses' AND column_name = 'detected_domain'
   ) THEN
-    ALTER TABLE syllabi ADD COLUMN detected_domain TEXT DEFAULT 'general';
+    ALTER TABLE instructor_courses ADD COLUMN detected_domain TEXT DEFAULT 'general';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'instructor_courses' AND column_name = 'syllabus_text'
+  ) THEN
+    ALTER TABLE instructor_courses ADD COLUMN syllabus_text TEXT;
   END IF;
 END $$;
 
@@ -63,7 +71,7 @@ CREATE INDEX IF NOT EXISTS idx_api_quota_date ON api_quota_usage(api_name, usage
 -- Function to get synonyms for a search term (including learned ones)
 CREATE OR REPLACE FUNCTION get_dynamic_synonyms(
   p_term TEXT,
-  p_syllabus_id UUID DEFAULT NULL
+  p_course_id UUID DEFAULT NULL
 )
 RETURNS TEXT[]
 LANGUAGE plpgsql
@@ -72,11 +80,11 @@ DECLARE
   v_synonyms TEXT[] := '{}';
   v_record RECORD;
 BEGIN
-  -- Get syllabus-specific synonyms first
-  IF p_syllabus_id IS NOT NULL THEN
+  -- Get course-specific synonyms first
+  IF p_course_id IS NOT NULL THEN
     FOR v_record IN
       SELECT synonyms FROM learned_synonyms
-      WHERE syllabus_id = p_syllabus_id
+      WHERE instructor_course_id = p_course_id
         AND (canonical_term ILIKE '%' || p_term || '%'
              OR p_term ILIKE '%' || canonical_term || '%')
     LOOP
@@ -84,10 +92,10 @@ BEGIN
     END LOOP;
   END IF;
 
-  -- Then get domain-wide synonyms
+  -- Then get domain-wide synonyms (where instructor_course_id is null)
   FOR v_record IN
     SELECT synonyms FROM learned_synonyms
-    WHERE syllabus_id IS NULL
+    WHERE instructor_course_id IS NULL
       AND (canonical_term ILIKE '%' || p_term || '%'
            OR p_term ILIKE '%' || canonical_term || '%')
   LOOP
@@ -97,7 +105,7 @@ BEGIN
   -- Update hit count for used synonyms
   UPDATE learned_synonyms
   SET hit_count = hit_count + 1, updated_at = now()
-  WHERE (syllabus_id = p_syllabus_id OR syllabus_id IS NULL)
+  WHERE (instructor_course_id = p_course_id OR instructor_course_id IS NULL)
     AND (canonical_term ILIKE '%' || p_term || '%'
          OR p_term ILIKE '%' || canonical_term || '%');
 
@@ -110,7 +118,7 @@ CREATE OR REPLACE FUNCTION find_similar_cached_search_dynamic(
   p_keywords TEXT[],
   p_source TEXT,
   p_min_overlap DECIMAL DEFAULT 0.5,
-  p_syllabus_id UUID DEFAULT NULL
+  p_course_id UUID DEFAULT NULL
 )
 RETURNS TABLE (
   id UUID,
@@ -127,13 +135,13 @@ BEGIN
   -- Expand keywords with synonyms
   v_expanded_keywords := p_keywords;
 
-  IF p_syllabus_id IS NOT NULL THEN
+  IF p_course_id IS NOT NULL THEN
     SELECT array_agg(DISTINCT term)
     INTO v_synonyms
     FROM (
       SELECT unnest(synonyms) as term
       FROM learned_synonyms
-      WHERE syllabus_id = p_syllabus_id
+      WHERE instructor_course_id = p_course_id
         AND canonical_term = ANY(p_keywords)
     ) s;
 
@@ -199,24 +207,24 @@ $$;
 
 -- RLS policies
 ALTER TABLE learned_synonyms ENABLE ROW LEVEL SECURITY;
-ALTER TABLE syllabus_terms ENABLE ROW LEVEL SECURITY;
+ALTER TABLE course_terms ENABLE ROW LEVEL SECURITY;
 
 -- Allow service role full access
 CREATE POLICY "Service role can manage learned_synonyms"
   ON learned_synonyms FOR ALL
   USING (auth.jwt() ->> 'role' = 'service_role');
 
-CREATE POLICY "Service role can manage syllabus_terms"
-  ON syllabus_terms FOR ALL
+CREATE POLICY "Service role can manage course_terms"
+  ON course_terms FOR ALL
   USING (auth.jwt() ->> 'role' = 'service_role');
 
 -- Allow authenticated users to read domain-wide synonyms
 CREATE POLICY "Authenticated users can read domain synonyms"
   ON learned_synonyms FOR SELECT
-  USING (auth.role() = 'authenticated' AND syllabus_id IS NULL);
+  USING (auth.role() = 'authenticated' AND instructor_course_id IS NULL);
 
 -- Comment on tables
-COMMENT ON TABLE learned_synonyms IS 'Dynamically learned synonyms from syllabus content - replaces hardcoded concept mappings';
-COMMENT ON TABLE syllabus_terms IS 'Extracted domain-specific terms from each syllabus';
+COMMENT ON TABLE learned_synonyms IS 'Dynamically learned synonyms from course syllabus content - replaces hardcoded concept mappings';
+COMMENT ON TABLE course_terms IS 'Extracted domain-specific terms from each course syllabus';
 COMMENT ON COLUMN learned_synonyms.confidence IS 'Confidence score (0-1) for the synonym relationship';
-COMMENT ON COLUMN syllabi.detected_domain IS 'Automatically detected academic domain (business, medicine, engineering, etc.)';
+COMMENT ON COLUMN instructor_courses.detected_domain IS 'Automatically detected academic domain (business, medicine, engineering, etc.)';
