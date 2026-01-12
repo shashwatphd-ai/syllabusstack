@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Link2, GraduationCap, Loader2, Check, X } from "lucide-react";
+import { useState, forwardRef } from "react";
+import { Link2, GraduationCap, Loader2, Check } from "lucide-react";
 import {
   Dialog,
   DialogContent,

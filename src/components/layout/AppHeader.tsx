@@ -221,20 +221,20 @@ export function AppHeader({ onMenuClick, showSearch = true }: AppHeaderProps) {
   );
 }
 
-// Mobile navigation drawer
+// Mobile navigation drawer - streamlined 3-item navigation
 export function MobileNav({ open, onClose }: { open: boolean; onClose: () => void }) {
   const location = useLocation();
 
+  // Main navigation - matches the streamlined sidebar
   const navigation = [
     { name: 'Dashboard', href: '/dashboard' },
-    { name: 'My Courses', href: '/courses' },
-    { name: 'Dream Jobs', href: '/dream-jobs' },
-    { name: 'Gap Analysis', href: '/analysis' },
-    { name: 'Recommendations', href: '/recommendations' },
-    { name: 'My Learning', href: '/learn/courses' },
+    { name: 'My Learning', href: '/learn' },
+    { name: 'Career Path', href: '/career' },
+  ];
+  
+  // Secondary navigation
+  const secondaryNavigation = [
     { name: 'Profile', href: '/profile' },
-    { name: 'AI Usage', href: '/usage' },
-    { name: 'Billing', href: '/billing' },
     { name: 'Settings', href: '/settings' },
   ];
 
@@ -248,7 +248,33 @@ export function MobileNav({ open, onClose }: { open: boolean; onClose: () => voi
           <span className="text-lg font-bold">SyllabusStack</span>
         </div>
         <nav className="p-4 space-y-1">
+          {/* Main navigation */}
           {navigation.map((item) => {
+            const isActive = location.pathname === item.href || 
+              location.pathname.startsWith(item.href + '/') ||
+              (item.href === '/career' && location.pathname.startsWith('/career'));
+            return (
+              <Link
+                key={item.name}
+                to={item.href}
+                onClick={onClose}
+                className={cn(
+                  "block px-4 py-3 rounded-lg transition-colors text-base font-medium",
+                  isActive 
+                    ? "bg-primary/10 text-primary" 
+                    : "text-foreground hover:bg-muted"
+                )}
+              >
+                {item.name}
+              </Link>
+            );
+          })}
+          
+          {/* Divider */}
+          <div className="my-4 border-t border-border" />
+          
+          {/* Secondary navigation */}
+          {secondaryNavigation.map((item) => {
             const isActive = location.pathname === item.href;
             return (
               <Link
@@ -256,10 +282,10 @@ export function MobileNav({ open, onClose }: { open: boolean; onClose: () => voi
                 to={item.href}
                 onClick={onClose}
                 className={cn(
-                  "block px-4 py-2.5 rounded-lg transition-colors",
+                  "block px-4 py-2.5 rounded-lg transition-colors text-sm",
                   isActive 
-                    ? "bg-primary/10 text-primary font-medium" 
-                    : "text-foreground hover:bg-muted"
+                    ? "bg-muted text-foreground font-medium" 
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
                 )}
               >
                 {item.name}
