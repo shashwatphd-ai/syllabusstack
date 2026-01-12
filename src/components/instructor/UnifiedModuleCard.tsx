@@ -110,56 +110,64 @@ export function UnifiedModuleCard({ module, learningObjectives }: UnifiedModuleC
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
       <Card className="border-border/50">
-        <CardHeader className="py-4">
+        <CardHeader className="py-3 sm:py-4 px-3 sm:px-6">
           <CollapsibleTrigger asChild>
-            <div className="flex items-center justify-between cursor-pointer group">
-              <div className="flex items-center gap-3">
+            <div className="flex flex-col gap-2 cursor-pointer group">
+              {/* Top row: chevron, title, LO count badge */}
+              <div className="flex items-start gap-2">
                 {isOpen ? (
-                  <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                  <ChevronDown className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
                 ) : (
-                  <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                  <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
                 )}
-                <CardTitle className="text-base font-semibold group-hover:text-primary transition-colors">
-                  {module.title}
-                </CardTitle>
-                <Badge variant="secondary" className="text-xs">
-                  {learningObjectives.length} LOs
-                </Badge>
-                {losWithContent > 0 && (
-                  <Badge variant="outline" className="text-xs text-success border-success/30">
-                    {losWithContent} ready
-                  </Badge>
-                )}
-                {losWithPending > 0 && (
-                  <Badge variant="outline" className="text-xs text-warning border-warning/30">
-                    {losWithPending} pending
-                  </Badge>
-                )}
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <CardTitle className="text-sm sm:text-base font-semibold group-hover:text-primary transition-colors">
+                      {module.title}
+                    </CardTitle>
+                    <Badge variant="secondary" className="text-xs shrink-0">
+                      {learningObjectives.length} LOs
+                    </Badge>
+                    {losWithContent > 0 && (
+                      <Badge variant="outline" className="text-xs text-success border-success/30 shrink-0">
+                        {losWithContent} ready
+                      </Badge>
+                    )}
+                    {losWithPending > 0 && (
+                      <Badge variant="outline" className="text-xs text-warning border-warning/30 shrink-0">
+                        {losWithPending} pending
+                      </Badge>
+                    )}
+                  </div>
+                </div>
               </div>
-              <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+              
+              {/* Action buttons row - separate on mobile */}
+              <div className="flex flex-wrap items-center gap-2 ml-7" onClick={(e) => e.stopPropagation()}>
                 {/* Generate Quiz Button */}
                 {learningObjectives.length > 0 && (
                   <Button
                     variant="outline"
                     size="sm"
-                    className="gap-1.5"
+                    className="gap-1.5 h-9 text-xs"
                     onClick={handleGenerateQuiz}
                     disabled={generatingQuiz}
                   >
                     {generatingQuiz ? (
                       <>
                         <Loader2 className="h-3 w-3 animate-spin" />
-                        Generating...
+                        <span className="hidden sm:inline">Generating...</span>
                       </>
                     ) : quizGenerated ? (
                       <>
                         <CheckCircle2 className="h-3 w-3 text-success" />
-                        Generated!
+                        <span className="hidden sm:inline">Generated!</span>
                       </>
                     ) : (
                       <>
                         <FileQuestion className="h-3 w-3" />
-                        Generate Quiz
+                        <span className="hidden sm:inline">Generate Quiz</span>
+                        <span className="sm:hidden">Quiz</span>
                       </>
                     )}
                   </Button>
@@ -169,19 +177,19 @@ export function UnifiedModuleCard({ module, learningObjectives }: UnifiedModuleC
                   <Button
                     variant="outline"
                     size="sm"
-                    className="gap-1.5"
+                    className="gap-1.5 h-9 text-xs"
                     onClick={handleFindAllContent}
                     disabled={bulkSearching}
                   >
                     {bulkSearching ? (
                       <>
                         <Loader2 className="h-3 w-3 animate-spin" />
-                        Finding...
+                        <span className="hidden sm:inline">Finding...</span>
                       </>
                     ) : (
                       <>
                         <Sparkles className="h-3 w-3" />
-                        Find All ({losWithoutContent})
+                        <span className="hidden sm:inline">Find All</span> ({losWithoutContent})
                       </>
                     )}
                   </Button>
@@ -190,7 +198,7 @@ export function UnifiedModuleCard({ module, learningObjectives }: UnifiedModuleC
             </div>
           </CollapsibleTrigger>
           {module.description && (
-            <p className="text-sm text-muted-foreground ml-8 mt-1">{module.description}</p>
+            <p className="text-xs sm:text-sm text-muted-foreground ml-7 mt-1 line-clamp-2">{module.description}</p>
           )}
         </CardHeader>
         <CollapsibleContent>
