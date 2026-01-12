@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { AppShell } from "@/components/layout";
 import { AddDreamJobForm } from "@/components/forms";
+import { EditDreamJobDialog } from "@/components/forms/EditDreamJobDialog";
 import { DreamJobDiscovery } from "@/components/dreamjobs/DreamJobDiscovery";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -8,34 +9,37 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { 
-  Target, 
-  MapPin, 
+import {
+  Target,
+  MapPin,
   DollarSign,
   MoreVertical,
   Trash2,
   BarChart3,
   Plus,
   Briefcase,
-  Sparkles
+  Sparkles,
+  Pencil
 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useNavigate } from "react-router-dom";
-import { useDreamJobs, useCreateDreamJob, useDeleteDreamJob } from "@/hooks/useDreamJobs";
+import { useDreamJobs, useCreateDreamJob, useDeleteDreamJob, DreamJob } from "@/hooks/useDreamJobs";
 import { useToast } from "@/hooks/use-toast";
 
 export default function DreamJobsPage() {
   const [showForm, setShowForm] = useState(false);
   const [activeTab, setActiveTab] = useState<'jobs' | 'discover'>('jobs');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [editingJob, setEditingJob] = useState<DreamJob | null>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
-  
+
   const { data: jobs = [], isLoading } = useDreamJobs();
   const createDreamJob = useCreateDreamJob();
   const deleteDreamJob = useDeleteDreamJob();
@@ -212,8 +216,16 @@ export default function DreamJobsPage() {
                           <BarChart3 className="h-4 w-4 mr-2" />
                           View Analysis
                         </DropdownMenuItem>
-                        <DropdownMenuItem 
-                          className="text-destructive" 
+                        <DropdownMenuItem onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingJob(job);
+                        }}>
+                          <Pencil className="h-4 w-4 mr-2" />
+                          Edit
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          className="text-destructive"
                           onClick={(e) => handleDeleteJob(job.id, e)}
                         >
                           <Trash2 className="h-4 w-4 mr-2" />
@@ -269,6 +281,12 @@ export default function DreamJobsPage() {
           </TabsContent>
         </Tabs>
       </div>
+
+      <EditDreamJobDialog
+        job={editingJob}
+        open={!!editingJob}
+        onOpenChange={(open) => !open && setEditingJob(null)}
+      />
     </AppShell>
   );
 }

@@ -1,6 +1,12 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
 import { unzipSync, strFromU8 } from "https://esm.sh/fflate@0.8.2?target=deno";
+import {
+  extractDomainTerms,
+  detectDomain,
+  storeExtractedTerms,
+  getLearnedSynonyms,
+} from "../_shared/dynamic-terms.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -239,6 +245,31 @@ Do NOT summarize - extract the complete text content.`
     if (!extractedText || extractedText.length < 50) {
       throw new Error("Could not extract sufficient text from the document");
     }
+
+    // ========== STEP 1.5: Extract domain terms and learn synonyms (background) ==========
+    // This enables dynamic synonym matching for future searches
+    const detectedDomain = detectDomain(extractedText);
+    const extractedTerms = extractDomainTerms(extractedText);
+    console.log(`[PROCESS-SYLLABUS] Detected domain: ${detectedDomain}, extracted ${extractedTerms.length} terms`);
+
+    // Store extracted terms and domain in the database (fire and forget for speed)
+    storeExtractedTerms(instructor_course_id, extractedTerms, detectedDomain).catch(e => {
+      console.log(`[PROCESS-SYLLABUS] Failed to store extracted terms: ${e}`);
+    });
+
+    // Store syllabus text in instructor_courses for future reference
+    await supabaseClient
+      .from('instructor_courses')
+      .update({
+        syllabus_text: extractedText.substring(0, 50000), // Limit to 50KB
+        detected_domain: detectedDomain,
+      })
+      .eq('id', instructor_course_id);
+
+    // Trigger synonym learning in background (fire and forget)
+    getLearnedSynonyms(instructor_course_id, extractedText).catch(e => {
+      console.log(`[PROCESS-SYLLABUS] Background synonym learning error: ${e}`);
+    });
 
     // ========== STEP 2: Analyze structure and generate modules + LOs ==========
     const structurePrompt = `You are an expert educational analyst. Analyze this course syllabus and extract:
