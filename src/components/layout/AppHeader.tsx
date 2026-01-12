@@ -32,6 +32,14 @@ import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 import { useGlobalSearch } from '@/hooks/useGlobalSearch';
 import { GlobalSearchResults } from '@/components/search/GlobalSearchResults';
+import { useUserRoles } from '@/hooks/useUserRoles';
+import { 
+  mainNavigation, 
+  secondaryNavigation, 
+  instructorNavigation, 
+  adminNavigation,
+  isPathActive 
+} from '@/config/navigation';
 
 interface AppHeaderProps {
   onMenuClick?: () => void;
@@ -75,6 +83,7 @@ export function AppHeader({ onMenuClick, showSearch = true }: AppHeaderProps) {
     if (path.startsWith('/learn')) return 'My Learning';
     if (path.startsWith('/instructor')) return 'Instructor Portal';
     if (path.startsWith('/admin')) return 'Admin';
+    if (path.startsWith('/career')) return 'Career Path';
     return 'SyllabusStack';
   };
 
@@ -92,12 +101,13 @@ export function AppHeader({ onMenuClick, showSearch = true }: AppHeaderProps) {
             variant="ghost"
             size="icon"
             onClick={onMenuClick}
-            className="lg:hidden"
+            className="lg:hidden min-h-11 min-w-11"
           >
             <Menu className="h-5 w-5" />
           </Button>
           
-          <h1 className="text-lg font-semibold text-foreground hidden sm:block">
+          {/* Page title - visible on all screens now */}
+          <h1 className="text-lg font-semibold text-foreground truncate max-w-[150px] sm:max-w-none">
             {getPageTitle()}
           </h1>
         </div>
@@ -140,21 +150,21 @@ export function AppHeader({ onMenuClick, showSearch = true }: AppHeaderProps) {
               variant="ghost"
               size="icon"
               onClick={() => setSearchOpen(!searchOpen)}
-              className="md:hidden"
+              className="md:hidden min-h-11 min-w-11"
             >
               {searchOpen ? <X className="h-5 w-5" /> : <Search className="h-5 w-5" />}
             </Button>
           )}
 
           {/* Notifications - placeholder for future implementation */}
-          <Button variant="ghost" size="icon" className="relative" title="Notifications coming soon">
+          <Button variant="ghost" size="icon" className="relative min-h-11 min-w-11" title="Notifications coming soon">
             <Bell className="h-5 w-5" />
           </Button>
 
           {/* User menu */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="rounded-full">
+              <Button variant="ghost" size="icon" className="rounded-full min-h-11 min-w-11">
                 <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
                   <User className="h-4 w-4 text-primary" />
                 </div>
@@ -221,78 +231,169 @@ export function AppHeader({ onMenuClick, showSearch = true }: AppHeaderProps) {
   );
 }
 
-// Mobile navigation drawer - streamlined 3-item navigation
+// Mobile navigation drawer - UNIFIED with Sidebar navigation
 export function MobileNav({ open, onClose }: { open: boolean; onClose: () => void }) {
   const location = useLocation();
-
-  // Main navigation - matches the streamlined sidebar
-  const navigation = [
-    { name: 'Dashboard', href: '/dashboard' },
-    { name: 'My Learning', href: '/learn' },
-    { name: 'Career Path', href: '/career' },
-  ];
+  const navigate = useNavigate();
+  const { user, profile, signOut } = useAuth();
+  const { data: roles } = useUserRoles();
   
-  // Secondary navigation
-  const secondaryNavigation = [
-    { name: 'Profile', href: '/profile' },
-    { name: 'Settings', href: '/settings' },
-  ];
+  const isInstructor = roles?.some(r => r.role === 'instructor' || r.role === 'admin');
+  const isAdmin = roles?.some(r => r.role === 'admin');
+
+  const handleLogout = async () => {
+    await signOut();
+    navigate('/');
+    onClose();
+  };
 
   return (
     <Sheet open={open} onOpenChange={onClose}>
-      <SheetContent side="left" className="w-72 p-0">
-        <div className="h-16 flex items-center gap-2 px-4 border-b border-border">
+      <SheetContent side="left" className="w-72 p-0 flex flex-col">
+        {/* Header */}
+        <div className="h-16 flex items-center gap-2 px-4 border-b border-border shrink-0">
           <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
             <GraduationCap className="h-5 w-5 text-primary-foreground" />
           </div>
           <span className="text-lg font-bold">SyllabusStack</span>
         </div>
-        <nav className="p-4 space-y-1">
+
+        {/* Navigation - scrollable */}
+        <nav className="flex-1 overflow-y-auto p-4 space-y-1">
           {/* Main navigation */}
-          {navigation.map((item) => {
-            const isActive = location.pathname === item.href || 
-              location.pathname.startsWith(item.href + '/') ||
-              (item.href === '/career' && location.pathname.startsWith('/career'));
+          {mainNavigation.map((item) => {
+            const isActive = isPathActive(location.pathname, item.href);
+            const Icon = item.icon;
             return (
               <Link
                 key={item.name}
                 to={item.href}
                 onClick={onClose}
                 className={cn(
-                  "block px-4 py-3 rounded-lg transition-colors text-base font-medium",
+                  "flex items-center gap-3 px-4 py-3 rounded-lg transition-colors text-base font-medium min-h-11",
                   isActive 
                     ? "bg-primary/10 text-primary" 
                     : "text-foreground hover:bg-muted"
                 )}
               >
-                {item.name}
+                <Icon className="h-5 w-5 shrink-0" />
+                {item.mobileLabel || item.name}
               </Link>
             );
           })}
+
+          {/* Instructor Section */}
+          {isInstructor && (
+            <>
+              <div className="my-4 pt-4 border-t border-border">
+                <p className="px-4 mb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  Instructor
+                </p>
+              </div>
+              {instructorNavigation.map((item) => {
+                const isActive = isPathActive(location.pathname, item.href);
+                const Icon = item.icon;
+                return (
+                  <Link
+                    key={item.name}
+                    to={item.href}
+                    onClick={onClose}
+                    className={cn(
+                      "flex items-center gap-3 px-4 py-3 rounded-lg transition-colors text-base font-medium min-h-11",
+                      isActive 
+                        ? "bg-primary/10 text-primary" 
+                        : "text-foreground hover:bg-muted"
+                    )}
+                  >
+                    <Icon className="h-5 w-5 shrink-0" />
+                    {item.mobileLabel || item.name}
+                  </Link>
+                );
+              })}
+            </>
+          )}
+
+          {/* Admin Section */}
+          {isAdmin && (
+            <>
+              <div className="my-4 pt-4 border-t border-border">
+                <p className="px-4 mb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  Admin
+                </p>
+              </div>
+              {adminNavigation.map((item) => {
+                const isActive = isPathActive(location.pathname, item.href);
+                const Icon = item.icon;
+                return (
+                  <Link
+                    key={item.name}
+                    to={item.href}
+                    onClick={onClose}
+                    className={cn(
+                      "flex items-center gap-3 px-4 py-3 rounded-lg transition-colors text-base font-medium min-h-11",
+                      isActive 
+                        ? "bg-primary/10 text-primary" 
+                        : "text-foreground hover:bg-muted"
+                    )}
+                  >
+                    <Icon className="h-5 w-5 shrink-0" />
+                    {item.mobileLabel || item.name}
+                  </Link>
+                );
+              })}
+            </>
+          )}
           
           {/* Divider */}
           <div className="my-4 border-t border-border" />
           
-          {/* Secondary navigation */}
+          {/* Secondary navigation - ALL items now */}
           {secondaryNavigation.map((item) => {
-            const isActive = location.pathname === item.href;
+            const isActive = isPathActive(location.pathname, item.href);
+            const Icon = item.icon;
             return (
               <Link
                 key={item.name}
                 to={item.href}
                 onClick={onClose}
                 className={cn(
-                  "block px-4 py-2.5 rounded-lg transition-colors text-sm",
+                  "flex items-center gap-3 px-4 py-2.5 rounded-lg transition-colors text-sm min-h-11",
                   isActive 
                     ? "bg-muted text-foreground font-medium" 
                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
                 )}
               >
-                {item.name}
+                <Icon className="h-4 w-4 shrink-0" />
+                {item.mobileLabel || item.name}
               </Link>
             );
           })}
         </nav>
+
+        {/* User section - fixed at bottom */}
+        <div className="p-4 border-t border-border shrink-0 bg-background">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
+              <User className="h-5 w-5 text-muted-foreground" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium truncate">
+                {profile?.full_name || 'Student'}
+              </p>
+              <p className="text-xs text-muted-foreground truncate">
+                {user?.email || 'student@university.edu'}
+              </p>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleLogout}
+              className="shrink-0 min-h-11 min-w-11 text-muted-foreground hover:text-destructive"
+            >
+              <LogOut className="h-5 w-5" />
+            </Button>
+          </div>
+        </div>
       </SheetContent>
     </Sheet>
   );

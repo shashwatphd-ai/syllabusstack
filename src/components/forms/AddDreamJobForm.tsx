@@ -171,36 +171,39 @@ export function AddDreamJobForm({ onSubmit, onCancel, isSubmitting = false }: Ad
                 <Search className="h-4 w-4 text-primary" />
                 Search real job listings
               </label>
-              <div className="flex gap-2">
+              <div className="flex flex-col sm:flex-row gap-2">
                 <Input
                   placeholder="Job title (e.g., Software Engineer)"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="flex-1"
                 />
-                <Input
-                  placeholder="Location (optional)"
-                  value={searchLocation}
-                  onChange={(e) => setSearchLocation(e.target.value)}
-                  className="w-40"
-                />
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => {
-                    searchJobs.mutate(
-                      { title: searchQuery, location: searchLocation || undefined },
-                      { onSuccess: (data) => setSearchResults(data.jobs) }
-                    );
-                  }}
-                  disabled={searchJobs.isPending || !searchQuery.trim()}
-                >
-                  {searchJobs.isPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Search className="h-4 w-4" />
-                  )}
-                </Button>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Location (optional)"
+                    value={searchLocation}
+                    onChange={(e) => setSearchLocation(e.target.value)}
+                    className="flex-1 sm:w-40"
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => {
+                      searchJobs.mutate(
+                        { title: searchQuery, location: searchLocation || undefined },
+                        { onSuccess: (data) => setSearchResults(data.jobs) }
+                      );
+                    }}
+                    disabled={searchJobs.isPending || !searchQuery.trim()}
+                    className="shrink-0 min-h-11 min-w-11"
+                  >
+                    {searchJobs.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Search className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
               </div>
 
               {/* Search Results */}
@@ -276,7 +279,7 @@ export function AddDreamJobForm({ onSubmit, onCancel, isSubmitting = false }: Ad
               <Link2 className="h-4 w-4 text-primary" />
               Import from job posting URL
             </label>
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2">
               <Input
                 placeholder="Paste LinkedIn, Indeed, or company job URL..."
                 value={jobUrl}
@@ -288,6 +291,7 @@ export function AddDreamJobForm({ onSubmit, onCancel, isSubmitting = false }: Ad
                 variant="secondary"
                 onClick={handleScrapeUrl}
                 disabled={isScrapingUrl || !jobUrl.trim()}
+                className="w-full sm:w-auto min-h-11"
               >
                 {isScrapingUrl ? (
                   <>
@@ -424,19 +428,19 @@ export function AddDreamJobForm({ onSubmit, onCancel, isSubmitting = false }: Ad
             </form.Field>
           </div>
 
-          <div className="flex gap-3 justify-end pt-2">
+          <div className="flex flex-col-reverse sm:flex-row gap-3 justify-end pt-2">
             {onCancel && (
-              <Button type="button" variant="outline" onClick={onCancel}>
+              <Button type="button" variant="outline" onClick={onCancel} className="w-full sm:w-auto min-h-11">
                 Cancel
               </Button>
             )}
             <form.Subscribe selector={(state) => [state.canSubmit, state.isSubmitting]}>
               {([canSubmit, formIsSubmitting]) => (
-                <Button type="submit" disabled={!canSubmit || isSubmitting || formIsSubmitting}>
+                <Button type="submit" disabled={!canSubmit || isSubmitting || formIsSubmitting} className="w-full sm:w-auto min-h-11">
                   {(isSubmitting || formIsSubmitting) ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      Analyzing requirements...
+                      Analyzing...
                     </>
                   ) : (
                     <>
