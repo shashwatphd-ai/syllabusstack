@@ -37,14 +37,18 @@ import { useGapAnalysis, useRefreshGapAnalysis, useGenerateRecommendations } fro
 import { useRecommendations, useAntiRecommendations, useUpdateRecommendationStatus } from "@/hooks/useRecommendations";
 import { useCourseSearch } from "@/hooks/useCourseSearch";
 import { useStudentEnrollments } from "@/hooks/useStudentCourses";
+import { useLinkCourseToRecommendation } from "@/hooks/useLinkCourseToRecommendation";
 import { useToast } from "@/hooks/use-toast";
 import { AddDreamJobForm } from "@/components/forms";
 import { DreamJobDiscovery } from "@/components/dreamjobs/DreamJobDiscovery";
 import { RecommendationsList } from "@/components/recommendations/RecommendationsList";
+import { RecommendationsErrorBoundary } from "@/components/recommendations/RecommendationsErrorBoundary";
 import { AntiRecommendations } from "@/components/recommendations/AntiRecommendations";
+import { CurrentlyLearningPanel } from "@/components/recommendations/CurrentlyLearningPanel";
 import { HonestAssessment } from "@/components/analysis/HonestAssessment";
 import { GapsList } from "@/components/analysis/GapsList";
 import { OverlapsList } from "@/components/analysis/OverlapsList";
+import { isPriceFree, countByPriceCategory } from "@/lib/price-utils";
 
 export default function CareerPathPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -57,7 +61,7 @@ export default function CareerPathPage() {
   const [showDiscover, setShowDiscover] = useState(false);
   const [isCreatingJob, setIsCreatingJob] = useState(false);
   const [freeFirst, setFreeFirst] = useState(true);
-  const [priceFilter, setPriceFilter] = useState<'all' | 'free' | 'paid'>('all');
+  const [priceFilter, setPriceFilter] = useState<'all' | 'free' | 'paid' | 'unknown'>('all');
 
   // Dream Jobs
   const { data: dreamJobs = [], isLoading: jobsLoading } = useDreamJobs();
@@ -80,8 +84,18 @@ export default function CareerPathPage() {
   // Course Search (Firecrawl)
   const { searchCourses, isSearching } = useCourseSearch();
   
-  // Student Enrollments
+  // Student Enrollments & Linking
   const { data: enrollments = [] } = useStudentEnrollments();
+  const linkCourse = useLinkCourseToRecommendation();
+
+  // Handler for linking courses from CurrentlyLearningPanel
+  const handleLinkCourseToRecommendation = async (
+    enrollmentId: string, 
+    courseId: string, 
+    recommendationId: string
+  ) => {
+    await linkCourse.mutateAsync({ enrollmentId, courseId, recommendationId });
+  };
 
   // Parse gap analysis data
   const strongOverlaps = (analysis?.strong_overlaps as any[]) || [];
@@ -130,21 +144,35 @@ export default function CareerPathPage() {
     refreshAnalysis.mutate(activeDreamJobId);
   };
 
-  // Handle generate recommendations
+  // Handle generate recommendations - uses BOTH critical and priority gaps
   const handleGenerateRecs = async () => {
     if (!activeDreamJobId || gapsCount === 0) return;
     try {
-      const gaps = criticalGaps.map(gap => ({
+      // Map critical gaps
+      const criticalGapsMapped = criticalGaps.map(gap => ({
         requirement: gap.job_requirement,
         importance: 'critical' as const,
         difficulty: 'challenging' as const,
         time_to_close: '3-6 months',
         suggested_action: gap.impact,
       }));
+      
+      // Map priority gaps - use 'important' as it's a valid importance value
+      const priorityGapsMapped = priorityGaps.map(gap => ({
+        requirement: gap.gap || gap.requirement || gap.job_requirement,
+        importance: 'important' as const,
+        difficulty: 'moderate' as const,
+        time_to_close: gap.reason || '1-3 months',
+        suggested_action: gap.reason || 'Address this skill gap',
+      }));
+      
+      // Combine both gap types
+      const gaps = [...criticalGapsMapped, ...priorityGapsMapped];
+      
       await generateRecs.mutateAsync({ dreamJobId: activeDreamJobId, gaps });
       toast({
         title: "Recommendations generated",
-        description: "New recommendations have been created based on your gaps.",
+        description: `Created actions for ${gaps.length} skill gaps (${criticalGapsMapped.length} critical, ${priorityGapsMapped.length} priority).`,
       });
     } catch (error) {
       toast({
@@ -155,14 +183,15 @@ export default function CareerPathPage() {
     }
   };
 
-  // Handle find courses (Firecrawl)
+  // Handle find courses (Firecrawl) - uses BOTH critical and priority gaps
   const handleFindCourses = async () => {
-    if (!activeDreamJobId || priorityGaps.length === 0) return;
+    const allGaps = [...criticalGaps, ...priorityGaps];
+    if (!activeDreamJobId || allGaps.length === 0) return;
     try {
-      await searchCourses(priorityGaps, activeDreamJobId, selectedJob?.title || '');
+      await searchCourses(allGaps, activeDreamJobId, selectedJob?.title || '');
       toast({
         title: "Courses found",
-        description: "Real course links have been added to your action plan.",
+        description: `Found real courses for ${allGaps.length} skill gaps.`,
       });
     } catch (error) {
       toast({
@@ -593,62 +622,43 @@ export default function CareerPathPage() {
                       />
                       <Label htmlFor="free-first" className="text-sm text-green-700 cursor-pointer">Free First</Label>
                     </div>
-                    <Select value={priceFilter} onValueChange={(v) => setPriceFilter(v as 'all' | 'free' | 'paid')}>
-                      <SelectTrigger className="w-32 h-8">
+                    <Select value={priceFilter} onValueChange={(v) => setPriceFilter(v as 'all' | 'free' | 'paid' | 'unknown')}>
+                      <SelectTrigger className="w-36 h-8">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="all">All Prices</SelectItem>
                         <SelectItem value="free">Free Only</SelectItem>
                         <SelectItem value="paid">Paid Only</SelectItem>
+                        <SelectItem value="unknown">Unknown Price</SelectItem>
                       </SelectContent>
                     </Select>
                     <span className="text-xs text-muted-foreground ml-auto">
-                      {recommendations.filter(r => r.type === 'course' && r.cost_usd === 0).length} free courses available
+                      {(() => {
+                        const courseRecs = recommendations.filter(r => r.type === 'course');
+                        const counts = countByPriceCategory(courseRecs);
+                        return `${counts.free} free, ${counts.paid} paid, ${counts.unknown} unknown`;
+                      })()}
                     </span>
                   </div>
                 )}
 
-                {/* Currently Learning section */}
-                {enrollments.length > 0 && (
-                  <Card className="border-indigo-200 bg-indigo-50/50">
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm flex items-center gap-2">
-                        <GraduationCap className="h-4 w-4 text-indigo-600" />
-                        Currently Learning
-                      </CardTitle>
-                      <CardDescription className="text-xs">
-                        Link these to your recommendations to track progress
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="flex flex-wrap gap-2">
-                        {enrollments.slice(0, 4).map(e => (
-                          <Badge key={e.id} variant="outline" className="text-indigo-700 bg-white border-indigo-200">
-                            {e.instructor_course.title} 
-                            <span className="ml-1 text-indigo-500">({e.overall_progress || 0}%)</span>
-                          </Badge>
-                        ))}
-                        {enrollments.length > 4 && (
-                          <Button 
-                            variant="ghost" 
-                            size="sm"
-                            onClick={() => navigate('/learn/courses')}
-                            className="text-xs text-indigo-600 hover:text-indigo-700"
-                          >
-                            View all {enrollments.length} →
-                          </Button>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-
-                <RecommendationsList 
-                  dreamJobId={activeDreamJobId} 
-                  freeFirst={freeFirst}
-                  priceFilter={priceFilter}
+                {/* Currently Learning section with smart linking */}
+                <CurrentlyLearningPanel
+                  enrollments={enrollments}
+                  recommendations={recommendations}
+                  onLinkCourse={handleLinkCourseToRecommendation}
+                  isLinking={linkCourse.isPending}
                 />
+
+                <RecommendationsErrorBoundary componentName="RecommendationsList">
+                  <RecommendationsList 
+                    dreamJobId={activeDreamJobId} 
+                    dreamJobTitle={selectedJob?.title}
+                    freeFirst={freeFirst}
+                    priceFilter={priceFilter}
+                  />
+                </RecommendationsErrorBoundary>
               </div>
             )}
           </TabsContent>

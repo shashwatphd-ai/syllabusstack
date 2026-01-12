@@ -1,8 +1,7 @@
 import { useState } from "react";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
 import { 
   BookOpen, 
   Video, 
@@ -20,10 +19,20 @@ import {
   Circle,
   Loader2,
   Link2,
-  GraduationCap
+  Search
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LinkCourseDialog } from "./LinkCourseDialog";
+import { ActionabilityBadge } from "./ActionabilityBadge";
+import { formatPrice, type PriceableItem } from "@/lib/price-utils";
+import { 
+  getActionabilityState, 
+  getActionabilityConfig,
+  isTerminalState,
+  canStart,
+  needsCourseAction,
+  type ActionabilityState 
+} from "@/lib/actionability-utils";
 
 type RecommendationType = "course" | "project" | "certification" | "action" | "reading" | "skill" | "experience" | "resource" | "networking" | "portfolio";
 type Priority = "high" | "medium" | "low" | "critical" | "important" | "nice_to_have";
@@ -45,7 +54,8 @@ export interface Recommendation {
   priority: Priority;
   estimatedTime?: string;
   effort_hours?: number;
-  cost_usd?: number;
+  cost_usd?: number | null;
+  price_known?: boolean;
   provider?: string;
   url?: string;
   status: Status;
@@ -55,45 +65,39 @@ export interface Recommendation {
   steps?: Step[] | string[];
   evidence_created?: string;
   how_to_demonstrate?: string;
+  dream_job_id?: string;
   // Linked course info (from view)
   linked_course_id?: string;
   linked_course_title?: string;
   enrollment_progress?: number;
+  link_status?: string;  // 'active', 'completed', 'abandoned', 'suggested'
 }
 
 interface RecommendationCardProps {
   recommendation: Recommendation;
   onStatusChange?: (id: string, status: Status) => Promise<void>;
   onView?: (id: string) => void;
+  onSearchCourse?: (recommendationId: string, gapAddressed: string) => Promise<void>;
   isUpdating?: boolean;
+  isSearchingCourse?: boolean;
   showLinkOption?: boolean;
+  dreamJobTitle?: string;
 }
 
 const getTypeConfig = (type: RecommendationType) => {
-  switch (type) {
-    case "course":
-      return { icon: BookOpen, label: "Course", color: "text-blue-600" };
-    case "project":
-      return { icon: Code, label: "Project", color: "text-purple-600" };
-    case "certification":
-      return { icon: Star, label: "Cert", color: "text-amber-600" };
-    case "networking":
-      return { icon: Users, label: "Network", color: "text-green-600" };
-    case "skill":
-      return { icon: Star, label: "Skill", color: "text-orange-600" };
-    case "experience":
-      return { icon: Users, label: "Experience", color: "text-teal-600" };
-    case "action":
-      return { icon: CheckCircle2, label: "Action", color: "text-indigo-600" };
-    case "reading":
-      return { icon: BookOpen, label: "Reading", color: "text-emerald-600" };
-    case "portfolio":
-      return { icon: Code, label: "Portfolio", color: "text-pink-600" };
-    case "resource":
-      return { icon: Video, label: "Resource", color: "text-cyan-600" };
-    default:
-      return { icon: Video, label: "Resource", color: "text-gray-600" };
-  }
+  const configs: Record<RecommendationType, { icon: typeof BookOpen; label: string; color: string }> = {
+    course: { icon: BookOpen, label: "Course", color: "text-blue-600" },
+    project: { icon: Code, label: "Project", color: "text-purple-600" },
+    certification: { icon: Star, label: "Cert", color: "text-amber-600" },
+    networking: { icon: Users, label: "Network", color: "text-green-600" },
+    skill: { icon: Star, label: "Skill", color: "text-orange-600" },
+    experience: { icon: Users, label: "Experience", color: "text-teal-600" },
+    action: { icon: CheckCircle2, label: "Action", color: "text-indigo-600" },
+    reading: { icon: BookOpen, label: "Reading", color: "text-emerald-600" },
+    portfolio: { icon: Code, label: "Portfolio", color: "text-pink-600" },
+    resource: { icon: Video, label: "Resource", color: "text-cyan-600" },
+  };
+  return configs[type] || { icon: Video, label: "Resource", color: "text-gray-600" };
 };
 
 const getPriorityConfig = (priority: Priority) => {
@@ -165,7 +169,15 @@ const getStatusConfig = (status: Status) => {
   }
 };
 
-export function RecommendationCard({ recommendation, onStatusChange, isUpdating, showLinkOption = true }: RecommendationCardProps) {
+export function RecommendationCard({ 
+  recommendation, 
+  onStatusChange, 
+  onSearchCourse,
+  isUpdating,
+  isSearchingCourse,
+  showLinkOption = true,
+  dreamJobTitle 
+}: RecommendationCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState<Status | null>(null);
   const [showLinkDialog, setShowLinkDialog] = useState(false);
@@ -179,6 +191,7 @@ export function RecommendationCard({ recommendation, onStatusChange, isUpdating,
     estimatedTime,
     effort_hours,
     cost_usd,
+    price_known,
     provider, 
     url, 
     status,
@@ -193,28 +206,35 @@ export function RecommendationCard({ recommendation, onStatusChange, isUpdating,
     enrollment_progress,
   } = recommendation;
 
+  // Compute actionability state
+  const actionabilityState = getActionabilityState({
+    status,
+    type,
+    url,
+    linked_course_id,
+    linked_course_title,
+    enrollment_progress,
+  });
+  const actionabilityConfig = getActionabilityConfig(actionabilityState);
+
   const isCompleted = status === "completed";
   const isSkipped = status === "skipped";
   const displayGap = gap_addressed || relatedGap;
   const priorityConfig = getPriorityConfig(priority);
   const statusConfig = getStatusConfig(status);
   const typeConfig = getTypeConfig(type);
-  const StatusIcon = statusConfig.icon;
   const TypeIcon = typeConfig.icon;
   
-  // Parse steps - handle multiple property names (AI uses 'description', legacy uses 'step')
+  // Parse steps
   const parsedSteps = steps?.map((step, index) => {
     if (typeof step === 'string') return step;
     if (typeof step === 'object' && step !== null) {
       const stepObj = step as Step;
-      // Try multiple property names for compatibility with different AI outputs
       const stepText = stepObj.description || stepObj.step || stepObj.text;
       if (stepText) {
-        // Include estimated time if available
         const timeInfo = stepObj.estimated_time ? ` (${stepObj.estimated_time})` : '';
         return `${stepText}${timeInfo}`;
       }
-      // Fallback: if no recognized property, return step number
       return `Step ${stepObj.order || index + 1}`;
     }
     return `Step ${index + 1}`;
@@ -230,17 +250,46 @@ export function RecommendationCard({ recommendation, onStatusChange, isUpdating,
     }
   };
 
-  // Compact time display
-  const timeDisplay = effort_hours ? `${effort_hours}h` : estimatedTime || null;
-  const costDisplay = cost_usd === 0 ? 'Free' : cost_usd ? `$${cost_usd}` : 'Check pricing';
-  
-  // Handle start action - open URL and change status
-  const handleStart = () => {
-    if (url) {
-      window.open(url, '_blank', 'noopener,noreferrer');
+  // Handle primary CTA based on actionability state
+  const handlePrimaryCTA = () => {
+    switch (actionabilityState) {
+      case 'ready_to_start':
+        if (url) window.open(url, '_blank', 'noopener,noreferrer');
+        handleStatusChange('in_progress');
+        break;
+      case 'linked_learning':
+        // Navigate to the linked course
+        handleStatusChange('in_progress');
+        break;
+      case 'needs_course':
+        // Trigger course search
+        if (onSearchCourse && displayGap) {
+          onSearchCourse(id, displayGap);
+        }
+        break;
+      case 'generic_action':
+        if (url) window.open(url, '_blank', 'noopener,noreferrer');
+        handleStatusChange('in_progress');
+        break;
+      case 'in_progress':
+        handleStatusChange('completed');
+        break;
+      case 'completed':
+        handleStatusChange('pending');
+        break;
+      case 'skipped':
+        handleStatusChange('pending');
+        break;
     }
-    handleStatusChange('in_progress');
   };
+
+  // Compact displays
+  const timeDisplay = effort_hours ? `${effort_hours}h` : estimatedTime || null;
+  const priceItem: PriceableItem = { cost_usd, price_known };
+  const costDisplay = formatPrice(priceItem);
+  
+  // Determine if we're in a loading state
+  const isPrimaryLoading = isSearchingCourse || !!updatingStatus;
 
   return (
     <Card className={cn(
@@ -256,7 +305,7 @@ export function RecommendationCard({ recommendation, onStatusChange, isUpdating,
           className="p-4 cursor-pointer"
           onClick={() => setExpanded(!expanded)}
         >
-          {/* Top row: Type icon, Title, Status */}
+          {/* Top row: Type icon, Title, Actionability Badge */}
           <div className="flex items-start gap-3">
             {/* Type Icon */}
             <div className={cn(
@@ -277,34 +326,30 @@ export function RecommendationCard({ recommendation, onStatusChange, isUpdating,
                   {title}
                 </h4>
               </div>
-            {displayGap && (
-              <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">
-                <span className="font-medium">Skill gap:</span> {displayGap}
-              </p>
-            )}
-            
-            {/* Show linked course indicator */}
-            {linked_course_title && (
-              <div className="mt-1.5 flex items-center gap-1.5 text-xs text-indigo-600 bg-indigo-50 rounded-md px-2 py-1 w-fit">
-                <GraduationCap className="h-3 w-3" />
-                <span>Enrolled: {linked_course_title}</span>
-                {enrollment_progress !== undefined && (
-                  <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 bg-indigo-100 border-indigo-200">
-                    {enrollment_progress}%
-                  </Badge>
-                )}
+              {displayGap && (
+                <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">
+                  <span className="font-medium">Skill gap:</span> {displayGap}
+                </p>
+              )}
+              
+              {/* Actionability Badge - shows linked course or state */}
+              <div className="mt-1.5">
+                <ActionabilityBadge
+                  state={actionabilityState}
+                  linkedCourseTitle={linked_course_title}
+                  enrollmentProgress={enrollment_progress}
+                />
               </div>
-            )}
             </div>
 
-            {/* Right side: Status + expand */}
+            {/* Right side: Status badge + expand */}
             <div className="flex items-center gap-2 shrink-0">
               <Badge variant="outline" className={cn(
                 "text-[10px] px-1.5 py-0.5 gap-1",
                 statusConfig.bgClass,
                 statusConfig.textClass
               )}>
-                <StatusIcon className="h-3 w-3" />
+                <statusConfig.icon className="h-3 w-3" />
                 {statusConfig.label}
               </Badge>
               {expanded ? (
@@ -337,88 +382,82 @@ export function RecommendationCard({ recommendation, onStatusChange, isUpdating,
             )}
           </div>
 
-          {/* Action buttons - Always visible */}
+          {/* Action buttons - State-aware CTAs */}
           <div className="mt-3 ml-11 flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
-            {status === 'pending' || status === 'not_started' ? (
+            {/* Primary CTA based on actionability state */}
+            {!isTerminalState(actionabilityState) ? (
               <>
                 <Button
-                  variant="default"
+                  variant={actionabilityConfig.ctaVariant}
                   size="sm"
-                  onClick={handleStart}
-                  disabled={!!updatingStatus}
-                  className="h-7 text-xs gap-1"
+                  onClick={handlePrimaryCTA}
+                  disabled={isPrimaryLoading}
+                  className={cn(
+                    "h-7 text-xs gap-1",
+                    actionabilityState === 'in_progress' && "bg-success hover:bg-success/90"
+                  )}
                 >
-                  {updatingStatus === 'in_progress' ? (
+                  {isPrimaryLoading ? (
                     <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : actionabilityState === 'needs_course' ? (
+                    <Search className="h-3 w-3" />
+                  ) : actionabilityState === 'in_progress' ? (
+                    <CheckCircle2 className="h-3 w-3" />
                   ) : (
                     <PlayCircle className="h-3 w-3" />
                   )}
-                  {url ? 'Start Learning' : 'Start'}
+                  {actionabilityConfig.ctaLabel}
                 </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleStatusChange('skipped')}
-                  disabled={!!updatingStatus}
-                  className="h-7 text-xs gap-1 text-muted-foreground hover:text-foreground"
-                >
-                  {updatingStatus === 'skipped' ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <SkipForward className="h-3 w-3" />
-                  )}
-                  Skip
-                </Button>
+
+                {/* Secondary actions based on state */}
+                {actionabilityState === 'in_progress' && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleStatusChange('pending')}
+                    disabled={!!updatingStatus}
+                    className="h-7 text-xs gap-1 text-muted-foreground"
+                  >
+                    Pause
+                  </Button>
+                )}
+
+                {(canStart(actionabilityState) || needsCourseAction(actionabilityState)) && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleStatusChange('skipped')}
+                    disabled={!!updatingStatus}
+                    className="h-7 text-xs gap-1 text-muted-foreground hover:text-foreground"
+                  >
+                    {updatingStatus === 'skipped' ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <SkipForward className="h-3 w-3" />
+                    )}
+                    Skip
+                  </Button>
+                )}
               </>
-            ) : status === 'in_progress' ? (
-              <>
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={() => handleStatusChange('completed')}
-                  disabled={!!updatingStatus}
-                  className="h-7 text-xs gap-1 bg-success hover:bg-success/90"
-                >
-                  {updatingStatus === 'completed' ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <CheckCircle2 className="h-3 w-3" />
-                  )}
-                  Complete
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleStatusChange('pending')}
-                  disabled={!!updatingStatus}
-                  className="h-7 text-xs gap-1 text-muted-foreground"
-                >
-                  Pause
-                </Button>
-              </>
-            ) : status === 'completed' ? (
+            ) : (
+              /* Terminal states: just show restore/undo */
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => handleStatusChange('pending')}
+                onClick={handlePrimaryCTA}
                 disabled={!!updatingStatus}
                 className="h-7 text-xs gap-1 text-muted-foreground"
               >
-                <Circle className="h-3 w-3" />
-                Undo
+                {updatingStatus ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Circle className="h-3 w-3" />
+                )}
+                {actionabilityConfig.ctaLabel}
               </Button>
-            ) : status === 'skipped' ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => handleStatusChange('pending')}
-                disabled={!!updatingStatus}
-                className="h-7 text-xs gap-1 text-muted-foreground"
-              >
-                Restore
-              </Button>
-            ) : null}
+            )}
             
+            {/* External link if URL exists */}
             {url && (
               <a 
                 href={url} 
@@ -433,7 +472,7 @@ export function RecommendationCard({ recommendation, onStatusChange, isUpdating,
             )}
             
             {/* Link to Enrolled Course option */}
-            {showLinkOption && !linked_course_id && (
+            {actionabilityConfig.showLinkButton && showLinkOption && !linked_course_id && (
               <Button
                 variant="ghost"
                 size="sm"

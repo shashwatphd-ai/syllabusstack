@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useEnrollWithAccessCode } from '@/hooks/useStudentCourses';
+import { useAutoLinkCourses } from '@/hooks/useAutoLinkCourses';
 
 interface EnrollmentDialogProps {
   trigger?: React.ReactNode;
@@ -23,16 +24,22 @@ export function EnrollmentDialog({ trigger, onSuccess }: EnrollmentDialogProps) 
   const [open, setOpen] = useState(false);
   const [accessCode, setAccessCode] = useState('');
   const enrollMutation = useEnrollWithAccessCode();
+  const autoLinkMutation = useAutoLinkCourses();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!accessCode.trim()) return;
 
     enrollMutation.mutate(accessCode, {
-      onSuccess: () => {
+      onSuccess: (data) => {
         setOpen(false);
         setAccessCode('');
         onSuccess?.();
+        
+        // Trigger auto-linking for the newly enrolled course
+        autoLinkMutation.mutate({
+          instructorCourseId: data.course.id,
+        });
       },
     });
   };

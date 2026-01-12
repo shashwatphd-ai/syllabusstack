@@ -9,21 +9,24 @@ import { RecommendationCard } from "./RecommendationCard";
 import { ReAnalysisPrompt } from "./ReAnalysisPrompt";
 import { ProgressTracker } from "./ProgressTracker";
 import { useRecommendations, useUpdateRecommendationStatus } from "@/hooks/useRecommendations";
+import { useSingleCourseSearch } from "@/hooks/useSingleCourseSearch";
 import { performGapAnalysis } from "@/services";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { useToast } from "@/hooks/use-toast";
 import { Lightbulb, Loader2 } from "lucide-react";
+import { isPriceFree, isPricePaid, isPriceUnknown } from "@/lib/price-utils";
 
 type FilterType = "all" | "course" | "project" | "certification" | "skill" | "experience" | "action" | "reading" | "networking" | "portfolio" | "resource";
 
 interface RecommendationsListProps {
   dreamJobId?: string;
+  dreamJobTitle?: string;
   freeFirst?: boolean;
-  priceFilter?: 'all' | 'free' | 'paid';
+  priceFilter?: 'all' | 'free' | 'paid' | 'unknown';
 }
 
-export function RecommendationsList({ dreamJobId, freeFirst = false, priceFilter = 'all' }: RecommendationsListProps) {
+export function RecommendationsList({ dreamJobId, dreamJobTitle, freeFirst = false, priceFilter = 'all' }: RecommendationsListProps) {
   const [filter, setFilter] = useState<FilterType>("all");
   const [showReAnalysisPrompt, setShowReAnalysisPrompt] = useState(false);
   const [isReAnalyzing, setIsReAnalyzing] = useState(false);
@@ -34,27 +37,39 @@ export function RecommendationsList({ dreamJobId, freeFirst = false, priceFilter
   const { toast } = useToast();
   const { data: recommendations = [], isLoading } = useRecommendations(dreamJobId);
   const updateStatus = useUpdateRecommendationStatus();
+  const { searchForCourse, isSearching, searchingId } = useSingleCourseSearch();
+
+  // Handle course search for a single recommendation
+  const handleSearchCourse = async (recommendationId: string, gapAddressed: string) => {
+    if (!dreamJobId) return;
+    await searchForCourse(recommendationId, {
+      gapAddressed,
+      dreamJobId,
+      dreamJobTitle: dreamJobTitle || '',
+    });
+  };
 
   // Apply type filter first
   const typeFilteredRecs = filter === "all" 
     ? recommendations 
     : recommendations.filter((r) => r.type === filter);
   
-  // Apply price filter for courses
+  // Apply price filter for courses using shared price utilities
   const priceFilteredRecs = typeFilteredRecs.filter(rec => {
     if (rec.type !== 'course') return true; // non-courses pass through
-    if (priceFilter === 'free') return rec.cost_usd === 0 || rec.cost_usd === null;
-    if (priceFilter === 'paid') return rec.cost_usd !== null && rec.cost_usd > 0;
+    if (priceFilter === 'free') return isPriceFree(rec);
+    if (priceFilter === 'paid') return isPricePaid(rec);
+    if (priceFilter === 'unknown') return isPriceUnknown(rec);
     return true; // 'all'
   });
   
-  // Apply freeFirst sorting for courses
+  // Apply freeFirst sorting for courses - only confirmed free courses go first
   const filteredRecommendations = freeFirst 
     ? [...priceFilteredRecs].sort((a, b) => {
         // Only sort courses, keep other types in place
         if (a.type === 'course' && b.type === 'course') {
-          const aFree = a.cost_usd === 0 || a.cost_usd === null;
-          const bFree = b.cost_usd === 0 || b.cost_usd === null;
+          const aFree = isPriceFree(a);
+          const bFree = isPriceFree(b);
           if (aFree && !bFree) return -1;
           if (!aFree && bFree) return 1;
         }
@@ -134,6 +149,7 @@ export function RecommendationsList({ dreamJobId, freeFirst = false, priceFilter
     estimatedTime: rec.duration || undefined,
     effort_hours: rec.effort_hours,
     cost_usd: rec.cost_usd,
+    price_known: rec.price_known ?? false,
     provider: rec.provider || undefined,
     url: rec.url || undefined,
     status: (rec.status as "pending" | "in_progress" | "completed" | "skipped" | "not_started") || 'pending',
@@ -147,6 +163,7 @@ export function RecommendationsList({ dreamJobId, freeFirst = false, priceFilter
     linked_course_id: rec.linked_course_id,
     linked_course_title: rec.linked_course_title,
     enrollment_progress: rec.enrollment_progress,
+    dream_job_id: rec.dream_job_id,
   }));
 
   if (isLoading) {
@@ -252,6 +269,9 @@ export function RecommendationsList({ dreamJobId, freeFirst = false, priceFilter
                     key={rec.id}
                     recommendation={rec}
                     onStatusChange={handleStatusChange}
+                    onSearchCourse={handleSearchCourse}
+                    isSearchingCourse={isSearching && searchingId === rec.id}
+                    dreamJobTitle={dreamJobTitle}
                   />
                 ))}
               </div>

@@ -98,3 +98,6 @@ verify_jwt = true
 
 [functions.remove-org-user]
 verify_jwt = true
+
+[functions.auto-link-courses]
+verify_jwt = true

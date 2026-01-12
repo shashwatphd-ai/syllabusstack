@@ -3,6 +3,12 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { queryKeys } from '@/lib/query-keys';
 import { toast } from '@/hooks/use-toast';
+import { 
+  normalizeGaps, 
+  gapsToSearchFormat,
+  type NormalizedGap,
+  type RawGapInput 
+} from '@/lib/gap-utils';
 
 export interface CourseResult {
   title: string;
@@ -21,33 +27,96 @@ export interface CourseSearchResult {
   totalFound: number;
 }
 
-interface GapItem {
-  gap?: string;
-  requirement?: string;
-  job_requirement?: string;
-  priority?: number;
+// Rate limit error class for specific handling
+export class RateLimitError extends Error {
+  retryAfter?: number;
+  
+  constructor(message: string, retryAfter?: number) {
+    super(message);
+    this.name = 'RateLimitError';
+    this.retryAfter = retryAfter;
+  }
 }
 
+/**
+ * Search for courses using the edge function
+ * Accepts gaps in any format - they will be normalized before sending
+ */
 async function searchCoursesWithFirecrawl(
-  gaps: GapItem[],
+  gaps: RawGapInput[],
   dreamJobId: string,
   dreamJobTitle: string
 ): Promise<CourseSearchResult> {
+  // Normalize gaps using our robust utility
+  const normalizedGaps = normalizeGaps(gaps);
+  
+  if (normalizedGaps.length === 0) {
+    throw new Error('No valid skill gaps found. Please ensure your gap analysis has been completed.');
+  }
+  
+  if (!dreamJobId || typeof dreamJobId !== 'string') {
+    throw new Error('Dream job ID is required');
+  }
+  
+  if (!dreamJobTitle || typeof dreamJobTitle !== 'string') {
+    throw new Error('Dream job title is required');
+  }
+  
+  // Convert to the format expected by the edge function
+  const gapsForSearch = gapsToSearchFormat(normalizedGaps);
+  
+  console.log(`[useCourseSearch] Searching courses for ${gapsForSearch.length} gaps:`, 
+    gapsForSearch.map(g => g.gap.slice(0, 40)).join(' | '));
+  
   const { data, error } = await supabase.functions.invoke('firecrawl-search-courses', {
-    body: { gaps, dreamJobId, dreamJobTitle }
+    body: { 
+      gaps: gapsForSearch, 
+      dreamJobId, 
+      dreamJobTitle 
+    }
   });
 
   if (error) {
-    throw new Error(error.message);
+    console.error('[useCourseSearch] Edge function error:', error);
+    // Check for rate limit errors (429)
+    if (error.message?.includes('429') || error.message?.toLowerCase().includes('rate limit')) {
+      throw new RateLimitError(
+        'Course search limit reached. Please try again in a few minutes.',
+        60 // Default 60 second retry
+      );
+    }
+    throw new Error(error.message || 'Failed to search for courses');
   }
 
-  if (data.error) {
+  if (data?.error) {
+    console.error('[useCourseSearch] API error:', data.error);
+    if (data.error.includes('rate limit') || data.error.includes('429')) {
+      throw new RateLimitError(
+        'Course search limit reached. Please try again in a few minutes.',
+        data.retryAfter || 60
+      );
+    }
     throw new Error(data.error);
   }
 
+  console.log(`[useCourseSearch] Found ${data?.totalFound || 0} courses`);
   return data;
 }
 
+/**
+ * Hook for searching courses based on skill gaps
+ * 
+ * Usage:
+ * ```tsx
+ * const { searchCourses, isSearching, results } = useCourseSearch();
+ * 
+ * // Can be called with any gap format - will be normalized automatically
+ * await searchCourses(gaps, dreamJobId, dreamJobTitle);
+ * 
+ * // Or with object params
+ * await searchCourses({ gaps, dreamJobId, dreamJobTitle });
+ * ```
+ */
 export function useCourseSearch() {
   const queryClient = useQueryClient();
   const [lastResults, setLastResults] = useState<CourseResult[]>([]);
@@ -58,7 +127,7 @@ export function useCourseSearch() {
       dreamJobId, 
       dreamJobTitle 
     }: { 
-      gaps: GapItem[]; 
+      gaps: RawGapInput[]; 
       dreamJobId: string; 
       dreamJobTitle: string;
     }) => searchCoursesWithFirecrawl(gaps, dreamJobId, dreamJobTitle),
@@ -74,6 +143,17 @@ export function useCourseSearch() {
       });
     },
     onError: (error) => {
+      // Handle rate limit errors specifically
+      if (error instanceof RateLimitError) {
+        toast({
+          title: 'Search Limit Reached ⏳',
+          description: error.message,
+          variant: 'destructive',
+          duration: 6000,
+        });
+        return;
+      }
+      
       toast({
         title: 'Course Search Failed',
         description: error instanceof Error ? error.message : 'Failed to search for courses',
@@ -82,9 +162,19 @@ export function useCourseSearch() {
     },
   });
 
-  // Helper for async/await usage - supports both object and individual args
+  /**
+   * Search for courses - supports multiple calling conventions
+   * 
+   * @example
+   * // Array + separate params
+   * searchCourses(gaps, dreamJobId, dreamJobTitle)
+   * 
+   * @example
+   * // Object params
+   * searchCourses({ gaps, dreamJobId, dreamJobTitle })
+   */
   const searchCourses = async (
-    gapsOrParams: GapItem[] | { gaps: GapItem[]; dreamJobId: string; dreamJobTitle: string },
+    gapsOrParams: RawGapInput[] | { gaps: RawGapInput[]; dreamJobId: string; dreamJobTitle: string },
     dreamJobId?: string,
     dreamJobTitle?: string
   ) => {

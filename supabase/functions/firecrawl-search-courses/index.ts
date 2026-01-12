@@ -18,6 +18,123 @@ interface CourseResult {
   isFree?: boolean;
 }
 
+// =============================================================================
+// GAP NORMALIZATION - Consistent handling of all gap formats
+// =============================================================================
+
+interface NormalizedGap {
+  text: string;
+  priority?: number;
+}
+
+/**
+ * Extract text from any gap format - handles all known structures
+ */
+function extractGapText(gap: unknown): string {
+  // Handle string input directly
+  if (typeof gap === 'string') {
+    return gap.trim();
+  }
+
+  // Handle null/undefined
+  if (!gap || typeof gap !== 'object') {
+    return '';
+  }
+
+  // Cast to record for property access
+  const g = gap as Record<string, unknown>;
+
+  // Try known property names in order of preference
+  // This covers:
+  // - priority_gaps: { gap, priority, reason }
+  // - critical_gaps: { job_requirement, student_status, impact }
+  // - various other formats from different parts of the app
+  const propertyOrder = [
+    'gap',              // priority_gaps primary field
+    'job_requirement',  // critical_gaps primary field
+    'requirement',      // alternative field
+    'skill',            // another alternative
+    'text',             // generic text field
+    'description',      // fallback description
+  ];
+
+  for (const key of propertyOrder) {
+    const value = g[key];
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+
+  return '';
+}
+
+/**
+ * Normalize an array of gaps from any format to consistent structure
+ */
+function normalizeGaps(gaps: unknown[]): NormalizedGap[] {
+  if (!Array.isArray(gaps)) {
+    console.warn('[normalizeGaps] Received non-array:', typeof gaps);
+    return [];
+  }
+
+  const normalized: NormalizedGap[] = [];
+
+  for (let i = 0; i < gaps.length; i++) {
+    const gap = gaps[i];
+    const text = extractGapText(gap);
+    
+    if (!text) {
+      console.warn(`[normalizeGaps] Skipping gap at index ${i}, no text extracted:`, 
+        typeof gap === 'object' ? JSON.stringify(gap).slice(0, 100) : typeof gap);
+      continue;
+    }
+
+    // Extract priority if available
+    let priority: number | undefined;
+    if (typeof gap === 'object' && gap !== null) {
+      const g = gap as Record<string, unknown>;
+      if (typeof g.priority === 'number') {
+        priority = g.priority;
+      }
+    }
+
+    normalized.push({ text, priority: priority ?? i + 1 });
+  }
+
+  return normalized;
+}
+
+// =============================================================================
+// SEARCH KEYWORD EXTRACTION
+// =============================================================================
+
+/**
+ * Extract meaningful search keywords from gap text
+ */
+function extractSearchKeywords(gapText: string, maxKeywords = 4): string {
+  const stopWords = new Set([
+    'should', 'must', 'need', 'have', 'experience', 'with', 'and', 'or', 
+    'the', 'a', 'an', 'in', 'for', 'to', 'of', 'ability', 'understanding',
+    'knowledge', 'skills', 'proficiency', 'familiarity', 'strong', 'working',
+    'demonstrated', 'proven', 'excellent', 'deep', 'solid', 'good', 'basic',
+    'advanced', 'intermediate', 'beginner', 'that', 'this', 'will', 'can',
+    'be', 'able', 'using', 'use', 'related', 'relevant', 'including',
+    'years', 'year', 'months', 'month', 'days', 'day', 'from', 'into',
+  ]);
+  
+  const words = gapText.toLowerCase()
+    .replace(/[^\w\s]/g, ' ')
+    .split(/\s+/)
+    .filter(w => w.length > 3 && !stopWords.has(w));
+  
+  const uniqueWords = [...new Set(words)];
+  return uniqueWords.slice(0, maxKeywords).join(' ');
+}
+
+// =============================================================================
+// PLATFORM CONFIGURATION
+// =============================================================================
+
 // Free platform domains (less likely to have Cloudflare blocking)
 const FREE_DOMAINS = [
   'khanacademy.org',
@@ -40,7 +157,13 @@ const PAID_DOMAINS = [
   'codecademy.com',
 ];
 
-// Detect if a result is blocked by Cloudflare or bot protection
+// =============================================================================
+// RESULT PROCESSING UTILITIES
+// =============================================================================
+
+/**
+ * Detect if a result is blocked by Cloudflare or bot protection
+ */
 function isBlockedResult(result: SearchResult): boolean {
   const blockedIndicators = [
     'just a moment',
@@ -61,7 +184,9 @@ function isBlockedResult(result: SearchResult): boolean {
   );
 }
 
-// Extract course title from URL as fallback
+/**
+ * Extract course title from URL as fallback
+ */
 function extractTitleFromUrl(url: string): string {
   const patterns = [
     /\/learn\/([^/?#]+)/,        // coursera.org/learn/python-programming
@@ -85,28 +210,9 @@ function extractTitleFromUrl(url: string): string {
   return "Online Course";
 }
 
-// Extract meaningful search keywords from gap text
-function extractSearchKeywords(gapText: string): string {
-  const stopWords = new Set([
-    'should', 'must', 'need', 'have', 'experience', 'with', 'and', 'or', 
-    'the', 'a', 'an', 'in', 'for', 'to', 'of', 'ability', 'understanding',
-    'knowledge', 'skills', 'proficiency', 'familiarity', 'strong', 'working',
-    'demonstrated', 'proven', 'excellent', 'deep', 'solid', 'good', 'basic',
-    'advanced', 'intermediate', 'beginner', 'that', 'this', 'will', 'can',
-    'be', 'able', 'using', 'use', 'related', 'relevant', 'including'
-  ]);
-  
-  const words = gapText.toLowerCase()
-    .replace(/[^\w\s]/g, ' ')
-    .split(/\s+/)
-    .filter(w => w.length > 3 && !stopWords.has(w));
-  
-  // Take top 4 meaningful keywords to keep query short
-  const uniqueWords = [...new Set(words)];
-  return uniqueWords.slice(0, 4).join(' ');
-}
-
-// Validate that URL is a valid course page
+/**
+ * Validate that URL is a valid course page
+ */
 function isValidCourseUrl(url: string): boolean {
   const urlLower = url.toLowerCase();
   
@@ -139,265 +245,12 @@ function isValidCourseUrl(url: string): boolean {
   return coursePatterns.some(p => urlLower.includes(p));
 }
 
-// Check if URL is from a free platform
+/**
+ * Check if URL is from a free platform
+ */
 function isFreePlatform(url: string): boolean {
   const urlLower = url.toLowerCase();
   return FREE_DOMAINS.some(d => urlLower.includes(d));
-}
-
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
-
-  try {
-    const { gaps, dreamJobId, dreamJobTitle, freeOnly = false } = await req.json();
-
-    if (!gaps || !Array.isArray(gaps) || gaps.length === 0) {
-      return new Response(
-        JSON.stringify({ error: "Gaps array is required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(
-        JSON.stringify({ error: "Authorization required" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_ANON_KEY") ?? "",
-      { global: { headers: { Authorization: authHeader } } }
-    );
-
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    if (userError || !user) {
-      return new Response(
-        JSON.stringify({ error: "Failed to authenticate user" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // Get web provider (firecrawl or jina based on WEB_PROVIDER env var)
-    const webProvider = getWebProvider();
-    console.log(`Using web provider: ${webProvider.name}`);
-
-    // Check if provider is configured
-    const FIRECRAWL_API_KEY = Deno.env.get("FIRECRAWL_API_KEY");
-    const JINA_API_KEY = Deno.env.get("JINA_API_KEY");
-
-    if (webProvider.name === 'firecrawl' && !FIRECRAWL_API_KEY) {
-      console.error("FIRECRAWL_API_KEY not configured");
-      return new Response(
-        JSON.stringify({ error: "Firecrawl not configured. Please connect Firecrawl in Settings." }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    console.log(`Searching courses for ${gaps.length} gaps for job: ${dreamJobTitle}`);
-
-    const allCourses: CourseResult[] = [];
-    const searchErrors: string[] = [];
-    const blockedUrls: string[] = [];
-
-    // Search for each gap (limit to top 3 priority gaps to manage API calls)
-    const gapsToSearch = gaps.slice(0, 3);
-
-    for (const gap of gapsToSearch) {
-      const gapText = gap.gap || gap.requirement || gap;
-      const keywords = extractSearchKeywords(gapText);
-      
-      console.log(`Gap: "${gapText.slice(0, 50)}..." -> Keywords: "${keywords}"`);
-
-      // === SEARCH 1: Free Platforms (prioritize - less blocking) ===
-      const freeQuery = `${keywords} tutorial site:khanacademy.org OR site:ocw.mit.edu OR site:youtube.com OR site:freecodecamp.org`;
-      console.log(`Searching FREE: ${freeQuery}`);
-      
-      try {
-        const freeResults = await webProvider.search(freeQuery, { limit: 4 });
-        console.log(`Found ${freeResults.length} FREE results for: ${keywords}`);
-        
-        for (const result of freeResults) {
-          if (!isValidCourseUrl(result.url)) continue;
-          if (isBlockedResult(result)) {
-            blockedUrls.push(result.url);
-            continue;
-          }
-          
-          const course = parseSearchResult(result, true);
-          if (!allCourses.some(c => c.url === course.url)) {
-            allCourses.push(course);
-          }
-        }
-      } catch (err) {
-        console.error(`Free search error: ${err}`);
-      }
-
-      // === SEARCH 2: Paid Platforms (unless freeOnly is true) ===
-      if (!freeOnly) {
-        const paidQuery = `${keywords} online course site:coursera.org OR site:udemy.com OR site:edx.org`;
-        console.log(`Searching PAID: ${paidQuery}`);
-        
-        try {
-          const paidResults = await webProvider.search(paidQuery, { limit: 5 });
-          console.log(`Found ${paidResults.length} PAID results for: ${keywords}`);
-          
-          for (const result of paidResults) {
-            if (!isValidCourseUrl(result.url)) continue;
-            
-            // Handle blocked results differently for paid platforms
-            if (isBlockedResult(result)) {
-              blockedUrls.push(result.url);
-              // Try to salvage with URL-based extraction
-              const course = salvageBlockedResult(result);
-              if (course && !allCourses.some(c => c.url === course.url)) {
-                allCourses.push(course);
-              }
-              continue;
-            }
-            
-            const course = parseSearchResult(result, false);
-            if (!allCourses.some(c => c.url === course.url)) {
-              allCourses.push(course);
-            }
-          }
-        } catch (err) {
-          console.error(`Paid search error: ${err}`);
-          searchErrors.push(`Failed to search paid platforms for: ${keywords}`);
-        }
-      }
-    }
-
-    // Sort: Free courses first
-    allCourses.sort((a, b) => {
-      if (a.isFree && !b.isFree) return -1;
-      if (!a.isFree && b.isFree) return 1;
-      return 0;
-    });
-
-    console.log(`Total unique courses found: ${allCourses.length} (${blockedUrls.length} blocked results handled)`);
-
-    // Save courses as recommendations
-    if (allCourses.length > 0 && dreamJobId) {
-      const recommendationsToInsert = allCourses.slice(0, 12).map((course, index) => {
-        const gapIndex = Math.min(index, gapsToSearch.length - 1);
-        const gap = gapsToSearch[gapIndex];
-        const gapText = typeof gap === 'string' ? gap :
-          gap?.gap || gap?.requirement || gap?.job_requirement || gap?.skill ||
-          `${dreamJobTitle} skill requirement`;
-
-        return {
-          user_id: user.id,
-          dream_job_id: dreamJobId,
-          title: course.title,
-          type: "course",
-          description: course.isFree 
-            ? `[FREE] ${course.description.slice(0, 450)}`
-            : course.description.slice(0, 500),
-          provider: course.provider,
-          url: course.url,
-          duration: course.duration || "Self-paced",
-          cost_usd: parseCost(course.price),
-          priority: course.isFree 
-            ? (index < 2 ? "high" : "medium") 
-            : (index < 4 ? "high" : index < 8 ? "medium" : "low"),
-          status: "pending",
-          gap_addressed: gapText,
-          why_this_matters: course.isFree
-            ? `This FREE resource addresses a skill gap for your goal of becoming a ${dreamJobTitle}. No financial barrier to start learning ${gapText}.`
-            : `This course addresses a skill gap identified for your goal of becoming a ${dreamJobTitle}. Completing it will strengthen your candidacy by developing ${gapText}.`,
-        };
-      });
-
-      const { error: insertError } = await supabase
-        .from("recommendations")
-        .insert(recommendationsToInsert);
-
-      if (insertError) {
-        console.error("Error saving course recommendations:", insertError);
-      } else {
-        console.log(`Saved ${recommendationsToInsert.length} course recommendations`);
-      }
-    }
-
-    return new Response(
-      JSON.stringify({
-        success: true,
-        courses: allCourses,
-        gapsSearched: gapsToSearch.length,
-        totalFound: allCourses.length,
-        freeCount: allCourses.filter(c => c.isFree).length,
-        paidCount: allCourses.filter(c => !c.isFree).length,
-        provider: webProvider.name,
-        blockedCount: blockedUrls.length,
-        searchErrors: searchErrors.length > 0 ? searchErrors : undefined,
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-  } catch (error) {
-    console.error("Error in firecrawl-search-courses:", error);
-    return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-  }
-});
-
-// Parse a search result into a CourseResult
-function parseSearchResult(result: SearchResult, isFree: boolean): CourseResult {
-  let title = result.title || extractTitleFromUrl(result.url);
-  
-  // Clean up title if it looks like a blocked page title
-  if (title.toLowerCase().includes('just a moment') || title.length < 5) {
-    title = extractTitleFromUrl(result.url);
-  }
-  
-  const provider = getProviderFromUrl(result.url);
-  const description = result.description || extractDescription(result.markdown) || `Learn with ${provider}`;
-  
-  // Determine price
-  let price: string;
-  if (isFree || isFreePlatform(result.url)) {
-    price = "Free";
-  } else {
-    price = extractPrice(result.markdown || result.description) || "Check pricing";
-  }
-  
-  return {
-    title,
-    provider,
-    url: result.url,
-    description,
-    duration: extractDuration(result.markdown || result.description),
-    rating: extractRating(result.markdown || result.description),
-    price,
-    isFree: price === "Free",
-  };
-}
-
-// Salvage a blocked result by extracting info from URL
-function salvageBlockedResult(result: SearchResult): CourseResult | null {
-  if (!isValidCourseUrl(result.url)) return null;
-  
-  const title = extractTitleFromUrl(result.url);
-  if (title === "Online Course") return null; // Not useful enough
-  
-  const provider = getProviderFromUrl(result.url);
-  
-  return {
-    title,
-    provider,
-    url: result.url,
-    description: `${title} on ${provider}`,
-    price: provider === "Khan Academy" || provider === "MIT OpenCourseWare" || provider === "freeCodeCamp" 
-      ? "Free" 
-      : "Check pricing",
-    isFree: isFreePlatform(result.url),
-  };
 }
 
 function getProviderFromUrl(url: string): string {
@@ -461,3 +314,282 @@ function parseCost(price: string | undefined): number | null {
   const match = price.match(/\$?(\d+(?:\.\d{2})?)/);
   return match ? parseFloat(match[1]) : null;
 }
+
+/**
+ * Parse a search result into a CourseResult
+ */
+function parseSearchResult(result: SearchResult, isFree: boolean): CourseResult {
+  let title = result.title || extractTitleFromUrl(result.url);
+  
+  // Clean up title if it looks like a blocked page title
+  if (title.toLowerCase().includes('just a moment') || title.length < 5) {
+    title = extractTitleFromUrl(result.url);
+  }
+  
+  const provider = getProviderFromUrl(result.url);
+  const description = result.description || extractDescription(result.markdown) || `Learn with ${provider}`;
+  
+  // Determine price
+  let price: string;
+  if (isFree || isFreePlatform(result.url)) {
+    price = "Free";
+  } else {
+    price = extractPrice(result.markdown || result.description) || "Check pricing";
+  }
+  
+  return {
+    title,
+    provider,
+    url: result.url,
+    description,
+    duration: extractDuration(result.markdown || result.description),
+    rating: extractRating(result.markdown || result.description),
+    price,
+    isFree: price === "Free",
+  };
+}
+
+/**
+ * Salvage a blocked result by extracting info from URL
+ */
+function salvageBlockedResult(result: SearchResult): CourseResult | null {
+  if (!isValidCourseUrl(result.url)) return null;
+  
+  const title = extractTitleFromUrl(result.url);
+  if (title === "Online Course") return null; // Not useful enough
+  
+  const provider = getProviderFromUrl(result.url);
+  
+  return {
+    title,
+    provider,
+    url: result.url,
+    description: `${title} on ${provider}`,
+    price: provider === "Khan Academy" || provider === "MIT OpenCourseWare" || provider === "freeCodeCamp" 
+      ? "Free" 
+      : "Check pricing",
+    isFree: isFreePlatform(result.url),
+  };
+}
+
+// =============================================================================
+// MAIN HANDLER
+// =============================================================================
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  try {
+    const { gaps, dreamJobId, dreamJobTitle, freeOnly = false } = await req.json();
+
+    // Normalize and validate gaps using our robust normalization
+    const normalizedGaps = normalizeGaps(gaps || []);
+    
+    if (normalizedGaps.length === 0) {
+      console.error('[firecrawl-search-courses] No valid gaps after normalization');
+      console.error('[firecrawl-search-courses] Raw gaps received:', JSON.stringify(gaps).slice(0, 500));
+      return new Response(
+        JSON.stringify({ error: "No valid skill gaps provided. Please ensure gaps have text content." }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ error: "Authorization required" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+      { global: { headers: { Authorization: authHeader } } }
+    );
+
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
+      return new Response(
+        JSON.stringify({ error: "Failed to authenticate user" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Get web provider (firecrawl or jina based on WEB_PROVIDER env var)
+    const webProvider = getWebProvider();
+    console.log(`[firecrawl-search-courses] Using web provider: ${webProvider.name}`);
+
+    // Check if provider is configured
+    const FIRECRAWL_API_KEY = Deno.env.get("FIRECRAWL_API_KEY");
+    const JINA_API_KEY = Deno.env.get("JINA_API_KEY");
+
+    if (webProvider.name === 'firecrawl' && !FIRECRAWL_API_KEY) {
+      console.error("[firecrawl-search-courses] FIRECRAWL_API_KEY not configured");
+      return new Response(
+        JSON.stringify({ error: "Firecrawl not configured. Please connect Firecrawl in Settings." }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    console.log(`[firecrawl-search-courses] Searching courses for ${normalizedGaps.length} gaps for job: ${dreamJobTitle}`);
+    console.log(`[firecrawl-search-courses] Normalized gaps:`, normalizedGaps.map(g => g.text.slice(0, 50)).join(' | '));
+
+    const allCourses: CourseResult[] = [];
+    const searchErrors: string[] = [];
+    const blockedUrls: string[] = [];
+
+    // Search for each gap (limit to top 3 priority gaps to manage API calls)
+    const gapsToSearch = normalizedGaps.slice(0, 3);
+
+    for (const gap of gapsToSearch) {
+      const gapText = gap.text;
+      const keywords = extractSearchKeywords(gapText);
+      
+      if (!keywords) {
+        console.warn(`[firecrawl-search-courses] No keywords extracted from gap: "${gapText.slice(0, 50)}..."`);
+        continue;
+      }
+      
+      console.log(`[firecrawl-search-courses] Gap: "${gapText.slice(0, 50)}..." -> Keywords: "${keywords}"`);
+
+      // === SEARCH 1: Free Platforms (prioritize - less blocking) ===
+      const freeQuery = `${keywords} tutorial site:khanacademy.org OR site:ocw.mit.edu OR site:youtube.com OR site:freecodecamp.org`;
+      console.log(`[firecrawl-search-courses] Searching FREE: ${freeQuery}`);
+      
+      try {
+        const freeResults = await webProvider.search(freeQuery, { limit: 4 });
+        console.log(`[firecrawl-search-courses] Found ${freeResults.length} FREE results for: ${keywords}`);
+        
+        for (const result of freeResults) {
+          if (!isValidCourseUrl(result.url)) continue;
+          if (isBlockedResult(result)) {
+            blockedUrls.push(result.url);
+            continue;
+          }
+          
+          const course = parseSearchResult(result, true);
+          if (!allCourses.some(c => c.url === course.url)) {
+            allCourses.push(course);
+          }
+        }
+      } catch (err) {
+        console.error(`[firecrawl-search-courses] Free search error:`, err);
+        searchErrors.push(`Free search failed for: ${keywords}`);
+      }
+
+      // === SEARCH 2: Paid Platforms (unless freeOnly is true) ===
+      if (!freeOnly) {
+        const paidQuery = `${keywords} online course site:coursera.org OR site:udemy.com OR site:edx.org`;
+        console.log(`[firecrawl-search-courses] Searching PAID: ${paidQuery}`);
+        
+        try {
+          const paidResults = await webProvider.search(paidQuery, { limit: 5 });
+          console.log(`[firecrawl-search-courses] Found ${paidResults.length} PAID results for: ${keywords}`);
+          
+          for (const result of paidResults) {
+            if (!isValidCourseUrl(result.url)) continue;
+            
+            // Handle blocked results differently for paid platforms
+            if (isBlockedResult(result)) {
+              blockedUrls.push(result.url);
+              // Try to salvage with URL-based extraction
+              const course = salvageBlockedResult(result);
+              if (course && !allCourses.some(c => c.url === course.url)) {
+                allCourses.push(course);
+              }
+              continue;
+            }
+            
+            const course = parseSearchResult(result, false);
+            if (!allCourses.some(c => c.url === course.url)) {
+              allCourses.push(course);
+            }
+          }
+        } catch (err) {
+          console.error(`[firecrawl-search-courses] Paid search error:`, err);
+          searchErrors.push(`Paid search failed for: ${keywords}`);
+        }
+      }
+    }
+
+    // Sort: Free courses first
+    allCourses.sort((a, b) => {
+      if (a.isFree && !b.isFree) return -1;
+      if (!a.isFree && b.isFree) return 1;
+      return 0;
+    });
+
+    console.log(`[firecrawl-search-courses] Total unique courses found: ${allCourses.length} (${blockedUrls.length} blocked results handled)`);
+
+    // Save courses as recommendations
+    if (allCourses.length > 0 && dreamJobId) {
+      const recommendationsToInsert = allCourses.slice(0, 12).map((course, index) => {
+        // Get the gap text for this recommendation
+        const gapIndex = Math.min(index, gapsToSearch.length - 1);
+        const gapText = gapsToSearch[gapIndex]?.text || `${dreamJobTitle} skill requirement`;
+
+        // Determine if price is known (not "Check pricing")
+        const priceKnown = course.price !== undefined && 
+                          course.price !== null && 
+                          course.price.toLowerCase() !== 'check pricing';
+
+        return {
+          user_id: user.id,
+          dream_job_id: dreamJobId,
+          title: course.title,
+          type: "course",
+          description: course.isFree 
+            ? `[FREE] ${course.description.slice(0, 450)}`
+            : course.description.slice(0, 500),
+          provider: course.provider,
+          url: course.url,
+          duration: course.duration || "Self-paced",
+          cost_usd: parseCost(course.price),
+          price_known: priceKnown,
+          priority: course.isFree 
+            ? (index < 2 ? "high" : "medium") 
+            : (index < 4 ? "high" : index < 8 ? "medium" : "low"),
+          status: "pending",
+          gap_addressed: gapText,
+          why_this_matters: course.isFree
+            ? `This FREE resource addresses a skill gap for your goal of becoming a ${dreamJobTitle}. No financial barrier to start learning ${gapText}.`
+            : `This course addresses a skill gap identified for your goal of becoming a ${dreamJobTitle}. Completing it will strengthen your candidacy by developing ${gapText}.`,
+        };
+      });
+
+      const { error: insertError } = await supabase
+        .from("recommendations")
+        .insert(recommendationsToInsert);
+
+      if (insertError) {
+        console.error("[firecrawl-search-courses] Error saving course recommendations:", insertError);
+      } else {
+        console.log(`[firecrawl-search-courses] Saved ${recommendationsToInsert.length} course recommendations`);
+      }
+    }
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        courses: allCourses,
+        gapsSearched: gapsToSearch.length,
+        totalFound: allCourses.length,
+        freeCount: allCourses.filter(c => c.isFree).length,
+        paidCount: allCourses.filter(c => !c.isFree).length,
+        provider: webProvider.name,
+        blockedCount: blockedUrls.length,
+        searchErrors: searchErrors.length > 0 ? searchErrors : undefined,
+      }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  } catch (error) {
+    console.error("[firecrawl-search-courses] Error:", error);
+    return new Response(
+      JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  }
+});
