@@ -6,20 +6,33 @@ const corsHeaders = {
 };
 
 // Invidious instances for quota-free YouTube search
+// Updated Jan 2025 - verified working instances
 const INVIDIOUS_INSTANCES = [
-  "https://inv.nadeko.net",
-  "https://invidious.nerdvpn.de",
-  "https://invidious.private.coffee",
-  "https://vid.puffyan.us",
-  "https://invidious.projectsegfau.lt",
+  "https://inv.nadeko.net",        // 97.5% health
+  "https://invidious.nerdvpn.de",  // 100% uptime
+  "https://yewtu.be",              // Long-standing reliable
+  "https://invidious.f5.si",       // New Jan 2025
+  "https://invidious.protokolla.fi",
 ];
 
 // Piped instances for quota-free YouTube search
+// Updated Jan 2025 - verified from TeamPiped
 const PIPED_INSTANCES = [
-  "https://pipedapi.kavin.rocks",
-  "https://pipedapi.tokhmi.xyz",
+  "https://pipedapi.kavin.rocks",   // Official
+  "https://pipedapi.leptons.xyz",
+  "https://pipedapi.adminforge.de",
   "https://api.piped.yt",
 ];
+
+// Shuffle array to distribute load
+function shuffleArray<T>(array: T[]): T[] {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
 
 interface VideoResult {
   video_id: string;
@@ -46,13 +59,18 @@ function parseDurationToSeconds(duration: string): number {
  * Search via Invidious (YouTube without quota)
  */
 async function searchViaInvidious(query: string): Promise<VideoResult[]> {
-  for (const instance of INVIDIOUS_INSTANCES) {
+  const instances = shuffleArray(INVIDIOUS_INSTANCES);
+  
+  for (const instance of instances) {
     try {
       const response = await fetch(
         `${instance}/api/v1/search?q=${encodeURIComponent(query)}&type=video&sort=relevance`,
         {
-          headers: { 'Accept': 'application/json' },
-          signal: AbortSignal.timeout(8000),
+          headers: { 
+            'Accept': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          },
+          signal: AbortSignal.timeout(15000), // Increased to 15s
         }
       );
 
@@ -82,13 +100,18 @@ async function searchViaInvidious(query: string): Promise<VideoResult[]> {
  * Search via Piped (YouTube without quota)
  */
 async function searchViaPiped(query: string): Promise<VideoResult[]> {
-  for (const instance of PIPED_INSTANCES) {
+  const instances = shuffleArray(PIPED_INSTANCES);
+  
+  for (const instance of instances) {
     try {
       const response = await fetch(
         `${instance}/search?q=${encodeURIComponent(query)}&filter=videos`,
         {
-          headers: { 'Accept': 'application/json' },
-          signal: AbortSignal.timeout(8000),
+          headers: { 
+            'Accept': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          },
+          signal: AbortSignal.timeout(15000), // Increased to 15s
         }
       );
 

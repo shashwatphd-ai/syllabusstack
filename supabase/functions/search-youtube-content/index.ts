@@ -27,20 +27,33 @@ const corsHeaders = {
  */
 
 // Invidious instances (public YouTube API alternatives - NO QUOTA LIMITS)
+// Updated Jan 2025 - verified working instances from api.invidious.io
 const INVIDIOUS_INSTANCES = [
-  "https://inv.nadeko.net",
-  "https://invidious.nerdvpn.de",
-  "https://invidious.private.coffee",
-  "https://vid.puffyan.us",
-  "https://invidious.projectsegfau.lt",
+  "https://inv.nadeko.net",        // 97.5% health, 31k users
+  "https://invidious.nerdvpn.de",  // 100% uptime
+  "https://yewtu.be",              // Long-standing reliable
+  "https://invidious.f5.si",       // New Jan 2025
+  "https://invidious.protokolla.fi", // Good backup
 ];
 
 // Piped instances (another YouTube alternative - NO QUOTA LIMITS)
+// Updated Jan 2025 - verified from TeamPiped uptime monitor
 const PIPED_INSTANCES = [
-  "https://pipedapi.kavin.rocks",
-  "https://pipedapi.tokhmi.xyz",
-  "https://api.piped.yt",
+  "https://pipedapi.kavin.rocks",   // Official, most reliable
+  "https://pipedapi.leptons.xyz",   // Passes health checks
+  "https://pipedapi.adminforge.de", // Well-maintained German instance
+  "https://api.piped.yt",           // Works
 ];
+
+// Shuffle array to distribute load across instances
+function shuffleArray<T>(array: T[]): T[] {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
 
 interface InvidiousVideo {
   videoId: string;
@@ -107,12 +120,18 @@ const WEIGHTS_NO_AI = {
  * Falls back through multiple instances if one fails
  */
 async function searchInvidious(query: string, maxResults: number = 20): Promise<YouTubeVideo[]> {
-  for (const instance of INVIDIOUS_INSTANCES) {
+  // Shuffle instances to distribute load
+  const instances = shuffleArray(INVIDIOUS_INSTANCES);
+  
+  for (const instance of instances) {
     try {
       const searchUrl = `${instance}/api/v1/search?q=${encodeURIComponent(query)}&type=video&sort=relevance`;
       const response = await fetch(searchUrl, {
-        headers: { 'Accept': 'application/json' },
-        signal: AbortSignal.timeout(10000),
+        headers: { 
+          'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        },
+        signal: AbortSignal.timeout(15000), // Increased timeout to 15s
       });
 
       if (!response.ok) {
@@ -129,7 +148,8 @@ async function searchInvidious(query: string, maxResults: number = 20): Promise<
         channelId: item.authorId,
         publishedAt: new Date(item.published * 1000).toISOString(),
         thumbnailUrl: item.videoThumbnails?.find(t => t.quality === 'medium')?.url ||
-                      item.videoThumbnails?.[0]?.url || '',
+                      item.videoThumbnails?.[0]?.url || 
+                      `https://img.youtube.com/vi/${item.videoId}/mqdefault.jpg`,
         duration: item.lengthSeconds,
         viewCount: item.viewCount || 0,
         likeCount: 0,
@@ -151,12 +171,18 @@ async function searchInvidious(query: string, maxResults: number = 20): Promise<
  * Search YouTube using Piped API (NO QUOTA LIMITS)
  */
 async function searchPiped(query: string, maxResults: number = 20): Promise<YouTubeVideo[]> {
-  for (const instance of PIPED_INSTANCES) {
+  // Shuffle instances to distribute load
+  const instances = shuffleArray(PIPED_INSTANCES);
+  
+  for (const instance of instances) {
     try {
       const searchUrl = `${instance}/search?q=${encodeURIComponent(query)}&filter=videos`;
       const response = await fetch(searchUrl, {
-        headers: { 'Accept': 'application/json' },
-        signal: AbortSignal.timeout(10000),
+        headers: { 
+          'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        },
+        signal: AbortSignal.timeout(15000), // Increased timeout to 15s
       });
 
       if (!response.ok) {
@@ -176,7 +202,7 @@ async function searchPiped(query: string, maxResults: number = 20): Promise<YouT
           channelTitle: item.uploaderName || '',
           channelId: item.uploaderUrl?.split('/channel/')[1] || '',
           publishedAt: new Date(item.uploaded || Date.now()).toISOString(),
-          thumbnailUrl: item.thumbnail || '',
+          thumbnailUrl: item.thumbnail || `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`,
           duration: item.duration || 0,
           viewCount: item.views || 0,
           likeCount: 0,
