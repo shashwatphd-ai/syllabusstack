@@ -127,26 +127,27 @@ export function UnifiedLOCard({ learningObjective, contentStatus }: UnifiedLOCar
       <Collapsible open={isOpen} onOpenChange={setIsOpen}>
         <div className="rounded-lg border border-border/50 bg-card hover:border-primary/30 transition-colors">
           <CollapsibleTrigger asChild>
-            <div className="flex items-start gap-3 p-4 cursor-pointer">
-              <div className="mt-1 flex-shrink-0">
+            <div className="flex flex-col sm:flex-row sm:items-start gap-2 sm:gap-3 p-3 sm:p-4 cursor-pointer">
+              {/* Chevron and status indicator */}
+              <div className="flex items-center gap-2 sm:mt-1 shrink-0">
                 {isOpen ? (
                   <ChevronDown className="h-4 w-4 text-muted-foreground" />
                 ) : (
                   <ChevronRight className="h-4 w-4 text-muted-foreground" />
                 )}
+                {getStatusIndicator()}
               </div>
               
-              {getStatusIndicator()}
-              
+              {/* Main content area */}
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-foreground">{learningObjective.text}</p>
-                <div className="flex flex-wrap items-center gap-2 mt-2">
+                <p className="text-sm font-medium text-foreground leading-relaxed">{learningObjective.text}</p>
+                <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mt-2">
                   {/* Bloom's Level with Tooltip */}
                   {learningObjective.bloom_level && (
                     <TooltipProvider>
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <Badge className={`text-xs cursor-help ${getBloomInfo(learningObjective.bloom_level).color}`}>
+                          <Badge className={`text-[10px] sm:text-xs cursor-help ${getBloomInfo(learningObjective.bloom_level).color}`}>
                             {learningObjective.bloom_level}
                           </Badge>
                         </TooltipTrigger>
@@ -165,7 +166,7 @@ export function UnifiedLOCard({ learningObjective, contentStatus }: UnifiedLOCar
                     <TooltipProvider>
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <span className="text-xs text-muted-foreground cursor-help flex items-center gap-1">
+                          <span className="text-[10px] sm:text-xs text-muted-foreground cursor-help flex items-center gap-1">
                             <Clock className="h-3 w-3" />
                             ~{learningObjective.expected_duration_minutes} min
                             {actualVideoDuration && (
@@ -191,23 +192,24 @@ export function UnifiedLOCard({ learningObjective, contentStatus }: UnifiedLOCar
                   )}
                   
                   {contentStatus.approvedCount > 0 && (
-                    <Badge variant="outline" className="text-xs text-success border-success/30">
+                    <Badge variant="outline" className="text-[10px] sm:text-xs text-success border-success/30">
                       {contentStatus.approvedCount} approved
                     </Badge>
                   )}
                   {contentStatus.pendingCount > 0 && (
-                    <Badge variant="outline" className="text-xs text-warning border-warning/30">
+                    <Badge variant="outline" className="text-[10px] sm:text-xs text-warning border-warning/30">
                       {contentStatus.pendingCount} pending
                     </Badge>
                   )}
                 </div>
               </div>
 
-              <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+              {/* Find button */}
+              <div className="flex items-center gap-2 self-end sm:self-start" onClick={(e) => e.stopPropagation()}>
                 <Button
                   variant="outline"
                   size="sm"
-                  className="gap-1.5 h-8"
+                  className="gap-1.5 h-8 min-h-[2rem]"
                   onClick={() => searchContent.mutate(learningObjective)}
                   disabled={searchContent.isPending}
                 >

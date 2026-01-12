@@ -201,31 +201,33 @@ export default function InstructorCourseDetailPage() {
       <PageContainer>
         <div className="space-y-6">
           {/* Header */}
-          <div className="flex items-center gap-4">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
             <Button 
               variant="ghost" 
               size="icon"
+              className="self-start shrink-0"
               onClick={() => navigate('/instructor/courses')}
             >
               <ArrowLeft className="h-5 w-5" />
             </Button>
-            <div className="flex-1">
-              <div className="flex items-center gap-3">
+            <div className="flex-1 min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
                 {course.code && <Badge variant="secondary">{course.code}</Badge>}
-                <h1 className="text-2xl font-bold text-foreground">{course.title}</h1>
+                <h1 className="text-xl sm:text-2xl font-bold text-foreground">{course.title}</h1>
                 <Badge variant={course.is_published ? 'default' : 'outline'}>
                   {course.is_published ? 'Published' : 'Draft'}
                 </Badge>
               </div>
               {course.description && (
-                <p className="text-muted-foreground mt-1">{course.description}</p>
+                <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{course.description}</p>
               )}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 self-start sm:self-auto">
               <Button 
                 variant={course.is_published ? "outline" : "default"}
                 onClick={handlePublishToggle}
                 disabled={updateCourse.isPending}
+                className="min-h-11"
               >
                 {updateCourse.isPending ? (
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
@@ -234,7 +236,7 @@ export default function InstructorCourseDetailPage() {
                 )}
                 {course.is_published ? 'Unpublish' : 'Publish'}
               </Button>
-              <Button variant="outline" size="icon">
+              <Button variant="outline" size="icon" className="min-h-11 min-w-11">
                 <Settings2 className="h-4 w-4" />
               </Button>
             </div>
@@ -263,42 +265,42 @@ export default function InstructorCourseDetailPage() {
           )}
 
           {/* Stats Cards - FIXED: Content counter now shows actual count */}
-          <div className="grid gap-4 md:grid-cols-4">
+          <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
             <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-primary/10 rounded-lg">
-                    <FileText className="h-5 w-5 text-primary" />
+              <CardContent className="p-4 sm:pt-6">
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <div className="p-1.5 sm:p-2 bg-primary/10 rounded-lg shrink-0">
+                    <FileText className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
                   </div>
-                  <div>
-                    <p className="text-2xl font-bold">{modules?.length || 0}</p>
-                    <p className="text-sm text-muted-foreground">Modules</p>
+                  <div className="min-w-0">
+                    <p className="text-xl sm:text-2xl font-bold">{modules?.length || 0}</p>
+                    <p className="text-xs sm:text-sm text-muted-foreground">Modules</p>
                   </div>
                 </div>
               </CardContent>
             </Card>
             <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-accent/10 rounded-lg">
-                    <CheckCircle2 className="h-5 w-5 text-accent" />
+              <CardContent className="p-4 sm:pt-6">
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <div className="p-1.5 sm:p-2 bg-accent/10 rounded-lg shrink-0">
+                    <CheckCircle2 className="h-4 w-4 sm:h-5 sm:w-5 text-accent" />
                   </div>
-                  <div>
-                    <p className="text-2xl font-bold">{courseLOs.length}</p>
-                    <p className="text-sm text-muted-foreground">Learning Objectives</p>
+                  <div className="min-w-0">
+                    <p className="text-xl sm:text-2xl font-bold">{courseLOs.length}</p>
+                    <p className="text-xs sm:text-sm text-muted-foreground leading-tight">Learning Objectives</p>
                   </div>
                 </div>
               </CardContent>
             </Card>
             <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-success/10 rounded-lg">
-                    <Video className="h-5 w-5 text-success" />
+              <CardContent className="p-4 sm:pt-6">
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <div className="p-1.5 sm:p-2 bg-success/10 rounded-lg shrink-0">
+                    <Video className="h-4 w-4 sm:h-5 sm:w-5 text-success" />
                   </div>
-                  <div>
-                    <p className="text-2xl font-bold">{contentStats?.approved || 0}</p>
-                    <p className="text-sm text-muted-foreground">
+                  <div className="min-w-0">
+                    <p className="text-xl sm:text-2xl font-bold">{contentStats?.approved || 0}</p>
+                    <p className="text-xs sm:text-sm text-muted-foreground leading-tight">
                       Approved Content
                       {(contentStats?.pending || 0) > 0 && (
                         <span className="text-warning ml-1">({contentStats?.pending} pending)</span>
@@ -309,14 +311,14 @@ export default function InstructorCourseDetailPage() {
               </CardContent>
             </Card>
             <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-warning/10 rounded-lg">
-                    <Clock className="h-5 w-5 text-warning" />
+              <CardContent className="p-4 sm:pt-6">
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <div className="p-1.5 sm:p-2 bg-warning/10 rounded-lg shrink-0">
+                    <Clock className="h-4 w-4 sm:h-5 sm:w-5 text-warning" />
                   </div>
-                  <div>
-                    <p className="text-2xl font-bold">{course.verification_threshold}%</p>
-                    <p className="text-sm text-muted-foreground">Pass Threshold</p>
+                  <div className="min-w-0">
+                    <p className="text-xl sm:text-2xl font-bold">{course.verification_threshold}%</p>
+                    <p className="text-xs sm:text-sm text-muted-foreground">Pass Threshold</p>
                   </div>
                 </div>
               </CardContent>
@@ -325,12 +327,12 @@ export default function InstructorCourseDetailPage() {
 
           {/* Main Content - Unified View */}
           <Tabs defaultValue="course" className="space-y-4">
-            <TabsList>
-              <TabsTrigger value="course" className="gap-2">
+            <TabsList className="w-full sm:w-auto">
+              <TabsTrigger value="course" className="gap-2 flex-1 sm:flex-none">
                 <FileText className="h-4 w-4" />
-                Course Structure
+                <span className="hidden sm:inline">Course </span>Structure
               </TabsTrigger>
-              <TabsTrigger value="students" className="gap-2">
+              <TabsTrigger value="students" className="gap-2 flex-1 sm:flex-none">
                 <Users className="h-4 w-4" />
                 Students
               </TabsTrigger>
@@ -347,35 +349,37 @@ export default function InstructorCourseDetailPage() {
 
               {hasModulesOrLOs && (
                 <>
-                  <div className="flex justify-between items-center">
-                    <h3 className="text-lg font-semibold">Modules & Learning Objectives</h3>
-                    <div className="flex gap-2">
+                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
+                    <h3 className="text-base sm:text-lg font-semibold">Modules & Learning Objectives</h3>
+                    <div className="flex flex-wrap gap-2">
                       {/* Bulk Find All Content */}
                       {courseLOs.some(lo => !loContentStatus?.[lo.id]?.hasContent) && (
                         <Button 
                           variant="outline" 
-                          className="gap-2"
+                          className="gap-2 min-h-11 flex-1 sm:flex-none"
                           onClick={handleFindAllContent}
                           disabled={bulkSearching}
                         >
                           {bulkSearching ? (
                             <>
                               <Loader2 className="h-4 w-4 animate-spin" />
-                              Finding Content...
+                              <span className="hidden sm:inline">Finding Content...</span>
+                              <span className="sm:hidden">Finding...</span>
                             </>
                           ) : (
                             <>
                               <Sparkles className="h-4 w-4" />
-                              Find All Content
+                              <span className="hidden sm:inline">Find All Content</span>
+                              <span className="sm:hidden">Find All</span>
                             </>
                           )}
                         </Button>
                       )}
                       <Dialog open={isModuleDialogOpen} onOpenChange={setIsModuleDialogOpen}>
                         <DialogTrigger asChild>
-                          <Button className="gap-2">
+                          <Button className="gap-2 min-h-11">
                             <Plus className="h-4 w-4" />
-                            Add Module
+                            <span className="sr-only sm:not-sr-only">Add Module</span>
                           </Button>
                         </DialogTrigger>
                         <DialogContent>
