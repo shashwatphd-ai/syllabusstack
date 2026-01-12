@@ -130,16 +130,16 @@ export function DashboardOverview({ stats = defaultStats, isLoading }: Dashboard
             className="border-0 shadow-sm hover:shadow-md transition-all duration-200 bg-card group cursor-pointer"
             onClick={() => navigate(stat.link)}
           >
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className={`p-2 rounded-lg ${stat.iconBg} transition-transform group-hover:scale-110 flex-shrink-0`}>
+            <CardContent className="p-3 sm:p-4">
+              <div className="flex items-start sm:items-center gap-2 sm:gap-3">
+                <div className={`p-1.5 sm:p-2 rounded-lg ${stat.iconBg} transition-transform group-hover:scale-110 flex-shrink-0`}>
                   <Icon className={`h-4 w-4 ${stat.iconColor}`} />
                 </div>
-                <div className="min-w-0">
-                  <div className={`text-2xl font-bold tracking-tight ${stat.valueColor || 'text-foreground'}`}>
+                <div className="min-w-0 flex-1">
+                  <div className={`text-xl sm:text-2xl font-bold tracking-tight ${stat.valueColor || 'text-foreground'}`}>
                     {value}
                   </div>
-                  <p className="text-xs text-muted-foreground truncate">
+                  <p className="text-[11px] sm:text-xs text-muted-foreground leading-tight">
                     {stat.label}
                   </p>
                 </div>
