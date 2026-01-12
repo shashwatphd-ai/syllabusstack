@@ -1,20 +1,39 @@
 /**
  * Content Search Caching Utilities
- * Enhanced with semantic matching, synonym support, and query normalization
+ * Enhanced with DYNAMIC semantic matching, synonym support, and query normalization
  *
  * Cache Lookup Order:
  * 1. Exact match in cache
- * 2. Semantic similarity match (keyword overlap >= 60%)
- * 3. Concept synonym match
+ * 2. Semantic similarity match (dynamic threshold based on query complexity)
+ * 3. Dynamic synonym match (learned from syllabus content)
  * 4. Library content match
  * 5. Khan Academy search (free, unlimited)
  * 6. YouTube search (quota-limited fallback)
+ *
+ * NOTE: All synonyms are now DYNAMICALLY learned from syllabus content.
+ * No hardcoded concept lists - the system learns from each syllabus.
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
+import {
+  getDynamicSynonyms,
+  normalizeQueryDynamic,
+  calculateDynamicSimilarity,
+  extractDomainTerms,
+  detectDomain,
+} from './dynamic-terms.ts';
 
 const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
 const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+
+// Re-export dynamic term utilities for external use
+export {
+  extractDomainTerms,
+  detectDomain,
+  getDynamicSynonyms,
+  normalizeQueryDynamic,
+  calculateDynamicSimilarity,
+} from './dynamic-terms.ts';
 
 interface CachedResult {
   id: string;
@@ -48,52 +67,32 @@ const YOUTUBE_DAILY_QUOTA = 10000;
 const YOUTUBE_SEARCH_COST = 100; // Each search costs 100 quota units
 
 /**
- * Common concept synonyms for better cache matching
+ * Get synonyms for a concept - NOW DYNAMIC
+ * Fetches from database instead of hardcoded list
  */
-const CONCEPT_SYNONYMS: Record<string, string[]> = {
-  'pestle': ['pest', 'pestel', 'macro environment analysis', 'external environment'],
-  'swot': ['swot analysis', 'strengths weaknesses', 'strategic analysis'],
-  'porter': ['porters five forces', 'five forces', 'industry analysis', 'competitive forces'],
-  'value chain': ['value chain analysis', 'porter value chain', 'activities analysis'],
-  'bcg matrix': ['bcg', 'boston matrix', 'growth share matrix', 'portfolio analysis'],
-  'ansoff': ['ansoff matrix', 'growth matrix', 'product market matrix'],
-  'stakeholder': ['stakeholder analysis', 'stakeholder mapping', 'stakeholder management'],
-  'competitive advantage': ['competitive strategy', 'sustainable advantage', 'differentiation'],
-  'supply chain': ['logistics', 'supply chain management', 'scm'],
-  'marketing mix': ['4ps', '7ps', 'marketing strategy'],
-  'financial analysis': ['financial statements', 'ratio analysis', 'financial ratios'],
-  'regression': ['linear regression', 'regression analysis', 'statistical regression'],
-  'hypothesis': ['hypothesis testing', 'statistical hypothesis', 'null hypothesis'],
-  'machine learning': ['ml', 'artificial intelligence', 'ai', 'deep learning'],
-  'neural network': ['neural networks', 'deep learning', 'ann', 'artificial neural'],
-};
-
-/**
- * Get synonyms for a concept
- */
-export function getConceptSynonyms(concept: string): string[] {
-  const lowerConcept = concept.toLowerCase();
-  const synonyms: string[] = [];
-
-  for (const [key, values] of Object.entries(CONCEPT_SYNONYMS)) {
-    if (lowerConcept.includes(key) || values.some(v => lowerConcept.includes(v))) {
-      synonyms.push(key, ...values);
-    }
-  }
-
-  return [...new Set(synonyms)];
+export async function getConceptSynonyms(
+  concept: string,
+  syllabusId?: string
+): Promise<string[]> {
+  return getDynamicSynonyms(concept, syllabusId);
 }
 
 /**
- * Normalize a search query for deduplication
+ * Synchronous version for backwards compatibility
+ * Returns empty array - use async version for actual synonyms
+ * @deprecated Use async getConceptSynonyms instead
  */
-export function normalizeQuery(query: string): string {
-  return query
-    .toLowerCase()
-    .replace(/introduction to|fundamentals of|basics of|overview of|principles of/gi, '')
-    .replace(/how to|tutorial|guide|course|lecture|explained/gi, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+export function getConceptSynonymsSync(concept: string): string[] {
+  console.warn('[CACHE] getConceptSynonymsSync is deprecated, use async getConceptSynonyms');
+  return [];
+}
+
+/**
+ * Normalize a search query for deduplication - NOW DYNAMIC
+ * Uses domain-aware normalization from dynamic-terms
+ */
+export function normalizeQuery(query: string, domain?: string): string {
+  return normalizeQueryDynamic(query, domain);
 }
 
 /**
@@ -142,11 +141,16 @@ export function extractKeywords(text: string): string[] {
 }
 
 /**
- * Check cache for existing search results (enhanced with synonym matching)
+ * Check cache for existing search results (enhanced with DYNAMIC synonym matching)
+ *
+ * @param searchConcept - The concept to search for
+ * @param source - Content source type
+ * @param syllabusId - Optional syllabus ID for syllabus-specific synonyms
  */
 export async function checkCache(
   searchConcept: string,
-  source: 'youtube' | 'khan_academy' | 'library' = 'youtube'
+  source: 'youtube' | 'khan_academy' | 'library' = 'youtube',
+  syllabusId?: string
 ): Promise<CacheSearchResult> {
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
   const keywords = extractKeywords(searchConcept);
@@ -162,7 +166,6 @@ export async function checkCache(
     .single();
 
   if (exactMatch) {
-    // Increment hit count
     await supabase.rpc('increment_cache_hit', { cache_id: exactMatch.id }).catch(() => {});
     console.log(`[CACHE] Exact match for: "${searchConcept.substring(0, 50)}..."`);
     return {
@@ -198,17 +201,21 @@ export async function checkCache(
     }
   }
 
-  // Step 3: Try semantic similarity match (60% keyword overlap)
-  const { data: similarMatch } = await supabase.rpc('find_similar_cached_search', {
+  // Step 3: Try DYNAMIC semantic similarity match with adaptive threshold
+  // Use database function that incorporates learned synonyms
+  const dynamicThreshold = keywords.length <= 3 ? 0.7 : keywords.length <= 6 ? 0.6 : 0.5;
+
+  const { data: similarMatch } = await supabase.rpc('find_similar_cached_search_dynamic', {
     p_keywords: keywords,
     p_source: source,
-    p_min_overlap: 0.6,
+    p_min_overlap: dynamicThreshold,
+    p_syllabus_id: syllabusId || null,
   });
 
   if (similarMatch && similarMatch.length > 0) {
     const match = similarMatch[0] as CachedResult;
     await supabase.rpc('increment_cache_hit', { cache_id: match.id }).catch(() => {});
-    console.log(`[CACHE] Semantic match (${Math.round((match.similarity_score || 0) * 100)}%): "${match.search_concept}" for "${searchConcept.substring(0, 30)}..."`);
+    console.log(`[CACHE] Dynamic semantic match (${Math.round((match.similarity_score || 0) * 100)}%, threshold: ${Math.round(dynamicThreshold * 100)}%): "${match.search_concept}" for "${searchConcept.substring(0, 30)}..."`);
     return {
       found: true,
       results: match.results,
@@ -218,15 +225,35 @@ export async function checkCache(
     };
   }
 
-  // Step 4: Try concept synonym match
-  const synonyms = getConceptSynonyms(searchConcept);
+  // Fallback: Try the non-dynamic version if dynamic function doesn't exist yet
+  const { data: fallbackMatch } = await supabase.rpc('find_similar_cached_search', {
+    p_keywords: keywords,
+    p_source: source,
+    p_min_overlap: dynamicThreshold,
+  }).catch(() => ({ data: null }));
+
+  if (fallbackMatch && fallbackMatch.length > 0) {
+    const match = fallbackMatch[0] as CachedResult;
+    await supabase.rpc('increment_cache_hit', { cache_id: match.id }).catch(() => {});
+    console.log(`[CACHE] Fallback semantic match (${Math.round((match.similarity_score || 0) * 100)}%): "${match.search_concept}"`);
+    return {
+      found: true,
+      results: match.results,
+      source: 'similar',
+      cacheId: match.id,
+      matchedConcept: match.search_concept,
+    };
+  }
+
+  // Step 4: Try DYNAMIC synonym match (learned from syllabus)
+  const synonyms = await getConceptSynonyms(searchConcept, syllabusId);
   if (synonyms.length > 0 && normalizedMatch) {
     for (const cache of normalizedMatch) {
       const cacheLower = cache.search_concept.toLowerCase();
       for (const synonym of synonyms) {
-        if (cacheLower.includes(synonym)) {
+        if (cacheLower.includes(synonym.toLowerCase())) {
           await supabase.rpc('increment_cache_hit', { cache_id: cache.id }).catch(() => {});
-          console.log(`[CACHE] Synonym match: "${cache.search_concept}" (synonym: ${synonym}) for "${searchConcept.substring(0, 30)}..."`);
+          console.log(`[CACHE] Dynamic synonym match: "${cache.search_concept}" (synonym: ${synonym}) for "${searchConcept.substring(0, 30)}..."`);
           return {
             found: true,
             results: cache.results as ContentItem[],
