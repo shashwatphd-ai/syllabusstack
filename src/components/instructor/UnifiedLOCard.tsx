@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, Video, Search, Loader2, CheckCircle, XCircle, Play, Link, Clock, ExternalLink, Sparkles, Bot, AlertTriangle, ThumbsUp, Info, MessageSquare, Zap, Award, Users } from 'lucide-react';
+import { ChevronDown, ChevronRight, Video, Search, Loader2, CheckCircle, XCircle, Play, Link, Clock, ExternalLink, Sparkles, Bot, AlertTriangle, ThumbsUp, Info, MessageSquare, Zap, Award, Users, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -291,9 +291,15 @@ export function UnifiedLOCard({ learningObjective, contentStatus }: UnifiedLOCar
                           match={match}
                           learningObjectiveId={learningObjective.id}
                           onPreview={() => setPreviewMatch(match)}
+                          onRemove={() => updateStatus.mutate({ 
+                            matchId: match.id, 
+                            status: 'rejected',
+                            rejectionReason: 'Removed by instructor'
+                          })}
                           formatDuration={formatDuration}
                           getScoreColor={getScoreColor}
                           isApproved
+                          isLoading={updateStatus.isPending}
                         />
                       ))}
                     </div>
@@ -372,6 +378,7 @@ interface CompactContentCardProps {
   onPreview: () => void;
   onApprove?: () => void;
   onReject?: () => void;
+  onRemove?: () => void;
   formatDuration: (s: number | null) => string;
   getScoreColor: (s: number) => string;
   isApproved?: boolean;
@@ -440,6 +447,7 @@ function CompactContentCard({
   onPreview,
   onApprove,
   onReject,
+  onRemove,
   formatDuration,
   getScoreColor,
   isApproved,
@@ -633,6 +641,24 @@ function CompactContentCard({
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>Open on YouTube</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+              {onRemove && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-destructive/60 hover:text-destructive hover:bg-destructive/10"
+                        onClick={onRemove}
+                        disabled={isLoading}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Remove from course</TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
               )}

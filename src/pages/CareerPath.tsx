@@ -30,9 +30,30 @@ import {
   Search,
   ExternalLink,
   GraduationCap,
-  Leaf
+  Leaf,
+  Pencil,
+  Trash2,
+  MoreVertical,
+  Star,
 } from "lucide-react";
-import { useDreamJobs, useCreateDreamJob } from "@/hooks/useDreamJobs";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useDreamJobs, useCreateDreamJob, useDeleteDreamJob, useSetPrimaryDreamJob } from "@/hooks/useDreamJobs";
 import { useGapAnalysis, useRefreshGapAnalysis, useGenerateRecommendations } from "@/hooks/useAnalysis";
 import { useRecommendations, useAntiRecommendations, useUpdateRecommendationStatus } from "@/hooks/useRecommendations";
 import { useCourseSearch } from "@/hooks/useCourseSearch";
@@ -62,10 +83,13 @@ export default function CareerPathPage() {
   const [isCreatingJob, setIsCreatingJob] = useState(false);
   const [freeFirst, setFreeFirst] = useState(true);
   const [priceFilter, setPriceFilter] = useState<'all' | 'free' | 'paid' | 'unknown'>('all');
+  const [deleteConfirmJob, setDeleteConfirmJob] = useState<string | null>(null);
 
   // Dream Jobs
   const { data: dreamJobs = [], isLoading: jobsLoading } = useDreamJobs();
   const createDreamJob = useCreateDreamJob();
+  const deleteDreamJob = useDeleteDreamJob();
+  const setPrimaryJob = useSetPrimaryDreamJob();
 
   // Selected dream job
   const [selectedJobId, setSelectedJobId] = useState<string | undefined>(undefined);
@@ -419,23 +443,57 @@ export default function CareerPathPage() {
                 {dreamJobs.map((job) => (
                   <Card
                     key={job.id}
-                    className={`cursor-pointer hover:shadow-md transition-shadow ${job.id === activeDreamJobId ? 'ring-2 ring-primary' : ''}`}
+                    className={`relative group cursor-pointer hover:shadow-md transition-shadow ${job.id === activeDreamJobId ? 'ring-2 ring-primary' : ''}`}
                     onClick={() => {
                       setSelectedJobId(job.id);
                       setActiveTab("gaps");
                     }}
                   >
-                    <CardHeader className="pb-2">
+                    {/* Dropdown menu for actions */}
+                    <div className="absolute top-2 right-2 z-10">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                          {!job.is_primary && (
+                            <DropdownMenuItem
+                              onClick={() => setPrimaryJob.mutate(job.id)}
+                            >
+                              <Star className="h-4 w-4 mr-2" />
+                              Set as Primary
+                            </DropdownMenuItem>
+                          )}
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onClick={() => setDeleteConfirmJob(job.id)}
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+
+                    <CardHeader className="pb-2 pr-12">
                       <div className="flex items-start justify-between">
-                        <div>
-                          <CardTitle className="text-lg">{job.title}</CardTitle>
+                        <div className="min-w-0 flex-1">
+                          <CardTitle className="text-lg truncate">{job.title}</CardTitle>
                           {job.company_type && (
                             <CardDescription className="capitalize">
                               {job.company_type}
                             </CardDescription>
                           )}
                         </div>
-                        {job.is_primary && <Badge>Primary</Badge>}
+                        {job.is_primary && <Badge className="ml-2 shrink-0">Primary</Badge>}
                       </div>
                     </CardHeader>
                     <CardContent>
@@ -687,6 +745,35 @@ export default function CareerPathPage() {
             )}
           </TabsContent>
         </Tabs>
+
+        {/* Delete Confirmation Dialog */}
+        <AlertDialog open={!!deleteConfirmJob} onOpenChange={() => setDeleteConfirmJob(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete Dream Job?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will permanently delete this dream job and all associated gap analyses and recommendations. This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={() => {
+                  if (deleteConfirmJob) {
+                    deleteDreamJob.mutate(deleteConfirmJob);
+                    setDeleteConfirmJob(null);
+                    if (deleteConfirmJob === activeDreamJobId) {
+                      setSelectedJobId(undefined);
+                    }
+                  }
+                }}
+              >
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </AppShell>
   );
