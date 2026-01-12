@@ -941,6 +941,41 @@ export type Database = {
           },
         ]
       }
+      course_terms: {
+        Row: {
+          created_at: string | null
+          domain: string
+          frequency: number | null
+          id: string
+          instructor_course_id: string
+          term: string
+        }
+        Insert: {
+          created_at?: string | null
+          domain?: string
+          frequency?: number | null
+          id?: string
+          instructor_course_id: string
+          term: string
+        }
+        Update: {
+          created_at?: string | null
+          domain?: string
+          frequency?: number | null
+          id?: string
+          instructor_course_id?: string
+          term?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "course_terms_instructor_course_id_fkey"
+            columns: ["instructor_course_id"]
+            isOneToOne: false
+            referencedRelation: "instructor_courses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       courses: {
         Row: {
           ai_cost_usd: number | null
@@ -1194,9 +1229,11 @@ export type Database = {
           curation_mode: string | null
           default_passing_threshold: number | null
           description: string | null
+          detected_domain: string | null
           id: string
           instructor_id: string
           is_published: boolean | null
+          syllabus_text: string | null
           title: string
           updated_at: string | null
           verification_threshold: number | null
@@ -1208,9 +1245,11 @@ export type Database = {
           curation_mode?: string | null
           default_passing_threshold?: number | null
           description?: string | null
+          detected_domain?: string | null
           id?: string
           instructor_id: string
           is_published?: boolean | null
+          syllabus_text?: string | null
           title: string
           updated_at?: string | null
           verification_threshold?: number | null
@@ -1222,9 +1261,11 @@ export type Database = {
           curation_mode?: string | null
           default_passing_threshold?: number | null
           description?: string | null
+          detected_domain?: string | null
           id?: string
           instructor_id?: string
           is_published?: boolean | null
+          syllabus_text?: string | null
           title?: string
           updated_at?: string | null
           verification_threshold?: number | null
@@ -1310,6 +1351,50 @@ export type Database = {
           requirements_text?: string
         }
         Relationships: []
+      }
+      learned_synonyms: {
+        Row: {
+          canonical_term: string
+          confidence: number | null
+          created_at: string | null
+          domain: string
+          hit_count: number | null
+          id: string
+          instructor_course_id: string | null
+          synonyms: string[]
+          updated_at: string | null
+        }
+        Insert: {
+          canonical_term: string
+          confidence?: number | null
+          created_at?: string | null
+          domain?: string
+          hit_count?: number | null
+          id?: string
+          instructor_course_id?: string | null
+          synonyms?: string[]
+          updated_at?: string | null
+        }
+        Update: {
+          canonical_term?: string
+          confidence?: number | null
+          created_at?: string | null
+          domain?: string
+          hit_count?: number | null
+          id?: string
+          instructor_course_id?: string | null
+          synonyms?: string[]
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "learned_synonyms_instructor_course_id_fkey"
+            columns: ["instructor_course_id"]
+            isOneToOne: false
+            referencedRelation: "instructor_courses"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       learning_objectives: {
         Row: {
@@ -2142,6 +2227,20 @@ export type Database = {
           search_concept: string
         }[]
       }
+      find_similar_cached_search_dynamic: {
+        Args: {
+          p_course_id?: string
+          p_keywords: string[]
+          p_min_overlap?: number
+          p_source: string
+        }
+        Returns: {
+          id: string
+          results: Json
+          search_concept: string
+          similarity_score: number
+        }[]
+      }
       find_similar_capabilities: {
         Args: {
           result_limit?: number
@@ -2154,6 +2253,10 @@ export type Database = {
           course_title: string
           similarity_score: number
         }[]
+      }
+      get_dynamic_synonyms: {
+        Args: { p_course_id?: string; p_term: string }
+        Returns: string[]
       }
       get_remaining_quota: {
         Args: { p_api_name: string; p_daily_limit?: number }

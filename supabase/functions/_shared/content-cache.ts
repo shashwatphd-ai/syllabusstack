@@ -166,7 +166,7 @@ export async function checkCache(
     .single();
 
   if (exactMatch) {
-    await supabase.rpc('increment_cache_hit', { cache_id: exactMatch.id }).catch(() => {});
+    try { await supabase.rpc('increment_cache_hit', { cache_id: exactMatch.id }); } catch { /* ignore */ }
     console.log(`[CACHE] Exact match for: "${searchConcept.substring(0, 50)}..."`);
     return {
       found: true,
@@ -188,7 +188,7 @@ export async function checkCache(
     for (const cache of normalizedMatch) {
       const cachedNormalized = normalizeQuery(cache.search_concept);
       if (cachedNormalized === normalizedConcept && cachedNormalized.length > 5) {
-        await supabase.rpc('increment_cache_hit', { cache_id: cache.id }).catch(() => {});
+        try { await supabase.rpc('increment_cache_hit', { cache_id: cache.id }); } catch { /* ignore */ }
         console.log(`[CACHE] Normalized match: "${cache.search_concept}" for "${searchConcept.substring(0, 30)}..."`);
         return {
           found: true,
@@ -214,7 +214,7 @@ export async function checkCache(
 
   if (similarMatch && similarMatch.length > 0) {
     const match = similarMatch[0] as CachedResult;
-    await supabase.rpc('increment_cache_hit', { cache_id: match.id }).catch(() => {});
+    try { await supabase.rpc('increment_cache_hit', { cache_id: match.id }); } catch { /* ignore */ }
     console.log(`[CACHE] Dynamic semantic match (${Math.round((match.similarity_score || 0) * 100)}%, threshold: ${Math.round(dynamicThreshold * 100)}%): "${match.search_concept}" for "${searchConcept.substring(0, 30)}..."`);
     return {
       found: true,
@@ -226,15 +226,19 @@ export async function checkCache(
   }
 
   // Fallback: Try the non-dynamic version if dynamic function doesn't exist yet
-  const { data: fallbackMatch } = await supabase.rpc('find_similar_cached_search', {
-    p_keywords: keywords,
-    p_source: source,
-    p_min_overlap: dynamicThreshold,
-  }).catch(() => ({ data: null }));
+  let fallbackMatch = null;
+  try {
+    const result = await supabase.rpc('find_similar_cached_search', {
+      p_keywords: keywords,
+      p_source: source,
+      p_min_overlap: dynamicThreshold,
+    });
+    fallbackMatch = result.data;
+  } catch { /* fallback not available */ }
 
   if (fallbackMatch && fallbackMatch.length > 0) {
     const match = fallbackMatch[0] as CachedResult;
-    await supabase.rpc('increment_cache_hit', { cache_id: match.id }).catch(() => {});
+    try { await supabase.rpc('increment_cache_hit', { cache_id: match.id }); } catch { /* ignore */ }
     console.log(`[CACHE] Fallback semantic match (${Math.round((match.similarity_score || 0) * 100)}%): "${match.search_concept}"`);
     return {
       found: true,
@@ -252,7 +256,7 @@ export async function checkCache(
       const cacheLower = cache.search_concept.toLowerCase();
       for (const synonym of synonyms) {
         if (cacheLower.includes(synonym.toLowerCase())) {
-          await supabase.rpc('increment_cache_hit', { cache_id: cache.id }).catch(() => {});
+          try { await supabase.rpc('increment_cache_hit', { cache_id: cache.id }); } catch { /* ignore */ }
           console.log(`[CACHE] Dynamic synonym match: "${cache.search_concept}" (synonym: ${synonym}) for "${searchConcept.substring(0, 30)}..."`);
           return {
             found: true,
