@@ -319,7 +319,10 @@ RULES:
 2. Extract 2-6 learning objectives per module
 3. If explicit learning objectives aren't found, infer them from topics and assignments
 4. Use action verbs that match Bloom's taxonomy levels
-5. Search keywords should help find relevant educational YouTube videos`;
+5. Search keywords should help find relevant educational YouTube videos
+6. CRITICAL: Each learning objective must appear in EXACTLY ONE module - do NOT duplicate objectives across modules
+7. Course-level objectives (that apply to the whole course) should go in "unassigned_objectives"
+8. If an objective seems relevant to multiple modules, assign it to the MOST specific module or to unassigned_objectives`;
 
     const structureResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -390,13 +393,28 @@ RULES:
     savedModules?.forEach((m, i) => moduleIdByIndex.set(i, m.id));
 
     // Step 3b: Build ALL learning objectives with correct module_ids
+    // DEDUPLICATION: Track seen LO texts to prevent duplicates
     let sequenceOrder = 1;
     const losData: any[] = [];
+    const seenLoTexts = new Set<string>();
+    
+    // Helper to normalize LO text for deduplication
+    const normalizeLOText = (text: string): string => {
+      return text.toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
+    };
 
     // Add LOs from modules
     courseStructure.modules.forEach((module, moduleIndex) => {
       const moduleId = moduleIdByIndex.get(moduleIndex);
       for (const lo of module.learning_objectives) {
+        // Deduplication check
+        const normalizedText = normalizeLOText(lo.text);
+        if (seenLoTexts.has(normalizedText)) {
+          console.log(`[PROCESS-SYLLABUS] Skipping duplicate LO: "${lo.text.substring(0, 50)}..."`);
+          continue;
+        }
+        seenLoTexts.add(normalizedText);
+        
         const bloomLevel = lo.bloom_level || "understand";
         const specificity = lo.specificity || "intermediate";
         const expectedDuration = DURATION_MATRIX[bloomLevel]?.[specificity] || 15;
@@ -419,8 +437,16 @@ RULES:
       }
     });
 
-    // Add unassigned LOs (no module)
+    // Add unassigned LOs (no module) - with deduplication
     for (const lo of courseStructure.unassigned_objectives || []) {
+      // Deduplication check
+      const normalizedText = normalizeLOText(lo.text);
+      if (seenLoTexts.has(normalizedText)) {
+        console.log(`[PROCESS-SYLLABUS] Skipping duplicate unassigned LO: "${lo.text.substring(0, 50)}..."`);
+        continue;
+      }
+      seenLoTexts.add(normalizedText);
+      
       const bloomLevel = lo.bloom_level || "understand";
       const specificity = lo.specificity || "intermediate";
       const expectedDuration = DURATION_MATRIX[bloomLevel]?.[specificity] || 15;
@@ -441,6 +467,8 @@ RULES:
         sequence_order: sequenceOrder++,
       });
     }
+    
+    console.log(`[PROCESS-SYLLABUS] After deduplication: ${losData.length} unique LOs (skipped ${seenLoTexts.size - losData.length} duplicates)`);
 
     // Step 3c: Batch insert ALL learning objectives at once
     const { data: savedLOs, error: losError } = await supabaseClient

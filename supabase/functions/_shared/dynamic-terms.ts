@@ -271,7 +271,7 @@ export async function getLearnedSynonyms(
     const topTerms = terms.slice(0, 20);
 
     // Learn in background (fire and forget for speed)
-    learnAndStoreSynonyms(supabase, courseId, domain, topTerms).catch(e => {
+    learnAndStoreSynonyms(supabase as any, courseId, domain, topTerms).catch(e => {
       console.log(`[DYNAMIC-TERMS] Background synonym learning error: ${e}`);
     });
   }
@@ -283,7 +283,7 @@ export async function getLearnedSynonyms(
  * Background task to learn and store synonyms
  */
 async function learnAndStoreSynonyms(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,  // Use 'any' to avoid strict generic inference issues
   courseId: string,
   domain: string,
   terms: ExtractedTerm[]
