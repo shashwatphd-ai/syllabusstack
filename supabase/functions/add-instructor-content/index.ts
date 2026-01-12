@@ -30,11 +30,13 @@ interface ContentMetadata {
 }
 
 // Invidious instances for YouTube metadata extraction
+// Updated Jan 2026 - inv.nadeko.net has multiple backends and is most resilient
+// Note: Google actively blocks Invidious instances, so they may go up/down
 const INVIDIOUS_INSTANCES = [
-  "https://inv.nadeko.net",
-  "https://invidious.nerdvpn.de",
-  "https://invidious.private.coffee",
-  "https://vid.puffyan.us",
+  "https://inv.nadeko.net",           // Most resilient - multi-backend architecture
+  "https://yewtu.be",                 // Long-standing, Germany-based
+  "https://invidious.private.coffee", // Good backup
+  "https://vid.puffyan.us",           // US-based
 ];
 
 /**
@@ -86,21 +88,46 @@ function extractKhanInfo(url: string): { slug: string; type: string } | null {
 
 /**
  * Get YouTube metadata via Invidious (no quota)
+ * Note: Google actively blocks Invidious, so instances may fail frequently
  */
 async function getYouTubeMetadata(videoId: string): Promise<ContentMetadata | null> {
   for (const instance of INVIDIOUS_INSTANCES) {
     try {
+      console.log(`Trying Invidious instance for metadata: ${instance}`);
       const response = await fetch(
         `${instance}/api/v1/videos/${videoId}`,
         {
-          headers: { 'Accept': 'application/json' },
+          headers: {
+            'Accept': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          },
           signal: AbortSignal.timeout(8000),
         }
       );
 
-      if (!response.ok) continue;
+      if (!response.ok) {
+        console.log(`Invidious ${instance} returned status ${response.status}`);
+        continue;
+      }
 
-      const data = await response.json();
+      // Check content-type to avoid parsing HTML as JSON
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        console.log(`Invidious ${instance} returned non-JSON content-type: ${contentType}`);
+        continue;
+      }
+
+      const text = await response.text();
+
+      // Double-check it's not HTML
+      if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
+        console.log(`Invidious ${instance} returned HTML instead of JSON`);
+        continue;
+      }
+
+      const data = JSON.parse(text);
+
+      console.log(`Invidious ${instance} SUCCESS for video ${videoId}`);
       return {
         title: data.title || '',
         description: data.description || '',
@@ -112,10 +139,13 @@ async function getYouTubeMetadata(videoId: string): Promise<ContentMetadata | nu
         source_id: videoId,
       };
     } catch (e) {
-      console.log(`Invidious ${instance} failed:`, e);
+      const errorMsg = e instanceof Error ? e.message : String(e);
+      console.log(`Invidious ${instance} failed: ${errorMsg}`);
       continue;
     }
   }
+
+  console.log('All Invidious instances failed, trying YouTube oEmbed fallback...');
 
   // Fallback to YouTube oEmbed (limited info but reliable)
   try {
@@ -126,6 +156,7 @@ async function getYouTubeMetadata(videoId: string): Promise<ContentMetadata | nu
 
     if (response.ok) {
       const data = await response.json();
+      console.log(`YouTube oEmbed SUCCESS for video ${videoId}`);
       return {
         title: data.title || '',
         description: '',
@@ -135,9 +166,12 @@ async function getYouTubeMetadata(videoId: string): Promise<ContentMetadata | nu
         source_type: 'youtube',
         source_id: videoId,
       };
+    } else {
+      console.log(`YouTube oEmbed returned status ${response.status}`);
     }
   } catch (e) {
-    console.log('YouTube oEmbed failed:', e);
+    const errorMsg = e instanceof Error ? e.message : String(e);
+    console.log(`YouTube oEmbed failed: ${errorMsg}`);
   }
 
   return null;
