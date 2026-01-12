@@ -3,6 +3,12 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { queryKeys } from '@/lib/query-keys';
 import { toast } from '@/hooks/use-toast';
+import { 
+  normalizeGaps, 
+  gapsToSearchFormat,
+  type NormalizedGap,
+  type RawGapInput 
+} from '@/lib/gap-utils';
 
 export interface CourseResult {
   title: string;
@@ -21,46 +27,6 @@ export interface CourseSearchResult {
   totalFound: number;
 }
 
-interface GapItem {
-  gap?: string;
-  requirement?: string;
-  job_requirement?: string;
-  skill?: string;
-  text?: string;
-  priority?: number;
-}
-
-// Type for gaps that could be strings or objects
-type GapInput = GapItem | string;
-
-// Validate that gap items have extractable text
-function validateGaps(gaps: GapInput[]): { valid: boolean; error?: string } {
-  if (!Array.isArray(gaps)) {
-    return { valid: false, error: 'Gaps must be an array' };
-  }
-  if (gaps.length === 0) {
-    return { valid: false, error: 'No skill gaps provided' };
-  }
-  
-  // Check that at least one gap has extractable text
-  const hasValidGap = gaps.some(gap => {
-    if (typeof gap === 'string') return gap.trim().length > 0;
-    if (typeof gap === 'object' && gap !== null) {
-      return ['gap', 'requirement', 'job_requirement', 'skill', 'text'].some(
-        key => typeof (gap as Record<string, unknown>)[key] === 'string' && 
-               ((gap as Record<string, unknown>)[key] as string).trim().length > 0
-      );
-    }
-    return false;
-  });
-  
-  if (!hasValidGap) {
-    return { valid: false, error: 'No valid skill gap text found in the provided data' };
-  }
-  
-  return { valid: true };
-}
-
 // Rate limit error class for specific handling
 export class RateLimitError extends Error {
   retryAfter?: number;
@@ -72,15 +38,20 @@ export class RateLimitError extends Error {
   }
 }
 
+/**
+ * Search for courses using the edge function
+ * Accepts gaps in any format - they will be normalized before sending
+ */
 async function searchCoursesWithFirecrawl(
-  gaps: GapItem[],
+  gaps: RawGapInput[],
   dreamJobId: string,
   dreamJobTitle: string
 ): Promise<CourseSearchResult> {
-  // Validate inputs before API call
-  const validation = validateGaps(gaps);
-  if (!validation.valid) {
-    throw new Error(validation.error || 'Invalid gaps data');
+  // Normalize gaps using our robust utility
+  const normalizedGaps = normalizeGaps(gaps);
+  
+  if (normalizedGaps.length === 0) {
+    throw new Error('No valid skill gaps found. Please ensure your gap analysis has been completed.');
   }
   
   if (!dreamJobId || typeof dreamJobId !== 'string') {
@@ -91,10 +62,18 @@ async function searchCoursesWithFirecrawl(
     throw new Error('Dream job title is required');
   }
   
-  console.log(`[useCourseSearch] Searching courses for ${gaps.length} gaps`);
+  // Convert to the format expected by the edge function
+  const gapsForSearch = gapsToSearchFormat(normalizedGaps);
+  
+  console.log(`[useCourseSearch] Searching courses for ${gapsForSearch.length} gaps:`, 
+    gapsForSearch.map(g => g.gap.slice(0, 40)).join(' | '));
   
   const { data, error } = await supabase.functions.invoke('firecrawl-search-courses', {
-    body: { gaps, dreamJobId, dreamJobTitle }
+    body: { 
+      gaps: gapsForSearch, 
+      dreamJobId, 
+      dreamJobTitle 
+    }
   });
 
   if (error) {
@@ -124,6 +103,20 @@ async function searchCoursesWithFirecrawl(
   return data;
 }
 
+/**
+ * Hook for searching courses based on skill gaps
+ * 
+ * Usage:
+ * ```tsx
+ * const { searchCourses, isSearching, results } = useCourseSearch();
+ * 
+ * // Can be called with any gap format - will be normalized automatically
+ * await searchCourses(gaps, dreamJobId, dreamJobTitle);
+ * 
+ * // Or with object params
+ * await searchCourses({ gaps, dreamJobId, dreamJobTitle });
+ * ```
+ */
 export function useCourseSearch() {
   const queryClient = useQueryClient();
   const [lastResults, setLastResults] = useState<CourseResult[]>([]);
@@ -134,7 +127,7 @@ export function useCourseSearch() {
       dreamJobId, 
       dreamJobTitle 
     }: { 
-      gaps: GapItem[]; 
+      gaps: RawGapInput[]; 
       dreamJobId: string; 
       dreamJobTitle: string;
     }) => searchCoursesWithFirecrawl(gaps, dreamJobId, dreamJobTitle),
@@ -169,9 +162,19 @@ export function useCourseSearch() {
     },
   });
 
-  // Helper for async/await usage - supports both object and individual args
+  /**
+   * Search for courses - supports multiple calling conventions
+   * 
+   * @example
+   * // Array + separate params
+   * searchCourses(gaps, dreamJobId, dreamJobTitle)
+   * 
+   * @example
+   * // Object params
+   * searchCourses({ gaps, dreamJobId, dreamJobTitle })
+   */
   const searchCourses = async (
-    gapsOrParams: GapItem[] | { gaps: GapItem[]; dreamJobId: string; dreamJobTitle: string },
+    gapsOrParams: RawGapInput[] | { gaps: RawGapInput[]; dreamJobId: string; dreamJobTitle: string },
     dreamJobId?: string,
     dreamJobTitle?: string
   ) => {
