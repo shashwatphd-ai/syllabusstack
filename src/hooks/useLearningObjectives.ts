@@ -271,12 +271,16 @@ export function useUpdateContentMatchStatus() {
       return data;
     },
     onSuccess: (data) => {
+      // Invalidate all content-related queries to ensure UI consistency
       queryClient.invalidateQueries({ queryKey: ['content-matches'] });
+      queryClient.invalidateQueries({ queryKey: ['lo-content-status'] });
+      queryClient.invalidateQueries({ queryKey: ['content-stats'] });
+
       toast({
-        title: data.status === 'approved' ? 'Content Approved' : 'Content Rejected',
-        description: data.status === 'approved' 
+        title: data.status === 'approved' ? 'Content Approved' : 'Content Removed',
+        description: data.status === 'approved'
           ? 'This content is now available to students'
-          : 'This content has been rejected',
+          : 'This content has been removed from the course',
       });
     },
     onError: (error) => {
