@@ -13,7 +13,7 @@ export interface YouTubeSearchResult {
   view_count: number;
   like_count?: number;
   published_at?: string;
-  source: 'firecrawl' | 'jina' | 'invidious' | 'piped' | 'youtube_api' | 'cache';
+  source: 'firecrawl' | 'jina' | 'invidious' | 'piped' | 'youtube_api' | 'cache' | 'manual';
   metadata_complete: boolean;
 }
 

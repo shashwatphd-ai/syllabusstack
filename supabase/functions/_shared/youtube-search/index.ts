@@ -12,6 +12,8 @@
  * - Automatic deduplication
  * - Metadata enrichment
  * - Quota protection for YouTube API
+ * - Rate limiting for API protection
+ * - Database-backed quota tracking (persistent across cold starts)
  */
 
 import {
@@ -25,10 +27,21 @@ import { searchViaJina } from './jina-search.ts';
 import { searchViaInvidious } from './invidious-search.ts';
 import { searchViaYouTubeAPI, canUseYouTubeAPI, getQuotaRemaining } from './youtube-api-search.ts';
 import { enrichVideosMetadata } from './metadata-enricher.ts';
+import { withRateLimit, getRateLimiterStatus } from './rate-limiter.ts';
+import {
+  canUseYouTubeApiDb,
+  getYouTubeQuotaRemainingDb,
+  recordYouTubeSearchDb,
+  canUseFirecrawl,
+  recordFirecrawlUsage,
+  canUseJina,
+  recordJinaUsage,
+} from './quota-tracker.ts';
 
 // Re-export types
 export * from './types.ts';
 export { canUseYouTubeAPI, getQuotaRemaining } from './youtube-api-search.ts';
+export { enrichVideoMetadata, enrichVideosMetadata } from './metadata-enricher.ts';
 
 /**
  * Deduplicate results by video_id, keeping the one with more metadata
@@ -86,35 +99,61 @@ export async function searchYouTubeOrchestrated(
   console.log(`[ORCHESTRATOR] Starting search: "${query}" (max: ${max_results}, min: ${min_results})`);
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // PARALLEL MULTI-SOURCE SEARCH
+  // PARALLEL MULTI-SOURCE SEARCH (with rate limiting and quota tracking)
   // Run Firecrawl, Jina, and Invidious in parallel for maximum speed
   // ═══════════════════════════════════════════════════════════════════════════
 
   const searchPromises: Promise<{ source: string; results: YouTubeSearchResult[] }>[] = [];
 
-  // Firecrawl (primary)
-  searchPromises.push(
-    searchViaFirecrawl(query, max_results, timeout_ms)
-      .then(results => ({ source: 'firecrawl', results }))
-      .catch(error => {
-        debug.firecrawl_error = error instanceof Error ? error.message : String(error);
-        return { source: 'firecrawl', results: [] };
-      })
-  );
+  // Check database quota before making API calls
+  const [firecrawlAllowed, jinaAllowed] = await Promise.all([
+    canUseFirecrawl(priority),
+    canUseJina(priority),
+  ]);
 
-  // Jina (secondary)
-  searchPromises.push(
-    searchViaJina(query, max_results, Math.min(timeout_ms, 20000))
-      .then(results => ({ source: 'jina', results }))
-      .catch(error => {
-        debug.jina_error = error instanceof Error ? error.message : String(error);
-        return { source: 'jina', results: [] };
+  // Firecrawl (primary) - with rate limiting and quota check
+  if (firecrawlAllowed) {
+    searchPromises.push(
+      withRateLimit('firecrawl', async () => {
+        const results = await searchViaFirecrawl(query, max_results, timeout_ms);
+        // Record usage after successful call
+        await recordFirecrawlUsage(1);
+        return results;
       })
-  );
+        .then(results => ({ source: 'firecrawl', results }))
+        .catch(error => {
+          debug.firecrawl_error = error instanceof Error ? error.message : String(error);
+          return { source: 'firecrawl', results: [] };
+        })
+    );
+  } else {
+    debug.firecrawl_error = 'Quota limit reached';
+    console.log('[ORCHESTRATOR] Firecrawl skipped: quota limit reached');
+  }
 
-  // Invidious/Piped (tertiary - opportunistic)
+  // Jina (secondary) - with rate limiting and quota check
+  if (jinaAllowed) {
+    searchPromises.push(
+      withRateLimit('jina', async () => {
+        const results = await searchViaJina(query, max_results, Math.min(timeout_ms, 20000));
+        // Record usage after successful call
+        await recordJinaUsage(1);
+        return results;
+      })
+        .then(results => ({ source: 'jina', results }))
+        .catch(error => {
+          debug.jina_error = error instanceof Error ? error.message : String(error);
+          return { source: 'jina', results: [] };
+        })
+    );
+  } else {
+    debug.jina_error = 'Quota limit reached';
+    console.log('[ORCHESTRATOR] Jina skipped: quota limit reached');
+  }
+
+  // Invidious/Piped (tertiary - opportunistic, no quota limits)
   searchPromises.push(
-    searchViaInvidious(query, max_results, Math.min(timeout_ms, 15000))
+    withRateLimit('invidious', () => searchViaInvidious(query, max_results, Math.min(timeout_ms, 15000)))
       .then(results => ({ source: 'invidious', results }))
       .catch(error => {
         debug.invidious_error = error instanceof Error ? error.message : String(error);
@@ -153,21 +192,30 @@ export async function searchYouTubeOrchestrated(
 
   // ═══════════════════════════════════════════════════════════════════════════
   // YOUTUBE API FALLBACK (if needed and allowed)
+  // Uses both in-memory and database quota tracking for reliability
   // ═══════════════════════════════════════════════════════════════════════════
 
   if (allResults.length < min_results && allow_youtube_api) {
-    const canUse = canUseYouTubeAPI(priority);
+    // Check both in-memory and database quota
+    const canUseMemory = canUseYouTubeAPI(priority);
+    const canUseDb = await canUseYouTubeApiDb(priority);
+    const canUse = canUseMemory && canUseDb;
 
     if (canUse) {
       console.log(`[ORCHESTRATOR] Results below minimum (${allResults.length}/${min_results}), trying YouTube API...`);
       fallbacks_used.push('youtube_api');
 
       try {
-        const ytResult = await searchViaYouTubeAPI(query, max_results, timeout_ms);
+        const ytResult = await withRateLimit('youtube_api', () =>
+          searchViaYouTubeAPI(query, max_results, timeout_ms)
+        );
 
         if (ytResult.results.length > 0) {
           debug.youtube_api_count = ytResult.results.length;
           quota_used = ytResult.quota_used;
+
+          // Record usage in database for persistence across cold starts
+          await recordYouTubeSearchDb(ytResult.quota_used);
 
           // Add YouTube API results (they have complete metadata)
           const existingIds = new Set(allResults.map(r => r.video_id));
@@ -186,9 +234,10 @@ export async function searchYouTubeOrchestrated(
         debug.youtube_api_error = error instanceof Error ? error.message : String(error);
       }
     } else {
-      const remaining = getQuotaRemaining();
-      debug.youtube_api_error = `Quota guard: ${remaining} units remaining, skipping`;
-      console.log(`[ORCHESTRATOR] YouTube API skipped: ${remaining} quota remaining`);
+      const remainingMemory = getQuotaRemaining();
+      const remainingDb = await getYouTubeQuotaRemainingDb();
+      debug.youtube_api_error = `Quota guard: memory=${remainingMemory}, db=${remainingDb}, skipping`;
+      console.log(`[ORCHESTRATOR] YouTube API skipped: memory=${remainingMemory}, db=${remainingDb} quota remaining`);
     }
   }
 
