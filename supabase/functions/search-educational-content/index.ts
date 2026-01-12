@@ -18,22 +18,22 @@ const corsHeaders = {
  */
 
 // Invidious instances (YouTube alternative - NO QUOTA)
-// Updated Jan 2025 - verified working instances
+// Updated Jan 2026 - inv.nadeko.net has multiple backends and is most resilient
+// Note: Google actively blocks Invidious instances, so they may go up/down
 const INVIDIOUS_INSTANCES = [
-  "https://inv.nadeko.net",        // 97.5% health
-  "https://invidious.nerdvpn.de",  // 100% uptime
-  "https://yewtu.be",              // Long-standing reliable
-  "https://invidious.f5.si",       // New Jan 2025
-  "https://invidious.protokolla.fi",
+  "https://inv.nadeko.net",           // Most resilient - multi-backend architecture
+  "https://yewtu.be",                 // Long-standing, Germany-based
+  "https://invidious.private.coffee", // Good backup
+  "https://vid.puffyan.us",           // US-based
+  "https://invidious.nerdvpn.de",     // May require auth now
 ];
 
 // Piped instances (YouTube alternative - NO QUOTA)
-// Updated Jan 2025 - verified from TeamPiped
+// Note: Piped instances are also frequently blocked/unreliable
 const PIPED_INSTANCES = [
-  "https://pipedapi.kavin.rocks",   // Official
-  "https://pipedapi.leptons.xyz",
-  "https://pipedapi.adminforge.de",
-  "https://api.piped.yt",
+  "https://pipedapi.kavin.rocks",   // Official - may have SSL issues
+  "https://pipedapi.adminforge.de", // German instance
+  "https://pipedapi.r4fo.com",      // Alternative
 ];
 
 // Shuffle array to distribute load
@@ -62,32 +62,58 @@ interface ContentResult {
 
 /**
  * Search Invidious (YouTube without quota)
+ * Note: Google actively blocks Invidious, so instances may fail frequently
  */
 async function searchInvidious(query: string): Promise<ContentResult[]> {
   const instances = shuffleArray(INVIDIOUS_INSTANCES);
-  
+
   for (const instance of instances) {
     try {
+      console.log(`Trying Invidious instance: ${instance}`);
       const response = await fetch(
         `${instance}/api/v1/search?q=${encodeURIComponent(query + ' educational lecture')}&type=video&sort=relevance`,
         {
-          headers: { 
+          headers: {
             'Accept': 'application/json',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           },
-          signal: AbortSignal.timeout(15000), // Increased to 15s
+          signal: AbortSignal.timeout(15000),
         }
       );
 
-      if (!response.ok) continue;
+      if (!response.ok) {
+        console.log(`Invidious ${instance} returned status ${response.status}`);
+        continue;
+      }
 
-      const data = await response.json();
-      return data.slice(0, 15).map((item: any) => ({
+      // Check content-type to avoid parsing HTML as JSON
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        console.log(`Invidious ${instance} returned non-JSON content-type: ${contentType}`);
+        continue;
+      }
+
+      const text = await response.text();
+
+      // Double-check it's not HTML
+      if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
+        console.log(`Invidious ${instance} returned HTML instead of JSON`);
+        continue;
+      }
+
+      const data = JSON.parse(text);
+
+      if (!Array.isArray(data)) {
+        console.log(`Invidious ${instance} returned unexpected data format`);
+        continue;
+      }
+
+      const results = data.slice(0, 15).map((item: any) => ({
         id: item.videoId,
         title: item.title,
         description: item.description || '',
         url: `https://www.youtube.com/watch?v=${item.videoId}`,
-        thumbnail_url: item.videoThumbnails?.find((t: any) => t.quality === 'medium')?.url || 
+        thumbnail_url: item.videoThumbnails?.find((t: any) => t.quality === 'medium')?.url ||
                        `https://img.youtube.com/vi/${item.videoId}/mqdefault.jpg`,
         duration_seconds: item.lengthSeconds || 0,
         source_type: 'youtube' as const,
@@ -95,37 +121,64 @@ async function searchInvidious(query: string): Promise<ContentResult[]> {
         view_count: item.viewCount,
         quality_score: 0.7,
       }));
+
+      console.log(`Invidious ${instance} SUCCESS: found ${results.length} results`);
+      return results;
     } catch (e) {
-      console.log(`Invidious ${instance} failed:`, e);
+      const errorMsg = e instanceof Error ? e.message : String(e);
+      console.log(`Invidious ${instance} failed: ${errorMsg}`);
       continue;
     }
   }
+  console.log('All Invidious instances failed');
   return [];
 }
 
 /**
  * Search Piped (YouTube without quota)
+ * Note: Piped instances can be unreliable due to SSL/DNS issues
  */
 async function searchPiped(query: string): Promise<ContentResult[]> {
   const instances = shuffleArray(PIPED_INSTANCES);
-  
+
   for (const instance of instances) {
     try {
+      console.log(`Trying Piped instance: ${instance}`);
       const response = await fetch(
         `${instance}/search?q=${encodeURIComponent(query + ' educational')}&filter=videos`,
         {
-          headers: { 
+          headers: {
             'Accept': 'application/json',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           },
-          signal: AbortSignal.timeout(15000), // Increased to 15s
+          signal: AbortSignal.timeout(15000),
         }
       );
 
-      if (!response.ok) continue;
+      if (!response.ok) {
+        console.log(`Piped ${instance} returned status ${response.status}`);
+        continue;
+      }
 
-      const data = await response.json();
-      return (data.items || []).slice(0, 15).map((item: any) => {
+      // Check content-type
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        console.log(`Piped ${instance} returned non-JSON content-type: ${contentType}`);
+        continue;
+      }
+
+      const text = await response.text();
+
+      // Check for HTML error pages
+      if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
+        console.log(`Piped ${instance} returned HTML instead of JSON`);
+        continue;
+      }
+
+      const data = JSON.parse(text);
+      const items = data.items || [];
+
+      const results = items.slice(0, 15).map((item: any) => {
         const videoId = item.url?.split('/watch?v=')[1] || '';
         return {
           id: videoId,
@@ -140,11 +193,16 @@ async function searchPiped(query: string): Promise<ContentResult[]> {
           quality_score: 0.7,
         };
       });
+
+      console.log(`Piped ${instance} SUCCESS: found ${results.length} results`);
+      return results;
     } catch (e) {
-      console.log(`Piped ${instance} failed:`, e);
+      const errorMsg = e instanceof Error ? e.message : String(e);
+      console.log(`Piped ${instance} failed: ${errorMsg}`);
       continue;
     }
   }
+  console.log('All Piped instances failed');
   return [];
 }
 

@@ -6,22 +6,22 @@ const corsHeaders = {
 };
 
 // Invidious instances for quota-free YouTube search
-// Updated Jan 2025 - verified working instances
+// Updated Jan 2026 - inv.nadeko.net has multiple backends and is most resilient
+// Note: Google actively blocks Invidious instances, so they may go up/down
 const INVIDIOUS_INSTANCES = [
-  "https://inv.nadeko.net",        // 97.5% health
-  "https://invidious.nerdvpn.de",  // 100% uptime
-  "https://yewtu.be",              // Long-standing reliable
-  "https://invidious.f5.si",       // New Jan 2025
-  "https://invidious.protokolla.fi",
+  "https://inv.nadeko.net",           // Most resilient - multi-backend architecture
+  "https://yewtu.be",                 // Long-standing, Germany-based
+  "https://invidious.private.coffee", // Good backup
+  "https://vid.puffyan.us",           // US-based
+  "https://invidious.nerdvpn.de",     // May require auth now
 ];
 
 // Piped instances for quota-free YouTube search
-// Updated Jan 2025 - verified from TeamPiped
+// Note: Piped instances are also frequently blocked/unreliable
 const PIPED_INSTANCES = [
-  "https://pipedapi.kavin.rocks",   // Official
-  "https://pipedapi.leptons.xyz",
-  "https://pipedapi.adminforge.de",
-  "https://api.piped.yt",
+  "https://pipedapi.kavin.rocks",   // Official - may have SSL issues
+  "https://pipedapi.adminforge.de", // German instance
+  "https://pipedapi.r4fo.com",      // Alternative
 ];
 
 // Shuffle array to distribute load
@@ -57,27 +57,54 @@ function parseDurationToSeconds(duration: string): number {
 
 /**
  * Search via Invidious (YouTube without quota)
+ * Note: Google actively blocks Invidious, so instances may fail frequently
  */
 async function searchViaInvidious(query: string): Promise<VideoResult[]> {
   const instances = shuffleArray(INVIDIOUS_INSTANCES);
-  
+
   for (const instance of instances) {
     try {
+      console.log(`Trying Invidious instance: ${instance}`);
       const response = await fetch(
         `${instance}/api/v1/search?q=${encodeURIComponent(query)}&type=video&sort=relevance`,
         {
-          headers: { 
+          headers: {
             'Accept': 'application/json',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           },
-          signal: AbortSignal.timeout(15000), // Increased to 15s
+          signal: AbortSignal.timeout(15000),
         }
       );
 
-      if (!response.ok) continue;
+      // Check response status
+      if (!response.ok) {
+        console.log(`Invidious ${instance} returned status ${response.status}`);
+        continue;
+      }
 
-      const data = await response.json();
-      return data.slice(0, 15).map((item: any) => ({
+      // Check content-type to avoid parsing HTML as JSON
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        console.log(`Invidious ${instance} returned non-JSON content-type: ${contentType}`);
+        continue;
+      }
+
+      const text = await response.text();
+
+      // Double-check it's not HTML (some servers return 200 with HTML error page)
+      if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
+        console.log(`Invidious ${instance} returned HTML instead of JSON`);
+        continue;
+      }
+
+      const data = JSON.parse(text);
+
+      if (!Array.isArray(data)) {
+        console.log(`Invidious ${instance} returned unexpected data format`);
+        continue;
+      }
+
+      const results = data.slice(0, 15).map((item: any) => ({
         video_id: item.videoId,
         title: item.title,
         description: item.description?.substring(0, 200) || '',
@@ -88,37 +115,64 @@ async function searchViaInvidious(query: string): Promise<VideoResult[]> {
         view_count: item.viewCount || 0,
         published_at: item.published ? new Date(item.published * 1000).toISOString() : undefined,
       }));
+
+      console.log(`Invidious ${instance} SUCCESS: found ${results.length} results`);
+      return results;
     } catch (e) {
-      console.log(`Invidious ${instance} failed:`, e);
+      const errorMsg = e instanceof Error ? e.message : String(e);
+      console.log(`Invidious ${instance} failed: ${errorMsg}`);
       continue;
     }
   }
+  console.log('All Invidious instances failed');
   return [];
 }
 
 /**
  * Search via Piped (YouTube without quota)
+ * Note: Piped instances can be unreliable due to SSL/DNS issues
  */
 async function searchViaPiped(query: string): Promise<VideoResult[]> {
   const instances = shuffleArray(PIPED_INSTANCES);
-  
+
   for (const instance of instances) {
     try {
+      console.log(`Trying Piped instance: ${instance}`);
       const response = await fetch(
         `${instance}/search?q=${encodeURIComponent(query)}&filter=videos`,
         {
-          headers: { 
+          headers: {
             'Accept': 'application/json',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           },
-          signal: AbortSignal.timeout(15000), // Increased to 15s
+          signal: AbortSignal.timeout(15000),
         }
       );
 
-      if (!response.ok) continue;
+      if (!response.ok) {
+        console.log(`Piped ${instance} returned status ${response.status}`);
+        continue;
+      }
 
-      const data = await response.json();
-      return (data.items || []).slice(0, 15).map((item: any) => {
+      // Check content-type
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        console.log(`Piped ${instance} returned non-JSON content-type: ${contentType}`);
+        continue;
+      }
+
+      const text = await response.text();
+
+      // Check for HTML error pages
+      if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
+        console.log(`Piped ${instance} returned HTML instead of JSON`);
+        continue;
+      }
+
+      const data = JSON.parse(text);
+      const items = data.items || [];
+
+      const results = items.slice(0, 15).map((item: any) => {
         const videoId = item.url?.split('/watch?v=')[1] || '';
         return {
           video_id: videoId,
@@ -131,11 +185,16 @@ async function searchViaPiped(query: string): Promise<VideoResult[]> {
           published_at: item.uploaded ? new Date(item.uploaded).toISOString() : undefined,
         };
       });
+
+      console.log(`Piped ${instance} SUCCESS: found ${results.length} results`);
+      return results;
     } catch (e) {
-      console.log(`Piped ${instance} failed:`, e);
+      const errorMsg = e instanceof Error ? e.message : String(e);
+      console.log(`Piped ${instance} failed: ${errorMsg}`);
       continue;
     }
   }
+  console.log('All Piped instances failed');
   return [];
 }
 
@@ -154,95 +213,144 @@ serve(async (req) => {
     console.log(`Manual YouTube search: "${query}" (use_alternatives: ${use_alternatives})`);
 
     let results: VideoResult[] = [];
-    let source = 'youtube_api';
+    let source = 'none';
+    const triedSources: string[] = [];
+    const failureReasons: Record<string, string> = {};
 
-    // If use_alternatives is true, skip YouTube API and go directly to alternatives
-    if (!use_alternatives) {
-      const YOUTUBE_API_KEY = Deno.env.get("GOOGLE_CLOUD_API_KEY");
+    const YOUTUBE_API_KEY = Deno.env.get("GOOGLE_CLOUD_API_KEY");
 
-      if (YOUTUBE_API_KEY) {
-        try {
-          // Search for videos via YouTube API
-          const searchUrl = new URL("https://www.googleapis.com/youtube/v3/search");
-          searchUrl.searchParams.set("key", YOUTUBE_API_KEY);
-          searchUrl.searchParams.set("q", query);
-          searchUrl.searchParams.set("part", "snippet");
-          searchUrl.searchParams.set("type", "video");
-          searchUrl.searchParams.set("videoDuration", "medium"); // 4-20 minutes
-          searchUrl.searchParams.set("videoEmbeddable", "true");
-          searchUrl.searchParams.set("safeSearch", "strict");
-          searchUrl.searchParams.set("maxResults", "15");
+    // Helper function to try YouTube API
+    async function tryYouTubeAPI(): Promise<VideoResult[]> {
+      if (!YOUTUBE_API_KEY) {
+        failureReasons['youtube_api'] = 'No API key configured';
+        return [];
+      }
 
-          const searchResponse = await fetch(searchUrl.toString());
+      try {
+        triedSources.push('youtube_api');
+        const searchUrl = new URL("https://www.googleapis.com/youtube/v3/search");
+        searchUrl.searchParams.set("key", YOUTUBE_API_KEY);
+        searchUrl.searchParams.set("q", query);
+        searchUrl.searchParams.set("part", "snippet");
+        searchUrl.searchParams.set("type", "video");
+        searchUrl.searchParams.set("videoDuration", "medium");
+        searchUrl.searchParams.set("videoEmbeddable", "true");
+        searchUrl.searchParams.set("safeSearch", "strict");
+        searchUrl.searchParams.set("maxResults", "15");
 
-          if (searchResponse.ok) {
-            const searchData = await searchResponse.json();
-            const videoIds = searchData.items
-              ?.map((item: any) => item.id?.videoId)
-              .filter(Boolean) || [];
+        const searchResponse = await fetch(searchUrl.toString());
 
-            if (videoIds.length > 0) {
-              // Get video details
-              const detailsUrl = new URL("https://www.googleapis.com/youtube/v3/videos");
-              detailsUrl.searchParams.set("key", YOUTUBE_API_KEY);
-              detailsUrl.searchParams.set("id", videoIds.join(","));
-              detailsUrl.searchParams.set("part", "snippet,contentDetails,statistics");
+        if (searchResponse.ok) {
+          const searchData = await searchResponse.json();
+          const videoIds = searchData.items
+            ?.map((item: any) => item.id?.videoId)
+            .filter(Boolean) || [];
 
-              const detailsResponse = await fetch(detailsUrl.toString());
-              if (detailsResponse.ok) {
-                const detailsData = await detailsResponse.json();
-                results = (detailsData.items || []).map((item: any) => ({
-                  video_id: item.id,
-                  title: item.snippet.title,
-                  description: item.snippet.description?.substring(0, 200) || '',
-                  channel_name: item.snippet.channelTitle,
-                  thumbnail_url: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url || '',
-                  duration_seconds: parseDurationToSeconds(item.contentDetails?.duration || ''),
-                  view_count: parseInt(item.statistics?.viewCount || '0'),
-                  published_at: item.snippet.publishedAt,
-                }));
-              }
-            }
-          } else {
-            // Check if quota exceeded (403)
-            const errorText = await searchResponse.text();
-            console.log(`YouTube API failed (${searchResponse.status}): ${errorText}`);
-            if (searchResponse.status === 403 || errorText.includes('quotaExceeded')) {
-              console.log('Quota exceeded, falling back to alternatives');
+          if (videoIds.length > 0) {
+            const detailsUrl = new URL("https://www.googleapis.com/youtube/v3/videos");
+            detailsUrl.searchParams.set("key", YOUTUBE_API_KEY);
+            detailsUrl.searchParams.set("id", videoIds.join(","));
+            detailsUrl.searchParams.set("part", "snippet,contentDetails,statistics");
+
+            const detailsResponse = await fetch(detailsUrl.toString());
+            if (detailsResponse.ok) {
+              const detailsData = await detailsResponse.json();
+              return (detailsData.items || []).map((item: any) => ({
+                video_id: item.id,
+                title: item.snippet.title,
+                description: item.snippet.description?.substring(0, 200) || '',
+                channel_name: item.snippet.channelTitle,
+                thumbnail_url: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url || '',
+                duration_seconds: parseDurationToSeconds(item.contentDetails?.duration || ''),
+                view_count: parseInt(item.statistics?.viewCount || '0'),
+                published_at: item.snippet.publishedAt,
+              }));
             }
           }
-        } catch (apiError) {
-          console.error('YouTube API error:', apiError);
+          failureReasons['youtube_api'] = 'No results found';
+          return [];
+        } else {
+          const errorText = await searchResponse.text();
+          if (searchResponse.status === 403 || errorText.includes('quotaExceeded')) {
+            failureReasons['youtube_api'] = 'Quota exceeded';
+          } else {
+            failureReasons['youtube_api'] = `HTTP ${searchResponse.status}`;
+          }
+          console.log(`YouTube API failed (${searchResponse.status}): ${errorText.substring(0, 200)}`);
+          return [];
         }
+      } catch (apiError) {
+        const errorMsg = apiError instanceof Error ? apiError.message : 'Unknown error';
+        failureReasons['youtube_api'] = errorMsg;
+        console.error('YouTube API error:', apiError);
+        return [];
       }
     }
 
-    // If YouTube API didn't return results, try alternatives
+    // Step 1: If not forcing alternatives, try YouTube API first
+    if (!use_alternatives) {
+      results = await tryYouTubeAPI();
+      if (results.length > 0) {
+        source = 'youtube_api';
+      }
+    }
+
+    // Step 2: Try Invidious (quota-free alternative)
     if (results.length === 0) {
-      console.log('Trying Invidious fallback...');
+      console.log('Trying Invidious instances...');
+      triedSources.push('invidious');
       results = await searchViaInvidious(query);
       if (results.length > 0) {
         source = 'invidious';
+      } else {
+        failureReasons['invidious'] = 'All instances failed (Google may be blocking)';
       }
     }
 
-    // If Invidious failed, try Piped
+    // Step 3: Try Piped (another quota-free alternative)
     if (results.length === 0) {
-      console.log('Trying Piped fallback...');
+      console.log('Trying Piped instances...');
+      triedSources.push('piped');
       results = await searchViaPiped(query);
       if (results.length > 0) {
         source = 'piped';
+      } else {
+        failureReasons['piped'] = 'All instances failed (SSL/DNS issues likely)';
       }
     }
 
-    console.log(`Found ${results.length} videos via ${source}`);
+    // Step 4: Last resort - try YouTube API even if use_alternatives was true
+    if (results.length === 0 && use_alternatives && YOUTUBE_API_KEY) {
+      console.log('All alternatives failed, trying YouTube API as last resort...');
+      results = await tryYouTubeAPI();
+      if (results.length > 0) {
+        source = 'youtube_api_fallback';
+      }
+    }
+
+    console.log(`Search complete: ${results.length} videos via ${source}, tried: ${triedSources.join(', ')}`);
+
+    // Build response with diagnostic info
+    const response: any = {
+      results,
+      total: results.length,
+      source,
+    };
+
+    // Include diagnostic info when no results found
+    if (results.length === 0) {
+      response.debug = {
+        message: 'No results found. This may be due to Google blocking Invidious/Piped instances.',
+        tried_sources: triedSources,
+        failure_reasons: failureReasons,
+        suggestion: YOUTUBE_API_KEY
+          ? 'Invidious/Piped instances may be temporarily down. Results will work when instances recover.'
+          : 'Consider adding GOOGLE_CLOUD_API_KEY for more reliable search (but has quota limits).',
+      };
+    }
 
     return new Response(
-      JSON.stringify({
-        results,
-        total: results.length,
-        source, // Tells the client which source was used
-      }),
+      JSON.stringify(response),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 
