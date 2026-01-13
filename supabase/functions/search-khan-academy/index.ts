@@ -644,6 +644,50 @@ serve(async (req) => {
     scoredVideos.sort((a, b) => b.scores.total - a.scores.total);
     const topVideos = scoredVideos.slice(0, max_results);
 
+    // Perform AI evaluation for consistent reasoning display
+    let aiEvaluations: Record<string, any> = {};
+    if (topVideos.length > 0) {
+      try {
+        console.log(`[KHAN] Requesting AI evaluation for ${topVideos.length} videos`);
+        const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
+        const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+        
+        const evalResponse = await fetch(`${SUPABASE_URL}/functions/v1/evaluate-content-batch`, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            learning_objective: {
+              id: learning_objective_id,
+              text: lo_text || core_concept,
+              core_concept: core_concept,
+            },
+            videos: topVideos.map(v => ({
+              video_id: v.video.id,
+              title: v.video.title,
+              description: v.video.description,
+              channel_name: "Khan Academy",
+              duration_seconds: v.video.duration || 600,
+            })),
+          }),
+        });
+
+        if (evalResponse.ok) {
+          const evalData = await evalResponse.json();
+          if (evalData.evaluations) {
+            for (const e of evalData.evaluations) {
+              aiEvaluations[e.video_id] = e;
+            }
+            console.log(`[KHAN] AI evaluation complete for ${evalData.evaluations.length} videos`);
+          }
+        }
+      } catch (evalError) {
+        console.log(`[KHAN] AI evaluation error:`, evalError);
+      }
+    }
+
     // Save to database
     const savedMatches = [];
     
@@ -689,6 +733,9 @@ serve(async (req) => {
         contentId = newContent.id;
       }
 
+      // Get AI evaluation for this video
+      const aiEval = aiEvaluations[candidate.video.id];
+      
       // Khan Academy videos auto-approve with lower threshold due to trusted source
       const autoApprove = candidate.scores.total >= 0.45;
       
@@ -700,8 +747,12 @@ serve(async (req) => {
           match_score: candidate.scores.total,
           semantic_similarity_score: candidate.scores.semantic_similarity,
           channel_authority_score: candidate.scores.channel_authority,
-          ai_reasoning: "Khan Academy - trusted educational source",
-          ai_recommendation: autoApprove ? "highly_recommended" : "recommended",
+          ai_reasoning: aiEval?.reasoning || "Khan Academy - trusted educational source with high-quality curated content",
+          ai_recommendation: aiEval?.recommendation || (autoApprove ? "highly_recommended" : "recommended"),
+          ai_concern: aiEval?.concern || null,
+          ai_relevance_score: aiEval?.relevance_score ?? null,
+          ai_pedagogy_score: aiEval?.pedagogy_score ?? null,
+          ai_quality_score: aiEval?.quality_score ?? null,
           status: autoApprove ? "auto_approved" : "pending",
           approved_by: autoApprove ? user.id : null,
           approved_at: autoApprove ? new Date().toISOString() : null,

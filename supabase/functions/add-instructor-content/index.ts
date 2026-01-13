@@ -441,20 +441,90 @@ serve(async (req) => {
       console.log(`Created new content: ${contentId}`);
     }
 
-    // If learning_objective_id provided, create content match
+    // If learning_objective_id provided, create content match with AI evaluation
     let contentMatch = null;
     if (learning_objective_id) {
+      // Fetch learning objective details for AI evaluation
+      const { data: loData } = await supabaseClient
+        .from("learning_objectives")
+        .select("text, bloom_level, core_concept, action_verb, expected_duration_minutes")
+        .eq("id", learning_objective_id)
+        .single();
+
+      // Perform AI evaluation for consistent reasoning display
+      let aiEvaluation = null;
+      if (loData?.text) {
+        try {
+          console.log(`[INSTRUCTOR CONTENT] Requesting AI evaluation for: ${finalMetadata.title}`);
+          const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
+          const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+          
+          const evalResponse = await fetch(`${SUPABASE_URL}/functions/v1/evaluate-content-batch`, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              learning_objective: {
+                id: learning_objective_id,
+                text: loData.text,
+                bloom_level: loData.bloom_level,
+                core_concept: loData.core_concept,
+                action_verb: loData.action_verb,
+                expected_duration_minutes: loData.expected_duration_minutes,
+              },
+              videos: [{
+                video_id: finalMetadata.source_id,
+                title: finalMetadata.title,
+                description: finalMetadata.description,
+                channel_name: finalMetadata.channel_name,
+                duration_seconds: finalMetadata.duration_seconds,
+              }],
+            }),
+          });
+
+          if (evalResponse.ok) {
+            const evalData = await evalResponse.json();
+            if (evalData.evaluations && evalData.evaluations.length > 0) {
+              aiEvaluation = evalData.evaluations[0];
+              console.log(`[INSTRUCTOR CONTENT] AI evaluation: ${aiEvaluation.recommendation}`);
+            }
+          }
+        } catch (evalError) {
+          console.log(`[INSTRUCTOR CONTENT] AI evaluation error:`, evalError);
+        }
+      }
+
+      // Build match data with AI evaluation results
+      const matchData: Record<string, unknown> = {
+        learning_objective_id,
+        content_id: contentId,
+        match_score: 0.95, // High score for instructor-added content
+        ai_reasoning: aiEvaluation?.reasoning || 'Manually added by instructor',
+        ai_recommendation: aiEvaluation?.recommendation || 'highly_recommended',
+        ai_concern: aiEvaluation?.concern || null,
+        ai_relevance_score: aiEvaluation?.relevance_score ?? null,
+        ai_pedagogy_score: aiEvaluation?.pedagogy_score ?? null,
+        ai_quality_score: aiEvaluation?.quality_score ?? null,
+        status: auto_approve ? "approved" : "pending",
+        approved_by: auto_approve ? user.id : null,
+        approved_at: auto_approve ? new Date().toISOString() : null,
+      };
+
+      // Update match_score if AI provided scores
+      if (aiEvaluation?.relevance_score != null) {
+        const aiScore = (
+          (aiEvaluation.relevance_score || 0) * 0.4 +
+          (aiEvaluation.pedagogy_score || 0) * 0.35 +
+          (aiEvaluation.quality_score || 0) * 0.25
+        ) / 100;
+        matchData.match_score = Math.round(aiScore * 100) / 100;
+      }
+
       const { data: match, error: matchError } = await supabaseClient
         .from("content_matches")
-        .upsert({
-          learning_objective_id,
-          content_id: contentId,
-          match_score: 0.95, // High score for instructor-added content
-          ai_reasoning: 'Manually added by instructor',
-          status: auto_approve ? "approved" : "pending",
-          approved_by: auto_approve ? user.id : null,
-          approved_at: auto_approve ? new Date().toISOString() : null,
-        }, { onConflict: "learning_objective_id,content_id" })
+        .upsert(matchData, { onConflict: "learning_objective_id,content_id" })
         .select(`*, content:content_id(*)`)
         .single();
 

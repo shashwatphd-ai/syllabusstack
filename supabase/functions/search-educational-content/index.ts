@@ -470,7 +470,51 @@ serve(async (req) => {
     // If learning_objective_id is provided, save results to database
     let savedMatches: any[] = [];
     if (learning_objective_id) {
-      for (const result of topResults.slice(0, 6)) {
+      const resultsToSave = topResults.slice(0, 6);
+      
+      // Perform AI evaluation for consistent reasoning display
+      let aiEvaluations: Record<string, any> = {};
+      if (resultsToSave.length > 0 && core_concept) {
+        try {
+          console.log(`[UNIFIED] Requesting AI evaluation for ${resultsToSave.length} results`);
+          
+          const evalResponse = await fetch(`${supabaseUrl}/functions/v1/evaluate-content-batch`, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${supabaseAnonKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              learning_objective: {
+                id: learning_objective_id,
+                text: core_concept,
+                core_concept: core_concept,
+              },
+              videos: resultsToSave.map(r => ({
+                video_id: r.id,
+                title: r.title,
+                description: r.description,
+                channel_name: r.channel_name,
+                duration_seconds: r.duration_seconds,
+              })),
+            }),
+          });
+
+          if (evalResponse.ok) {
+            const evalData = await evalResponse.json();
+            if (evalData.evaluations) {
+              for (const e of evalData.evaluations) {
+                aiEvaluations[e.video_id] = e;
+              }
+              console.log(`[UNIFIED] AI evaluation complete for ${evalData.evaluations.length} results`);
+            }
+          }
+        } catch (evalError) {
+          console.log(`[UNIFIED] AI evaluation error:`, evalError);
+        }
+      }
+
+      for (const result of resultsToSave) {
         try {
           // Check if content already exists
           const { data: existingContent } = await supabaseClient
@@ -511,6 +555,9 @@ serve(async (req) => {
             contentId = newContent.id;
           }
 
+          // Get AI evaluation for this result
+          const aiEval = aiEvaluations[result.id];
+
           // Create content match
           const autoApprove = result.quality_score >= 0.7;
           const { data: match, error: matchError } = await supabaseClient
@@ -519,7 +566,12 @@ serve(async (req) => {
               learning_objective_id,
               content_id: contentId,
               match_score: result.quality_score,
-              ai_reasoning: `Found via unified search (${result.source_type})`,
+              ai_reasoning: aiEval?.reasoning || `Found via unified search (${result.source_type}) - educational content from ${result.channel_name}`,
+              ai_recommendation: aiEval?.recommendation || (autoApprove ? "recommended" : "acceptable"),
+              ai_concern: aiEval?.concern || null,
+              ai_relevance_score: aiEval?.relevance_score ?? null,
+              ai_pedagogy_score: aiEval?.pedagogy_score ?? null,
+              ai_quality_score: aiEval?.quality_score ?? null,
               status: autoApprove ? "auto_approved" : "pending",
               approved_by: autoApprove ? user.id : null,
               approved_at: autoApprove ? new Date().toISOString() : null,
