@@ -151,7 +151,7 @@ async function callAI(systemPrompt: string, userPrompt: string): Promise<Decompo
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'google/gemini-2.5-pro', // Strong reasoning model for curriculum design
+      model: 'openai/gpt-5.2', // Best reasoning model for complex curriculum decomposition
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt }
@@ -173,8 +173,23 @@ async function callAI(systemPrompt: string, userPrompt: string): Promise<Decompo
     throw new Error(`AI Gateway error: ${response.status}`);
   }
 
-  const data = await response.json();
-  const content = data.choices[0]?.message?.content;
+  // Safer JSON parsing - handle truncated/empty responses from rate limiting
+  const responseText = await response.text();
+  
+  if (!responseText || responseText.trim() === '') {
+    console.error('[curriculum-reasoning-agent] Empty response from AI gateway - possible rate limit');
+    throw new Error('Empty response from AI gateway - possible rate limit. Please try again.');
+  }
+
+  let data;
+  try {
+    data = JSON.parse(responseText);
+  } catch (parseError) {
+    console.error('[curriculum-reasoning-agent] Failed to parse gateway response:', responseText.substring(0, 500));
+    throw new Error('Invalid JSON from AI gateway - response may have been truncated');
+  }
+
+  const content = data.choices?.[0]?.message?.content;
   
   if (!content) {
     throw new Error('No content in AI response');
