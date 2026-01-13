@@ -213,68 +213,10 @@ export function usePublishedLectureSlides(instructorCourseId?: string) {
 }
 
 /**
- * Generate lecture slides for a teaching unit (v1 - basic)
+ * Generate lecture slides for a teaching unit
+ * Uses the v2 multi-agent system for research-grounded content
  */
 export function useGenerateLectureSlides() {
-  const queryClient = useQueryClient();
-  const { toast } = useToast();
-  
-  return useMutation({
-    mutationFn: async ({ 
-      teachingUnitId, 
-      style = 'standard',
-      regenerate = false,
-    }: { 
-      teachingUnitId: string; 
-      style?: 'standard' | 'minimal' | 'detailed' | 'interactive';
-      regenerate?: boolean;
-    }) => {
-      const { data, error } = await supabase.functions.invoke('generate-lecture-slides', {
-        body: { 
-          teaching_unit_id: teachingUnitId,
-          style,
-          include_speaker_notes: true,
-          regenerate,
-        }
-      });
-      
-      if (error) throw error;
-      if (!data.success) throw new Error(data.error || 'Generation failed');
-      
-      return data;
-    },
-    onSuccess: (data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['lecture-slides', variables.teachingUnitId] });
-      queryClient.invalidateQueries({ queryKey: ['course-lecture-slides'] });
-      
-      if (data.already_exists) {
-        toast({
-          title: 'Slides Already Exist',
-          description: 'Opening existing slides...',
-        });
-      } else {
-        toast({
-          title: 'Lecture Slides Generated',
-          description: `Created ${data.total_slides} slides`,
-        });
-      }
-    },
-    onError: (error: Error) => {
-      toast({
-        title: 'Generation Failed',
-        description: error.message,
-        variant: 'destructive',
-      });
-    },
-  });
-}
-
-/**
- * Generate expert lecture slides with multi-agent research (v2)
- * Uses: Research Agent (Firecrawl), Curriculum Agent (GPT-5.2), 
- * Synthesis Agent (Gemini Pro), Quality Agent (Gemini Flash)
- */
-export function useGenerateExpertLectureSlides() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [progress, setProgress] = useState<{
@@ -290,11 +232,12 @@ export function useGenerateExpertLectureSlides() {
       regenerate = false,
     }: { 
       teachingUnitId: string; 
-      style?: 'professional' | 'academic' | 'casual';
+      style?: 'professional' | 'academic' | 'casual' | 'standard' | 'minimal' | 'detailed' | 'interactive';
       regenerate?: boolean;
     }) => {
       setProgress({ phase: 'starting', percent: 0, message: 'Initializing multi-agent generation...' });
       
+      // Use v2 multi-agent endpoint
       const { data, error } = await supabase.functions.invoke('generate-lecture-slides-v2', {
         body: { 
           teaching_unit_id: teachingUnitId,
@@ -303,8 +246,11 @@ export function useGenerateExpertLectureSlides() {
         }
       });
       
-      if (error) throw error;
-      if (!data.success) throw new Error(data.error || 'Generation failed');
+      if (error) {
+        console.error('Edge function error:', error);
+        throw new Error(error.message || 'Generation failed');
+      }
+      if (!data?.success) throw new Error(data?.error || 'Generation failed');
       
       return data;
     },
@@ -315,8 +261,8 @@ export function useGenerateExpertLectureSlides() {
       setProgress(null);
       
       toast({
-        title: '🎓 Expert Slides Generated',
-        description: `Created ${data.slideCount} research-grounded slides with ${data.citationCount} citations (Quality: ${data.qualityScore}%)`,
+        title: '🎓 Lecture Slides Generated',
+        description: `Created ${data.slideCount} research-grounded slides${data.citationCount ? ` with ${data.citationCount} citations` : ''} (Quality: ${data.qualityScore || 'N/A'}%)`,
       });
     },
     onError: (error: Error) => {
@@ -329,7 +275,7 @@ export function useGenerateExpertLectureSlides() {
     },
   });
 
-  // Poll for progress updates
+  // Progress simulation while waiting
   useEffect(() => {
     if (!mutation.isPending) return;
     
@@ -347,7 +293,7 @@ export function useGenerateExpertLectureSlides() {
         setProgress(phases[currentPhaseIndex]);
         currentPhaseIndex++;
       }
-    }, 8000); // Roughly estimate phase timing
+    }, 10000); // ~10s per phase estimate
     
     return () => clearInterval(interval);
   }, [mutation.isPending]);
@@ -357,6 +303,8 @@ export function useGenerateExpertLectureSlides() {
     progress,
   };
 }
+
+// useGenerateExpertLectureSlides is now merged into useGenerateLectureSlides above
 
 /**
  * Publish lecture slides (make available to students)
