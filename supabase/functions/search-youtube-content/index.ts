@@ -601,35 +601,46 @@ serve(async (req) => {
 
     let queries: string[] = [];
     
-    // STREAMLINED: Skip the slow AI context generation call
-    // Use Query Intelligence directly for faster response
-    try {
-      console.log('[QUERY INTELLIGENCE] Generating search queries...');
-      queries = await generateSearchQueries(
-        {
-          id: learning_objective_id,
-          text: effectiveLoText,
-          core_concept: effectiveCoreConcept,
-          action_verb: effectiveSearchKeywords?.[0] || '',
-          bloom_level: effectiveBloomLevel,
-          domain: effectiveDomain || 'other',
-          specificity: 'intermediate',
-          search_keywords: effectiveSearchKeywords || [],
-          expected_duration_minutes: effectiveDuration || 15,
-        },
-        moduleContext,
-        courseContext
-      );
-      console.log(`[QUERY INTELLIGENCE] Generated ${queries.length} queries:`, queries.slice(0, 3));
-    } catch (qiError) {
-      console.error('[QUERY INTELLIGENCE] Failed, using fallback:', qiError);
-      // Fallback to basic queries using effective values
-      const concept = effectiveCoreConcept || effectiveLoText?.split(' ').slice(0, 5).join(' ') || 'topic';
-      queries = [
-        `${concept} explained tutorial`,
-        `${concept} lecture educational`,
-        `${concept} course introduction`,
-      ];
+    // FIX: Use teaching unit's specific search_queries if available
+    // This ensures the AI-generated queries from curriculum decomposition are actually used
+    if (teaching_unit_id && teachingUnits.length > 0) {
+      const targetUnit = teachingUnits.find((u: any) => u.id === teaching_unit_id);
+      if (targetUnit?.search_queries && targetUnit.search_queries.length > 0) {
+        queries = targetUnit.search_queries;
+        console.log(`[TEACHING UNIT QUERIES] Using ${queries.length} pre-generated queries from teaching unit:`, queries.slice(0, 3));
+      }
+    }
+    
+    // Fallback to Query Intelligence if no teaching unit queries available
+    if (queries.length === 0) {
+      try {
+        console.log('[QUERY INTELLIGENCE] Generating search queries...');
+        queries = await generateSearchQueries(
+          {
+            id: learning_objective_id,
+            text: effectiveLoText,
+            core_concept: effectiveCoreConcept,
+            action_verb: effectiveSearchKeywords?.[0] || '',
+            bloom_level: effectiveBloomLevel,
+            domain: effectiveDomain || 'other',
+            specificity: 'intermediate',
+            search_keywords: effectiveSearchKeywords || [],
+            expected_duration_minutes: effectiveDuration || 15,
+          },
+          moduleContext,
+          courseContext
+        );
+        console.log(`[QUERY INTELLIGENCE] Generated ${queries.length} queries:`, queries.slice(0, 3));
+      } catch (qiError) {
+        console.error('[QUERY INTELLIGENCE] Failed, using fallback:', qiError);
+        // Fallback to basic queries using effective values
+        const concept = effectiveCoreConcept || effectiveLoText?.split(' ').slice(0, 5).join(' ') || 'topic';
+        queries = [
+          `${concept} explained tutorial`,
+          `${concept} lecture educational`,
+          `${concept} course introduction`,
+        ];
+      }
     }
 
     // =========================================================================
