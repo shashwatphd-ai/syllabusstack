@@ -178,6 +178,33 @@ export type Database = {
         }
         Relationships: []
       }
+      api_usage_tracking: {
+        Row: {
+          api_name: string
+          created_at: string | null
+          date: string
+          id: string
+          updated_at: string | null
+          usage_count: number | null
+        }
+        Insert: {
+          api_name: string
+          created_at?: string | null
+          date?: string
+          id?: string
+          updated_at?: string | null
+          usage_count?: number | null
+        }
+        Update: {
+          api_name?: string
+          created_at?: string | null
+          date?: string
+          id?: string
+          updated_at?: string | null
+          usage_count?: number | null
+        }
+        Relationships: []
+      }
       assessment_answers: {
         Row: {
           answer_submitted_at: string | null
@@ -2318,6 +2345,10 @@ export type Database = {
           max_usage: number
           tier: string
         }[]
+      }
+      increment_api_usage: {
+        Args: { p_api_name: string; p_units?: number }
+        Returns: undefined
       }
       increment_cache_hit: { Args: { p_cache_id: string }; Returns: undefined }
       keyword_similarity: {

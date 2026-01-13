@@ -101,3 +101,6 @@ verify_jwt = true
 
 [functions.auto-link-courses]
 verify_jwt = true
+
+[functions.generate-search-context]
+verify_jwt = true
