@@ -600,77 +600,36 @@ serve(async (req) => {
     console.log(`[DOMAIN] Detected domain: ${detectedDomain || 'unknown'}`);
 
     let queries: string[] = [];
-    let aiContextUsed = false;
     
-    // Phase 3: Try AI-driven context generation first
+    // STREAMLINED: Skip the slow AI context generation call
+    // Use Query Intelligence directly for faster response
     try {
-      console.log('[AI CONTEXT] Generating agentic search queries...');
-      const contextResponse = await fetch(`${supabaseUrl}/functions/v1/generate-search-context`, {
-        method: 'POST',
-        headers: {
-          'Authorization': authHeader,
-          'Content-Type': 'application/json',
+      console.log('[QUERY INTELLIGENCE] Generating search queries...');
+      queries = await generateSearchQueries(
+        {
+          id: learning_objective_id,
+          text: effectiveLoText,
+          core_concept: effectiveCoreConcept,
+          action_verb: effectiveSearchKeywords?.[0] || '',
+          bloom_level: effectiveBloomLevel,
+          domain: effectiveDomain || 'other',
+          specificity: 'intermediate',
+          search_keywords: effectiveSearchKeywords || [],
+          expected_duration_minutes: effectiveDuration || 15,
         },
-        body: JSON.stringify({
-          learning_objective: {
-            id: learning_objective_id,
-            text: effectiveLoText,
-            core_concept: effectiveCoreConcept,
-            bloom_level: effectiveBloomLevel,
-            action_verb: effectiveSearchKeywords?.[0] || '',
-            expected_duration_minutes: effectiveDuration || 15,
-          },
-          module: moduleContext,
-          course: courseContext,
-        }),
-      });
-
-      if (contextResponse.ok) {
-        const contextData = await contextResponse.json();
-        if (contextData.queries && contextData.queries.length > 0) {
-          queries = contextData.queries;
-          aiContextUsed = true;
-          console.log(`[AI CONTEXT] Generated ${queries.length} AI-driven queries:`);
-          queries.forEach((q: string, i: number) => console.log(`  ${i + 1}. ${q}`));
-          console.log(`[AI CONTEXT] Domain: ${contextData.domain_context}`);
-          console.log(`[AI CONTEXT] Strategy: ${contextData.search_strategy}`);
-        }
-      } else {
-        console.log('[AI CONTEXT] AI context generation failed, falling back to Query Intelligence');
-      }
-    } catch (aiContextError) {
-      console.log('[AI CONTEXT] Error in AI context generation:', aiContextError);
-    }
-    
-    // Fall back to Query Intelligence if AI context failed
-    if (queries.length === 0) {
-      try {
-        console.log('Generating intelligent search queries with Query Intelligence...');
-        queries = await generateSearchQueries(
-          {
-            id: learning_objective_id,
-            text: effectiveLoText,
-            core_concept: effectiveCoreConcept,
-            action_verb: effectiveSearchKeywords?.[0] || '',
-            bloom_level: effectiveBloomLevel,
-            domain: effectiveDomain || 'other',
-            specificity: 'intermediate',
-            search_keywords: effectiveSearchKeywords || [],
-            expected_duration_minutes: effectiveDuration || 15,
-          },
-          moduleContext,
-          courseContext
-        );
-        console.log(`Query Intelligence generated ${queries.length} queries:`, queries.slice(0, 3));
-      } catch (qiError) {
-        console.error('Query Intelligence failed, using fallback:', qiError);
-        // Fallback to basic queries using effective values
-        queries = [
-          `${effectiveCoreConcept || effectiveLoText} explained tutorial`,
-          `${effectiveCoreConcept || effectiveLoText} lecture educational`,
-          `${effectiveCoreConcept || effectiveLoText} course introduction`,
-        ];
-      }
+        moduleContext,
+        courseContext
+      );
+      console.log(`[QUERY INTELLIGENCE] Generated ${queries.length} queries:`, queries.slice(0, 3));
+    } catch (qiError) {
+      console.error('[QUERY INTELLIGENCE] Failed, using fallback:', qiError);
+      // Fallback to basic queries using effective values
+      const concept = effectiveCoreConcept || effectiveLoText?.split(' ').slice(0, 5).join(' ') || 'topic';
+      queries = [
+        `${concept} explained tutorial`,
+        `${concept} lecture educational`,
+        `${concept} course introduction`,
+      ];
     }
 
     // =========================================================================
@@ -690,12 +649,12 @@ serve(async (req) => {
       try {
         const searchResult = await searchYouTubeOrchestrated({
           query: primaryQuery,
-          max_results: 30,
+          max_results: 20,  // Reduced for faster response
           min_results: 3,
           allow_youtube_api: true,
           priority: 'normal',
-          enrich_metadata: true,
-          timeout_ms: 30000,
+          enrich_metadata: false,  // Skip metadata enrichment to save time
+          timeout_ms: 15000,  // Reduced from 30s to 15s for faster response
         });
 
         orchestratorSource = searchResult.source;
@@ -1028,7 +987,7 @@ serve(async (req) => {
         viable_candidates: viableCandidates.length,
         auto_approved_count: allMatches.filter((m: any) => m.status === "auto_approved").length,
         ai_evaluation_used: use_ai_evaluation,
-        ai_context_used: aiContextUsed,  // Phase 3: Track AI context usage
+        ai_context_used: false,  // Removed AI context generation for performance
         query_intelligence_used: queries.length > 0,
         detected_domain: detectedDomain,  // Phase 4: Report detected domain
         khan_academy_supplement: khanMatches.length,
