@@ -110,3 +110,6 @@ verify_jwt = false
 
 [functions.generate-lecture-slides]
 verify_jwt = true
+
+[functions.generate-lecture-slides-v2]
+verify_jwt = true

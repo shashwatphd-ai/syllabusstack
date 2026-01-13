@@ -98,7 +98,7 @@ export function LectureSlideViewer({
   const handleRegenerate = () => {
     regenerateSlides.mutate({
       teachingUnitId: lectureSlide.teaching_unit_id,
-      style: lectureSlide.slide_style,
+      style: (lectureSlide.slide_style === 'professional' ? 'detailed' : lectureSlide.slide_style) as any,
       regenerate: true,
     });
     onOpenChange(false);

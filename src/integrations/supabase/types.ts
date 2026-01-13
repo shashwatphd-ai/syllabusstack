@@ -1524,16 +1524,21 @@ export type Database = {
       lecture_slides: {
         Row: {
           audio_status: string | null
+          citation_count: number | null
           created_at: string | null
           created_by: string | null
           error_message: string | null
           estimated_duration_minutes: number | null
           generation_context: Json | null
           generation_model: string | null
+          generation_phases: Json | null
           has_audio: boolean | null
           id: string
           instructor_course_id: string
+          is_research_grounded: boolean | null
           learning_objective_id: string
+          quality_score: number | null
+          research_context: Json | null
           slide_style: string | null
           slides: Json
           status: string | null
@@ -1544,16 +1549,21 @@ export type Database = {
         }
         Insert: {
           audio_status?: string | null
+          citation_count?: number | null
           created_at?: string | null
           created_by?: string | null
           error_message?: string | null
           estimated_duration_minutes?: number | null
           generation_context?: Json | null
           generation_model?: string | null
+          generation_phases?: Json | null
           has_audio?: boolean | null
           id?: string
           instructor_course_id: string
+          is_research_grounded?: boolean | null
           learning_objective_id: string
+          quality_score?: number | null
+          research_context?: Json | null
           slide_style?: string | null
           slides?: Json
           status?: string | null
@@ -1564,16 +1574,21 @@ export type Database = {
         }
         Update: {
           audio_status?: string | null
+          citation_count?: number | null
           created_at?: string | null
           created_by?: string | null
           error_message?: string | null
           estimated_duration_minutes?: number | null
           generation_context?: Json | null
           generation_model?: string | null
+          generation_phases?: Json | null
           has_audio?: boolean | null
           id?: string
           instructor_course_id?: string
+          is_research_grounded?: boolean | null
           learning_objective_id?: string
+          quality_score?: number | null
+          research_context?: Json | null
           slide_style?: string | null
           slides?: Json
           status?: string | null
