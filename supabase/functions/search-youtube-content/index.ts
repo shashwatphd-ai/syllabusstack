@@ -316,6 +316,40 @@ serve(async (req) => {
       throw new Error("learning_objective_id is required");
     }
 
+    // =========================================================================
+    // STEP 0.1: Fetch LO data from DB if not provided (CRITICAL for AI evaluation)
+    // =========================================================================
+    let effectiveLoText = lo_text;
+    let effectiveCoreConcept = core_concept;
+    let effectiveBloomLevel = bloom_level;
+    let effectiveDomain = domain;
+    let effectiveSearchKeywords = search_keywords;
+    let effectiveDuration = expected_duration_minutes;
+    let effectiveCourseId = instructor_course_id;
+
+    if (!effectiveLoText) {
+      console.log('[FALLBACK] lo_text not provided, fetching from database...');
+      const { data: loData, error: loError } = await supabaseClient
+        .from('learning_objectives')
+        .select('text, core_concept, bloom_level, domain, search_keywords, expected_duration_minutes, instructor_course_id')
+        .eq('id', learning_objective_id)
+        .single();
+      
+      if (loError || !loData) {
+        console.error('[FALLBACK] Failed to fetch LO data:', loError?.message);
+        throw new Error('Learning objective not found');
+      }
+      
+      effectiveLoText = loData.text;
+      effectiveCoreConcept = effectiveCoreConcept || loData.core_concept;
+      effectiveBloomLevel = effectiveBloomLevel || loData.bloom_level;
+      effectiveDomain = effectiveDomain || loData.domain;
+      effectiveSearchKeywords = effectiveSearchKeywords || loData.search_keywords;
+      effectiveDuration = effectiveDuration || loData.expected_duration_minutes;
+      effectiveCourseId = effectiveCourseId || loData.instructor_course_id;
+      console.log(`[FALLBACK] Loaded LO: "${effectiveLoText?.substring(0, 50)}..."`);
+    }
+
     console.log(`[UNIFIED SEARCH] LO: ${learning_objective_id}, Teaching Unit: ${teaching_unit_id || 'all'}, AI Eval: ${use_ai_evaluation}`);
 
     // =========================================================================
@@ -524,34 +558,30 @@ serve(async (req) => {
     let moduleContext: { title: string; description?: string } | undefined;
     let courseContext: { title: string; description?: string; code?: string; detected_domain?: string } | undefined;
 
-    // Fetch full LO data including text (in case it wasn't passed in request)
-    const { data: loData } = await supabaseClient
+    // Note: LO data already fetched in STEP 0.1, use loData from there if available
+    // Fetch module and course context for query intelligence
+    const { data: loDataForContext } = await supabaseClient
       .from('learning_objectives')
-      .select('text, core_concept, bloom_level, action_verb, expected_duration_minutes, search_keywords, module_id, instructor_course_id')
+      .select('module_id, instructor_course_id')
       .eq('id', learning_objective_id)
       .single();
 
-    // Use fetched data as fallback for missing request params
-    const effectiveLoText = lo_text || loData?.text || core_concept || loData?.core_concept || '';
-    const effectiveCoreConcept = core_concept || loData?.core_concept || '';
-    const effectiveBloomLevel = bloom_level || loData?.bloom_level || 'understand';
-
-    if (loData?.module_id) {
+    if (loDataForContext?.module_id) {
       const { data: module } = await supabaseClient
         .from('modules')
         .select('title, description')
-        .eq('id', loData.module_id)
+        .eq('id', loDataForContext.module_id)
         .single();
       if (module) {
         moduleContext = { title: module.title, description: module.description };
       }
     }
 
-    if (loData?.instructor_course_id || instructor_course_id) {
+    if (loDataForContext?.instructor_course_id || effectiveCourseId) {
       const { data: course } = await supabaseClient
         .from('instructor_courses')
         .select('title, description, code, detected_domain')
-        .eq('id', loData?.instructor_course_id || instructor_course_id)
+        .eq('id', loDataForContext?.instructor_course_id || effectiveCourseId)
         .single();
       if (course) {
         courseContext = { 
@@ -587,8 +617,8 @@ serve(async (req) => {
             text: effectiveLoText,
             core_concept: effectiveCoreConcept,
             bloom_level: effectiveBloomLevel,
-            action_verb: loData?.action_verb || search_keywords?.[0],
-            expected_duration_minutes: expected_duration_minutes || loData?.expected_duration_minutes || 15,
+            action_verb: effectiveSearchKeywords?.[0] || '',
+            expected_duration_minutes: effectiveDuration || 15,
           },
           module: moduleContext,
           course: courseContext,
@@ -621,12 +651,12 @@ serve(async (req) => {
             id: learning_objective_id,
             text: effectiveLoText,
             core_concept: effectiveCoreConcept,
-            action_verb: loData?.action_verb || search_keywords?.[0],
+            action_verb: effectiveSearchKeywords?.[0] || '',
             bloom_level: effectiveBloomLevel,
-            domain: domain || 'other',
+            domain: effectiveDomain || 'other',
             specificity: 'intermediate',
-            search_keywords: search_keywords || loData?.search_keywords || [],
-            expected_duration_minutes: expected_duration_minutes || loData?.expected_duration_minutes || 15,
+            search_keywords: effectiveSearchKeywords || [],
+            expected_duration_minutes: effectiveDuration || 15,
           },
           moduleContext,
           courseContext
@@ -759,11 +789,11 @@ serve(async (req) => {
           body: JSON.stringify({
             learning_objective: {
               id: learning_objective_id,
-              text: lo_text,
-              bloom_level,
-              core_concept,
-              action_verb: search_keywords?.[0] || '',
-              expected_duration_minutes,
+              text: effectiveLoText,  // Use effective value (DB fallback)
+              bloom_level: effectiveBloomLevel,
+              core_concept: effectiveCoreConcept,
+              action_verb: effectiveSearchKeywords?.[0] || '',
+              expected_duration_minutes: effectiveDuration,
             },
             videos: topCandidatesForAI.map(sv => ({
               video_id: sv.video.id,

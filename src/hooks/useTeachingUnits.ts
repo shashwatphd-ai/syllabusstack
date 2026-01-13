@@ -134,11 +134,22 @@ export function useSearchForTeachingUnit() {
         .update({ status: 'searching' })
         .eq('id', teachingUnitId);
       
-      // Call search with teaching unit context
+      // Extract LO data from relation
+      const lo = unit.learning_objective as any;
+      
+      // Call search with teaching unit context AND full LO data
       const { data, error } = await supabase.functions.invoke('search-youtube-content', {
         body: { 
           learning_objective_id: unit.learning_objective_id,
-          teaching_unit_id: teachingUnitId 
+          teaching_unit_id: teachingUnitId,
+          // Pass LO data for AI evaluation
+          lo_text: lo?.text,
+          core_concept: lo?.core_concept,
+          bloom_level: lo?.bloom_level,
+          domain: lo?.domain,
+          search_keywords: lo?.search_keywords,
+          expected_duration_minutes: lo?.expected_duration_minutes,
+          instructor_course_id: lo?.instructor_course_id,
         }
       });
       
