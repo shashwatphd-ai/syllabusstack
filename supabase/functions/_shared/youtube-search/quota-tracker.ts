@@ -120,11 +120,10 @@ export async function recordQuotaUsage(
       });
 
     if (error) {
-      // If upsert fails, try to increment existing
+      // If upsert fails, try to increment existing (function only takes api_name and units)
       const { error: rpcError } = await supabase.rpc('increment_api_usage', {
         p_api_name: apiName,
         p_units: units,
-        p_date: today,
       });
 
       if (rpcError) {
