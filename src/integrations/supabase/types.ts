@@ -1521,6 +1521,91 @@ export type Database = {
           },
         ]
       }
+      lecture_slides: {
+        Row: {
+          audio_status: string | null
+          created_at: string | null
+          created_by: string | null
+          error_message: string | null
+          estimated_duration_minutes: number | null
+          generation_context: Json | null
+          generation_model: string | null
+          has_audio: boolean | null
+          id: string
+          instructor_course_id: string
+          learning_objective_id: string
+          slide_style: string | null
+          slides: Json
+          status: string | null
+          teaching_unit_id: string
+          title: string
+          total_slides: number
+          updated_at: string | null
+        }
+        Insert: {
+          audio_status?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          error_message?: string | null
+          estimated_duration_minutes?: number | null
+          generation_context?: Json | null
+          generation_model?: string | null
+          has_audio?: boolean | null
+          id?: string
+          instructor_course_id: string
+          learning_objective_id: string
+          slide_style?: string | null
+          slides?: Json
+          status?: string | null
+          teaching_unit_id: string
+          title: string
+          total_slides?: number
+          updated_at?: string | null
+        }
+        Update: {
+          audio_status?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          error_message?: string | null
+          estimated_duration_minutes?: number | null
+          generation_context?: Json | null
+          generation_model?: string | null
+          has_audio?: boolean | null
+          id?: string
+          instructor_course_id?: string
+          learning_objective_id?: string
+          slide_style?: string | null
+          slides?: Json
+          status?: string | null
+          teaching_unit_id?: string
+          title?: string
+          total_slides?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lecture_slides_instructor_course_id_fkey"
+            columns: ["instructor_course_id"]
+            isOneToOne: false
+            referencedRelation: "instructor_courses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lecture_slides_learning_objective_id_fkey"
+            columns: ["learning_objective_id"]
+            isOneToOne: false
+            referencedRelation: "learning_objectives"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lecture_slides_teaching_unit_id_fkey"
+            columns: ["teaching_unit_id"]
+            isOneToOne: false
+            referencedRelation: "teaching_units"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       micro_check_results: {
         Row: {
           attempt_number: number | null

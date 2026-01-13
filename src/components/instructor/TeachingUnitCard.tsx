@@ -15,16 +15,21 @@ import {
   BookOpen,
   Video,
   Lightbulb,
-  ArrowRight
+  ArrowRight,
+  Presentation
 } from 'lucide-react';
 import { TeachingUnit } from '@/hooks/useTeachingUnits';
 import { ContentMatch } from '@/hooks/useLearningObjectives';
+import type { LectureSlide } from '@/hooks/useLectureSlides';
 
 interface TeachingUnitCardProps {
   unit: TeachingUnit;
   contentMatches: ContentMatch[];
   onSearch: (unit: TeachingUnit) => void;
+  onCreateLecture?: (unit: TeachingUnit) => void;
   isSearching: boolean;
+  isGeneratingSlides?: boolean;
+  existingSlides?: LectureSlide | null;
 }
 
 const VIDEO_TYPE_ICONS: Record<string, string> = {
@@ -60,7 +65,15 @@ function getStatusBadge(status: TeachingUnit['status'], videosFound: number) {
   }
 }
 
-export function TeachingUnitCard({ unit, contentMatches, onSearch, isSearching }: TeachingUnitCardProps) {
+export function TeachingUnitCard({ 
+  unit, 
+  contentMatches, 
+  onSearch, 
+  onCreateLecture,
+  isSearching,
+  isGeneratingSlides,
+  existingSlides 
+}: TeachingUnitCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   
   const unitMatches = contentMatches.filter(m => m.teaching_unit_id === unit.id);
@@ -122,6 +135,42 @@ export function TeachingUnitCard({ unit, contentMatches, onSearch, isSearching }
                 </Badge>
               )}
               
+              {/* Create Lecture button */}
+              {onCreateLecture && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button 
+                        size="sm" 
+                        variant={existingSlides?.status === 'published' ? 'default' : 'outline'}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onCreateLecture(unit);
+                        }}
+                        disabled={isGeneratingSlides}
+                        className="gap-1"
+                      >
+                        {isGeneratingSlides ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Presentation className="h-3 w-3" />
+                        )}
+                        {existingSlides ? (
+                          existingSlides.status === 'published' ? 'Slides ✓' : 'View Slides'
+                        ) : (
+                          'Create Lecture'
+                        )}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {existingSlides 
+                        ? `${existingSlides.total_slides} slides - ${existingSlides.status}`
+                        : 'Generate lecture slides from this unit'}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+
               <Button 
                 size="sm" 
                 variant="outline" 

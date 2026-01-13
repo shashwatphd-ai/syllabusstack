@@ -1,0 +1,259 @@
+import { useState, useCallback, useEffect } from 'react';
+import { Button } from '@/components/ui/button';
+import { Progress } from '@/components/ui/progress';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
+import { 
+  ChevronLeft, 
+  ChevronRight, 
+  X, 
+  Play,
+  Pause,
+  MessageSquare,
+  Volume2,
+  VolumeX,
+  SkipForward,
+  SkipBack
+} from 'lucide-react';
+import { SlideRenderer } from './SlideRenderer';
+import type { LectureSlide, Slide } from '@/hooks/useLectureSlides';
+import { cn } from '@/lib/utils';
+
+interface StudentSlideViewerProps {
+  lectureSlide: LectureSlide;
+  unitTitle: string;
+  onClose: () => void;
+  onComplete?: (watchPercentage: number) => void;
+}
+
+export function StudentSlideViewer({ 
+  lectureSlide, 
+  unitTitle,
+  onClose,
+  onComplete
+}: StudentSlideViewerProps) {
+  const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
+  const [showSpeakerNotes, setShowSpeakerNotes] = useState(false);
+  const [isAutoPlaying, setIsAutoPlaying] = useState(false);
+  const [hasAudio, setHasAudio] = useState(false); // Future TTS
+  const [highestSlideViewed, setHighestSlideViewed] = useState(0);
+
+  const slides = lectureSlide.slides;
+  const currentSlide = slides[currentSlideIndex];
+  const progress = ((highestSlideViewed + 1) / slides.length) * 100;
+
+  // Track highest slide viewed
+  useEffect(() => {
+    if (currentSlideIndex > highestSlideViewed) {
+      setHighestSlideViewed(currentSlideIndex);
+    }
+  }, [currentSlideIndex, highestSlideViewed]);
+
+  // Auto-advance timer
+  useEffect(() => {
+    if (!isAutoPlaying) return;
+
+    const slideTime = (lectureSlide.estimated_duration_minutes || 10) / slides.length * 60 * 1000;
+    const timer = setTimeout(() => {
+      if (currentSlideIndex < slides.length - 1) {
+        setCurrentSlideIndex(prev => prev + 1);
+      } else {
+        setIsAutoPlaying(false);
+        handleComplete();
+      }
+    }, slideTime);
+
+    return () => clearTimeout(timer);
+  }, [isAutoPlaying, currentSlideIndex, slides.length]);
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowRight' || e.key === ' ') {
+        e.preventDefault();
+        goToNextSlide();
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        goToPreviousSlide();
+      } else if (e.key === 'Escape') {
+        handleClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [currentSlideIndex, slides.length]);
+
+  const goToNextSlide = useCallback(() => {
+    if (currentSlideIndex < slides.length - 1) {
+      setCurrentSlideIndex(prev => prev + 1);
+    } else {
+      handleComplete();
+    }
+  }, [currentSlideIndex, slides.length]);
+
+  const goToPreviousSlide = useCallback(() => {
+    setCurrentSlideIndex(prev => Math.max(prev - 1, 0));
+  }, []);
+
+  const handleComplete = () => {
+    const watchPercentage = ((highestSlideViewed + 1) / slides.length) * 100;
+    onComplete?.(watchPercentage);
+  };
+
+  const handleClose = () => {
+    handleComplete();
+    onClose();
+  };
+
+  const toggleAutoPlay = () => {
+    setIsAutoPlaying(prev => !prev);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-background flex flex-col">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b bg-background/95 backdrop-blur">
+        <div className="flex items-center gap-3">
+          <h3 className="font-semibold truncate max-w-md">{unitTitle}</h3>
+          <span className="text-sm text-muted-foreground">
+            {lectureSlide.total_slides} slides • ~{lectureSlide.estimated_duration_minutes || 10} min
+          </span>
+        </div>
+        
+        <div className="flex items-center gap-4">
+          {/* Progress */}
+          <div className="flex items-center gap-2 w-48">
+            <Progress value={progress} className="h-2" />
+            <span className="text-xs text-muted-foreground w-12">
+              {Math.round(progress)}%
+            </span>
+          </div>
+
+          {/* Controls */}
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={toggleAutoPlay}
+              className="gap-1"
+            >
+              {isAutoPlaying ? (
+                <>
+                  <Pause className="h-4 w-4" />
+                  Pause
+                </>
+              ) : (
+                <>
+                  <Play className="h-4 w-4" />
+                  Auto-play
+                </>
+              )}
+            </Button>
+
+            <div className="flex items-center gap-2 pl-2 border-l">
+              <Switch
+                id="student-notes"
+                checked={showSpeakerNotes}
+                onCheckedChange={setShowSpeakerNotes}
+              />
+              <Label htmlFor="student-notes" className="text-sm flex items-center gap-1">
+                <MessageSquare className="h-3 w-3" />
+                Transcript
+              </Label>
+            </div>
+
+            {/* Future TTS controls */}
+            {lectureSlide.has_audio && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setHasAudio(prev => !prev)}
+              >
+                {hasAudio ? (
+                  <Volume2 className="h-4 w-4" />
+                ) : (
+                  <VolumeX className="h-4 w-4" />
+                )}
+              </Button>
+            )}
+          </div>
+
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleClose}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Main slide content */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 p-8 overflow-hidden max-w-5xl mx-auto w-full">
+          {currentSlide && (
+            <SlideRenderer
+              slide={currentSlide}
+              slideNumber={currentSlideIndex + 1}
+              totalSlides={slides.length}
+              showSpeakerNotes={showSpeakerNotes}
+              className="h-full"
+            />
+          )}
+        </div>
+
+        {/* Navigation footer */}
+        <div className="flex items-center justify-between px-6 py-4 border-t bg-background/95">
+          <Button
+            variant="outline"
+            size="lg"
+            onClick={goToPreviousSlide}
+            disabled={currentSlideIndex === 0}
+            className="min-w-32"
+          >
+            <ChevronLeft className="h-5 w-5 mr-1" />
+            Previous
+          </Button>
+
+          {/* Slide dots */}
+          <div className="flex items-center gap-1 max-w-md overflow-x-auto py-2">
+            {slides.map((_, index) => (
+              <button
+                key={index}
+                onClick={() => setCurrentSlideIndex(index)}
+                className={cn(
+                  "w-2 h-2 rounded-full transition-all",
+                  index === currentSlideIndex
+                    ? "w-6 bg-primary"
+                    : index <= highestSlideViewed
+                    ? "bg-primary/50 hover:bg-primary/70"
+                    : "bg-muted hover:bg-muted-foreground/30"
+                )}
+                aria-label={`Go to slide ${index + 1}`}
+              />
+            ))}
+          </div>
+
+          <Button
+            variant={currentSlideIndex === slides.length - 1 ? "default" : "outline"}
+            size="lg"
+            onClick={goToNextSlide}
+            className="min-w-32"
+          >
+            {currentSlideIndex === slides.length - 1 ? (
+              'Complete'
+            ) : (
+              <>
+                Next
+                <ChevronRight className="h-5 w-5 ml-1" />
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default StudentSlideViewer;
