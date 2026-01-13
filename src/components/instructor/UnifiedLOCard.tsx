@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, Video, Search, Loader2, CheckCircle, XCircle, Play, Link, Clock, ExternalLink, Sparkles, Bot, AlertTriangle, ThumbsUp, Info, MessageSquare, Zap, Award, Users, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Video, Search, Loader2, CheckCircle, XCircle, Play, Link, Clock, ExternalLink, Sparkles, Bot, AlertTriangle, ThumbsUp, Info, MessageSquare, Zap, Award, Users, Trash2, Brain, Layers } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -7,10 +7,12 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { LearningObjective, ContentMatch, useContentMatches, useSearchYouTubeContent, useUpdateContentMatchStatus } from '@/hooks/useLearningObjectives';
 import { useVideoOtherMatches } from '@/hooks/useVideoOtherMatches';
 import { useGenerateMicroChecks } from '@/hooks/useAssessment';
+import { useTeachingUnits, useDecomposeLearningObjective, useSearchForTeachingUnit } from '@/hooks/useTeachingUnits';
 import { VideoPreviewModal } from './VideoPreviewModal';
 import { ManualContentSearch } from './ManualContentSearch';
 import { AddVideoByURL } from './AddVideoByURL';
 import { ContentAssistantChat } from './ContentAssistantChat';
+import { TeachingUnitCard } from './TeachingUnitCard';
 
 interface UnifiedLOCardProps {
   learningObjective: LearningObjective;
@@ -66,9 +68,16 @@ export function UnifiedLOCard({ learningObjective, contentStatus }: UnifiedLOCar
   const searchContent = useSearchYouTubeContent();
   const updateStatus = useUpdateContentMatchStatus();
   const generateMicroChecks = useGenerateMicroChecks();
+  
+  // NEW: Teaching Units integration
+  const { data: teachingUnits, isLoading: loadingUnits } = useTeachingUnits(isOpen ? learningObjective.id : undefined);
+  const decomposeMutation = useDecomposeLearningObjective();
+  const searchForUnit = useSearchForTeachingUnit();
 
   const pendingMatches = contentMatches?.filter(m => m.status === 'pending') || [];
   const approvedMatches = contentMatches?.filter(m => m.status === 'approved' || m.status === 'auto_approved') || [];
+  
+  const hasTeachingUnits = teachingUnits && teachingUnits.length > 0;
 
   const getBloomInfo = (level: string | null) => {
     return bloomDescriptions[level || ''] || { 
@@ -273,65 +282,129 @@ export function UnifiedLOCard({ learningObjective, contentStatus }: UnifiedLOCar
                 </div>
               )}
 
-              {loadingMatches ? (
+              {loadingMatches || loadingUnits ? (
                 <div className="flex items-center justify-center py-6">
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                 </div>
-              ) : contentMatches && contentMatches.length > 0 ? (
-                <div className="space-y-3">
-                  {/* Approved content */}
-                  {approvedMatches.length > 0 && (
-                    <div className="space-y-2">
-                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                        Approved ({approvedMatches.length})
-                      </p>
-                      {approvedMatches.map((match) => (
-                        <CompactContentCard
-                          key={match.id}
-                          match={match}
-                          learningObjectiveId={learningObjective.id}
-                          onPreview={() => setPreviewMatch(match)}
-                          onRemove={() => updateStatus.mutate({ 
-                            matchId: match.id, 
-                            status: 'rejected',
-                            rejectionReason: 'Removed by instructor'
-                          })}
-                          formatDuration={formatDuration}
-                          getScoreColor={getScoreColor}
-                          isApproved
-                          isLoading={updateStatus.isPending}
+              ) : (
+                <div className="space-y-4">
+                  {/* Teaching Units Section - NEW */}
+                  {hasTeachingUnits ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                          <Layers className="h-3 w-3" />
+                          Teaching Units ({teachingUnits.length})
+                        </p>
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Badge variant="outline" className="text-[10px] cursor-help">
+                                <Brain className="h-2.5 w-2.5 mr-1" />
+                                AI Decomposed
+                              </Badge>
+                            </TooltipTrigger>
+                            <TooltipContent className="max-w-xs">
+                              <p className="text-xs">This learning objective has been analyzed and broken down into teachable micro-concepts for better video matching.</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </div>
+                      
+                      {teachingUnits.map(unit => (
+                        <TeachingUnitCard
+                          key={unit.id}
+                          unit={unit}
+                          contentMatches={contentMatches?.filter(m => m.teaching_unit_id === unit.id) || []}
+                          onSearch={() => searchForUnit.mutate(unit.id)}
+                          isSearching={searchForUnit.isPending}
                         />
                       ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-4 border border-dashed border-border rounded-lg">
+                      <Brain className="h-8 w-8 mx-auto mb-2 text-muted-foreground/50" />
+                      <p className="text-sm font-medium">Ready for Analysis</p>
+                      <p className="text-xs text-muted-foreground mb-3">
+                        Break down this learning objective into teachable concepts
+                      </p>
+                      <Button
+                        size="sm"
+                        onClick={() => decomposeMutation.mutate(learningObjective.id)}
+                        disabled={decomposeMutation.isPending}
+                        className="gap-1.5"
+                      >
+                        {decomposeMutation.isPending ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Sparkles className="h-3 w-3" />
+                        )}
+                        Analyze & Break Down
+                      </Button>
                     </div>
                   )}
 
-                  {/* Pending content */}
-                  {pendingMatches.length > 0 && (
-                    <div className="space-y-2">
-                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                        Pending Review ({pendingMatches.length})
-                      </p>
-                      {pendingMatches.map((match) => (
-                        <CompactContentCard
-                          key={match.id}
-                          match={match}
-                          learningObjectiveId={learningObjective.id}
-                          onPreview={() => setPreviewMatch(match)}
-                          onApprove={() => handleApprove(match)}
-                          onReject={() => updateStatus.mutate({ matchId: match.id, status: 'rejected' })}
-                          formatDuration={formatDuration}
-                          getScoreColor={getScoreColor}
-                          isLoading={updateStatus.isPending}
-                        />
-                      ))}
+                  {/* Existing content that isn't tied to teaching units */}
+                  {contentMatches && contentMatches.length > 0 && (
+                    <div className="space-y-3">
+                      {/* Approved content */}
+                      {approvedMatches.filter(m => !m.teaching_unit_id).length > 0 && (
+                        <div className="space-y-2">
+                          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                            Approved ({approvedMatches.filter(m => !m.teaching_unit_id).length})
+                          </p>
+                          {approvedMatches.filter(m => !m.teaching_unit_id).map((match) => (
+                            <CompactContentCard
+                              key={match.id}
+                              match={match}
+                              learningObjectiveId={learningObjective.id}
+                              onPreview={() => setPreviewMatch(match)}
+                              onRemove={() => updateStatus.mutate({ 
+                                matchId: match.id, 
+                                status: 'rejected',
+                                rejectionReason: 'Removed by instructor'
+                              })}
+                              formatDuration={formatDuration}
+                              getScoreColor={getScoreColor}
+                              isApproved
+                              isLoading={updateStatus.isPending}
+                            />
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Pending content */}
+                      {pendingMatches.filter(m => !m.teaching_unit_id).length > 0 && (
+                        <div className="space-y-2">
+                          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                            Pending Review ({pendingMatches.filter(m => !m.teaching_unit_id).length})
+                          </p>
+                          {pendingMatches.filter(m => !m.teaching_unit_id).map((match) => (
+                            <CompactContentCard
+                              key={match.id}
+                              match={match}
+                              learningObjectiveId={learningObjective.id}
+                              onPreview={() => setPreviewMatch(match)}
+                              onApprove={() => handleApprove(match)}
+                              onReject={() => updateStatus.mutate({ matchId: match.id, status: 'rejected' })}
+                              formatDuration={formatDuration}
+                              getScoreColor={getScoreColor}
+                              isLoading={updateStatus.isPending}
+                            />
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
-                </div>
-              ) : (
-                <div className="text-center py-6 text-muted-foreground">
-                  <Video className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                  <p className="text-sm">No content found yet</p>
-                  <p className="text-xs">Click "Find" to search for videos</p>
+                  
+                  {/* Empty state - only show if no content and no teaching units */}
+                  {(!contentMatches || contentMatches.length === 0) && !hasTeachingUnits && (
+                    <div className="text-center py-6 text-muted-foreground">
+                      <Video className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                      <p className="text-sm">No content found yet</p>
+                      <p className="text-xs">Click "Analyze & Break Down" or "Find" to search for videos</p>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

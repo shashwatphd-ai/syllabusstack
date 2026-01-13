@@ -104,3 +104,6 @@ verify_jwt = true
 
 [functions.generate-search-context]
 verify_jwt = true
+
+[functions.curriculum-reasoning-agent]
+verify_jwt = false
