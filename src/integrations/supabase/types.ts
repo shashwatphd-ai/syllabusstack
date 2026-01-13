@@ -691,6 +691,7 @@ export type Database = {
           rejection_reason: string | null
           semantic_similarity_score: number | null
           status: string | null
+          teaching_unit_id: string | null
         }
         Insert: {
           ai_concern?: string | null
@@ -713,6 +714,7 @@ export type Database = {
           rejection_reason?: string | null
           semantic_similarity_score?: number | null
           status?: string | null
+          teaching_unit_id?: string | null
         }
         Update: {
           ai_concern?: string | null
@@ -735,6 +737,7 @@ export type Database = {
           rejection_reason?: string | null
           semantic_similarity_score?: number | null
           status?: string | null
+          teaching_unit_id?: string | null
         }
         Relationships: [
           {
@@ -749,6 +752,13 @@ export type Database = {
             columns: ["learning_objective_id"]
             isOneToOne: false
             referencedRelation: "learning_objectives"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "content_matches_teaching_unit_id_fkey"
+            columns: ["teaching_unit_id"]
+            isOneToOne: false
+            referencedRelation: "teaching_units"
             referencedColumns: ["id"]
           },
         ]
@@ -1430,6 +1440,7 @@ export type Database = {
           core_concept: string | null
           course_id: string | null
           created_at: string | null
+          decomposition_status: string | null
           domain: string | null
           expected_duration_minutes: number | null
           id: string
@@ -1450,6 +1461,7 @@ export type Database = {
           core_concept?: string | null
           course_id?: string | null
           created_at?: string | null
+          decomposition_status?: string | null
           domain?: string | null
           expected_duration_minutes?: number | null
           id?: string
@@ -1470,6 +1482,7 @@ export type Database = {
           core_concept?: string | null
           course_id?: string | null
           created_at?: string | null
+          decomposition_status?: string | null
           domain?: string | null
           expected_duration_minutes?: number | null
           id?: string
@@ -1959,6 +1972,83 @@ export type Database = {
             columns: ["suggestion_id"]
             isOneToOne: false
             referencedRelation: "content_suggestions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      teaching_units: {
+        Row: {
+          avoid_terms: string[] | null
+          common_misconceptions: string[] | null
+          created_at: string | null
+          description: string | null
+          enables: string[] | null
+          how_to_teach: string | null
+          id: string
+          learning_objective_id: string
+          prerequisites: string[] | null
+          required_concepts: string[] | null
+          search_queries: string[]
+          sequence_order: number
+          status: string | null
+          target_duration_minutes: number | null
+          target_video_type: string | null
+          title: string
+          updated_at: string | null
+          videos_found_count: number | null
+          what_to_teach: string
+          why_this_matters: string | null
+        }
+        Insert: {
+          avoid_terms?: string[] | null
+          common_misconceptions?: string[] | null
+          created_at?: string | null
+          description?: string | null
+          enables?: string[] | null
+          how_to_teach?: string | null
+          id?: string
+          learning_objective_id: string
+          prerequisites?: string[] | null
+          required_concepts?: string[] | null
+          search_queries?: string[]
+          sequence_order: number
+          status?: string | null
+          target_duration_minutes?: number | null
+          target_video_type?: string | null
+          title: string
+          updated_at?: string | null
+          videos_found_count?: number | null
+          what_to_teach: string
+          why_this_matters?: string | null
+        }
+        Update: {
+          avoid_terms?: string[] | null
+          common_misconceptions?: string[] | null
+          created_at?: string | null
+          description?: string | null
+          enables?: string[] | null
+          how_to_teach?: string | null
+          id?: string
+          learning_objective_id?: string
+          prerequisites?: string[] | null
+          required_concepts?: string[] | null
+          search_queries?: string[]
+          sequence_order?: number
+          status?: string | null
+          target_duration_minutes?: number | null
+          target_video_type?: string | null
+          title?: string
+          updated_at?: string | null
+          videos_found_count?: number | null
+          what_to_teach?: string
+          why_this_matters?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "teaching_units_learning_objective_id_fkey"
+            columns: ["learning_objective_id"]
+            isOneToOne: false
+            referencedRelation: "learning_objectives"
             referencedColumns: ["id"]
           },
         ]
