@@ -61,9 +61,10 @@ export async function getQuotaUsage(apiName: ApiName): Promise<{
 
   try {
     // Try to get today's usage from api_usage_tracking table
+    // Note: actual column is 'usage_count' not 'units_used'
     const { data, error } = await supabase
       .from('api_usage_tracking')
-      .select('units_used, updated_at')
+      .select('usage_count, updated_at')
       .eq('api_name', apiName)
       .eq('date', today)
       .single();
@@ -73,7 +74,7 @@ export async function getQuotaUsage(apiName: ApiName): Promise<{
       console.error(`[QUOTA] Error fetching usage for ${apiName}:`, error);
     }
 
-    const used = data?.units_used || 0;
+    const used = data?.usage_count || 0;
 
     return {
       used,
@@ -105,14 +106,13 @@ export async function recordQuotaUsage(
   const today = getTodayDate();
 
   try {
-    // Upsert today's usage
+    // Upsert today's usage - actual column is 'usage_count' not 'units_used'
     const { error } = await supabase
       .from('api_usage_tracking')
       .upsert({
         api_name: apiName,
         date: today,
-        units_used: units,
-        operation_type: operationType || 'search',
+        usage_count: units,
         updated_at: new Date().toISOString(),
       }, {
         onConflict: 'api_name,date',

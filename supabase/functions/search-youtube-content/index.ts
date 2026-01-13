@@ -471,11 +471,17 @@ serve(async (req) => {
     let moduleContext: { title: string; description?: string } | undefined;
     let courseContext: { title: string; description?: string; code?: string; detected_domain?: string } | undefined;
 
+    // Fetch full LO data including text (in case it wasn't passed in request)
     const { data: loData } = await supabaseClient
       .from('learning_objectives')
-      .select('module_id, instructor_course_id')
+      .select('text, core_concept, bloom_level, action_verb, expected_duration_minutes, search_keywords, module_id, instructor_course_id')
       .eq('id', learning_objective_id)
       .single();
+
+    // Use fetched data as fallback for missing request params
+    const effectiveLoText = lo_text || loData?.text || core_concept || loData?.core_concept || '';
+    const effectiveCoreConcept = core_concept || loData?.core_concept || '';
+    const effectiveBloomLevel = bloom_level || loData?.bloom_level || 'understand';
 
     if (loData?.module_id) {
       const { data: module } = await supabaseClient
@@ -525,11 +531,11 @@ serve(async (req) => {
         body: JSON.stringify({
           learning_objective: {
             id: learning_objective_id,
-            text: lo_text || core_concept || '',
-            core_concept: core_concept || '',
-            bloom_level: bloom_level || 'understand',
-            action_verb: search_keywords?.[0],
-            expected_duration_minutes: expected_duration_minutes || 15,
+            text: effectiveLoText,
+            core_concept: effectiveCoreConcept,
+            bloom_level: effectiveBloomLevel,
+            action_verb: loData?.action_verb || search_keywords?.[0],
+            expected_duration_minutes: expected_duration_minutes || loData?.expected_duration_minutes || 15,
           },
           module: moduleContext,
           course: courseContext,
@@ -560,14 +566,14 @@ serve(async (req) => {
         queries = await generateSearchQueries(
           {
             id: learning_objective_id,
-            text: lo_text || core_concept || '',
-            core_concept: core_concept || '',
-            action_verb: search_keywords?.[0],
-            bloom_level: bloom_level || 'understand',
+            text: effectiveLoText,
+            core_concept: effectiveCoreConcept,
+            action_verb: loData?.action_verb || search_keywords?.[0],
+            bloom_level: effectiveBloomLevel,
             domain: domain || 'other',
             specificity: 'intermediate',
-            search_keywords: search_keywords || [],
-            expected_duration_minutes: expected_duration_minutes || 15,
+            search_keywords: search_keywords || loData?.search_keywords || [],
+            expected_duration_minutes: expected_duration_minutes || loData?.expected_duration_minutes || 15,
           },
           moduleContext,
           courseContext
@@ -575,11 +581,11 @@ serve(async (req) => {
         console.log(`Query Intelligence generated ${queries.length} queries:`, queries.slice(0, 3));
       } catch (qiError) {
         console.error('Query Intelligence failed, using fallback:', qiError);
-        // Fallback to basic queries
+        // Fallback to basic queries using effective values
         queries = [
-          `${core_concept} explained tutorial`,
-          `${core_concept} lecture educational`,
-          `${core_concept} course introduction`,
+          `${effectiveCoreConcept || effectiveLoText} explained tutorial`,
+          `${effectiveCoreConcept || effectiveLoText} lecture educational`,
+          `${effectiveCoreConcept || effectiveLoText} course introduction`,
         ];
       }
     }
