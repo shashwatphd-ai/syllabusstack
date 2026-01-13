@@ -26,6 +26,7 @@ export interface ContentMatch {
   id: string;
   learning_objective_id: string;
   content_id: string;
+  teaching_unit_id: string | null;  // NEW: Link to teaching unit
   match_score: number;
   duration_fit_score: number | null;
   semantic_similarity_score: number | null;
