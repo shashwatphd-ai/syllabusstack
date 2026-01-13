@@ -881,6 +881,7 @@ serve(async (req) => {
         .upsert({
           learning_objective_id,
           content_id: contentId,
+          teaching_unit_id: teaching_unit_id || null, // CRITICAL: Link to teaching unit if provided
           match_score: candidate.scores.total,
           duration_fit_score: candidate.scores.duration_fit,
           semantic_similarity_score: candidate.scores.semantic_similarity,
