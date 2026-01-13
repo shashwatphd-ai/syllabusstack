@@ -649,12 +649,12 @@ serve(async (req) => {
       try {
         const searchResult = await searchYouTubeOrchestrated({
           query: primaryQuery,
-          max_results: 20,  // Reduced for faster response
+          max_results: 20,
           min_results: 3,
           allow_youtube_api: true,
           priority: 'normal',
-          enrich_metadata: false,  // Skip metadata enrichment to save time
-          timeout_ms: 15000,  // Reduced from 30s to 15s for faster response
+          enrich_metadata: true,  // Re-enabled: needed to get proper titles
+          timeout_ms: 20000,
         });
 
         orchestratorSource = searchResult.source;
