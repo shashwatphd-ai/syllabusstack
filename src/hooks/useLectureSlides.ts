@@ -67,6 +67,36 @@ export function useLectureSlides(teachingUnitId?: string) {
 }
 
 /**
+ * Fetch a single lecture slide by ID (for student slide page)
+ */
+export function useLectureSlide(slideId?: string) {
+  return useQuery({
+    queryKey: ['lecture-slide', slideId],
+    queryFn: async () => {
+      if (!slideId) return null;
+      
+      const { data, error } = await supabase
+        .from('lecture_slides')
+        .select('*')
+        .eq('id', slideId)
+        .maybeSingle();
+      
+      if (error) throw error;
+      
+      if (data) {
+        return {
+          ...data,
+          slides: (data.slides as unknown as Slide[]) || [],
+        } as LectureSlide;
+      }
+      
+      return null;
+    },
+    enabled: !!slideId,
+  });
+}
+
+/**
  * Fetch all lecture slides for a course
  */
 export function useCourseLectureSlides(instructorCourseId?: string) {

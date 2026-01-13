@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, PlayCircle, CheckCircle2, Lock, Clock, AlertCircle, ChevronDown, ClipboardCheck, XCircle } from 'lucide-react';
+import { ArrowLeft, PlayCircle, CheckCircle2, Lock, Clock, AlertCircle, ChevronDown, ClipboardCheck, XCircle, Presentation } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { useLearningObjectiveProgress } from '@/hooks/useStudentCourses';
@@ -12,6 +12,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { VerifiedVideoPlayer } from '@/components/player/VerifiedVideoPlayer';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { StudentSlideViewer } from '@/components/slides/StudentSlideViewer';
+import { supabase } from '@/integrations/supabase/client';
+import { useQuery } from '@tanstack/react-query';
+import type { LectureSlide, Slide } from '@/hooks/useLectureSlides';
 
 export default function LearningObjectivePage() {
   const { loId } = useParams<{ loId: string }>();
@@ -20,7 +24,29 @@ export default function LearningObjectivePage() {
   const { data, isLoading, error } = useLearningObjectiveProgress(loId);
   const [selectedContentId, setSelectedContentId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [viewingSlide, setViewingSlide] = useState<LectureSlide | null>(null);
 
+  // Fetch published slides for this learning objective
+  const { data: lectureSlides } = useQuery({
+    queryKey: ['lo-published-slides', loId],
+    queryFn: async () => {
+      if (!loId) return [];
+      
+      const { data, error } = await supabase
+        .from('lecture_slides')
+        .select('*')
+        .eq('learning_objective_id', loId)
+        .eq('status', 'published');
+      
+      if (error) throw error;
+      
+      return (data || []).map(slide => ({
+        ...slide,
+        slides: (slide.slides as unknown as Slide[]) || [],
+      })) as LectureSlide[];
+    },
+    enabled: !!loId,
+  });
   // Get micro-checks for selected content
   const { data: microChecks } = useMicroChecks(selectedContentId || undefined);
   
@@ -277,6 +303,52 @@ export default function LearningObjectivePage() {
                 </CardContent>
               </Card>
 
+              {/* Lecture Slides Section */}
+              {lectureSlides && lectureSlides.length > 0 && (
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Presentation className="h-4 w-4" />
+                      Lecture Slides
+                    </CardTitle>
+                    <CardDescription>
+                      Self-guided lecture materials
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    {lectureSlides.map((slide) => (
+                      <Card
+                        key={slide.id}
+                        className="cursor-pointer transition-colors hover:bg-accent/50"
+                        onClick={() => setViewingSlide(slide)}
+                      >
+                        <CardContent className="p-3">
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 bg-primary/10 rounded-lg shrink-0">
+                              <Presentation className="h-4 w-4 text-primary" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium line-clamp-1">
+                                {slide.title}
+                              </p>
+                              <div className="flex items-center gap-2 mt-1">
+                                <span className="text-xs text-muted-foreground">
+                                  {slide.total_slides} slides
+                                </span>
+                                <span className="text-xs text-muted-foreground">•</span>
+                                <span className="text-xs text-muted-foreground">
+                                  ~{slide.estimated_duration_minutes || 10} min
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </CardContent>
+                </Card>
+              )}
+
               {/* Assessment CTA */}
               {learningObjective.verification_state === 'verified' && (
                 <Card className="border-primary">
@@ -315,6 +387,19 @@ export default function LearningObjectivePage() {
             </div>
           </div>
         </div>
+
+        {/* Slide Viewer Modal */}
+        {viewingSlide && (
+          <StudentSlideViewer
+            lectureSlide={viewingSlide}
+            unitTitle={viewingSlide.title}
+            onClose={() => setViewingSlide(null)}
+            onComplete={(watchPercentage) => {
+              console.log('Slide completed with', watchPercentage, '% viewed');
+              setViewingSlide(null);
+            }}
+          />
+        )}
       </PageContainer>
     </AppShell>
   );
