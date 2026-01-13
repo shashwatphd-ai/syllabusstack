@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, FileText, Video, CheckCircle2, Clock, AlertCircle, Settings2, Copy, Share2, Loader2, Sparkles, Users } from 'lucide-react';
+import { ArrowLeft, Plus, FileText, Video, CheckCircle2, Clock, AlertCircle, Settings2, Copy, Share2, Loader2, Sparkles, Users, Presentation } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { Button } from '@/components/ui/button';
@@ -16,6 +16,7 @@ import { useInstructorCourse, useModules, useCreateModule, useUpdateInstructorCo
 import { useLearningObjectives, useSearchYouTubeContent } from '@/hooks/useLearningObjectives';
 import { useContentStats } from '@/hooks/useContentStats';
 import { useLOContentStatus } from '@/hooks/useContentStats';
+import { useCourseLectureSlides, useBulkPublishSlides } from '@/hooks/useLectureSlides';
 import { LoadingState } from '@/components/common/LoadingState';
 import { EmptyState } from '@/components/common/EmptyState';
 import { UnifiedModuleCard } from '@/components/instructor/UnifiedModuleCard';
@@ -41,6 +42,16 @@ export default function InstructorCourseDetailPage() {
   const loIds = learningObjectives?.map(lo => lo.id) || [];
   const { data: contentStats } = useContentStats(loIds);
   const { data: loContentStatus } = useLOContentStatus(loIds);
+
+  // Get lecture slides stats
+  const { data: lectureSlides } = useCourseLectureSlides(id);
+  const bulkPublishSlides = useBulkPublishSlides();
+  
+  const slidesStats = {
+    total: lectureSlides?.length || 0,
+    ready: lectureSlides?.filter(s => s.status === 'ready').length || 0,
+    published: lectureSlides?.filter(s => s.status === 'published').length || 0,
+  };
 
   const [isModuleDialogOpen, setIsModuleDialogOpen] = useState(false);
   const [newModule, setNewModule] = useState({ title: '', description: '' });
@@ -313,12 +324,17 @@ export default function InstructorCourseDetailPage() {
             <Card>
               <CardContent className="p-4 sm:pt-6">
                 <div className="flex items-center gap-2 sm:gap-3">
-                  <div className="p-1.5 sm:p-2 bg-warning/10 rounded-lg shrink-0">
-                    <Clock className="h-4 w-4 sm:h-5 sm:w-5 text-warning" />
+                  <div className="p-1.5 sm:p-2 bg-purple-500/10 rounded-lg shrink-0">
+                    <Presentation className="h-4 w-4 sm:h-5 sm:w-5 text-purple-500" />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-xl sm:text-2xl font-bold">{course.verification_threshold}%</p>
-                    <p className="text-xs sm:text-sm text-muted-foreground">Pass Threshold</p>
+                    <p className="text-xl sm:text-2xl font-bold">{slidesStats.published}</p>
+                    <p className="text-xs sm:text-sm text-muted-foreground leading-tight">
+                      Published Slides
+                      {slidesStats.ready > 0 && (
+                        <span className="text-warning ml-1">({slidesStats.ready} ready)</span>
+                      )}
+                    </p>
                   </div>
                 </div>
               </CardContent>
@@ -375,6 +391,30 @@ export default function InstructorCourseDetailPage() {
                           )}
                         </Button>
                       )}
+                      
+                      {/* Bulk Publish Slides */}
+                      {slidesStats.ready > 0 && (
+                        <Button 
+                          variant="outline" 
+                          className="gap-2 min-h-11 flex-1 sm:flex-none"
+                          onClick={() => id && bulkPublishSlides.mutate(id)}
+                          disabled={bulkPublishSlides.isPending}
+                        >
+                          {bulkPublishSlides.isPending ? (
+                            <>
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              <span className="hidden sm:inline">Publishing...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Presentation className="h-4 w-4" />
+                              <span className="hidden sm:inline">Publish All Slides ({slidesStats.ready})</span>
+                              <span className="sm:hidden">Publish ({slidesStats.ready})</span>
+                            </>
+                          )}
+                        </Button>
+                      )}
+                      
                       <Dialog open={isModuleDialogOpen} onOpenChange={setIsModuleDialogOpen}>
                         <DialogTrigger asChild>
                           <Button className="gap-2 min-h-11">

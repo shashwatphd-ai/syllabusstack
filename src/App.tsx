@@ -33,7 +33,7 @@ import ResetPasswordPage from "./pages/ResetPassword";
 import InstructorCoursesPage from "./pages/instructor/InstructorCourses";
 import InstructorCourseDetailPage from "./pages/instructor/InstructorCourseDetail";
 import QuickCourseSetupPage from "./pages/instructor/QuickCourseSetup";
-import { StudentCoursesPage, StudentCourseDetailPage, LearningObjectivePage, AssessmentPage } from "./pages/student";
+import { StudentCoursesPage, StudentCourseDetailPage, LearningObjectivePage, AssessmentPage, StudentSlidePage } from "./pages/student";
 // Admin pages
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import UserManagement from "./pages/admin/UserManagement";
@@ -93,11 +93,12 @@ const App = () => (
             <Route path="/checkout" element={<AuthGuard><CheckoutPage /></AuthGuard>} />
             <Route path="/usage" element={<AuthGuard><UsagePage /></AuthGuard>} />
 
-            {/* Student learning routes - course detail and objectives */}
+            {/* Student learning routes - course detail, objectives, and slides */}
             <Route path="/learn/course/:id" element={<AuthGuard><StudentCourseDetailPage /></AuthGuard>} />
             <Route path="/learn/courses/:id" element={<AuthGuard><StudentCourseDetailPage /></AuthGuard>} />
             <Route path="/learn/objective/:loId/assess" element={<AuthGuard><AssessmentPage /></AuthGuard>} />
             <Route path="/learn/objective/:loId" element={<AuthGuard><LearningObjectivePage /></AuthGuard>} />
+            <Route path="/learn/slides/:slideId" element={<AuthGuard><StudentSlidePage /></AuthGuard>} />
 
             {/* Instructor routes */}
             <Route path="/instructor/courses" element={<AuthGuard><InstructorCoursesPage /></AuthGuard>} />
