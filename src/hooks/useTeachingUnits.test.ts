@@ -196,14 +196,14 @@ describe('useSearchForTeachingUnit', () => {
       wrapper: createWrapper(),
     });
 
-    await result.current.mutateAsync(mockUnit.id);
+    await result.current.mutate(mockUnit.id);
 
-    expect(mockInvoke).toHaveBeenCalledWith('search-youtube-content', {
-      body: {
+    expect(mockInvoke).toHaveBeenCalledWith('search-youtube-content', expect.objectContaining({
+      body: expect.objectContaining({
         learning_objective_id: 'test-lo-id',
         teaching_unit_id: mockUnit.id,
-      },
-    });
+      }),
+    }));
   });
 });
 

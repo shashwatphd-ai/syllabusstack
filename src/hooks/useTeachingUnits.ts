@@ -1,3 +1,4 @@
+import { useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -113,13 +114,29 @@ export function useUpdateTeachingUnitStatus() {
   });
 }
 
+/**
+ * Hook for searching content for a specific teaching unit.
+ * Returns per-unit loading state so only the clicked button shows spinner.
+ */
 export function useSearchForTeachingUnit() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const [searchingUnitId, setSearchingUnitId] = useState<string | null>(null);
   
-  return useMutation({
-    mutationFn: async (teachingUnitId: string) => {
-      // First get the teaching unit to get its LO id
+  const searchForUnit = useCallback(async (teachingUnitId: string) => {
+    if (searchingUnitId) {
+      toast({
+        title: 'Search in progress',
+        description: 'Please wait for the current search to complete.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
+    setSearchingUnitId(teachingUnitId);
+    
+    try {
+      // Get teaching unit with LO data
       const { data: unit, error: unitError } = await supabase
         .from('teaching_units')
         .select('*, learning_objective:learning_objective_id(*)')
@@ -134,83 +151,87 @@ export function useSearchForTeachingUnit() {
         .update({ status: 'searching' })
         .eq('id', teachingUnitId);
       
-      // Extract LO data from relation
+      // Invalidate to show searching status immediately
+      queryClient.invalidateQueries({ queryKey: ['teaching-units'] });
+      
       const lo = unit.learning_objective as any;
       
-      try {
-        // Call search with teaching unit context AND full LO data
-        // Use AbortController for timeout protection (45 seconds)
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 45000);
-        
-        const { data, error } = await supabase.functions.invoke('search-youtube-content', {
-          body: { 
-            learning_objective_id: unit.learning_objective_id,
-            teaching_unit_id: teachingUnitId,
-            // Pass LO data for AI evaluation
-            lo_text: lo?.text,
-            core_concept: lo?.core_concept,
-            bloom_level: lo?.bloom_level,
-            domain: lo?.domain,
-            search_keywords: lo?.search_keywords,
-            expected_duration_minutes: lo?.expected_duration_minutes,
-            instructor_course_id: lo?.instructor_course_id,
-            // Disable nested AI calls to speed up the search
-            use_ai_evaluation: true,
-          }
-        });
-        
-        clearTimeout(timeoutId);
-        
-        if (error) {
-          // Reset status on error
-          await supabase
-            .from('teaching_units')
-            .update({ status: 'pending' })
-            .eq('id', teachingUnitId);
-          throw error;
+      // Call search with timeout protection
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 45000);
+      
+      const { data, error } = await supabase.functions.invoke('search-youtube-content', {
+        body: { 
+          learning_objective_id: unit.learning_objective_id,
+          teaching_unit_id: teachingUnitId,
+          lo_text: lo?.text,
+          core_concept: lo?.core_concept,
+          bloom_level: lo?.bloom_level,
+          domain: lo?.domain,
+          search_keywords: lo?.search_keywords,
+          expected_duration_minutes: lo?.expected_duration_minutes,
+          instructor_course_id: lo?.instructor_course_id,
+          use_ai_evaluation: true,
+          enrich_metadata: true, // Enable metadata enrichment to get proper titles
         }
-        
-        // Update status to ready if we found videos
-        const videosFound = data?.total_found || data?.content_matches?.length || 0;
-        await supabase
-          .from('teaching_units')
-          .update({ status: videosFound > 0 ? 'ready' : 'pending' })
-          .eq('id', teachingUnitId);
-        
-        return { ...data, teachingUnitId };
-      } catch (err) {
-        // Reset status on any error (timeout, network, etc.)
-        await supabase
-          .from('teaching_units')
-          .update({ status: 'pending' })
-          .eq('id', teachingUnitId);
-        
-        if (err instanceof Error && err.name === 'AbortError') {
-          throw new Error('Search timed out. The server is busy. Please try again.');
-        }
-        throw err;
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (error) {
+        throw error;
       }
-    },
-    onSuccess: (data, teachingUnitId) => {
+      
+      // Update status based on results
+      const videosFound = data?.total_found || data?.content_matches?.length || 0;
+      await supabase
+        .from('teaching_units')
+        .update({ 
+          status: videosFound > 0 ? 'found' : 'pending',
+          videos_found_count: videosFound
+        })
+        .eq('id', teachingUnitId);
+      
       queryClient.invalidateQueries({ queryKey: ['teaching-units'] });
       queryClient.invalidateQueries({ queryKey: ['content-matches'] });
-      const videosFound = data?.total_found || data?.content_matches?.length || 0;
+      
       toast({
         title: 'Search Complete',
         description: videosFound > 0 
           ? `Found ${videosFound} videos for this concept`
           : 'No matching videos found. Try searching manually.',
       });
-    },
-    onError: (error: Error, teachingUnitId) => {
-      // Invalidate to refresh UI with reset status
+      
+      return data;
+    } catch (err) {
+      // Reset status on error
+      await supabase
+        .from('teaching_units')
+        .update({ status: 'pending' })
+        .eq('id', teachingUnitId);
+      
       queryClient.invalidateQueries({ queryKey: ['teaching-units'] });
+      
+      const message = err instanceof Error 
+        ? (err.name === 'AbortError' ? 'Search timed out. Please try again.' : err.message)
+        : 'Search failed';
+      
       toast({
         title: 'Search Failed',
-        description: error.message,
+        description: message,
         variant: 'destructive',
       });
-    },
-  });
+      
+      throw err;
+    } finally {
+      setSearchingUnitId(null);
+    }
+  }, [searchingUnitId, queryClient, toast]);
+
+  return {
+    mutate: searchForUnit,
+    searchingUnitId,
+    isSearching: (unitId: string) => searchingUnitId === unitId,
+    isPending: searchingUnitId !== null,
+  };
 }

@@ -317,7 +317,7 @@ export function UnifiedLOCard({ learningObjective, contentStatus }: UnifiedLOCar
                           unit={unit}
                           contentMatches={contentMatches?.filter(m => m.teaching_unit_id === unit.id) || []}
                           onSearch={() => searchForUnit.mutate(unit.id)}
-                          isSearching={searchForUnit.isPending}
+                          isSearching={searchForUnit.isSearching(unit.id)}
                         />
                       ))}
                     </div>
