@@ -150,19 +150,65 @@ function calculateRecencyScore(publishedAt: string): number {
   return 0.4;
 }
 
-function calculateSemanticSimilarity(videoText: string, loText: string, keywords: string[], coreConcept: string): number {
+/**
+ * Domain indicators for validating video relevance
+ */
+const DOMAIN_INDICATORS: Record<string, string[]> = {
+  business: ['company', 'market', 'strategy', 'management', 'competitive', 'industry', 'business', 'corporate', 'enterprise', 'profit', 'revenue', 'stakeholder', 'mba', 'case study'],
+  education: ['curriculum', 'teaching', 'classroom', 'pedagogy', 'instruction', 'school', 'k-12', 'elementary', 'secondary'],
+  technology: ['software', 'programming', 'code', 'algorithm', 'database', 'api', 'developer', 'tech', 'computer', 'digital'],
+  healthcare: ['patient', 'clinical', 'medical', 'health', 'hospital', 'diagnosis', 'treatment', 'physician', 'nurse'],
+  engineering: ['design', 'system', 'mechanical', 'electrical', 'civil', 'structural', 'circuit', 'manufacturing'],
+  finance: ['investment', 'stock', 'portfolio', 'banking', 'financial', 'asset', 'risk', 'return', 'capital'],
+  marketing: ['brand', 'consumer', 'advertising', 'campaign', 'customer', 'product', 'market research', 'promotion'],
+  science: ['experiment', 'hypothesis', 'research', 'data', 'analysis', 'study', 'scientific', 'laboratory'],
+  law: ['legal', 'court', 'attorney', 'litigation', 'contract', 'statute', 'regulation', 'compliance'],
+};
+
+/**
+ * Detect domain from course/module context
+ */
+function detectDomain(courseTitle: string, moduleTitle?: string): string | null {
+  const context = `${courseTitle} ${moduleTitle || ''}`.toLowerCase();
+  
+  for (const [domain, indicators] of Object.entries(DOMAIN_INDICATORS)) {
+    const matchCount = indicators.filter(ind => context.includes(ind)).length;
+    if (matchCount >= 2) return domain;
+  }
+  
+  // Check for common course patterns
+  if (context.includes('strategic') || context.includes('management') || context.includes('mba')) return 'business';
+  if (context.includes('computer') || context.includes('software') || context.includes('programming')) return 'technology';
+  if (context.includes('medical') || context.includes('health') || context.includes('nursing')) return 'healthcare';
+  
+  return null;
+}
+
+/**
+ * Enhanced semantic similarity with domain validation
+ * Phase 4: Adds domain mismatch penalty to reduce irrelevant matches
+ */
+function calculateSemanticSimilarity(
+  videoText: string, 
+  loText: string, 
+  keywords: string[], 
+  coreConcept: string,
+  courseDomain?: string | null
+): number {
   const videoLower = videoText.toLowerCase();
   const loLower = loText.toLowerCase();
   
   let score = 0;
   const maxScore = keywords.length + 5;
   
+  // Keyword matching
   for (const keyword of keywords) {
     if (keyword && videoLower.includes(keyword.toLowerCase())) {
       score += 1;
     }
   }
   
+  // Core concept matching (higher weight)
   const conceptWords = coreConcept?.toLowerCase().split(/\s+/) || [];
   for (const word of conceptWords) {
     if (word.length > 3 && videoLower.includes(word)) {
@@ -170,11 +216,38 @@ function calculateSemanticSimilarity(videoText: string, loText: string, keywords
     }
   }
   
+  // LO word matching
   const loWords = loLower.split(/\s+/).filter(w => w.length > 4);
   const matchedWords = loWords.filter(word => videoLower.includes(word)).length;
   score += matchedWords * 0.3;
   
-  return Math.min(score / maxScore, 1.0);
+  let baseScore = Math.min(score / maxScore, 1.0);
+  
+  // PHASE 4: Domain validation penalty
+  // If we know the course domain, check if video content matches that domain
+  if (courseDomain && DOMAIN_INDICATORS[courseDomain]) {
+    const expectedIndicators = DOMAIN_INDICATORS[courseDomain];
+    const hasRelevantDomain = expectedIndicators.some(ind => videoLower.includes(ind));
+    
+    // Check for domain mismatch (video is clearly about a different domain)
+    const otherDomainMatches: string[] = [];
+    for (const [domain, indicators] of Object.entries(DOMAIN_INDICATORS)) {
+      if (domain !== courseDomain) {
+        const matchCount = indicators.filter(ind => videoLower.includes(ind)).length;
+        if (matchCount >= 3) {
+          otherDomainMatches.push(domain);
+        }
+      }
+    }
+    
+    // Apply penalty if video doesn't match expected domain but matches another
+    if (!hasRelevantDomain && otherDomainMatches.length > 0) {
+      console.log(`[SEMANTIC] Domain mismatch detected: expected ${courseDomain}, found ${otherDomainMatches.join(',')}`);
+      baseScore = Math.max(0, baseScore - 0.3); // Significant penalty for domain mismatch
+    }
+  }
+  
+  return baseScore;
 }
 
 function calculateTotalScore(scores: ScoredContent['scores'], hasAI: boolean): number {
@@ -245,17 +318,59 @@ serve(async (req) => {
     console.log(`[UNIFIED SEARCH] LO: ${learning_objective_id}, AI Eval: ${use_ai_evaluation}, Sources: ${sources.join(',')}`);
 
     // =========================================================================
-    // STEP 0: Get existing matches to avoid duplicates
+    // STEP 0: Get existing matches to avoid duplicates (CROSS-LO DEDUPLICATION)
+    // Phase 1: Now checks ALL videos matched to ANY LO in this course, not just current LO
     // =========================================================================
     const existingVideoIds = new Set<string>();
-    const { data: existingMatches } = await supabaseClient
-      .from("content_matches")
-      .select(`content:content_id(source_id)`)
-      .eq("learning_objective_id", learning_objective_id);
-
-    existingMatches?.forEach((m: any) => {
-      if (m.content?.source_id) existingVideoIds.add(m.content.source_id);
-    });
+    
+    // First, get the instructor_course_id for this LO
+    const { data: loForCourse } = await supabaseClient
+      .from('learning_objectives')
+      .select('instructor_course_id')
+      .eq('id', learning_objective_id)
+      .single();
+    
+    const courseIdForDedup = loForCourse?.instructor_course_id || instructor_course_id;
+    
+    if (courseIdForDedup) {
+      // Get ALL videos already matched to ANY LO in this entire course
+      const { data: courseMatches, error: courseMatchError } = await supabaseClient
+        .from("content_matches")
+        .select(`
+          content_id,
+          content:content_id(source_id),
+          learning_objectives!inner(instructor_course_id)
+        `)
+        .eq('learning_objectives.instructor_course_id', courseIdForDedup);
+      
+      if (courseMatchError) {
+        console.log(`[DEDUP] Error fetching course matches, falling back to LO-only:`, courseMatchError.message);
+        // Fallback to current LO only
+        const { data: loMatches } = await supabaseClient
+          .from("content_matches")
+          .select(`content:content_id(source_id)`)
+          .eq("learning_objective_id", learning_objective_id);
+        
+        loMatches?.forEach((m: any) => {
+          if (m.content?.source_id) existingVideoIds.add(m.content.source_id);
+        });
+      } else {
+        courseMatches?.forEach((m: any) => {
+          if (m.content?.source_id) existingVideoIds.add(m.content.source_id);
+        });
+        console.log(`[DEDUP] Found ${existingVideoIds.size} videos already matched in course ${courseIdForDedup}`);
+      }
+    } else {
+      // No course context, fall back to current LO only
+      const { data: existingMatches } = await supabaseClient
+        .from("content_matches")
+        .select(`content:content_id(source_id)`)
+        .eq("learning_objective_id", learning_objective_id);
+      
+      existingMatches?.forEach((m: any) => {
+        if (m.content?.source_id) existingVideoIds.add(m.content.source_id);
+      });
+    }
 
     // =========================================================================
     // STEP 1: Check cache (with course context for dynamic synonym matching)
@@ -351,9 +466,10 @@ serve(async (req) => {
 
     // =========================================================================
     // STEP 2: Query Intelligence - Generate smart search queries
+    // Phase 3: Now includes AI-driven pre-search context generation
     // =========================================================================
     let moduleContext: { title: string; description?: string } | undefined;
-    let courseContext: { title: string; description?: string; code?: string } | undefined;
+    let courseContext: { title: string; description?: string; code?: string; detected_domain?: string } | undefined;
 
     const { data: loData } = await supabaseClient
       .from('learning_objectives')
@@ -375,41 +491,97 @@ serve(async (req) => {
     if (loData?.instructor_course_id || instructor_course_id) {
       const { data: course } = await supabaseClient
         .from('instructor_courses')
-        .select('title, description, code')
+        .select('title, description, code, detected_domain')
         .eq('id', loData?.instructor_course_id || instructor_course_id)
         .single();
       if (course) {
-        courseContext = { title: course.title, description: course.description, code: course.code };
+        courseContext = { 
+          title: course.title, 
+          description: course.description, 
+          code: course.code,
+          detected_domain: course.detected_domain 
+        };
       }
     }
 
+    // Detect domain from course context for semantic scoring
+    const detectedDomain = courseContext?.detected_domain || 
+      detectDomain(courseContext?.title || '', moduleContext?.title);
+    
+    console.log(`[DOMAIN] Detected domain: ${detectedDomain || 'unknown'}`);
+
     let queries: string[] = [];
+    let aiContextUsed = false;
+    
+    // Phase 3: Try AI-driven context generation first
     try {
-      console.log('Generating intelligent search queries...');
-      queries = await generateSearchQueries(
-        {
-          id: learning_objective_id,
-          text: lo_text || core_concept || '',
-          core_concept: core_concept || '',
-          action_verb: search_keywords?.[0],
-          bloom_level: bloom_level || 'understand',
-          domain: domain || 'other',
-          specificity: 'intermediate',
-          search_keywords: search_keywords || [],
-          expected_duration_minutes: expected_duration_minutes || 15,
+      console.log('[AI CONTEXT] Generating agentic search queries...');
+      const contextResponse = await fetch(`${supabaseUrl}/functions/v1/generate-search-context`, {
+        method: 'POST',
+        headers: {
+          'Authorization': authHeader,
+          'Content-Type': 'application/json',
         },
-        moduleContext,
-        courseContext
-      );
-      console.log(`Query Intelligence generated ${queries.length} queries:`, queries.slice(0, 3));
-    } catch (qiError) {
-      console.error('Query Intelligence failed, using fallback:', qiError);
-      // Fallback to basic queries
-      queries = [
-        `${core_concept} explained tutorial`,
-        `${core_concept} lecture educational`,
-        `${core_concept} course introduction`,
-      ];
+        body: JSON.stringify({
+          learning_objective: {
+            id: learning_objective_id,
+            text: lo_text || core_concept || '',
+            core_concept: core_concept || '',
+            bloom_level: bloom_level || 'understand',
+            action_verb: search_keywords?.[0],
+            expected_duration_minutes: expected_duration_minutes || 15,
+          },
+          module: moduleContext,
+          course: courseContext,
+        }),
+      });
+
+      if (contextResponse.ok) {
+        const contextData = await contextResponse.json();
+        if (contextData.queries && contextData.queries.length > 0) {
+          queries = contextData.queries;
+          aiContextUsed = true;
+          console.log(`[AI CONTEXT] Generated ${queries.length} AI-driven queries:`);
+          queries.forEach((q: string, i: number) => console.log(`  ${i + 1}. ${q}`));
+          console.log(`[AI CONTEXT] Domain: ${contextData.domain_context}`);
+          console.log(`[AI CONTEXT] Strategy: ${contextData.search_strategy}`);
+        }
+      } else {
+        console.log('[AI CONTEXT] AI context generation failed, falling back to Query Intelligence');
+      }
+    } catch (aiContextError) {
+      console.log('[AI CONTEXT] Error in AI context generation:', aiContextError);
+    }
+    
+    // Fall back to Query Intelligence if AI context failed
+    if (queries.length === 0) {
+      try {
+        console.log('Generating intelligent search queries with Query Intelligence...');
+        queries = await generateSearchQueries(
+          {
+            id: learning_objective_id,
+            text: lo_text || core_concept || '',
+            core_concept: core_concept || '',
+            action_verb: search_keywords?.[0],
+            bloom_level: bloom_level || 'understand',
+            domain: domain || 'other',
+            specificity: 'intermediate',
+            search_keywords: search_keywords || [],
+            expected_duration_minutes: expected_duration_minutes || 15,
+          },
+          moduleContext,
+          courseContext
+        );
+        console.log(`Query Intelligence generated ${queries.length} queries:`, queries.slice(0, 3));
+      } catch (qiError) {
+        console.error('Query Intelligence failed, using fallback:', qiError);
+        // Fallback to basic queries
+        queries = [
+          `${core_concept} explained tutorial`,
+          `${core_concept} lecture educational`,
+          `${core_concept} course introduction`,
+        ];
+      }
     }
 
     // =========================================================================
@@ -476,13 +648,15 @@ serve(async (req) => {
     // =========================================================================
     // STEP 4: Rule-Based Pre-Filter & Scoring
     // =========================================================================
+    // Phase 4: Now uses detectedDomain for semantic scoring with domain validation
     let scoredVideos: ScoredContent[] = allVideos.map((video) => {
       const durationFit = calculateDurationFitScore(video.duration, expected_duration_minutes || 15);
       const semanticSimilarity = calculateSemanticSimilarity(
         `${video.title} ${video.description}`,
         lo_text || core_concept || '',
         search_keywords || [],
-        core_concept || ""
+        core_concept || "",
+        detectedDomain  // Phase 4: Pass domain for validation
       );
       const engagementQuality = calculateEngagementScore(video.viewCount, video.likeCount);
       const channelAuthority = calculateChannelAuthorityScore(video.channelTitle);
@@ -599,7 +773,8 @@ serve(async (req) => {
       return true;
     });
 
-    const finalCandidates = viableCandidates.slice(0, 6);
+    // Phase 2: Increased from 6 to 10 to give instructors more options
+    const finalCandidates = viableCandidates.slice(0, 10);
 
     // =========================================================================
     // STEP 7: Save Content and Matches to Database
@@ -764,7 +939,9 @@ serve(async (req) => {
         viable_candidates: viableCandidates.length,
         auto_approved_count: allMatches.filter((m: any) => m.status === "auto_approved").length,
         ai_evaluation_used: use_ai_evaluation,
+        ai_context_used: aiContextUsed,  // Phase 3: Track AI context usage
         query_intelligence_used: queries.length > 0,
+        detected_domain: detectedDomain,  // Phase 4: Report detected domain
         khan_academy_supplement: khanMatches.length,
         sources_searched: sources,
         cached: false,
