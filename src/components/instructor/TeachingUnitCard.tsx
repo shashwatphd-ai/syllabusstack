@@ -89,52 +89,60 @@ export function TeachingUnitCard({
     <Collapsible open={isExpanded} onOpenChange={setIsExpanded}>
       <Card className={`border-l-4 ${hasContent ? 'border-l-green-500' : 'border-l-primary/30'}`}>
         <CollapsibleTrigger asChild>
-          <div className="flex items-center justify-between p-3 cursor-pointer hover:bg-muted/50 transition-colors">
-            <div className="flex items-center gap-3 flex-1 min-w-0">
-              {isExpanded ? (
-                <ChevronDown className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-              ) : (
-                <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-              )}
-              
-              <Badge variant="outline" className="flex-shrink-0">
-                {unit.sequence_order}
-              </Badge>
-              
-              <span className="font-medium truncate">{unit.title}</span>
-              
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Badge variant="secondary" className="flex-shrink-0 text-xs">
-                      {VIDEO_TYPE_ICONS[unit.target_video_type]} {VIDEO_TYPE_LABELS[unit.target_video_type]}
-                    </Badge>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Target video type: {unit.target_video_type}</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-              
-              <span className="text-xs text-muted-foreground flex-shrink-0">
-                ~{unit.target_duration_minutes}m
-              </span>
+          <div className="p-3 cursor-pointer hover:bg-muted/50 transition-colors">
+            {/* Mobile-first layout: Stack on small screens, row on larger */}
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              {/* Title row */}
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                {isExpanded ? (
+                  <ChevronDown className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                ) : (
+                  <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                )}
+                
+                <Badge variant="outline" className="flex-shrink-0 h-5 w-5 p-0 justify-center text-xs">
+                  {unit.sequence_order}
+                </Badge>
+                
+                <span className="font-medium text-sm truncate flex-1">{unit.title}</span>
+              </div>
+
+              {/* Badges row - wraps on mobile */}
+              <div className="flex items-center gap-1.5 flex-wrap pl-6 sm:pl-0">
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Badge variant="secondary" className="flex-shrink-0 text-xs py-0.5">
+                        {VIDEO_TYPE_ICONS[unit.target_video_type]} {VIDEO_TYPE_LABELS[unit.target_video_type]}
+                      </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Target video type: {unit.target_video_type}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+                
+                <span className="text-xs text-muted-foreground flex-shrink-0">
+                  ~{unit.target_duration_minutes}m
+                </span>
+
+                {getStatusBadge(currentStatus, unitMatches.length)}
+                
+                {approvedVideos.length > 0 && (
+                  <Badge variant="default" className="bg-green-600 text-xs py-0.5">
+                    {approvedVideos.length} ✓
+                  </Badge>
+                )}
+                {pendingVideos.length > 0 && (
+                  <Badge variant="outline" className="border-amber-500 text-amber-600 text-xs py-0.5">
+                    {pendingVideos.length} review
+                  </Badge>
+                )}
+              </div>
             </div>
             
-            <div className="flex items-center gap-2 flex-shrink-0">
-              {getStatusBadge(currentStatus, unitMatches.length)}
-              
-              {approvedVideos.length > 0 && (
-                <Badge variant="default" className="bg-green-600">
-                  {approvedVideos.length} ✓
-                </Badge>
-              )}
-              {pendingVideos.length > 0 && (
-                <Badge variant="outline" className="border-amber-500 text-amber-600">
-                  {pendingVideos.length} review
-                </Badge>
-              )}
-              
+            {/* Actions row - always visible at bottom on mobile */}
+            <div className="flex items-center gap-2 mt-2 pl-6 sm:pl-0 sm:justify-end">
               {/* Create Lecture button */}
               {onCreateLecture && (
                 <TooltipProvider>
@@ -148,18 +156,23 @@ export function TeachingUnitCard({
                           onCreateLecture(unit);
                         }}
                         disabled={isGeneratingSlides}
-                        className="gap-1"
+                        className="gap-1 h-8 text-xs"
                       >
                         {isGeneratingSlides ? (
                           <Loader2 className="h-3 w-3 animate-spin" />
                         ) : (
                           <Presentation className="h-3 w-3" />
                         )}
-                        {existingSlides ? (
-                          existingSlides.status === 'published' ? 'Slides ✓' : 'View Slides'
-                        ) : (
-                          'Create Lecture'
-                        )}
+                        <span className="hidden xs:inline">
+                          {existingSlides ? (
+                            existingSlides.status === 'published' ? 'Slides ✓' : 'View'
+                          ) : (
+                            'Create Lecture'
+                          )}
+                        </span>
+                        <span className="xs:hidden">
+                          {existingSlides ? '✓' : 'Lecture'}
+                        </span>
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
@@ -179,7 +192,7 @@ export function TeachingUnitCard({
                   onSearch(unit);
                 }}
                 disabled={isSearching || unit.status === 'searching'}
-                className="gap-1"
+                className="gap-1 h-8 text-xs"
               >
                 {isSearching || unit.status === 'searching' ? (
                   <Loader2 className="h-3 w-3 animate-spin" />
