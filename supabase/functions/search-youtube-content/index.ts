@@ -300,6 +300,7 @@ serve(async (req) => {
 
     const { 
       learning_objective_id, 
+      teaching_unit_id, // NEW: Optional - if provided, search for this specific teaching unit only
       core_concept, 
       bloom_level, 
       domain, 
@@ -315,7 +316,59 @@ serve(async (req) => {
       throw new Error("learning_objective_id is required");
     }
 
-    console.log(`[UNIFIED SEARCH] LO: ${learning_objective_id}, AI Eval: ${use_ai_evaluation}, Sources: ${sources.join(',')}`);
+    console.log(`[UNIFIED SEARCH] LO: ${learning_objective_id}, Teaching Unit: ${teaching_unit_id || 'all'}, AI Eval: ${use_ai_evaluation}`);
+
+    // =========================================================================
+    // STEP 0.5: Check for Teaching Units (Curriculum Reasoning Agent)
+    // If no teaching units exist, trigger decomposition first
+    // =========================================================================
+    let teachingUnits: any[] = [];
+    
+    // Fetch existing teaching units for this LO
+    const { data: existingUnits, error: unitsError } = await supabaseClient
+      .from('teaching_units')
+      .select('*')
+      .eq('learning_objective_id', learning_objective_id)
+      .order('sequence_order');
+    
+    if (!unitsError && existingUnits && existingUnits.length > 0) {
+      teachingUnits = existingUnits;
+      console.log(`[TEACHING UNITS] Found ${teachingUnits.length} existing teaching units`);
+    } else {
+      // No teaching units exist - trigger curriculum reasoning agent to decompose
+      console.log('[TEACHING UNITS] No units found, triggering curriculum decomposition...');
+      
+      try {
+        const decomposeResponse = await fetch(`${supabaseUrl}/functions/v1/curriculum-reasoning-agent`, {
+          method: 'POST',
+          headers: {
+            'Authorization': authHeader,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ learning_objective_id }),
+        });
+        
+        if (decomposeResponse.ok) {
+          const decomposeData = await decomposeResponse.json();
+          if (decomposeData.success && decomposeData.teaching_units) {
+            teachingUnits = decomposeData.teaching_units;
+            console.log(`[TEACHING UNITS] Decomposition created ${teachingUnits.length} units`);
+          }
+        } else {
+          console.log('[TEACHING UNITS] Decomposition failed, falling back to LO-level search');
+        }
+      } catch (decomposeError) {
+        console.error('[TEACHING UNITS] Decomposition error:', decomposeError);
+      }
+    }
+
+    // If searching for a specific teaching unit, filter to just that one
+    if (teaching_unit_id) {
+      teachingUnits = teachingUnits.filter((u: any) => u.id === teaching_unit_id);
+      console.log(`[TEACHING UNITS] Filtering to specific unit: ${teaching_unit_id}`);
+    }
+
+    
 
     // =========================================================================
     // STEP 0: Get existing matches to avoid duplicates (CROSS-LO DEDUPLICATION)

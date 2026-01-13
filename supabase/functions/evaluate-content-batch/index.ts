@@ -35,7 +35,7 @@ serve(async (req) => {
       throw new Error('LOVABLE_API_KEY is not configured');
     }
 
-    const { learning_objective, videos } = await req.json();
+    const { learning_objective, teaching_unit, videos } = await req.json();
 
     if (!learning_objective || !videos || !Array.isArray(videos)) {
       return new Response(JSON.stringify({ error: 'learning_objective and videos array are required' }), {
@@ -43,6 +43,9 @@ serve(async (req) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+
+    // NEW: Check if we have teaching unit context for enhanced evaluation
+    const hasTeachingUnit = teaching_unit && teaching_unit.title;
 
     if (videos.length === 0) {
       return new Response(JSON.stringify({ evaluations: [] }), {
@@ -67,7 +70,69 @@ serve(async (req) => {
 
 Be honest and critical - not all videos are good matches. A great video for "understanding" might be poor for "applying" the same concept.`;
 
-    const userPrompt = `Evaluate these YouTube videos for pedagogical fit with this learning objective:
+    // Build the user prompt - enhanced when teaching unit context is available
+    let userPrompt: string;
+    
+    if (hasTeachingUnit) {
+      // ENHANCED PROMPT: Use teaching unit context for micro-concept evaluation
+      userPrompt = `Evaluate these YouTube videos for THIS SPECIFIC micro-concept within a larger learning objective:
+
+TEACHING UNIT: "${teaching_unit.title}"
+WHAT TO TEACH: ${teaching_unit.what_to_teach}
+${teaching_unit.why_this_matters ? `WHY IT MATTERS: ${teaching_unit.why_this_matters}` : ''}
+IDEAL VIDEO TYPE: ${teaching_unit.target_video_type || 'explainer'}
+${teaching_unit.required_concepts?.length > 0 ? `REQUIRED CONCEPTS: ${teaching_unit.required_concepts.join(', ')}` : ''}
+${teaching_unit.avoid_terms?.length > 0 ? `AVOID: ${teaching_unit.avoid_terms.join(', ')}` : ''}
+TARGET DURATION: ~${teaching_unit.target_duration_minutes || 10} minutes
+
+OVERALL LEARNING OBJECTIVE: ${learning_objective.text}
+BLOOM'S LEVEL: ${bloomLevel.toUpperCase()}
+
+VIDEOS TO EVALUATE:
+${videoListText}
+
+Score each video on how well it teaches THIS SPECIFIC micro-concept "${teaching_unit.title}" (not the overall LO).
+A video that thoroughly explains "${teaching_unit.what_to_teach}" should score 80+.
+A video that covers the general topic but not this specific aspect should score 50-70.
+A video that is off-topic or only tangentially related should score below 50.
+
+For each video, score it on three dimensions (each 0-100):
+
+1. RELEVANCE (0-100): Does it cover the exact micro-concept "${teaching_unit.title}"?
+   - 80-100: Directly teaches this specific concept
+   - 50-79: Related to the overall topic but not this specific aspect
+   - 0-49: Off-topic or wrong focus
+
+2. PEDAGOGY (0-100): Is it the right video type (${teaching_unit.target_video_type || 'explainer'}) for learning this concept?
+   - 80-100: Perfect match for the teaching approach needed
+   - 50-79: Acceptable but could be better
+   - 0-49: Wrong approach (e.g., overview when tutorial needed)
+
+3. QUALITY (0-100): Is it well-produced and engaging?
+   - 80-100: Professional, clear, engaging
+   - 50-79: Acceptable quality
+   - 0-49: Poor quality, hard to follow
+
+Return ONLY valid JSON in this exact format:
+{
+  "evaluations": [
+    {
+      "video_id": "the VIDEO_ID from above",
+      "relevance_score": 85,
+      "pedagogy_score": 72,
+      "quality_score": 80,
+      "total_score": 79,
+      "reasoning": "2-3 sentence explanation focusing on how well it teaches ${teaching_unit.title}",
+      "recommendation": "highly_recommended|recommended|acceptable|not_recommended",
+      "concern": null or "brief concern if any"
+    }
+  ]
+}
+
+Note: total_score = (relevance_score * 0.4) + (pedagogy_score * 0.35) + (quality_score * 0.25)`;
+    } else {
+      // STANDARD PROMPT: Original LO-level evaluation (fallback)
+      userPrompt = `Evaluate these YouTube videos for pedagogical fit with this learning objective:
 
 LEARNING OBJECTIVE: "${learning_objective.text}"
 
@@ -115,8 +180,10 @@ Return ONLY valid JSON in this exact format:
 }
 
 Note: total_score = (relevance_score * 0.4) + (pedagogy_score * 0.35) + (quality_score * 0.25)`;
+    }
 
-    console.log(`Evaluating ${videosToEvaluate.length} videos for LO: ${learning_objective.id}`);
+    console.log(`Evaluating ${videosToEvaluate.length} videos for LO: ${learning_objective.id}${hasTeachingUnit ? `, Teaching Unit: ${teaching_unit.id}` : ''}`);
+
 
     const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
