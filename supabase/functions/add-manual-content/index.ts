@@ -1,6 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
 
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
+const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -44,7 +46,7 @@ serve(async (req) => {
     const thumbnail_url = body.thumbnail_url;
     const duration_seconds = body.duration_seconds;
     const view_count = body.view_count;
-    const published_at = body.published_at;
+    const raw_published_at = body.published_at;
     const source_type = body.source_type || 'youtube';
     const source_url = body.source_url;
 
@@ -55,6 +57,51 @@ serve(async (req) => {
 
     console.log(`Adding manual content (${source_type}): ${video_id} for LO ${learning_objective_id}`);
 
+    // Parse relative dates like "6 years ago" to actual timestamps
+    function parsePublishedAt(value: string | null): string | null {
+      if (!value) return null;
+      
+      // If it's already a valid ISO date, return it
+      const isoDate = new Date(value);
+      if (!isNaN(isoDate.getTime()) && value.includes('-')) {
+        return isoDate.toISOString();
+      }
+      
+      // Handle relative dates like "6 years ago", "3 months ago", "2 weeks ago"
+      const relativeMatch = value.match(/(\d+)\s*(year|month|week|day|hour|minute)s?\s*ago/i);
+      if (relativeMatch) {
+        const amount = parseInt(relativeMatch[1]);
+        const unit = relativeMatch[2].toLowerCase();
+        const now = new Date();
+        
+        switch (unit) {
+          case 'year':
+            now.setFullYear(now.getFullYear() - amount);
+            break;
+          case 'month':
+            now.setMonth(now.getMonth() - amount);
+            break;
+          case 'week':
+            now.setDate(now.getDate() - (amount * 7));
+            break;
+          case 'day':
+            now.setDate(now.getDate() - amount);
+            break;
+          case 'hour':
+            now.setHours(now.getHours() - amount);
+            break;
+          case 'minute':
+            now.setMinutes(now.getMinutes() - amount);
+            break;
+        }
+        return now.toISOString();
+      }
+      
+      // If we can't parse it, return null
+      console.log(`[MANUAL CONTENT] Could not parse published_at: "${value}", using null`);
+      return null;
+    }
+
     // Fetch video details from YouTube if not provided (only for YouTube source)
     let title = video_title;
     let description = video_description;
@@ -63,7 +110,7 @@ serve(async (req) => {
     let durationSeconds = duration_seconds || 0;
     let viewCount = view_count || 0;
     let likeCount = 0;
-    let publishedAt = published_at || null;
+    let publishedAt = parsePublishedAt(raw_published_at);
 
     // If we don't have title and it's a YouTube video, fetch from YouTube API
     if (!title && source_type === 'youtube') {
@@ -179,20 +226,98 @@ serve(async (req) => {
       );
     }
 
-    // Create content match (pending review)
+    // Get LO text for AI evaluation
+    const { data: loData } = await supabaseClient
+      .from("learning_objectives")
+      .select("text, bloom_level, core_concept, instructor_course_id")
+      .eq("id", learning_objective_id)
+      .single();
+
+    const loText = loData?.text || "";
+
+    // Perform AI evaluation for manual content (same as automated search)
+    let aiEvaluation = null;
+    try {
+      console.log(`[MANUAL CONTENT] Requesting AI evaluation for video: ${title}`);
+      
+      const evalResponse = await fetch(`${SUPABASE_URL}/functions/v1/evaluate-content-batch`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          learning_objective: {
+            id: learning_objective_id,
+            text: loText,
+            bloom_level: loData?.bloom_level,
+            core_concept: loData?.core_concept,
+          },
+          videos: [{
+            video_id: video_id,
+            title: title || "Unknown Title",
+            description: description || "",
+            channel_name: channelName || "",
+            duration_seconds: durationSeconds,
+          }],
+        }),
+      });
+
+      if (evalResponse.ok) {
+        const evalData = await evalResponse.json();
+        if (evalData.evaluations && evalData.evaluations.length > 0) {
+          aiEvaluation = evalData.evaluations[0];
+          console.log(`[MANUAL CONTENT] AI evaluation: ${aiEvaluation.recommendation}`);
+        }
+      } else {
+        console.log(`[MANUAL CONTENT] AI evaluation failed: ${evalResponse.status}`);
+      }
+    } catch (evalError) {
+      console.log(`[MANUAL CONTENT] AI evaluation error:`, evalError);
+    }
+
+    // Create content match with AI evaluation data
+    const matchData: Record<string, unknown> = {
+      learning_objective_id,
+      content_id: contentId,
+      match_score: 0.7, // Default score for manually added
+      duration_fit_score: 0.7,
+      semantic_similarity_score: 0.7,
+      engagement_quality_score: 0.5,
+      channel_authority_score: 0.5,
+      recency_score: 0.5,
+      status: "pending", // Manual content needs review
+    };
+
+    // Add AI evaluation results if available
+    if (aiEvaluation) {
+      matchData.ai_reasoning = aiEvaluation.reasoning || null;
+      matchData.ai_recommendation = aiEvaluation.recommendation || null;
+      matchData.ai_concern = aiEvaluation.concern || null;
+      matchData.ai_relevance_score = aiEvaluation.relevance_score ?? null;
+      matchData.ai_pedagogy_score = aiEvaluation.pedagogy_score ?? null;
+      matchData.ai_quality_score = aiEvaluation.quality_score ?? null;
+      
+      // Calculate combined score with AI
+      if (aiEvaluation.relevance_score != null) {
+        const aiScore = (
+          (aiEvaluation.relevance_score || 0) * 0.4 +
+          (aiEvaluation.pedagogy_score || 0) * 0.35 +
+          (aiEvaluation.quality_score || 0) * 0.25
+        );
+        matchData.match_score = Math.round(aiScore * 100) / 100;
+      }
+      
+      // Auto-approve if AI highly recommends
+      if (aiEvaluation.recommendation === 'highly_recommended') {
+        matchData.status = 'auto_approved';
+        matchData.approved_at = new Date().toISOString();
+      }
+    }
+
     const { data: match, error: matchError } = await supabaseClient
       .from("content_matches")
-      .insert({
-        learning_objective_id,
-        content_id: contentId,
-        match_score: 0.7, // Default score for manually added
-        duration_fit_score: 0.7,
-        semantic_similarity_score: 0.7,
-        engagement_quality_score: 0.5,
-        channel_authority_score: 0.5,
-        recency_score: 0.5,
-        status: "pending", // Manual content needs review
-      })
+      .insert(matchData)
       .select(`
         *,
         content:content_id(*)
@@ -204,13 +329,14 @@ serve(async (req) => {
       throw new Error("Failed to create content match");
     }
 
-    console.log(`Manual content added: ${contentId}`);
+    console.log(`Manual content added: ${contentId}${aiEvaluation ? ` (AI: ${aiEvaluation.recommendation})` : ''}`);
 
     return new Response(
       JSON.stringify({
         success: true,
         content_match: match,
         content_id: contentId,
+        ai_evaluated: !!aiEvaluation,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
