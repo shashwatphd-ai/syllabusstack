@@ -329,26 +329,55 @@ serve(async (req) => {
       }
     }
 
-    // Create or update slide record with 'generating' status
-    const { data: slideRecord, error: insertError } = await supabase
+    // Check for existing slide record first
+    const { data: existingRecord } = await supabase
       .from('lecture_slides')
-      .upsert({
-        teaching_unit_id,
-        learning_objective_id: lo.id,
-        instructor_course_id: lo.instructor_course.id,
-        title: unit.title,
-        status: 'generating',
-        slide_style: style,
-        created_by: userId,
-      }, {
-        onConflict: 'teaching_unit_id',
-      })
-      .select()
-      .single();
+      .select('id')
+      .eq('teaching_unit_id', teaching_unit_id)
+      .maybeSingle();
 
-    if (insertError) {
-      console.error('[generate-lecture-slides] Error creating slide record:', insertError);
-      throw insertError;
+    let slideRecord;
+    
+    if (existingRecord) {
+      // Update existing record
+      const { data: updated, error: updateErr } = await supabase
+        .from('lecture_slides')
+        .update({
+          title: unit.title,
+          status: 'generating',
+          slide_style: style,
+          error_message: null,
+        })
+        .eq('id', existingRecord.id)
+        .select()
+        .single();
+        
+      if (updateErr) {
+        console.error('[generate-lecture-slides] Error updating slide record:', updateErr);
+        throw updateErr;
+      }
+      slideRecord = updated;
+    } else {
+      // Create new record
+      const { data: inserted, error: insertErr } = await supabase
+        .from('lecture_slides')
+        .insert({
+          teaching_unit_id,
+          learning_objective_id: lo.id,
+          instructor_course_id: lo.instructor_course.id,
+          title: unit.title,
+          status: 'generating',
+          slide_style: style,
+          created_by: userId,
+        })
+        .select()
+        .single();
+        
+      if (insertErr) {
+        console.error('[generate-lecture-slides] Error creating slide record:', insertErr);
+        throw insertErr;
+      }
+      slideRecord = inserted;
     }
 
     // Build prompts and call AI
