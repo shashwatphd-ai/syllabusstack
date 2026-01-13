@@ -136,36 +136,41 @@ RESPONSE FORMAT (JSON only):
 }
 
 async function callAI(systemPrompt: string, userPrompt: string): Promise<DecomposeResponse> {
-  const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
+  const lovableApiKey = Deno.env.get('LOVABLE_API_KEY');
   
-  if (!openAIApiKey) {
-    throw new Error('OPENAI_API_KEY not configured');
+  if (!lovableApiKey) {
+    throw new Error('LOVABLE_API_KEY not configured');
   }
 
-  console.log('[curriculum-reasoning-agent] Calling OpenAI for decomposition...');
+  console.log('[curriculum-reasoning-agent] Calling Lovable AI Gateway for decomposition...');
   
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+  const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${openAIApiKey}`,
+      'Authorization': `Bearer ${lovableApiKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'gpt-4o', // Strong reasoning model for curriculum design
+      model: 'google/gemini-2.5-pro', // Strong reasoning model for curriculum design
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt }
       ],
-      temperature: 0.7,
-      max_tokens: 4000,
-      response_format: { type: "json_object" }
     }),
   });
 
   if (!response.ok) {
     const error = await response.text();
-    console.error('[curriculum-reasoning-agent] OpenAI API error:', error);
-    throw new Error(`OpenAI API error: ${response.status}`);
+    console.error('[curriculum-reasoning-agent] Lovable AI Gateway error:', error);
+    
+    if (response.status === 429) {
+      throw new Error('Rate limit exceeded. Please try again later.');
+    }
+    if (response.status === 402) {
+      throw new Error('AI credits exhausted. Please add funds to your workspace.');
+    }
+    
+    throw new Error(`AI Gateway error: ${response.status}`);
   }
 
   const data = await response.json();
@@ -177,8 +182,15 @@ async function callAI(systemPrompt: string, userPrompt: string): Promise<Decompo
 
   console.log('[curriculum-reasoning-agent] Raw AI response length:', content.length);
   
+  // Try to extract JSON from the response (may be wrapped in markdown)
+  let jsonContent = content;
+  const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (jsonMatch) {
+    jsonContent = jsonMatch[1].trim();
+  }
+  
   try {
-    const parsed = JSON.parse(content);
+    const parsed = JSON.parse(jsonContent);
     return parsed as DecomposeResponse;
   } catch (e) {
     console.error('[curriculum-reasoning-agent] Failed to parse AI response:', content.substring(0, 500));
