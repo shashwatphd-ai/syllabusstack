@@ -1,7 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { useState, useEffect } from 'react';
 
+// Legacy slide format (v1)
 export interface Slide {
   order: number;
   type: 'title' | 'objectives' | 'prerequisites' | 'concept' | 'example' | 
@@ -14,16 +16,58 @@ export interface Slide {
   audio_duration_seconds?: number;
 }
 
+// Enhanced slide format (v2) - research-grounded with citations
+export interface EnhancedSlide {
+  order: number;
+  type: 'title' | 'definition' | 'explanation' | 'example' | 'process' | 
+        'diagram' | 'misconception' | 'case_study' | 'summary' | 'assessment';
+  title: string;
+  content: {
+    main_text: string;
+    bullets?: string[];
+    definition?: {
+      term: string;
+      meaning: string;
+      source: string;
+    };
+    steps?: {
+      step: number;
+      title: string;
+      explanation: string;
+    }[];
+    example?: {
+      scenario: string;
+      explanation: string;
+      source?: string;
+    };
+  };
+  visual: {
+    type: 'diagram' | 'image' | 'chart' | 'none';
+    url?: string;
+    alt_text: string;
+    source?: string;
+    fallback_description: string;
+  };
+  speaker_notes: string;
+  speaker_notes_duration_seconds?: number;
+  citations: {
+    claim: string;
+    source: string;
+    url?: string;
+  }[];
+  quality_score?: number;
+}
+
 export interface LectureSlide {
   id: string;
   teaching_unit_id: string;
   learning_objective_id: string;
   instructor_course_id: string;
   title: string;
-  slides: Slide[];
+  slides: Slide[] | EnhancedSlide[];
   total_slides: number;
   estimated_duration_minutes: number | null;
-  slide_style: 'standard' | 'minimal' | 'detailed' | 'interactive';
+  slide_style: 'standard' | 'minimal' | 'detailed' | 'interactive' | 'professional';
   generation_context: Record<string, unknown> | null;
   generation_model: string | null;
   status: 'pending' | 'generating' | 'ready' | 'published' | 'failed';
@@ -33,6 +77,25 @@ export interface LectureSlide {
   created_at: string;
   updated_at: string;
   created_by: string | null;
+  // V2 fields
+  research_context?: {
+    definitions?: any[];
+    examples?: any[];
+    citations?: any[];
+  };
+  generation_phases?: {
+    current_phase?: string;
+    progress_percent?: number;
+    completed?: string;
+  };
+  quality_score?: number;
+  citation_count?: number;
+  is_research_grounded?: boolean;
+}
+
+// Type guard to check if slides are enhanced (v2) format
+export function isEnhancedSlide(slide: Slide | EnhancedSlide): slide is EnhancedSlide {
+  return 'content' in slide && typeof slide.content === 'object' && 'main_text' in (slide.content || {});
 }
 
 /**
@@ -150,7 +213,7 @@ export function usePublishedLectureSlides(instructorCourseId?: string) {
 }
 
 /**
- * Generate lecture slides for a teaching unit
+ * Generate lecture slides for a teaching unit (v1 - basic)
  */
 export function useGenerateLectureSlides() {
   const queryClient = useQueryClient();
@@ -204,6 +267,95 @@ export function useGenerateLectureSlides() {
       });
     },
   });
+}
+
+/**
+ * Generate expert lecture slides with multi-agent research (v2)
+ * Uses: Research Agent (Firecrawl), Curriculum Agent (GPT-5.2), 
+ * Synthesis Agent (Gemini Pro), Quality Agent (Gemini Flash)
+ */
+export function useGenerateExpertLectureSlides() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const [progress, setProgress] = useState<{
+    phase: string;
+    percent: number;
+    message: string;
+  } | null>(null);
+  
+  const mutation = useMutation({
+    mutationFn: async ({ 
+      teachingUnitId, 
+      style = 'professional',
+      regenerate = false,
+    }: { 
+      teachingUnitId: string; 
+      style?: 'professional' | 'academic' | 'casual';
+      regenerate?: boolean;
+    }) => {
+      setProgress({ phase: 'starting', percent: 0, message: 'Initializing multi-agent generation...' });
+      
+      const { data, error } = await supabase.functions.invoke('generate-lecture-slides-v2', {
+        body: { 
+          teaching_unit_id: teachingUnitId,
+          style,
+          regenerate,
+        }
+      });
+      
+      if (error) throw error;
+      if (!data.success) throw new Error(data.error || 'Generation failed');
+      
+      return data;
+    },
+    onSuccess: (data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['lecture-slides', variables.teachingUnitId] });
+      queryClient.invalidateQueries({ queryKey: ['course-lecture-slides'] });
+      
+      setProgress(null);
+      
+      toast({
+        title: '🎓 Expert Slides Generated',
+        description: `Created ${data.slideCount} research-grounded slides with ${data.citationCount} citations (Quality: ${data.qualityScore}%)`,
+      });
+    },
+    onError: (error: Error) => {
+      setProgress(null);
+      toast({
+        title: 'Generation Failed',
+        description: error.message,
+        variant: 'destructive',
+      });
+    },
+  });
+
+  // Poll for progress updates
+  useEffect(() => {
+    if (!mutation.isPending) return;
+    
+    const phases = [
+      { phase: 'research', percent: 20, message: '🔍 Research Agent: Finding authoritative sources...' },
+      { phase: 'visual', percent: 35, message: '🖼️ Visual Agent: Discovering diagrams and images...' },
+      { phase: 'curriculum', percent: 50, message: '📚 Curriculum Agent: Designing pedagogical structure...' },
+      { phase: 'synthesis', percent: 80, message: '✍️ Synthesis Agent: Creating detailed content...' },
+      { phase: 'quality', percent: 95, message: '✅ Quality Agent: Validating slides...' },
+    ];
+    
+    let currentPhaseIndex = 0;
+    const interval = setInterval(() => {
+      if (currentPhaseIndex < phases.length) {
+        setProgress(phases[currentPhaseIndex]);
+        currentPhaseIndex++;
+      }
+    }, 8000); // Roughly estimate phase timing
+    
+    return () => clearInterval(interval);
+  }, [mutation.isPending]);
+
+  return {
+    ...mutation,
+    progress,
+  };
 }
 
 /**
