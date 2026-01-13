@@ -67,7 +67,7 @@ export interface LectureSlide {
   slides: Slide[] | EnhancedSlide[];
   total_slides: number;
   estimated_duration_minutes: number | null;
-  slide_style: 'standard' | 'minimal' | 'detailed' | 'interactive' | 'professional';
+  slide_style: 'standard' | 'minimal' | 'detailed' | 'interactive';
   generation_context: Record<string, unknown> | null;
   generation_model: string | null;
   status: 'pending' | 'generating' | 'ready' | 'published' | 'failed';
@@ -228,11 +228,11 @@ export function useGenerateLectureSlides() {
   const mutation = useMutation({
     mutationFn: async ({ 
       teachingUnitId, 
-      style = 'professional',
+      style = 'standard',
       regenerate = false,
     }: { 
       teachingUnitId: string; 
-      style?: 'professional' | 'academic' | 'casual' | 'standard' | 'minimal' | 'detailed' | 'interactive';
+      style?: 'standard' | 'minimal' | 'detailed' | 'interactive';
       regenerate?: boolean;
     }) => {
       setProgress({ phase: 'starting', percent: 0, message: 'Initializing multi-agent generation...' });
