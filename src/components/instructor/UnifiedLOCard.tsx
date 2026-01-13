@@ -4,15 +4,18 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+
 import { LearningObjective, ContentMatch, useContentMatches, useSearchYouTubeContent, useUpdateContentMatchStatus } from '@/hooks/useLearningObjectives';
 import { useVideoOtherMatches } from '@/hooks/useVideoOtherMatches';
 import { useGenerateMicroChecks } from '@/hooks/useAssessment';
-import { useTeachingUnits, useDecomposeLearningObjective, useSearchForTeachingUnit } from '@/hooks/useTeachingUnits';
+import { useTeachingUnits, useDecomposeLearningObjective, useSearchForTeachingUnit, TeachingUnit } from '@/hooks/useTeachingUnits';
+import { useCourseLectureSlides, useGenerateLectureSlides } from '@/hooks/useLectureSlides';
 import { VideoPreviewModal } from './VideoPreviewModal';
 import { ManualContentSearch } from './ManualContentSearch';
 import { AddVideoByURL } from './AddVideoByURL';
 import { ContentAssistantChat } from './ContentAssistantChat';
 import { TeachingUnitCard } from './TeachingUnitCard';
+import { LectureSlideViewer } from '@/components/slides/LectureSlideViewer';
 
 interface UnifiedLOCardProps {
   learningObjective: LearningObjective;
@@ -63,21 +66,50 @@ export function UnifiedLOCard({ learningObjective, contentStatus }: UnifiedLOCar
   const [showManualSearch, setShowManualSearch] = useState(false);
   const [showAddByURL, setShowAddByURL] = useState(false);
   const [showAIAssistant, setShowAIAssistant] = useState(false);
+  const [slideViewerUnit, setSlideViewerUnit] = useState<TeachingUnit | null>(null);
 
   const { data: contentMatches, isLoading: loadingMatches } = useContentMatches(isOpen ? learningObjective.id : undefined);
   const searchContent = useSearchYouTubeContent();
   const updateStatus = useUpdateContentMatchStatus();
   const generateMicroChecks = useGenerateMicroChecks();
   
-  // NEW: Teaching Units integration
+  // Teaching Units integration
   const { data: teachingUnits, isLoading: loadingUnits } = useTeachingUnits(isOpen ? learningObjective.id : undefined);
   const decomposeMutation = useDecomposeLearningObjective();
   const searchForUnit = useSearchForTeachingUnit();
+  
+  // Lecture Slides integration
+  const { data: courseLectureSlides } = useCourseLectureSlides(learningObjective.instructor_course_id || undefined);
+  const generateSlidesMutation = useGenerateLectureSlides();
+  
+  // Map teaching unit IDs to their slides
+  const slidesByUnitId = (courseLectureSlides || []).reduce((acc, slide) => {
+    acc[slide.teaching_unit_id] = slide;
+    return acc;
+  }, {} as Record<string, typeof courseLectureSlides[0]>);
 
   const pendingMatches = contentMatches?.filter(m => m.status === 'pending') || [];
   const approvedMatches = contentMatches?.filter(m => m.status === 'approved' || m.status === 'auto_approved') || [];
   
   const hasTeachingUnits = teachingUnits && teachingUnits.length > 0;
+  
+  // Handle lecture slide creation/viewing
+  const handleCreateLecture = async (unit: TeachingUnit) => {
+    const existingSlide = slidesByUnitId[unit.id];
+    
+    if (existingSlide && existingSlide.status !== 'failed') {
+      // Open existing slides in viewer
+      setSlideViewerUnit(unit);
+    } else {
+      // Generate new slides
+      await generateSlidesMutation.mutateAsync({ 
+        teachingUnitId: unit.id,
+        regenerate: existingSlide?.status === 'failed'
+      });
+      // After generation, open the viewer
+      setSlideViewerUnit(unit);
+    }
+  };
 
   const getBloomInfo = (level: string | null) => {
     return bloomDescriptions[level || ''] || { 
@@ -318,6 +350,9 @@ export function UnifiedLOCard({ learningObjective, contentStatus }: UnifiedLOCar
                           contentMatches={contentMatches?.filter(m => m.teaching_unit_id === unit.id) || []}
                           onSearch={() => searchForUnit.mutate(unit.id)}
                           isSearching={searchForUnit.isSearching(unit.id)}
+                          onCreateLecture={handleCreateLecture}
+                          isGeneratingSlides={generateSlidesMutation.isPending && generateSlidesMutation.variables?.teachingUnitId === unit.id}
+                          existingSlides={slidesByUnitId[unit.id] || null}
                         />
                       ))}
                     </div>
@@ -441,6 +476,16 @@ export function UnifiedLOCard({ learningObjective, contentStatus }: UnifiedLOCar
         onOpenChange={setShowAddByURL}
         learningObjectiveId={learningObjective.id}
       />
+
+      {/* Lecture Slide Viewer Dialog */}
+      {slideViewerUnit && slidesByUnitId[slideViewerUnit.id] && (
+        <LectureSlideViewer
+          lectureSlide={slidesByUnitId[slideViewerUnit.id]}
+          teachingUnit={slideViewerUnit}
+          open={!!slideViewerUnit}
+          onOpenChange={(open) => !open && setSlideViewerUnit(null)}
+        />
+      )}
     </>
   );
 }
