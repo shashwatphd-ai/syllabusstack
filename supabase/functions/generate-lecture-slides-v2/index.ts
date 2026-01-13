@@ -6,9 +6,24 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+type SlideStyle = 'standard' | 'minimal' | 'detailed' | 'interactive';
+
+function normalizeSlideStyle(input: unknown): SlideStyle {
+  const v = typeof input === 'string' ? input.toLowerCase().trim() : '';
+
+  // Back-compat / UI aliases
+  if (v === 'professional') return 'detailed';
+  if (v === 'academic') return 'detailed';
+  if (v === 'casual') return 'standard';
+
+  if (v === 'standard' || v === 'minimal' || v === 'detailed' || v === 'interactive') return v;
+  return 'standard';
+}
+
 // ============================================================================
 // TYPE DEFINITIONS
 // ============================================================================
+
 
 interface EnhancedSlide {
   order: number;
@@ -688,7 +703,8 @@ serve(async (req) => {
   const startTime = Date.now();
 
   try {
-    const { teaching_unit_id, style = 'professional', regenerate = false } = await req.json();
+    const { teaching_unit_id, style, regenerate = false } = await req.json();
+    const slideStyle = normalizeSlideStyle(style);
     
     if (!teaching_unit_id) {
       return new Response(
@@ -805,6 +821,7 @@ serve(async (req) => {
         .update({
           status: 'generating',
           error_message: null,
+          slide_style: slideStyle,
           generation_phases: { started: new Date().toISOString(), current_phase: 'research', progress_percent: 0 },
         })
         .eq('id', existingRecord.id)
@@ -823,7 +840,7 @@ serve(async (req) => {
           instructor_course_id: course.id,
           title: unit.title,
           status: 'generating',
-          slide_style: style,
+          slide_style: slideStyle,
           created_by: userId,
           generation_phases: { started: new Date().toISOString(), current_phase: 'research', progress_percent: 0 },
         })
