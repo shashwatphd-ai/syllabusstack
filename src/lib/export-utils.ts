@@ -61,7 +61,7 @@ export async function fetchExportData(): Promise<ExportData> {
     gapAnalysisResult,
     recommendationsResult,
   ] = await Promise.all([
-    supabase.from('profiles').select('*').eq('user_id', user.id).single(),
+    supabase.from('profiles').select('id, user_id, full_name, email, university, major, student_level, graduation_year, avatar_url, subscription_tier, created_at').eq('user_id', user.id).single(),
     supabase.from('dream_jobs').select('*').eq('user_id', user.id),
     supabase.from('capabilities').select('*').eq('user_id', user.id),
     supabase.from('courses').select('*').eq('user_id', user.id),
