@@ -2388,6 +2388,7 @@ export type Database = {
           linked_course_code: string | null
           linked_course_title: string | null
           linked_external_url: string | null
+          price_known: boolean | null
           priority: string | null
           provider: string | null
           status: string | null
