@@ -36,6 +36,7 @@ export function AppShell({ children, showSearch = true }: AppShellProps) {
         <AppHeader 
           onMenuClick={() => setMobileNavOpen(true)}
           showSearch={showSearch}
+          sidebarCollapsed={sidebarCollapsed}
         />
         <main className="flex-1 p-6">
           {children}

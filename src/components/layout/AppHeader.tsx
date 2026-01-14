@@ -44,9 +44,10 @@ import {
 interface AppHeaderProps {
   onMenuClick?: () => void;
   showSearch?: boolean;
+  sidebarCollapsed?: boolean;
 }
 
-export function AppHeader({ onMenuClick, showSearch = true }: AppHeaderProps) {
+export function AppHeader({ onMenuClick, showSearch = true, sidebarCollapsed = false }: AppHeaderProps) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [popoverOpen, setPopoverOpen] = useState(false);
   const location = useLocation();
@@ -95,8 +96,9 @@ export function AppHeader({ onMenuClick, showSearch = true }: AppHeaderProps) {
   return (
     <header className="h-16 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-40">
       <div className="h-full px-4 flex items-center justify-between gap-4">
-        {/* Left side - Menu button and title */}
-        <div className="flex items-center gap-4">
+        {/* Left side - Menu button, branding, and title */}
+        <div className="flex items-center gap-3">
+          {/* Menu button - mobile only */}
           <Button
             variant="ghost"
             size="icon"
@@ -106,7 +108,26 @@ export function AppHeader({ onMenuClick, showSearch = true }: AppHeaderProps) {
             <Menu className="h-5 w-5" />
           </Button>
           
-          {/* Page title - visible on all screens now */}
+          {/* Branding - show on mobile always, on desktop when sidebar collapsed */}
+          <div className={cn(
+            "flex items-center gap-2",
+            "lg:hidden", // Always show on mobile
+            sidebarCollapsed && "lg:flex" // Also show on desktop when collapsed
+          )}>
+            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
+              <GraduationCap className="h-5 w-5 text-primary-foreground" />
+            </div>
+            <span className="text-lg font-bold hidden sm:block">SyllabusStack</span>
+          </div>
+          
+          {/* Separator - when branding is visible */}
+          <div className={cn(
+            "h-6 w-px bg-border hidden",
+            "sm:block lg:hidden",
+            sidebarCollapsed && "lg:block"
+          )} />
+          
+          {/* Page title */}
           <h1 className="text-lg font-semibold text-foreground truncate max-w-[150px] sm:max-w-none">
             {getPageTitle()}
           </h1>
