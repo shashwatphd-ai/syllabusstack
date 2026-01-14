@@ -1667,6 +1667,13 @@ export type Database = {
             referencedRelation: "micro_checks"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "micro_check_results_micro_check_id_fkey"
+            columns: ["micro_check_id"]
+            isOneToOne: false
+            referencedRelation: "micro_checks_student"
+            referencedColumns: ["id"]
+          },
         ]
       }
       micro_checks: {
@@ -2313,6 +2320,50 @@ export type Database = {
       }
     }
     Views: {
+      micro_checks_student: {
+        Row: {
+          content_id: string | null
+          created_at: string | null
+          id: string | null
+          options: Json | null
+          question_text: string | null
+          question_type: string | null
+          rewind_target_seconds: number | null
+          time_limit_seconds: number | null
+          trigger_time_seconds: number | null
+        }
+        Insert: {
+          content_id?: string | null
+          created_at?: string | null
+          id?: string | null
+          options?: never
+          question_text?: string | null
+          question_type?: string | null
+          rewind_target_seconds?: number | null
+          time_limit_seconds?: number | null
+          trigger_time_seconds?: number | null
+        }
+        Update: {
+          content_id?: string | null
+          created_at?: string | null
+          id?: string | null
+          options?: never
+          question_text?: string | null
+          question_type?: string | null
+          rewind_target_seconds?: number | null
+          time_limit_seconds?: number | null
+          trigger_time_seconds?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "micro_checks_content_id_fkey"
+            columns: ["content_id"]
+            isOneToOne: false
+            referencedRelation: "content"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       recommendations_with_links: {
         Row: {
           cost_usd: number | null
@@ -2575,6 +2626,14 @@ export type Database = {
       track_api_usage: {
         Args: { p_api_name: string; p_units?: number }
         Returns: number
+      }
+      validate_micro_check_answer: {
+        Args: {
+          p_micro_check_id: string
+          p_selected_option_index?: number
+          p_user_answer: string
+        }
+        Returns: Json
       }
     }
     Enums: {

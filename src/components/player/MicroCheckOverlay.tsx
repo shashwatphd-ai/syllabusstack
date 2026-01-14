@@ -1,27 +1,28 @@
 import { useState, useEffect } from 'react';
-import { AlertCircle, CheckCircle, XCircle, Clock } from 'lucide-react';
+import { AlertCircle, CheckCircle, XCircle, Clock, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
+// Secure interface - does NOT include correct_answer or is_correct in options
 interface MicroCheck {
   id: string;
   trigger_time_seconds: number;
   question_text: string;
   question_type: 'recall' | 'mcq';
-  options?: { text: string; is_correct?: boolean }[];
-  correct_answer: string;
+  options?: { text: string }[]; // No is_correct - hidden from client
   rewind_target_seconds?: number;
   time_limit_seconds?: number;
 }
 
 interface MicroCheckOverlayProps {
   microCheck: MicroCheck;
-  onAnswer: (isCorrect: boolean) => void;
+  onAnswer: (microCheckId: string, userAnswer?: string, selectedOptionIndex?: number) => void;
   isFailed: boolean;
+  isValidating?: boolean;
 }
 
-export function MicroCheckOverlay({ microCheck, onAnswer, isFailed }: MicroCheckOverlayProps) {
+export function MicroCheckOverlay({ microCheck, onAnswer, isFailed, isValidating }: MicroCheckOverlayProps) {
   const [answer, setAnswer] = useState('');
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
   // Use time_limit_seconds from database, default to 30 seconds
@@ -47,20 +48,21 @@ export function MicroCheckOverlay({ microCheck, onAnswer, isFailed }: MicroCheck
   }, [isFailed, hasSubmitted]);
 
   const handleSubmit = (timedOut = false) => {
-    if (hasSubmitted) return;
+    if (hasSubmitted || isValidating) return;
     setHasSubmitted(true);
 
     if (timedOut) {
-      onAnswer(false);
+      // Timeout - send empty answer for server to mark as incorrect
+      onAnswer(microCheck.id, '', undefined);
       return;
     }
 
     if (microCheck.question_type === 'mcq') {
-      const correctIndex = microCheck.options?.findIndex(o => o.is_correct);
-      onAnswer(selectedOption === correctIndex);
+      // Send selected option index to server for validation
+      onAnswer(microCheck.id, undefined, selectedOption ?? undefined);
     } else {
-      const isCorrect = answer.toLowerCase().trim() === microCheck.correct_answer.toLowerCase().trim();
-      onAnswer(isCorrect);
+      // Send text answer to server for validation
+      onAnswer(microCheck.id, answer.trim(), undefined);
     }
   };
 
@@ -131,12 +133,17 @@ export function MicroCheckOverlay({ microCheck, onAnswer, isFailed }: MicroCheck
             className="w-full"
             onClick={() => handleSubmit()}
             disabled={
+              isValidating ||
               (microCheck.question_type === 'mcq' && selectedOption === null) ||
               (microCheck.question_type === 'recall' && !answer.trim())
             }
           >
-            <CheckCircle className="h-4 w-4 mr-2" />
-            Submit Answer
+            {isValidating ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <CheckCircle className="h-4 w-4 mr-2" />
+            )}
+            {isValidating ? 'Checking...' : 'Submit Answer'}
           </Button>
         </CardContent>
       </Card>
