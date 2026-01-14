@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { VisuallyHidden } from '@radix-ui/react-visually-hidden';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -115,6 +116,9 @@ export function LectureSlideViewer({
           isFullscreen && "max-w-full h-full rounded-none"
         )}
       >
+        <VisuallyHidden>
+          <DialogTitle>{lectureSlide.title}</DialogTitle>
+        </VisuallyHidden>
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b bg-background/95 backdrop-blur">
           <div className="flex items-center gap-3">
