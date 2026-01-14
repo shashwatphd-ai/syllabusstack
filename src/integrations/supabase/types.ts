@@ -442,7 +442,6 @@ export type Database = {
       capability_profiles: {
         Row: {
           capabilities_by_theme: Json | null
-          capability_embedding: string | null
           combined_capability_text: string | null
           course_count: number | null
           created_at: string
@@ -452,7 +451,6 @@ export type Database = {
         }
         Insert: {
           capabilities_by_theme?: Json | null
-          capability_embedding?: string | null
           combined_capability_text?: string | null
           course_count?: number | null
           created_at?: string
@@ -462,7 +460,6 @@ export type Database = {
         }
         Update: {
           capabilities_by_theme?: Json | null
-          capability_embedding?: string | null
           combined_capability_text?: string | null
           course_count?: number | null
           created_at?: string
@@ -1356,7 +1353,6 @@ export type Database = {
           last_queried_at: string | null
           query_count: number | null
           realistic_bar: string | null
-          requirements_embedding: string | null
           requirements_text: string
         }
         Insert: {
@@ -1370,7 +1366,6 @@ export type Database = {
           last_queried_at?: string | null
           query_count?: number | null
           realistic_bar?: string | null
-          requirements_embedding?: string | null
           requirements_text: string
         }
         Update: {
@@ -1384,7 +1379,6 @@ export type Database = {
           last_queried_at?: string | null
           query_count?: number | null
           realistic_bar?: string | null
-          requirements_embedding?: string | null
           requirements_text?: string
         }
         Relationships: []
