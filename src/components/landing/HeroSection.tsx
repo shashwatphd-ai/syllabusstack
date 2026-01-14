@@ -1,8 +1,14 @@
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, Sparkles, Target, BookOpen } from "lucide-react";
+import { ArrowRight, GraduationCap, BookOpen, Users, Video, CheckCircle, Sparkles } from "lucide-react";
+import { useState } from "react";
+import { cn } from "@/lib/utils";
+
+type Audience = "students" | "instructors";
 
 export function HeroSection() {
+  const [audience, setAudience] = useState<Audience>("students");
+
   return (
     <section className="relative min-h-screen bg-hero overflow-hidden">
       {/* Background decoration */}
@@ -23,90 +29,212 @@ export function HeroSection() {
 
       <div className="relative container mx-auto px-6 pt-32 pb-20">
         <div className="max-w-4xl mx-auto text-center">
-          {/* Badge */}
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-coral-500/10 border border-coral-500/20 text-coral-300 text-sm font-medium mb-8 animate-fade-up">
-            <Sparkles className="w-4 h-4" />
-            <span>AI-Powered Career Intelligence</span>
+          {/* Audience toggle */}
+          <div className="inline-flex items-center gap-1 p-1 rounded-full bg-primary-foreground/10 border border-primary-foreground/20 mb-8 animate-fade-up">
+            <button
+              onClick={() => setAudience("students")}
+              className={cn(
+                "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all",
+                audience === "students"
+                  ? "bg-coral-500 text-white shadow-lg"
+                  : "text-primary-foreground/70 hover:text-primary-foreground"
+              )}
+            >
+              <GraduationCap className="w-4 h-4" />
+              I'm a Student
+            </button>
+            <button
+              onClick={() => setAudience("instructors")}
+              className={cn(
+                "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all",
+                audience === "instructors"
+                  ? "bg-coral-500 text-white shadow-lg"
+                  : "text-primary-foreground/70 hover:text-primary-foreground"
+              )}
+            >
+              <BookOpen className="w-4 h-4" />
+              I'm an Educator
+            </button>
           </div>
 
-          {/* Main headline */}
-          <h1 className="text-4xl sm:text-5xl lg:text-7xl font-extrabold text-primary-foreground leading-tight mb-6 animate-fade-up" style={{ animationDelay: '0.1s' }}>
-            Know Your{" "}
-            <span className="relative">
-              <span className="text-gradient bg-gradient-to-r from-coral-300 to-coral-500">Real</span>
-              <svg className="absolute -bottom-2 left-0 w-full h-3 text-coral-500/30" viewBox="0 0 200 12" preserveAspectRatio="none">
-                <path d="M0,8 Q50,0 100,8 T200,8" fill="none" stroke="currentColor" strokeWidth="4"/>
-              </svg>
-            </span>{" "}
-            Job Readiness
-          </h1>
-
-          {/* Subheadline */}
-          <p className="text-lg sm:text-xl text-primary-foreground/70 max-w-2xl mx-auto mb-10 animate-fade-up" style={{ animationDelay: '0.2s' }}>
-            Stop guessing. Upload your coursework, add your dream jobs, and get 
-            <span className="text-coral-300 font-semibold"> honest AI analysis</span> of exactly 
-            where you stand—and what to do next.
-          </p>
-
-          {/* CTA buttons */}
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16 animate-fade-up" style={{ animationDelay: '0.3s' }}>
-            <Button asChild variant="hero" size="xl" className="group">
-              <Link to="/auth">
-                Get Started Free
-                <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-              </Link>
-            </Button>
-            <Button asChild variant="heroOutline" size="xl">
-              <a href="#how-it-works">See How It Works</a>
-            </Button>
-          </div>
-
-          {/* Stats row */}
-          <div className="grid grid-cols-3 gap-8 max-w-xl mx-auto animate-fade-up" style={{ animationDelay: '0.4s' }}>
-            <div className="text-center">
-              <div className="text-3xl sm:text-4xl font-bold text-primary-foreground mb-1">94%</div>
-              <div className="text-sm text-primary-foreground/50">Accuracy Rate</div>
-            </div>
-            <div className="text-center border-x border-primary-foreground/10">
-              <div className="text-3xl sm:text-4xl font-bold text-primary-foreground mb-1">10K+</div>
-              <div className="text-sm text-primary-foreground/50">Students Helped</div>
-            </div>
-            <div className="text-center">
-              <div className="text-3xl sm:text-4xl font-bold text-primary-foreground mb-1">500+</div>
-              <div className="text-sm text-primary-foreground/50">Universities</div>
-            </div>
-          </div>
+          {/* Dynamic content based on audience */}
+          {audience === "students" ? (
+            <StudentHero />
+          ) : (
+            <InstructorHero />
+          )}
         </div>
 
-        {/* Feature cards floating */}
-        <div className="absolute left-8 top-1/2 hidden xl:block animate-float" style={{ animationDelay: '0s' }}>
-          <div className="bg-primary-foreground/5 backdrop-blur-xl border border-primary-foreground/10 rounded-2xl p-4 shadow-xl">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-coral-500/20 flex items-center justify-center">
-                <Target className="w-5 h-5 text-coral-400" />
-              </div>
-              <div>
-                <div className="text-sm font-semibold text-primary-foreground">Gap Analysis</div>
-                <div className="text-xs text-primary-foreground/50">Find your gaps</div>
+        {/* Floating feature cards */}
+        {audience === "students" ? (
+          <>
+            <div className="absolute left-8 top-1/2 hidden xl:block animate-float" style={{ animationDelay: '0s' }}>
+              <div className="bg-primary-foreground/5 backdrop-blur-xl border border-primary-foreground/10 rounded-2xl p-4 shadow-xl">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-coral-500/20 flex items-center justify-center">
+                    <Sparkles className="w-5 h-5 text-coral-400" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold text-primary-foreground">Gap Analysis</div>
+                    <div className="text-xs text-primary-foreground/50">See what's missing</div>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-        </div>
 
-        <div className="absolute right-8 top-1/3 hidden xl:block animate-float" style={{ animationDelay: '2s' }}>
-          <div className="bg-primary-foreground/5 backdrop-blur-xl border border-primary-foreground/10 rounded-2xl p-4 shadow-xl">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-coral-500/20 flex items-center justify-center">
-                <BookOpen className="w-5 h-5 text-coral-400" />
-              </div>
-              <div>
-                <div className="text-sm font-semibold text-primary-foreground">Smart Recs</div>
-                <div className="text-xs text-primary-foreground/50">Actionable steps</div>
+            <div className="absolute right-8 top-1/3 hidden xl:block animate-float" style={{ animationDelay: '2s' }}>
+              <div className="bg-primary-foreground/5 backdrop-blur-xl border border-primary-foreground/10 rounded-2xl p-4 shadow-xl">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-coral-500/20 flex items-center justify-center">
+                    <CheckCircle className="w-5 h-5 text-coral-400" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold text-primary-foreground">Action Plan</div>
+                    <div className="text-xs text-primary-foreground/50">Know what to do next</div>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-        </div>
+          </>
+        ) : (
+          <>
+            <div className="absolute left-8 top-1/2 hidden xl:block animate-float" style={{ animationDelay: '0s' }}>
+              <div className="bg-primary-foreground/5 backdrop-blur-xl border border-primary-foreground/10 rounded-2xl p-4 shadow-xl">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-coral-500/20 flex items-center justify-center">
+                    <Video className="w-5 h-5 text-coral-400" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold text-primary-foreground">AI Curation</div>
+                    <div className="text-xs text-primary-foreground/50">Finds the best content</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="absolute right-8 top-1/3 hidden xl:block animate-float" style={{ animationDelay: '2s' }}>
+              <div className="bg-primary-foreground/5 backdrop-blur-xl border border-primary-foreground/10 rounded-2xl p-4 shadow-xl">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-coral-500/20 flex items-center justify-center">
+                    <Users className="w-5 h-5 text-coral-400" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold text-primary-foreground">Verified Learning</div>
+                    <div className="text-xs text-primary-foreground/50">Track real mastery</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </section>
+  );
+}
+
+function StudentHero() {
+  return (
+    <>
+      {/* Main headline */}
+      <h1 className="text-4xl sm:text-5xl lg:text-7xl font-extrabold text-primary-foreground leading-tight mb-6 animate-fade-up" style={{ animationDelay: '0.1s' }}>
+        Know Your{" "}
+        <span className="relative">
+          <span className="text-gradient bg-gradient-to-r from-coral-300 to-coral-500">Real</span>
+          <svg className="absolute -bottom-2 left-0 w-full h-3 text-coral-500/30" viewBox="0 0 200 12" preserveAspectRatio="none">
+            <path d="M0,8 Q50,0 100,8 T200,8" fill="none" stroke="currentColor" strokeWidth="4"/>
+          </svg>
+        </span>{" "}
+        Job Readiness
+      </h1>
+
+      {/* Subheadline */}
+      <p className="text-lg sm:text-xl text-primary-foreground/70 max-w-2xl mx-auto mb-10 animate-fade-up" style={{ animationDelay: '0.2s' }}>
+        Upload your coursework, add your dream jobs, and get 
+        <span className="text-coral-300 font-semibold"> honest AI analysis</span> of exactly 
+        where you stand—and what to do next.
+      </p>
+
+      {/* CTA buttons */}
+      <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16 animate-fade-up" style={{ animationDelay: '0.3s' }}>
+        <Button asChild variant="hero" size="xl" className="group">
+          <Link to="/auth">
+            Start Your Analysis
+            <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+          </Link>
+        </Button>
+        <Button asChild variant="heroOutline" size="xl">
+          <a href="#how-it-works">See How It Works</a>
+        </Button>
+      </div>
+
+      {/* Trust indicators - honest, no fake stats */}
+      <div className="flex flex-wrap items-center justify-center gap-6 text-primary-foreground/50 text-sm animate-fade-up" style={{ animationDelay: '0.4s' }}>
+        <span className="flex items-center gap-2">
+          <CheckCircle className="w-4 h-4 text-coral-400" />
+          Free for students
+        </span>
+        <span className="flex items-center gap-2">
+          <CheckCircle className="w-4 h-4 text-coral-400" />
+          No credit card required
+        </span>
+        <span className="flex items-center gap-2">
+          <CheckCircle className="w-4 h-4 text-coral-400" />
+          Results in minutes
+        </span>
+      </div>
+    </>
+  );
+}
+
+function InstructorHero() {
+  return (
+    <>
+      {/* Main headline */}
+      <h1 className="text-4xl sm:text-5xl lg:text-7xl font-extrabold text-primary-foreground leading-tight mb-6 animate-fade-up" style={{ animationDelay: '0.1s' }}>
+        Turn Your Syllabus Into a{" "}
+        <span className="relative">
+          <span className="text-gradient bg-gradient-to-r from-coral-300 to-coral-500">Video Course</span>
+          <svg className="absolute -bottom-2 left-0 w-full h-3 text-coral-500/30" viewBox="0 0 200 12" preserveAspectRatio="none">
+            <path d="M0,8 Q50,0 100,8 T200,8" fill="none" stroke="currentColor" strokeWidth="4"/>
+          </svg>
+        </span>
+      </h1>
+
+      {/* Subheadline */}
+      <p className="text-lg sm:text-xl text-primary-foreground/70 max-w-2xl mx-auto mb-10 animate-fade-up" style={{ animationDelay: '0.2s' }}>
+        Upload your syllabus. AI extracts learning objectives and curates 
+        <span className="text-coral-300 font-semibold"> the best YouTube content</span>. 
+        Track student mastery with verified watching.
+      </p>
+
+      {/* CTA buttons */}
+      <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16 animate-fade-up" style={{ animationDelay: '0.3s' }}>
+        <Button asChild variant="hero" size="xl" className="group">
+          <Link to="/auth">
+            Create Your Course
+            <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+          </Link>
+        </Button>
+        <Button asChild variant="heroOutline" size="xl">
+          <a href="#how-it-works-instructor">See How It Works</a>
+        </Button>
+      </div>
+
+      {/* Trust indicators */}
+      <div className="flex flex-wrap items-center justify-center gap-6 text-primary-foreground/50 text-sm animate-fade-up" style={{ animationDelay: '0.4s' }}>
+        <span className="flex items-center gap-2">
+          <CheckCircle className="w-4 h-4 text-coral-400" />
+          Free to start
+        </span>
+        <span className="flex items-center gap-2">
+          <CheckCircle className="w-4 h-4 text-coral-400" />
+          AI-powered curation
+        </span>
+        <span className="flex items-center gap-2">
+          <CheckCircle className="w-4 h-4 text-coral-400" />
+          Verified student engagement
+        </span>
+      </div>
+    </>
   );
 }

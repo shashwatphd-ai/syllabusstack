@@ -1,34 +1,51 @@
 import { Link } from "react-router-dom";
-import { Check, Sparkles } from "lucide-react";
+import { Check, Sparkles, GraduationCap, BookOpen, Building2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const plans = [
   {
     name: "Students",
+    icon: GraduationCap,
     price: "Free",
-    tagline: "Everything you need to get honest clarity.",
+    tagline: "Everything you need to find your path.",
     features: [
-      "Syllabus scanning",
-      "Capability extraction",
-      "Gap analysis",
+      "Unlimited syllabus uploads",
+      "Gap analysis for any dream job",
       "Actionable recommendations",
+      "Progress tracking",
     ],
-    cta: "Get Started",
+    cta: "Get Started Free",
     href: "/auth",
     highlight: true,
   },
   {
-    name: "Universities",
-    price: "Contact",
-    tagline: "Cohort insights and curriculum alignment.",
+    name: "Educators",
+    icon: BookOpen,
+    price: "Free",
+    tagline: "Build courses with AI-curated content.",
     features: [
-      "Program-level reporting",
-      "Cohort capability heatmaps",
-      "Custom integrations",
+      "AI learning objective extraction",
+      "YouTube content curation",
+      "Verified student watching",
+      "Progress analytics",
+    ],
+    cta: "Create Your Course",
+    href: "/auth",
+    highlight: false,
+  },
+  {
+    name: "Institutions",
+    icon: Building2,
+    price: "Contact",
+    tagline: "Enterprise features for universities.",
+    features: [
+      "Multi-instructor support",
+      "LMS integration (coming soon)",
+      "Custom branding",
       "Priority support",
     ],
-    cta: "Talk to us",
+    cta: "Talk to Sales",
     href: "/universities",
     highlight: false,
   },
@@ -39,42 +56,58 @@ export function PricingSection() {
     <section id="pricing" className="py-24 bg-background">
       <div className="container mx-auto px-6">
         <div className="text-center max-w-2xl mx-auto mb-12">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-accent/10 text-accent text-sm font-medium mb-4">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-coral-500/10 text-coral-500 text-sm font-medium mb-4">
             <Sparkles className="w-4 h-4" />
             Pricing
           </div>
           <h2 className="text-3xl sm:text-4xl font-bold text-foreground mb-4">
-            Simple pricing, built for students
+            Simple, transparent pricing
           </h2>
           <p className="text-muted-foreground text-lg">
-            Start free, get your honest assessment, and only upgrade if you need institutional features.
+            Free to start for students and educators. Only pay when you need enterprise features.
           </p>
         </div>
 
-        <div className="grid gap-6 md:grid-cols-2 max-w-4xl mx-auto">
+        <div className="grid gap-6 md:grid-cols-3 max-w-5xl mx-auto">
           {plans.map((plan) => (
             <Card
               key={plan.name}
-              className={plan.highlight ? "border-accent/40 shadow-sm" : undefined}
+              className={plan.highlight ? "border-coral-500/40 shadow-lg shadow-coral-500/10 relative overflow-hidden" : undefined}
             >
+              {plan.highlight && (
+                <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-coral-400 to-coral-500" />
+              )}
               <CardHeader>
-                <CardTitle className="flex items-baseline justify-between gap-4">
-                  <span>{plan.name}</span>
-                  <span className="text-2xl font-bold text-foreground">{plan.price}</span>
-                </CardTitle>
+                <div className="flex items-center gap-3 mb-2">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                    plan.highlight 
+                      ? "bg-gradient-to-br from-coral-400 to-coral-500" 
+                      : "bg-muted"
+                  }`}>
+                    <plan.icon className={`w-5 h-5 ${plan.highlight ? "text-white" : "text-muted-foreground"}`} />
+                  </div>
+                  <CardTitle className="flex items-baseline justify-between gap-4 flex-1">
+                    <span>{plan.name}</span>
+                    <span className="text-2xl font-bold text-foreground">{plan.price}</span>
+                  </CardTitle>
+                </div>
                 <p className="text-sm text-muted-foreground">{plan.tagline}</p>
               </CardHeader>
               <CardContent className="space-y-6">
                 <ul className="space-y-3">
                   {plan.features.map((feature) => (
                     <li key={feature} className="flex items-start gap-2 text-sm text-foreground">
-                      <Check className="h-4 w-4 text-accent mt-0.5" />
+                      <Check className={`h-4 w-4 mt-0.5 ${plan.highlight ? "text-coral-500" : "text-muted-foreground"}`} />
                       <span>{feature}</span>
                     </li>
                   ))}
                 </ul>
 
-                <Button asChild variant={plan.highlight ? "default" : "outline"} className="w-full">
+                <Button 
+                  asChild 
+                  variant={plan.highlight ? "default" : "outline"} 
+                  className={`w-full ${plan.highlight ? "bg-coral-500 hover:bg-coral-600" : ""}`}
+                >
                   <Link to={plan.href}>{plan.cta}</Link>
                 </Button>
               </CardContent>

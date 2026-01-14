@@ -1,8 +1,9 @@
 import { Button } from "@/components/ui/button";
-import { GraduationCap, Menu, X } from "lucide-react";
+import { Menu, X } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { Logo } from "@/components/common/Logo";
 
 export function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -14,12 +15,7 @@ export function Header() {
         <div className="container mx-auto px-6 h-16 flex items-center justify-between">
           {/* Logo */}
           <Link to="/" className="flex items-center gap-2">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-coral-400 to-coral-500 flex items-center justify-center shadow-lg shadow-coral-500/25">
-              <GraduationCap className="w-5 h-5 text-primary-foreground" />
-            </div>
-            <span className="text-xl font-bold text-primary-foreground">
-              Syllabus<span className="text-coral-400">Stack</span>
-            </span>
+            <Logo size="md" variant="light" />
           </Link>
 
           {/* Desktop nav */}
@@ -27,12 +23,12 @@ export function Header() {
             <a href="#features" className="text-sm font-medium text-primary-foreground/70 hover:text-primary-foreground transition-colors">
               Features
             </a>
-            <Link to="/how-it-works" className="text-sm font-medium text-primary-foreground/70 hover:text-primary-foreground transition-colors">
+            <a href="#how-it-works" className="text-sm font-medium text-primary-foreground/70 hover:text-primary-foreground transition-colors">
               How It Works
-            </Link>
-            <Link to="/scanner" className="text-sm font-medium text-primary-foreground/70 hover:text-primary-foreground transition-colors">
-              Syllabus Scanner
-            </Link>
+            </a>
+            <a href="#pricing" className="text-sm font-medium text-primary-foreground/70 hover:text-primary-foreground transition-colors">
+              Pricing
+            </a>
           </nav>
 
           {/* CTA buttons */}
@@ -69,12 +65,12 @@ export function Header() {
               <a href="#features" className="block text-sm font-medium text-primary-foreground/70 hover:text-primary-foreground transition-colors">
                 Features
               </a>
-              <Link to="/how-it-works" className="block text-sm font-medium text-primary-foreground/70 hover:text-primary-foreground transition-colors">
+              <a href="#how-it-works" className="block text-sm font-medium text-primary-foreground/70 hover:text-primary-foreground transition-colors">
                 How It Works
-              </Link>
-              <Link to="/scanner" className="block text-sm font-medium text-primary-foreground/70 hover:text-primary-foreground transition-colors">
-                Syllabus Scanner
-              </Link>
+              </a>
+              <a href="#pricing" className="block text-sm font-medium text-primary-foreground/70 hover:text-primary-foreground transition-colors">
+                Pricing
+              </a>
               <div className="pt-4 border-t border-primary-foreground/10 flex flex-col gap-3">
                 {user ? (
                   <Button asChild variant="hero" className="w-full">
