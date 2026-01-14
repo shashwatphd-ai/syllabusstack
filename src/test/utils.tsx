@@ -57,7 +57,20 @@ function customRender(
 }
 
 // Re-export everything from testing-library
-export * from '@testing-library/react';
+// Using `export * from` for full compatibility
+export { 
+  cleanup, 
+  act,
+  renderHook 
+} from '@testing-library/react';
+
+// Re-export from @testing-library/dom (where screen, fireEvent, waitFor, within live)
+export { 
+  screen, 
+  fireEvent, 
+  waitFor, 
+  within,
+} from '@testing-library/dom';
 
 // Override render with our custom version
 export { customRender as render };
