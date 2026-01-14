@@ -16,7 +16,9 @@ import {
   LayoutGrid,
   Upload,
   RefreshCw,
-  Loader2
+  Loader2,
+  Volume2,
+  CheckCircle2
 } from 'lucide-react';
 import { SlideRenderer } from './SlideRenderer';
 import { 
@@ -24,7 +26,8 @@ import {
   Slide, 
   usePublishLectureSlides, 
   useUnpublishLectureSlides, 
-  useGenerateLectureSlides 
+  useGenerateLectureSlides,
+  useGenerateLectureAudio
 } from '@/hooks/useLectureSlides';
 import { TeachingUnit } from '@/hooks/useTeachingUnits';
 import { cn } from '@/lib/utils';
@@ -50,9 +53,12 @@ export function LectureSlideViewer({
   const publishSlides = usePublishLectureSlides();
   const unpublishSlides = useUnpublishLectureSlides();
   const regenerateSlides = useGenerateLectureSlides();
+  const generateAudio = useGenerateLectureAudio();
 
   const slides = lectureSlide.slides;
   const currentSlide = slides[currentSlideIndex];
+  const hasAudio = lectureSlide.has_audio;
+  const audioStatus = lectureSlide.audio_status;
 
   // Keyboard navigation
   useEffect(() => {
@@ -107,7 +113,11 @@ export function LectureSlideViewer({
   };
 
   const isPublished = lectureSlide.status === 'published';
-  const isLoading = publishSlides.isPending || unpublishSlides.isPending || regenerateSlides.isPending;
+  const isLoading = publishSlides.isPending || unpublishSlides.isPending || regenerateSlides.isPending || generateAudio.isPending;
+
+  const handleGenerateAudio = () => {
+    generateAudio.mutate({ slideId: lectureSlide.id });
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -153,6 +163,38 @@ export function LectureSlideViewer({
                 Thumbnails
               </Label>
             </div>
+
+            {/* Generate Audio Button */}
+            {!hasAudio && audioStatus !== 'generating' && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleGenerateAudio}
+                disabled={isLoading}
+              >
+                {generateAudio.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Volume2 className="h-4 w-4" />
+                )}
+                <span className="hidden sm:inline ml-1">Generate Audio</span>
+              </Button>
+            )}
+
+            {/* Audio Status Badge */}
+            {hasAudio && (
+              <Badge variant="secondary" className="gap-1">
+                <CheckCircle2 className="h-3 w-3" />
+                Audio Ready
+              </Badge>
+            )}
+
+            {audioStatus === 'generating' && (
+              <Badge variant="outline" className="gap-1">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Generating Audio...
+              </Badge>
+            )}
 
             <Button
               variant="outline"
