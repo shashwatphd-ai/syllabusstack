@@ -7,9 +7,9 @@ import {
   User,
   Settings,
   LogOut,
-  GraduationCap,
   X
 } from 'lucide-react';
+import { Logo } from '@/components/common/Logo';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -109,12 +109,9 @@ export function AppHeader({ onMenuClick, showSearch = true, sidebarCollapsed = f
           </Button>
           
           {/* Branding - always visible in header */}
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-              <GraduationCap className="h-5 w-5 text-primary-foreground" />
-            </div>
-            <span className="text-lg font-bold hidden sm:block">SyllabusStack</span>
-          </div>
+          <Link to="/">
+            <Logo size="sm" variant="dark" />
+          </Link>
           
           {/* Separator */}
           <div className="h-6 w-px bg-border hidden sm:block" />
@@ -264,11 +261,8 @@ export function MobileNav({ open, onClose }: { open: boolean; onClose: () => voi
     <Sheet open={open} onOpenChange={onClose}>
       <SheetContent side="left" className="w-72 p-0 flex flex-col">
         {/* Header */}
-        <div className="h-16 flex items-center gap-2 px-4 border-b border-border shrink-0">
-          <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-            <GraduationCap className="h-5 w-5 text-primary-foreground" />
-          </div>
-          <span className="text-lg font-bold">SyllabusStack</span>
+        <div className="h-16 flex items-center px-4 border-b border-border shrink-0">
+          <Logo size="sm" variant="dark" />
         </div>
 
         {/* Navigation - scrollable */}

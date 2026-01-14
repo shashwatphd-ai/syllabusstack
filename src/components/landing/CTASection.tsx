@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, Sparkles } from "lucide-react";
+import { ArrowRight, Sparkles, CheckCircle } from "lucide-react";
 
 export function CTASection() {
   return (
@@ -15,7 +15,7 @@ export function CTASection() {
           {/* Badge */}
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-coral-500/10 border border-coral-500/20 text-coral-300 text-sm font-medium mb-8">
             <Sparkles className="w-4 h-4" />
-            <span>Free for Students</span>
+            <span>Free to Get Started</span>
           </div>
 
           {/* Headline */}
@@ -26,39 +26,33 @@ export function CTASection() {
           </h2>
 
           <p className="text-lg text-primary-foreground/70 mb-10 max-w-xl mx-auto">
-            Upload your first syllabus in 2 minutes. Get your honest assessment in 5. 
-            No credit card required.
+            Whether you're a student finding your career path or an educator building 
+            engaging courses—SyllabusStack has you covered.
           </p>
 
           {/* CTA */}
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Button asChild variant="hero" size="xl" className="group">
               <Link to="/auth">
-                Start Your Analysis
+                Get Started Free
                 <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
               </Link>
             </Button>
           </div>
 
           {/* Trust indicators */}
-          <div className="mt-10 flex items-center justify-center gap-6 text-primary-foreground/50 text-sm">
+          <div className="mt-10 flex flex-wrap items-center justify-center gap-6 text-primary-foreground/50 text-sm">
             <span className="flex items-center gap-2">
-              <svg className="w-4 h-4 text-coral-400" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-              </svg>
-              No credit card
+              <CheckCircle className="w-4 h-4 text-coral-400" />
+              No credit card required
             </span>
             <span className="flex items-center gap-2">
-              <svg className="w-4 h-4 text-coral-400" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-              </svg>
-              Free forever for students
+              <CheckCircle className="w-4 h-4 text-coral-400" />
+              Free for students & educators
             </span>
             <span className="flex items-center gap-2">
-              <svg className="w-4 h-4 text-coral-400" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-              </svg>
-              2-minute setup
+              <CheckCircle className="w-4 h-4 text-coral-400" />
+              Set up in minutes
             </span>
           </div>
         </div>
