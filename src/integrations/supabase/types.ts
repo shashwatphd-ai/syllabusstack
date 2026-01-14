@@ -2416,14 +2416,14 @@ export type Database = {
         Returns: {
           leveled_up: boolean
           new_level: number
-          new_total_xp: number
+          new_xp: number
         }[]
       }
       calculate_level: { Args: { xp: number }; Returns: number }
       check_achievements: {
         Args: { p_user_id: string }
         Returns: {
-          newly_earned: string[]
+          newly_granted: string[]
         }[]
       }
       check_tier_limit: {
@@ -2515,8 +2515,8 @@ export type Database = {
       grant_achievement: {
         Args: { p_achievement_key: string; p_user_id: string }
         Returns: {
-          achievement_granted: boolean
           achievement_name: string
+          granted: boolean
           xp_awarded: number
         }[]
       }

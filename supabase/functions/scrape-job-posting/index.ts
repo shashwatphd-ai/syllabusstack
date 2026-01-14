@@ -45,6 +45,57 @@ serve(async (req) => {
       );
     }
 
+    // SSRF Protection: Whitelist of allowed job posting domains
+    const ALLOWED_JOB_HOSTS = [
+      'linkedin.com', 'www.linkedin.com',
+      'indeed.com', 'www.indeed.com',
+      'glassdoor.com', 'www.glassdoor.com',
+      'greenhouse.io', 'boards.greenhouse.io',
+      'lever.co', 'jobs.lever.co',
+      'workday.com', 'myworkdayjobs.com',
+      'angel.co', 'wellfound.com',
+      'ziprecruiter.com', 'www.ziprecruiter.com',
+      'monster.com', 'www.monster.com',
+      'simplyhired.com', 'www.simplyhired.com',
+      'builtin.com', 'www.builtin.com',
+      'dice.com', 'www.dice.com',
+      'careerbuilder.com', 'www.careerbuilder.com',
+      'usajobs.gov', 'www.usajobs.gov',
+    ];
+
+    const hostname = jobUrl.hostname.toLowerCase();
+    const isAllowedHost = ALLOWED_JOB_HOSTS.some(allowed => 
+      hostname === allowed || hostname.endsWith('.' + allowed)
+    );
+
+    if (!isAllowedHost) {
+      // Block private IP ranges and localhost
+      const blockedPatterns = [
+        /^127\./,
+        /^10\./,
+        /^172\.(1[6-9]|2[0-9]|3[01])\./,
+        /^192\.168\./,
+        /^localhost$/i,
+        /^169\.254\./,
+        /^::1$/,
+        /^fc00:/i,
+        /^fe80:/i,
+        /^0\./,
+        /^\[::1\]$/,
+      ];
+
+      if (blockedPatterns.some(pattern => pattern.test(hostname))) {
+        return new Response(
+          JSON.stringify({ error: "Private or internal URLs are not allowed" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      console.log(`URL domain ${hostname} not in whitelist, but allowing for flexibility`);
+      // Note: We allow non-whitelisted domains but log them for monitoring
+      // The third-party APIs (Firecrawl/Jina) have their own SSRF protections
+    }
+
     console.log(`Scraping job posting from: ${jobUrl.href}`);
 
     // Get web provider (firecrawl or jina based on WEB_PROVIDER env var)
