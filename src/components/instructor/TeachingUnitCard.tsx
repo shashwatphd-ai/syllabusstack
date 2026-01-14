@@ -146,6 +146,15 @@ export function TeachingUnitCard({
               {/* Lecture status/button */}
               {onCreateLecture && (
                 <>
+                  {/* Pending/Queued status */}
+                  {existingSlides?.status === 'pending' && (
+                    <Badge variant="outline" className="text-xs py-0.5 border-blue-500 text-blue-600">
+                      <Clock className="h-3 w-3 mr-1" />
+                      Queued
+                    </Badge>
+                  )}
+
+                  {/* Generating status */}
                   {existingSlides?.status === 'generating' && (
                     <Badge variant="outline" className="text-xs py-0.5 border-amber-500 text-amber-600">
                       <Loader2 className="h-3 w-3 mr-1 animate-spin" />
@@ -153,6 +162,7 @@ export function TeachingUnitCard({
                     </Badge>
                   )}
                   
+                  {/* Failed status - show retry button */}
                   {existingSlides?.status === 'failed' && (
                     <TooltipProvider>
                       <Tooltip>
@@ -184,13 +194,43 @@ export function TeachingUnitCard({
                     </TooltipProvider>
                   )}
                   
-                  {(!existingSlides || existingSlides.status === 'ready' || existingSlides.status === 'published') && existingSlides?.status !== 'generating' && (
+                  {/* Ready/Published - show view button */}
+                  {(existingSlides?.status === 'ready' || existingSlides?.status === 'published') && (
                     <TooltipProvider>
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Button 
                             size="sm" 
-                            variant={existingSlides?.status === 'published' ? 'default' : 'outline'}
+                            variant={existingSlides.status === 'published' ? 'default' : 'outline'}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onCreateLecture(unit);
+                            }}
+                            disabled={isGeneratingSlides}
+                            className="gap-1 h-8 text-xs"
+                          >
+                            <Presentation className="h-3 w-3" />
+                            <span className="hidden xs:inline">
+                              {existingSlides.status === 'published' ? 'Slides ✓' : 'View'}
+                            </span>
+                            <span className="xs:hidden">✓</span>
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {existingSlides.total_slides} slides - {existingSlides.status}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  )}
+
+                  {/* No slides - show create button */}
+                  {!existingSlides && (
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button 
+                            size="sm" 
+                            variant="outline"
                             onClick={(e) => {
                               e.stopPropagation();
                               onCreateLecture(unit);
@@ -203,22 +243,12 @@ export function TeachingUnitCard({
                             ) : (
                               <Presentation className="h-3 w-3" />
                             )}
-                            <span className="hidden xs:inline">
-                              {existingSlides ? (
-                                existingSlides.status === 'published' ? 'Slides ✓' : 'View'
-                              ) : (
-                                'Create Lecture'
-                              )}
-                            </span>
-                            <span className="xs:hidden">
-                              {existingSlides ? '✓' : 'Lecture'}
-                            </span>
+                            <span className="hidden xs:inline">Create Lecture</span>
+                            <span className="xs:hidden">Lecture</span>
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent>
-                          {existingSlides 
-                            ? `${existingSlides.total_slides} slides - ${existingSlides.status}`
-                            : 'Generate lecture slides from this unit'}
+                          Generate lecture slides from this unit
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
