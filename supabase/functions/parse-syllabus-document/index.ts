@@ -83,6 +83,54 @@ serve(async (req) => {
       throw new Error("Either document_base64 or document_url is required");
     }
 
+    // SSRF Protection for document URLs
+    if (document_url) {
+      let docUrl: URL;
+      try {
+        docUrl = new URL(document_url);
+      } catch {
+        throw new Error("Invalid document URL format");
+      }
+
+      const hostname = docUrl.hostname.toLowerCase();
+
+      // Block private IP ranges and localhost
+      const blockedPatterns = [
+        /^127\./,
+        /^10\./,
+        /^172\.(1[6-9]|2[0-9]|3[01])\./,
+        /^192\.168\./,
+        /^localhost$/i,
+        /^169\.254\./,
+        /^::1$/,
+        /^fc00:/i,
+        /^fe80:/i,
+        /^0\./,
+        /^\[::1\]$/,
+      ];
+
+      if (blockedPatterns.some(pattern => pattern.test(hostname))) {
+        throw new Error("Private or internal URLs are not allowed");
+      }
+
+      // Only allow https for document URLs
+      if (docUrl.protocol !== 'https:') {
+        throw new Error("Only HTTPS URLs are allowed for document fetching");
+      }
+
+      console.log(`Fetching document from validated URL: ${docUrl.host}`);
+    }
+
+    // File size validation for base64 content
+    const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+    if (document_base64) {
+      // Estimate decoded size (base64 is ~33% larger than binary)
+      const estimatedSize = (document_base64.length * 3) / 4;
+      if (estimatedSize > MAX_FILE_SIZE) {
+        throw new Error("File too large. Maximum size is 10MB.");
+      }
+    }
+
     // For authenticated requests, validate the user
     let userId: string | null = null;
     const authHeader = req.headers.get("Authorization") ?? req.headers.get("authorization");
