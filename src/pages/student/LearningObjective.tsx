@@ -136,14 +136,15 @@ export default function LearningObjectivePage() {
   };
 
   // Transform micro-checks to the format expected by VerifiedVideoPlayer
+  // Note: correct_answer is no longer exposed from the secure view
   const playerMicroChecks = microChecks?.map(mc => ({
     id: mc.id,
     trigger_time_seconds: mc.trigger_time_seconds,
     question_text: mc.question_text,
     question_type: mc.question_type as 'recall' | 'mcq',
-    options: mc.options as { text: string; is_correct?: boolean }[] | undefined,
-    correct_answer: mc.correct_answer,
+    options: mc.options as { text: string }[] | undefined,
     rewind_target_seconds: mc.rewind_target_seconds || undefined,
+    time_limit_seconds: mc.time_limit_seconds || undefined,
   })) || [];
 
   return (

@@ -6,20 +6,22 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { useConsumptionTracking } from '@/hooks/useConsumptionTracking';
 import { MicroCheckOverlay } from './MicroCheckOverlay';
+import { validateMicroCheckAnswer } from '@/hooks/useAssessment';
 
 interface WatchedSegment {
   start: number;
   end: number;
 }
 
+// Secure interface - does NOT include correct_answer (validated server-side)
 interface MicroCheck {
   id: string;
   trigger_time_seconds: number;
   question_text: string;
   question_type: 'recall' | 'mcq';
-  options?: { text: string; is_correct?: boolean }[];
-  correct_answer: string;
+  options?: { text: string }[]; // No is_correct - hidden from client
   rewind_target_seconds?: number;
+  time_limit_seconds?: number;
 }
 
 interface VerifiedVideoPlayerProps {
@@ -414,28 +416,56 @@ export function VerifiedVideoPlayer({
     }
   }, [currentTime, playerState, microChecks, completedMicroChecks]);
 
-  // Handle micro-check answer
-  const handleMicroCheckAnswer = useCallback((isCorrect: boolean) => {
-    if (!activeMicroCheck) return;
+  // State for validation loading
+  const [isValidatingAnswer, setIsValidatingAnswer] = useState(false);
+
+  // Handle micro-check answer with server-side validation
+  const handleMicroCheckAnswer = useCallback(async (
+    microCheckId: string,
+    userAnswer?: string,
+    selectedOptionIndex?: number
+  ) => {
+    if (!activeMicroCheck || isValidatingAnswer) return;
     
-    const attemptNumber = microCheckResults.filter(r => r.id === activeMicroCheck.id).length + 1;
-    setMicroCheckResults(prev => [...prev, { id: activeMicroCheck.id, is_correct: isCorrect, attempt_number: attemptNumber }]);
+    setIsValidatingAnswer(true);
     
-    if (isCorrect) {
-      setCompletedMicroChecks(prev => new Set([...prev, activeMicroCheck.id]));
-      setActiveMicroCheck(null);
-      setPlayerState('READY');
-    } else {
-      setPlayerState('MICROCHECK_FAILED');
-      // Rewind after a moment
-      setTimeout(() => {
-        const rewindTo = activeMicroCheck.rewind_target_seconds ?? Math.max(0, activeMicroCheck.trigger_time_seconds - 30);
-        handleSeek(rewindTo);
+    try {
+      // Validate answer on server - never trust client
+      const result = await validateMicroCheckAnswer(
+        microCheckId,
+        userAnswer,
+        selectedOptionIndex
+      );
+      
+      // Record the result locally for sync
+      setMicroCheckResults(prev => [...prev, { 
+        id: microCheckId, 
+        is_correct: result.is_correct, 
+        attempt_number: result.attempt_number 
+      }]);
+      
+      if (result.is_correct) {
+        setCompletedMicroChecks(prev => new Set([...prev, microCheckId]));
         setActiveMicroCheck(null);
         setPlayerState('READY');
-      }, 2000);
+      } else {
+        setPlayerState('MICROCHECK_FAILED');
+        // Rewind after a moment
+        setTimeout(() => {
+          const rewindTo = result.rewind_target_seconds ?? Math.max(0, result.trigger_time_seconds - 30);
+          handleSeek(rewindTo);
+          setActiveMicroCheck(null);
+          setPlayerState('READY');
+        }, 2000);
+      }
+    } catch (error) {
+      console.error('Error validating micro-check answer:', error);
+      // On error, allow retry
+      setPlayerState('READY');
+    } finally {
+      setIsValidatingAnswer(false);
     }
-  }, [activeMicroCheck, microCheckResults, handleSeek]);
+  }, [activeMicroCheck, isValidatingAnswer, handleSeek]);
 
   // Sync periodically
   useEffect(() => {
@@ -512,6 +542,7 @@ export function VerifiedVideoPlayer({
                 microCheck={activeMicroCheck}
                 onAnswer={handleMicroCheckAnswer}
                 isFailed={playerState === 'MICROCHECK_FAILED'}
+                isValidating={isValidatingAnswer}
               />
             )}
           </>

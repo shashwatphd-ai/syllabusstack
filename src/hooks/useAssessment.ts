@@ -380,15 +380,16 @@ export function useGenerateMicroChecks() {
   });
 }
 
-// Fetch micro-checks for content
+// Fetch micro-checks for content (uses secure view that hides answers)
 export function useMicroChecks(contentId?: string) {
   return useQuery({
     queryKey: ['micro-checks', contentId],
     queryFn: async () => {
       if (!contentId) return [];
 
+      // Use the student-safe view that excludes correct_answer and is_correct from options
       const { data, error } = await supabase
-        .from('micro_checks')
+        .from('micro_checks_student')
         .select('*')
         .eq('content_id', contentId)
         .order('trigger_time_seconds', { ascending: true });
@@ -398,6 +399,32 @@ export function useMicroChecks(contentId?: string) {
     },
     enabled: !!contentId,
   });
+}
+
+// Server-side validation of micro-check answers
+export async function validateMicroCheckAnswer(
+  microCheckId: string,
+  userAnswer?: string,
+  selectedOptionIndex?: number
+): Promise<{
+  is_correct: boolean;
+  attempt_number: number;
+  rewind_target_seconds: number | null;
+  trigger_time_seconds: number;
+}> {
+  const { data, error } = await supabase.rpc('validate_micro_check_answer', {
+    p_micro_check_id: microCheckId,
+    p_user_answer: userAnswer || null,
+    p_selected_option_index: selectedOptionIndex ?? null,
+  });
+
+  if (error) throw error;
+  return data as {
+    is_correct: boolean;
+    attempt_number: number;
+    rewind_target_seconds: number | null;
+    trigger_time_seconds: number;
+  };
 }
 
 // Fetch micro-check results for a consumption record
