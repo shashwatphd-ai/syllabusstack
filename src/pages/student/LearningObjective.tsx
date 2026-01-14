@@ -174,10 +174,80 @@ export default function LearningObjectivePage() {
             </div>
           </div>
 
-          {/* Main layout - sidebar on left for navigation, content area on right */}
-          <div className="grid gap-6 lg:grid-cols-4">
-            {/* Navigation Sidebar - Content & Slides */}
-            <div className="lg:col-span-1 space-y-4 order-2 lg:order-1">
+          {/* Main layout - video player left (larger), sidebar right (fixed width) */}
+          <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
+            {/* Main Content Area - Video Player */}
+            <div className="space-y-4">
+              {selectedContent ? (
+                <div className="space-y-4">
+                  <VerifiedVideoPlayer
+                    contentId={selectedContent.id}
+                    learningObjectiveId={loId!}
+                    videoUrl={selectedContent.source_url || ''}
+                    title={selectedContent.title}
+                    duration={selectedContent.duration_seconds || 600}
+                    microChecks={playerMicroChecks}
+                    onComplete={handleVideoComplete}
+                  />
+                  
+                  {/* Micro-Check History */}
+                  {microCheckResults && microCheckResults.length > 0 && (
+                    <Card>
+                      <Collapsible open={historyOpen} onOpenChange={setHistoryOpen}>
+                        <CollapsibleTrigger asChild>
+                          <CardHeader className="py-3 cursor-pointer hover:bg-muted/50 transition-colors">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <ClipboardCheck className="h-4 w-4 text-muted-foreground" />
+                                <CardTitle className="text-sm font-medium">
+                                  Micro-Check History ({microCheckResults.length})
+                                </CardTitle>
+                              </div>
+                              <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${historyOpen ? 'rotate-180' : ''}`} />
+                            </div>
+                          </CardHeader>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                          <CardContent className="pt-0 space-y-2">
+                            {microCheckResults.map((result: any) => (
+                              <div 
+                                key={result.id} 
+                                className="flex items-start justify-between p-3 bg-muted/30 rounded-lg border border-border/50"
+                              >
+                                <div className="flex-1">
+                                  <p className="text-sm font-medium">
+                                    {result.micro_check?.question_text || 'Question'}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    Your answer: {result.user_answer || 'N/A'}
+                                  </p>
+                                </div>
+                                <Badge variant={result.is_correct ? 'default' : 'destructive'} className="ml-2">
+                                  {result.is_correct ? 'Correct' : 'Incorrect'}
+                                </Badge>
+                              </div>
+                            ))}
+                          </CardContent>
+                        </CollapsibleContent>
+                      </Collapsible>
+                    </Card>
+                  )}
+                </div>
+              ) : (
+                <Card className="h-[400px] flex items-center justify-center">
+                  <CardContent className="text-center">
+                    <PlayCircle className="mx-auto h-16 w-16 text-muted-foreground/50 mb-4" />
+                    <h3 className="font-semibold text-lg mb-2">Select Content</h3>
+                    <p className="text-muted-foreground text-sm max-w-sm">
+                      Choose a video or lecture slides from the sidebar to begin learning
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+
+            {/* Navigation Sidebar - Videos & Slides */}
+            <div className="space-y-4">
               {/* Available Videos */}
               <Card>
                 <CardHeader className="pb-3">
@@ -244,7 +314,7 @@ export default function LearningObjectivePage() {
                 </CardContent>
               </Card>
 
-              {/* Lecture Slides - More prominent */}
+              {/* Lecture Slides */}
               {lectureSlides && lectureSlides.length > 0 && (
                 <Card className="border-primary/30">
                   <CardHeader className="pb-3">
@@ -318,76 +388,6 @@ export default function LearningObjectivePage() {
                     >
                       Continue Assessment
                     </Button>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
-
-            {/* Main Content Area - Video Player */}
-            <div className="lg:col-span-3 order-1 lg:order-2">
-              {selectedContent ? (
-                <div className="space-y-4">
-                  <VerifiedVideoPlayer
-                    contentId={selectedContent.id}
-                    learningObjectiveId={loId!}
-                    videoUrl={selectedContent.source_url || ''}
-                    title={selectedContent.title}
-                    duration={selectedContent.duration_seconds || 600}
-                    microChecks={playerMicroChecks}
-                    onComplete={handleVideoComplete}
-                  />
-                  
-                  {/* Micro-Check History */}
-                  {microCheckResults && microCheckResults.length > 0 && (
-                    <Card>
-                      <Collapsible open={historyOpen} onOpenChange={setHistoryOpen}>
-                        <CollapsibleTrigger asChild>
-                          <CardHeader className="py-3 cursor-pointer hover:bg-muted/50 transition-colors">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <ClipboardCheck className="h-4 w-4 text-muted-foreground" />
-                                <CardTitle className="text-sm font-medium">
-                                  Micro-Check History ({microCheckResults.length})
-                                </CardTitle>
-                              </div>
-                              <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${historyOpen ? 'rotate-180' : ''}`} />
-                            </div>
-                          </CardHeader>
-                        </CollapsibleTrigger>
-                        <CollapsibleContent>
-                          <CardContent className="pt-0 space-y-2">
-                            {microCheckResults.map((result: any) => (
-                              <div 
-                                key={result.id} 
-                                className="flex items-start justify-between p-3 bg-muted/30 rounded-lg border border-border/50"
-                              >
-                                <div className="flex-1">
-                                  <p className="text-sm font-medium">
-                                    {result.micro_check?.question_text || 'Question'}
-                                  </p>
-                                  <p className="text-xs text-muted-foreground mt-1">
-                                    Your answer: {result.user_answer || 'N/A'}
-                                  </p>
-                                </div>
-                                <Badge variant={result.is_correct ? 'default' : 'destructive'} className="ml-2">
-                                  {result.is_correct ? 'Correct' : 'Incorrect'}
-                                </Badge>
-                              </div>
-                            ))}
-                          </CardContent>
-                        </CollapsibleContent>
-                      </Collapsible>
-                    </Card>
-                  )}
-                </div>
-              ) : (
-                <Card className="h-[400px] flex items-center justify-center">
-                  <CardContent className="text-center">
-                    <PlayCircle className="mx-auto h-16 w-16 text-muted-foreground/50 mb-4" />
-                    <h3 className="font-semibold text-lg mb-2">Select Content</h3>
-                    <p className="text-muted-foreground text-sm max-w-sm">
-                      Choose a video or lecture slides from the sidebar to begin learning
-                    </p>
                   </CardContent>
                 </Card>
               )}
