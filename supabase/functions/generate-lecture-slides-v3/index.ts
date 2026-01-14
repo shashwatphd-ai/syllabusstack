@@ -862,16 +862,14 @@ serve(async (req) => {
 
       console.log('[Main] Slides saved successfully:', initialSlides.length);
 
-      // PHASE 4: Visual AI - Generate images (best effort, won't block)
-      // We limit to first 5 slides to stay under timeout
-      console.log('[Main] === PHASE 4: VISUAL AI (limited) ===');
+      // PHASE 4: Visual AI - Generate images for ALL slides that need them
+      console.log('[Main] === PHASE 4: VISUAL AI ===');
       
-      const maxVisualsToGenerate = 5;
+      // Get all slides that need visuals
       const slidesNeedingVisuals = slides
-        .filter(s => s.visual_directive?.type && s.visual_directive.type !== 'none')
-        .slice(0, maxVisualsToGenerate);
+        .filter(s => s.visual_directive?.type && s.visual_directive.type !== 'none');
       
-      console.log(`[Visual AI] Generating ${slidesNeedingVisuals.length} visuals (capped at ${maxVisualsToGenerate})`);
+      console.log(`[Visual AI] Generating visuals for ${slidesNeedingVisuals.length} slides`);
       
       // Generate visuals in parallel (all at once for speed)
       const visualPromises = slidesNeedingVisuals.map(async (slide) => {
