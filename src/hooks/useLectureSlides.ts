@@ -218,7 +218,7 @@ export function useLectureSlide(slideId?: string) {
 }
 
 /**
- * Fetch all lecture slides for a course
+ * Fetch all lecture slides for a course, ordered by teaching unit sequence
  */
 export function useCourseLectureSlides(instructorCourseId?: string) {
   return useQuery({
@@ -226,15 +226,27 @@ export function useCourseLectureSlides(instructorCourseId?: string) {
     queryFn: async () => {
       if (!instructorCourseId) return [];
       
+      // Join with teaching_units to get sequence_order for proper ordering
       const { data, error } = await supabase
         .from('lecture_slides')
-        .select('*')
-        .eq('instructor_course_id', instructorCourseId)
-        .order('created_at');
+        .select(`
+          *,
+          teaching_unit:teaching_units!teaching_unit_id (
+            sequence_order
+          )
+        `)
+        .eq('instructor_course_id', instructorCourseId);
       
       if (error) throw error;
       
-      return (data || []).map(slide => ({
+      // Sort by teaching unit sequence order
+      const sortedData = (data || []).sort((a, b) => {
+        const aOrder = (a.teaching_unit as any)?.sequence_order ?? 999;
+        const bOrder = (b.teaching_unit as any)?.sequence_order ?? 999;
+        return aOrder - bOrder;
+      });
+      
+      return sortedData.map(slide => ({
         ...slide,
         slides: (slide.slides as unknown as Slide[]) || [],
       })) as LectureSlide[];
@@ -244,7 +256,7 @@ export function useCourseLectureSlides(instructorCourseId?: string) {
 }
 
 /**
- * Fetch published slides for enrolled students
+ * Fetch published slides for enrolled students, ordered by teaching unit sequence
  */
 export function usePublishedLectureSlides(instructorCourseId?: string) {
   return useQuery({
@@ -252,16 +264,28 @@ export function usePublishedLectureSlides(instructorCourseId?: string) {
     queryFn: async () => {
       if (!instructorCourseId) return [];
       
+      // Join with teaching_units to get sequence_order for proper ordering
       const { data, error } = await supabase
         .from('lecture_slides')
-        .select('*')
+        .select(`
+          *,
+          teaching_unit:teaching_units!teaching_unit_id (
+            sequence_order
+          )
+        `)
         .eq('instructor_course_id', instructorCourseId)
-        .eq('status', 'published')
-        .order('created_at');
+        .eq('status', 'published');
       
       if (error) throw error;
       
-      return (data || []).map(slide => ({
+      // Sort by teaching unit sequence order
+      const sortedData = (data || []).sort((a, b) => {
+        const aOrder = (a.teaching_unit as any)?.sequence_order ?? 999;
+        const bOrder = (b.teaching_unit as any)?.sequence_order ?? 999;
+        return aOrder - bOrder;
+      });
+      
+      return sortedData.map(slide => ({
         ...slide,
         slides: (slide.slides as unknown as Slide[]) || [],
       })) as LectureSlide[];
