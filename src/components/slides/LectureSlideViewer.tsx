@@ -208,11 +208,11 @@ export function LectureSlideViewer({
         <div className="flex-1 flex overflow-hidden">
           {/* Thumbnail sidebar */}
           {showThumbnails && (
-            <ScrollArea className="w-48 border-r bg-muted/30">
-              <div className="p-2 space-y-2">
+            <ScrollArea className="w-52 flex-shrink-0 border-r bg-muted/30">
+              <div className="p-2 space-y-1">
                 {slides.map((slide, index) => (
                   <button
-                    key={index}
+                    key={slide.order ?? index}
                     onClick={() => setCurrentSlideIndex(index)}
                     className={cn(
                       "w-full p-2 rounded-lg text-left transition-colors",
@@ -221,8 +221,21 @@ export function LectureSlideViewer({
                         : "hover:bg-muted"
                     )}
                   >
-                    <p className="text-xs font-medium truncate">{index + 1}. {slide.title}</p>
-                    <p className="text-xs text-muted-foreground capitalize">
+                    <p 
+                      className={cn(
+                        "text-xs font-medium line-clamp-2 leading-tight",
+                        index === currentSlideIndex ? "text-primary-foreground" : ""
+                      )}
+                      title={`${index + 1}. ${slide.title}`}
+                    >
+                      {index + 1}. {slide.title}
+                    </p>
+                    <p className={cn(
+                      "text-xs capitalize mt-0.5",
+                      index === currentSlideIndex 
+                        ? "text-primary-foreground/80" 
+                        : "text-muted-foreground"
+                    )}>
                       {slide.type.replace('_', ' ')}
                     </p>
                   </button>
