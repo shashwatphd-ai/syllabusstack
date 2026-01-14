@@ -21,7 +21,9 @@ serve(async (req) => {
   }
 
   try {
-    const { slideId, voice = 'en-US-Wavenet-D' } = await req.json();
+    // Neural2 voices are more natural than WaveNet at same price ($16/1M chars)
+    // Options: Neural2-A (female), Neural2-D (male), Neural2-F (female), Neural2-J (male)
+    const { slideId, voice = 'en-US-Neural2-D' } = await req.json();
 
     if (!slideId) {
       return new Response(
