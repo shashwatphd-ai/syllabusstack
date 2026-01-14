@@ -210,18 +210,22 @@ export function SlideRenderer({
     return content.bullets || content.key_points || [];
   };
 
+  // Check if slide has visual content
+  const hasVisual = enhanced && slide.visual && slide.visual.type !== 'none' && (slide.visual.url || slide.visual.fallback_description || slide.visual.alt_text);
+  const hasVisualUrl = enhanced && slide.visual?.url;
+
   return (
     <div className={cn('flex flex-col h-full', className)}>
       {/* Main slide content */}
       <div className={cn(
-        'flex-1 rounded-xl border bg-gradient-to-br p-8 flex flex-col overflow-hidden',
+        'flex-1 rounded-xl border bg-gradient-to-br p-6 flex flex-col overflow-hidden',
         config.bgGradient
       )}>
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <div className={cn('p-2 rounded-lg', config.iconBg)}>
-              <Icon className={cn('h-5 w-5', config.accentColor)} />
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <div className={cn('p-1.5 rounded-lg', config.iconBg)}>
+              <Icon className={cn('h-4 w-4', config.accentColor)} />
             </div>
             <span className={cn('text-sm font-medium capitalize', config.accentColor)}>
               {slide.type.replace('_', ' ')}
@@ -234,127 +238,139 @@ export function SlideRenderer({
 
         {/* Title */}
         <h2 className={cn(
-          'text-2xl md:text-3xl font-bold mb-6',
-          slide.type === 'title' && 'text-4xl md:text-5xl text-center my-auto'
+          'text-xl md:text-2xl font-bold mb-4',
+          slide.type === 'title' && 'text-3xl md:text-4xl text-center my-auto'
         )}>
           {slide.title}
         </h2>
 
-        {/* Content - Enhanced format (v2 and v3) */}
+        {/* Content area - side-by-side layout when visual exists */}
         {enhanced && slide.type !== 'title' && (
-          <div className="flex-1 overflow-auto space-y-4">
-            {/* Main text */}
-            {slide.content.main_text && (
-              <p className="text-lg leading-relaxed">{slide.content.main_text}</p>
-            )}
-            
-            {/* Definition box */}
-            {slide.content.definition && (
-              <div className="p-4 rounded-lg bg-blue-500/10 border border-blue-500/20">
-                <p className="font-semibold text-blue-600 dark:text-blue-400 mb-1">
-                  {slide.content.definition.term}
-                </p>
-                <p className="text-base">{getDefinitionText()}</p>
-                {getDefinitionSource() && (
-                  <p className="text-xs text-muted-foreground mt-2">
-                    Source: {getDefinitionSource()}
+          <div className={cn(
+            'flex-1 overflow-auto',
+            hasVisualUrl ? 'flex gap-4' : ''
+          )}>
+            {/* Text content */}
+            <div className={cn(
+              'space-y-3',
+              hasVisualUrl ? 'flex-1 min-w-0' : ''
+            )}>
+              {/* Main text */}
+              {slide.content.main_text && (
+                <p className="text-base leading-relaxed">{slide.content.main_text}</p>
+              )}
+              
+              {/* Definition box */}
+              {slide.content.definition && (
+                <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
+                  <p className="font-semibold text-blue-600 dark:text-blue-400 text-sm mb-1">
+                    {slide.content.definition.term}
                   </p>
-                )}
-              </div>
-            )}
+                  <p className="text-sm">{getDefinitionText()}</p>
+                  {getDefinitionSource() && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Source: {getDefinitionSource()}
+                    </p>
+                  )}
+                </div>
+              )}
 
-            {/* V3 Misconception box */}
-            {professor && (slide.content as any).misconception && (
-              <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/20">
-                <p className="font-medium text-red-600 dark:text-red-400 mb-2">⚠️ Common Misconception</p>
-                <p className="mb-2"><strong>Wrong belief:</strong> {(slide.content as any).misconception.wrong_belief}</p>
-                <p className="mb-2"><strong>Why it's wrong:</strong> {(slide.content as any).misconception.why_wrong}</p>
-                <p className="text-green-600 dark:text-green-400"><strong>Correct:</strong> {(slide.content as any).misconception.correct_understanding}</p>
+              {/* V3 Misconception box */}
+              {professor && (slide.content as any).misconception && (
+                <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20">
+                  <p className="font-medium text-red-600 dark:text-red-400 text-sm mb-1">⚠️ Common Misconception</p>
+                  <p className="text-sm mb-1"><strong>Wrong belief:</strong> {(slide.content as any).misconception.wrong_belief}</p>
+                  <p className="text-sm mb-1"><strong>Why it's wrong:</strong> {(slide.content as any).misconception.why_wrong}</p>
+                  <p className="text-sm text-green-600 dark:text-green-400"><strong>Correct:</strong> {(slide.content as any).misconception.correct_understanding}</p>
+                </div>
+              )}
+              
+              {/* Steps */}
+              {slide.content.steps && slide.content.steps.length > 0 && (
+                <ol className="space-y-2">
+                  {slide.content.steps.map((step) => (
+                    <li key={step.step} className="flex gap-2">
+                      <span className={cn('font-bold', config.accentColor)}>
+                        {step.step}.
+                      </span>
+                      <div>
+                        <p className="font-medium text-sm">{step.title}</p>
+                        <p className="text-sm text-muted-foreground">{step.explanation}</p>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              )}
+              
+              {/* Example */}
+              {slide.content.example && (
+                <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20">
+                  <p className="font-medium text-green-600 dark:text-green-400 text-sm mb-1">Example</p>
+                  <p className="text-sm mb-1">{slide.content.example.scenario}</p>
+                  <p className="text-sm text-muted-foreground">{getExampleExplanation()}</p>
+                </div>
+              )}
+              
+              {/* Bullets / Key Points */}
+              {getBullets().length > 0 && (
+                <ul className="space-y-1.5">
+                  {getBullets().map((item: string, index: number) => (
+                    <li key={index} className="flex items-start gap-2">
+                      <span className={cn('mt-1.5 h-1.5 w-1.5 rounded-full flex-shrink-0', config.iconBg)} />
+                      <span className="text-base leading-relaxed">{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {/* Visual - side by side when URL exists */}
+            {hasVisualUrl && (
+              <div className="w-2/5 flex-shrink-0 flex items-center justify-center">
+                <div className="w-full rounded-lg overflow-hidden bg-muted/30">
+                  <img 
+                    src={slide.visual!.url} 
+                    alt={slide.visual!.alt_text}
+                    className="w-full h-auto max-h-[280px] object-contain"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = 'none';
+                    }}
+                  />
+                  {(slide.visual as any).source && (
+                    <p className="text-xs text-muted-foreground text-center py-1">Source: {(slide.visual as any).source}</p>
+                  )}
+                </div>
               </div>
             )}
-            
-            {/* Steps */}
-            {slide.content.steps && slide.content.steps.length > 0 && (
-              <ol className="space-y-3">
-                {slide.content.steps.map((step) => (
-                  <li key={step.step} className="flex gap-3">
-                    <span className={cn('font-bold text-lg', config.accentColor)}>
-                      {step.step}.
-                    </span>
-                    <div>
-                      <p className="font-medium">{step.title}</p>
-                      <p className="text-muted-foreground">{step.explanation}</p>
-                    </div>
-                  </li>
-                ))}
-              </ol>
-            )}
-            
-            {/* Example */}
-            {slide.content.example && (
-              <div className="p-4 rounded-lg bg-green-500/10 border border-green-500/20">
-                <p className="font-medium text-green-600 dark:text-green-400 mb-2">Example</p>
-                <p className="mb-1">{slide.content.example.scenario}</p>
-                <p className="text-muted-foreground">{getExampleExplanation()}</p>
-              </div>
-            )}
-            
-            {/* Bullets / Key Points */}
-            {getBullets().length > 0 && (
-              <ul className="space-y-2">
-                {getBullets().map((item: string, index: number) => (
-                  <li key={index} className="flex items-start gap-3">
-                    <span className={cn('mt-1.5 h-2 w-2 rounded-full flex-shrink-0', config.iconBg)} />
-                    <span className="text-lg leading-relaxed">{item}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
+          </div>
+        )}
+
+        {/* Visual fallback - shown below when no URL */}
+        {enhanced && slide.type !== 'title' && hasVisual && !hasVisualUrl && (
+          <div className="mt-3 p-2 rounded-lg bg-muted/50 border border-dashed">
+            <p className="text-sm text-muted-foreground italic">
+              💡 Visual: {slide.visual!.fallback_description || slide.visual!.alt_text}
+            </p>
           </div>
         )}
 
         {/* Content - Legacy format */}
         {!enhanced && slide.type !== 'title' && 'content' in slide && Array.isArray(slide.content) && (
           <div className="flex-1 overflow-auto">
-            <ul className="space-y-4">
+            <ul className="space-y-3">
               {(slide.content as string[]).map((item, index) => (
-                <li key={index} className="flex items-start gap-3">
-                  <span className={cn('mt-1.5 h-2 w-2 rounded-full flex-shrink-0', config.iconBg)} />
-                  <span className="text-lg leading-relaxed">{item}</span>
+                <li key={index} className="flex items-start gap-2">
+                  <span className={cn('mt-1.5 h-1.5 w-1.5 rounded-full flex-shrink-0', config.iconBg)} />
+                  <span className="text-base leading-relaxed">{item}</span>
                 </li>
               ))}
             </ul>
           </div>
         )}
 
-        {/* Visual - Enhanced */}
-        {enhanced && slide.visual && slide.visual.type !== 'none' && (
-          <div className="mt-6 p-4 rounded-lg bg-muted/50 border">
-            {slide.visual.url ? (
-              <div className="text-center">
-                <img 
-                  src={slide.visual.url} 
-                  alt={slide.visual.alt_text}
-                  className="max-h-48 mx-auto rounded"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).style.display = 'none';
-                  }}
-                />
-                {(slide.visual as any).source && (
-                  <p className="text-xs text-muted-foreground mt-2">Source: {(slide.visual as any).source}</p>
-                )}
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground italic">
-                💡 Visual: {slide.visual.fallback_description || slide.visual.alt_text}
-              </p>
-            )}
-          </div>
-        )}
-
         {/* Visual suggestion - Legacy */}
         {!enhanced && 'visual_suggestion' in slide && slide.visual_suggestion && (
-          <div className="mt-6 p-4 rounded-lg bg-muted/50 border border-dashed">
+          <div className="mt-4 p-2 rounded-lg bg-muted/50 border border-dashed">
             <p className="text-sm text-muted-foreground italic">
               💡 Visual: {slide.visual_suggestion}
             </p>
@@ -363,11 +379,11 @@ export function SlideRenderer({
         
         {/* Citations - v2 Enhanced only */}
         {enhanced && !professor && (slide as any).citations && (slide as any).citations.length > 0 && (
-          <div className="mt-4 pt-4 border-t">
+          <div className="mt-3 pt-3 border-t">
             <p className="text-xs text-muted-foreground mb-1">References:</p>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-1">
               {(slide as any).citations.map((citation: any, i: number) => (
-                <span key={i} className="text-xs bg-muted px-2 py-1 rounded">
+                <span key={i} className="text-xs bg-muted px-1.5 py-0.5 rounded">
                   [{i + 1}] {citation.source}
                 </span>
               ))}
@@ -377,7 +393,7 @@ export function SlideRenderer({
 
         {/* Pedagogy hint - v3 only */}
         {professor && showPedagogy && (slide as ProfessorSlide).pedagogy && (
-          <div className="mt-4 pt-4 border-t text-xs text-muted-foreground">
+          <div className="mt-3 pt-3 border-t text-xs text-muted-foreground">
             <p><strong>Purpose:</strong> {(slide as ProfessorSlide).pedagogy?.purpose}</p>
             <p><strong>Next:</strong> {(slide as ProfessorSlide).pedagogy?.transition_to_next}</p>
           </div>
@@ -386,7 +402,7 @@ export function SlideRenderer({
 
       {/* Speaker notes panel */}
       {showSpeakerNotes && slide.speaker_notes && (
-        <div className="mt-4 p-4 rounded-lg bg-muted/50 border max-h-32 overflow-y-auto">
+        <div className="mt-3 p-3 rounded-lg bg-muted/50 border max-h-28 overflow-y-auto">
           <p className="text-xs font-medium text-muted-foreground mb-1">Speaker Notes</p>
           <p className="text-sm leading-relaxed">{slide.speaker_notes}</p>
         </div>

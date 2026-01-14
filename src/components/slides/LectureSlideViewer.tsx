@@ -102,7 +102,8 @@ export function LectureSlideViewer({
       style: lectureSlide.slide_style,
       regenerate: true,
     });
-    onOpenChange(false);
+    // Don't close the dialog - let user see the toast and stay on current slides
+    // The dialog will refresh when the new slides are ready via query invalidation
   };
 
   const isPublished = lectureSlide.status === 'published';
