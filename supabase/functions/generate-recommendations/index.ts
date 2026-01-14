@@ -15,7 +15,7 @@ serve(async (req) => {
   }
 
   try {
-    const { dreamJobId, gaps, gapAnalysisId, userId: testUserId } = await req.json();
+    const { dreamJobId, gaps, gapAnalysisId } = await req.json();
     
     if (!dreamJobId) {
       return new Response(
@@ -26,30 +26,27 @@ serve(async (req) => {
 
     const authHeader = req.headers.get("Authorization");
     
-    let supabase;
-    let userId: string;
-    
-    if (authHeader) {
-      supabase = createClient(
-        Deno.env.get("SUPABASE_URL") ?? "",
-        Deno.env.get("SUPABASE_ANON_KEY") ?? "",
-        { global: { headers: { Authorization: authHeader } } }
-      );
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
-      if (userError || !user) {
-        throw new Error("Failed to get user");
-      }
-      userId = user.id;
-    } else if (testUserId) {
-      console.log("Running in test mode with userId:", testUserId);
-      supabase = createServiceClient();
-      userId = testUserId;
-    } else {
+    if (!authHeader) {
       return new Response(
         JSON.stringify({ error: "Authorization required" }),
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+    
+    // Authenticated flow - always require valid auth header
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+      { global: { headers: { Authorization: authHeader } } }
+    );
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
+      return new Response(
+        JSON.stringify({ error: "Failed to authenticate user" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    const userId = user.id;
 
     // Get dream job details
     const { data: dreamJob, error: jobError } = await supabase
