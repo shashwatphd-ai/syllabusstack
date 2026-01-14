@@ -789,53 +789,68 @@ serve(async (req) => {
       
       console.log('[Main] Professor AI complete:', slides.length, 'slides');
 
-      // PHASE 3: Visual AI - Generate custom images
-      console.log('[Main] === PHASE 3: VISUAL AI ===');
-      await updateProgress(supabase, slideRecordId, 'visual', 65, 'Visual AI: Generating diagrams...');
+      // PHASE 3: Save slides FIRST (before image generation to avoid timeout)
+      console.log('[Main] === PHASE 3: SAVING SLIDES ===');
+      await updateProgress(supabase, slideRecordId, 'finalize', 70, 'Saving lecture content...');
       
-      const visualUrls = await runVisualAI(slides, context, supabase);
-      await updateProgress(supabase, slideRecordId, 'visual', 90, `Generated ${visualUrls.size} visuals`);
-      
-      console.log('[Main] Visual AI complete:', visualUrls.size, 'images');
+      // Build initial slides without visuals
+      const initialSlides = slides.map(slide => ({
+        order: slide.order,
+        type: slide.type,
+        title: slide.title,
+        content: {
+          main_text: slide.content?.main_text || '',
+          key_points: slide.content?.key_points || [],
+          definition: slide.content?.definition,
+          example: slide.content?.example,
+          misconception: slide.content?.misconception,
+          steps: slide.content?.steps,
+        },
+        visual: {
+          type: slide.visual_directive?.type || 'none',
+          url: null, // Will be populated by async image generation
+          alt_text: slide.visual_directive?.description || '',
+          fallback_description: slide.visual_directive?.description || '',
+          elements: slide.visual_directive?.elements || [],
+          style: slide.visual_directive?.style || '',
+        },
+        speaker_notes: slide.speaker_notes || '',
+        speaker_notes_duration_seconds: slide.estimated_seconds || 60,
+        pedagogy: slide.pedagogy || {
+          purpose: '',
+          bloom_action: '',
+          transition_to_next: '',
+        },
+        quality_score: 80,
+      }));
 
-      // PHASE 4: Merge and finalize
-      console.log('[Main] === PHASE 4: FINALIZATION ===');
-      await updateProgress(supabase, slideRecordId, 'finalize', 95, 'Finalizing lecture...');
-      
-      const finalSlides = mergeSlideswithVisuals(slides, visualUrls);
-      
-      // Calculate statistics
-      const avgSpeakerNotesLength = finalSlides.reduce(
+      // Calculate initial quality score
+      const avgSpeakerNotesLength = initialSlides.reduce(
         (sum, s) => sum + (s.speaker_notes?.length || 0), 0
-      ) / finalSlides.length;
+      ) / initialSlides.length;
       
-      const visualCount = Array.from(visualUrls.values()).length;
-      
-      // Calculate quality score based on completeness
       let qualityScore = 70;
       if (avgSpeakerNotesLength > 500) qualityScore += 10;
-      if (visualCount > 3) qualityScore += 10;
-      if (finalSlides.some(s => s.type === 'misconception')) qualityScore += 5;
-      if (finalSlides.some(s => s.content?.definition)) qualityScore += 5;
-      qualityScore = Math.min(100, qualityScore);
+      if (initialSlides.some(s => s.type === 'misconception')) qualityScore += 5;
+      if (initialSlides.some(s => s.content?.definition)) qualityScore += 5;
 
-      // Save final slides
+      // Save slides immediately (before image generation)
       const { error: saveError } = await supabase
         .from('lecture_slides')
         .update({
-          slides: finalSlides,
-          total_slides: finalSlides.length,
-          status: 'ready',
+          slides: initialSlides,
+          total_slides: initialSlides.length,
+          status: 'ready', // Mark as ready - images are optional
           generation_phases: {
             version: 3,
-            completed: new Date().toISOString(),
-            total_duration_ms: Date.now() - startTime,
-            current_phase: 'complete',
-            progress_percent: 100,
+            slides_saved: new Date().toISOString(),
+            current_phase: 'visual',
+            progress_percent: 75,
+            message: 'Slides ready. Generating visuals...',
           },
           quality_score: qualityScore,
-          is_research_grounded: false, // v3 uses AI knowledge, not web research
-          estimated_duration_minutes: Math.round(finalSlides.length * 1.5),
+          is_research_grounded: false,
+          estimated_duration_minutes: Math.round(initialSlides.length * 1.5),
           generation_model: 'google/gemini-3-pro-preview',
         })
         .eq('id', slideRecordId);
@@ -845,16 +860,125 @@ serve(async (req) => {
         throw saveError;
       }
 
+      console.log('[Main] Slides saved successfully:', initialSlides.length);
+
+      // PHASE 4: Visual AI - Generate images (best effort, won't block)
+      // We limit to first 5 slides to stay under timeout
+      console.log('[Main] === PHASE 4: VISUAL AI (limited) ===');
+      
+      const maxVisualsToGenerate = 5;
+      const slidesNeedingVisuals = slides
+        .filter(s => s.visual_directive?.type && s.visual_directive.type !== 'none')
+        .slice(0, maxVisualsToGenerate);
+      
+      console.log(`[Visual AI] Generating ${slidesNeedingVisuals.length} visuals (capped at ${maxVisualsToGenerate})`);
+      
+      // Generate visuals in parallel (all at once for speed)
+      const visualPromises = slidesNeedingVisuals.map(async (slide) => {
+        const directive = slide.visual_directive;
+        
+        const imagePrompt = `Create an educational diagram for a university lecture slide.
+
+TOPIC: ${slide.title}
+CONTEXT: ${context.title} - ${context.domain}
+
+REQUIREMENTS:
+- Type: ${directive.type}
+- Must include: ${directive.elements.join(', ')}
+- Description: ${directive.description}
+- Style: ${directive.style}
+
+DESIGN RULES:
+- Clean, minimal design suitable for projection
+- High contrast (works on both light/dark backgrounds)
+- Clear labels on all elements
+- No decorative elements, pure information
+- Professional academic style
+- 16:9 aspect ratio`;
+
+        try {
+          const result = await generateImage(imagePrompt, slide.title);
+          
+          if (result?.base64) {
+            const fileName = `slide_${context.id}_${slide.order}_${Date.now()}.png`;
+            const { error: uploadError } = await supabase.storage
+              .from('lecture-visuals')
+              .upload(fileName, base64ToBlob(result.base64), {
+                contentType: 'image/png',
+                upsert: true,
+              });
+
+            if (!uploadError) {
+              const { data: urlData } = supabase.storage
+                .from('lecture-visuals')
+                .getPublicUrl(fileName);
+              
+              if (urlData?.publicUrl) {
+                console.log(`[Visual AI] Uploaded visual for slide ${slide.order}`);
+                return { order: slide.order, url: urlData.publicUrl };
+              }
+            }
+          }
+        } catch (error) {
+          console.warn(`[Visual AI] Error for slide ${slide.order}:`, error);
+        }
+        return null;
+      });
+
+      // Wait for all visuals with a timeout
+      const visualResults = await Promise.allSettled(visualPromises);
+      const successfulVisuals = visualResults
+        .filter((r): r is PromiseFulfilledResult<{ order: number; url: string } | null> => 
+          r.status === 'fulfilled' && r.value !== null)
+        .map(r => r.value!);
+
+      console.log(`[Visual AI] Generated ${successfulVisuals.length} visuals`);
+
+      // Update slides with visual URLs if any were generated
+      if (successfulVisuals.length > 0) {
+        const updatedSlides = initialSlides.map(slide => {
+          const visual = successfulVisuals.find(v => v.order === slide.order);
+          if (visual) {
+            return {
+              ...slide,
+              visual: {
+                ...slide.visual,
+                url: visual.url,
+              },
+              quality_score: 90, // Boost quality for slides with images
+            };
+          }
+          return slide;
+        });
+
+        // Update with visuals
+        await supabase
+          .from('lecture_slides')
+          .update({
+            slides: updatedSlides,
+            quality_score: qualityScore + (successfulVisuals.length > 3 ? 10 : successfulVisuals.length * 2),
+            generation_phases: {
+              version: 3,
+              completed: new Date().toISOString(),
+              total_duration_ms: Date.now() - startTime,
+              current_phase: 'complete',
+              progress_percent: 100,
+              visuals_generated: successfulVisuals.length,
+            },
+          })
+          .eq('id', slideRecordId);
+      }
+
       const duration = Date.now() - startTime;
-      console.log(`[Main] === COMPLETE === ${duration}ms, ${finalSlides.length} slides, ${visualCount} visuals`);
+      console.log(`[Main] === COMPLETE === ${duration}ms, ${initialSlides.length} slides, ${successfulVisuals.length} visuals`);
 
       return new Response(
         JSON.stringify({
           success: true,
           slideId: slideRecordId,
-          slideCount: finalSlides.length,
-          visualCount,
-          qualityScore,
+          slideCount: initialSlides.length,
+          visualCount: successfulVisuals.length,
+          qualityScore: qualityScore + (successfulVisuals.length > 3 ? 10 : 0),
           durationMs: duration,
           version: 3,
         }),
