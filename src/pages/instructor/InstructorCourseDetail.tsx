@@ -230,7 +230,7 @@ export default function InstructorCourseDetailPage() {
                 </Badge>
               </div>
               {course.description && (
-                <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{course.description}</p>
+                <p className="text-sm text-muted-foreground mt-1">{course.description}</p>
               )}
             </div>
             <div className="flex items-center gap-2 self-start sm:self-auto">
