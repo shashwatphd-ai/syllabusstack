@@ -108,24 +108,16 @@ export function AppHeader({ onMenuClick, showSearch = true, sidebarCollapsed = f
             <Menu className="h-5 w-5" />
           </Button>
           
-          {/* Branding - show on mobile always, on desktop when sidebar collapsed */}
-          <div className={cn(
-            "flex items-center gap-2",
-            "lg:hidden", // Always show on mobile
-            sidebarCollapsed && "lg:flex" // Also show on desktop when collapsed
-          )}>
+          {/* Branding - always visible in header */}
+          <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
               <GraduationCap className="h-5 w-5 text-primary-foreground" />
             </div>
             <span className="text-lg font-bold hidden sm:block">SyllabusStack</span>
           </div>
           
-          {/* Separator - when branding is visible */}
-          <div className={cn(
-            "h-6 w-px bg-border hidden",
-            "sm:block lg:hidden",
-            sidebarCollapsed && "lg:block"
-          )} />
+          {/* Separator */}
+          <div className="h-6 w-px bg-border hidden sm:block" />
           
           {/* Page title */}
           <h1 className="text-lg font-semibold text-foreground truncate max-w-[150px] sm:max-w-none">

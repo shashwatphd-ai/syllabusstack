@@ -180,6 +180,160 @@ export function useUpdateInstructorCourse() {
   });
 }
 
+// Delete an instructor course
+export function useDeleteInstructorCourse() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async (courseId: string) => {
+      const { error } = await supabase
+        .from('instructor_courses')
+        .delete()
+        .eq('id', courseId);
+
+      if (error) throw error;
+      return courseId;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['instructor-courses'] });
+      toast({
+        title: 'Course Deleted',
+        description: 'The course has been permanently deleted',
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to delete course',
+        variant: 'destructive',
+      });
+    },
+  });
+}
+
+// Duplicate an instructor course
+export function useDuplicateInstructorCourse() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async (courseId: string) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      // Get the original course
+      const { data: original, error: fetchError } = await supabase
+        .from('instructor_courses')
+        .select('*')
+        .eq('id', courseId)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      // Generate new access code
+      let accessCode: string;
+      let attempts = 0;
+      do {
+        accessCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+        const { data: existing } = await supabase
+          .from('instructor_courses')
+          .select('id')
+          .eq('access_code', accessCode)
+          .maybeSingle();
+        if (!existing) break;
+        attempts++;
+      } while (attempts < 10);
+
+      // Create duplicate
+      const { data: newCourse, error: createError } = await supabase
+        .from('instructor_courses')
+        .insert({
+          instructor_id: user.id,
+          title: `${original.title} (Copy)`,
+          code: original.code ? `${original.code}-COPY` : null,
+          description: original.description,
+          curation_mode: original.curation_mode,
+          verification_threshold: original.verification_threshold,
+          is_published: false, // Always start as draft
+          access_code: accessCode,
+        })
+        .select()
+        .single();
+
+      if (createError) throw createError;
+
+      // Copy modules
+      const { data: modules } = await supabase
+        .from('modules')
+        .select('*')
+        .eq('instructor_course_id', courseId)
+        .order('sequence_order');
+
+      if (modules && modules.length > 0) {
+        const moduleMapping: Record<string, string> = {};
+        
+        for (const mod of modules) {
+          const { data: newModule } = await supabase
+            .from('modules')
+            .insert({
+              instructor_course_id: newCourse.id,
+              title: mod.title,
+              description: mod.description,
+              sequence_order: mod.sequence_order,
+            })
+            .select()
+            .single();
+          
+          if (newModule) {
+            moduleMapping[mod.id] = newModule.id;
+          }
+        }
+
+        // Copy learning objectives
+        const { data: los } = await supabase
+          .from('learning_objectives')
+          .select('*')
+          .eq('instructor_course_id', courseId);
+
+        if (los && los.length > 0) {
+          await supabase.from('learning_objectives').insert(
+            los.map(lo => ({
+              instructor_course_id: newCourse.id,
+              user_id: user.id,
+              module_id: lo.module_id ? moduleMapping[lo.module_id] : null,
+              text: lo.text,
+              bloom_level: lo.bloom_level,
+              expected_duration_minutes: lo.expected_duration_minutes,
+              sequence_order: lo.sequence_order,
+              core_concept: lo.core_concept,
+              action_verb: lo.action_verb,
+              domain: lo.domain,
+              search_keywords: lo.search_keywords,
+            }))
+          );
+        }
+      }
+
+      return newCourse;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['instructor-courses'] });
+      toast({
+        title: 'Course Duplicated',
+        description: 'A copy of the course has been created',
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to duplicate course',
+        variant: 'destructive',
+      });
+    },
+  });
+}
+
 // Create a new module
 export function useCreateModule() {
   const queryClient = useQueryClient();
