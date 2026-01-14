@@ -13,13 +13,14 @@ import {
   Image,
   ListOrdered
 } from 'lucide-react';
-import type { Slide, EnhancedSlide, isEnhancedSlide } from '@/hooks/useLectureSlides';
+import type { Slide, EnhancedSlide, ProfessorSlide } from '@/hooks/useLectureSlides';
 
 interface SlideRendererProps {
-  slide: Slide | EnhancedSlide;
+  slide: Slide | EnhancedSlide | ProfessorSlide;
   slideNumber: number;
   totalSlides: number;
   showSpeakerNotes?: boolean;
+  showPedagogy?: boolean;
   className?: string;
 }
 
@@ -77,6 +78,43 @@ const SLIDE_TYPE_CONFIG: Record<string, {
     accentColor: 'text-indigo-600 dark:text-indigo-400',
     iconBg: 'bg-indigo-500/20',
   },
+  // V3 Professor AI slide types
+  hook: {
+    icon: Target,
+    bgGradient: 'from-orange-500/10 via-background to-background',
+    accentColor: 'text-orange-600 dark:text-orange-400',
+    iconBg: 'bg-orange-500/20',
+  },
+  recap: {
+    icon: ArrowLeft,
+    bgGradient: 'from-slate-500/10 via-background to-background',
+    accentColor: 'text-slate-600 dark:text-slate-400',
+    iconBg: 'bg-slate-500/20',
+  },
+  demonstration: {
+    icon: Code,
+    bgGradient: 'from-violet-500/10 via-background to-background',
+    accentColor: 'text-violet-600 dark:text-violet-400',
+    iconBg: 'bg-violet-500/20',
+  },
+  practice: {
+    icon: HelpCircle,
+    bgGradient: 'from-amber-500/10 via-background to-background',
+    accentColor: 'text-amber-600 dark:text-amber-400',
+    iconBg: 'bg-amber-500/20',
+  },
+  synthesis: {
+    icon: CheckCircle,
+    bgGradient: 'from-teal-500/10 via-background to-background',
+    accentColor: 'text-teal-600 dark:text-teal-400',
+    iconBg: 'bg-teal-500/20',
+  },
+  preview: {
+    icon: Target,
+    bgGradient: 'from-blue-500/10 via-background to-background',
+    accentColor: 'text-blue-600 dark:text-blue-400',
+    iconBg: 'bg-blue-500/20',
+  },
   diagram: {
     icon: Image,
     bgGradient: 'from-teal-500/10 via-background to-background',
@@ -121,9 +159,14 @@ const SLIDE_TYPE_CONFIG: Record<string, {
   },
 };
 
-// Check if slide is enhanced format
-function isEnhanced(slide: Slide | EnhancedSlide): slide is EnhancedSlide {
+// Check if slide is enhanced format (v2 or v3)
+function isEnhanced(slide: Slide | EnhancedSlide | ProfessorSlide): slide is EnhancedSlide | ProfessorSlide {
   return 'content' in slide && typeof slide.content === 'object' && slide.content !== null && 'main_text' in slide.content;
+}
+
+// Check if slide is Professor AI format (v3)
+function isProfessor(slide: Slide | EnhancedSlide | ProfessorSlide): slide is ProfessorSlide {
+  return isEnhanced(slide) && 'pedagogy' in slide;
 }
 
 export function SlideRenderer({ 
@@ -131,11 +174,41 @@ export function SlideRenderer({
   slideNumber, 
   totalSlides, 
   showSpeakerNotes = false,
+  showPedagogy = false,
   className 
 }: SlideRendererProps) {
   const config = SLIDE_TYPE_CONFIG[slide.type] || SLIDE_TYPE_CONFIG.concept;
   const Icon = config.icon;
   const enhanced = isEnhanced(slide);
+  const professor = isProfessor(slide);
+
+  // Helper to get definition text (handles both v2 and v3 formats)
+  const getDefinitionText = () => {
+    if (!enhanced || !slide.content.definition) return null;
+    const def = slide.content.definition as any;
+    return def.meaning || def.formal_definition || def.simple_explanation || '';
+  };
+
+  // Helper to get definition source
+  const getDefinitionSource = () => {
+    if (!enhanced || !slide.content.definition) return null;
+    const def = slide.content.definition as any;
+    return def.source || null;
+  };
+
+  // Helper to get example explanation (handles both v2 and v3 formats)
+  const getExampleExplanation = () => {
+    if (!enhanced || !slide.content.example) return '';
+    const ex = slide.content.example as any;
+    return ex.explanation || ex.walkthrough || ex.connection_to_concept || '';
+  };
+
+  // Helper to get bullets/key_points
+  const getBullets = () => {
+    if (!enhanced) return [];
+    const content = slide.content as any;
+    return content.bullets || content.key_points || [];
+  };
 
   return (
     <div className={cn('flex flex-col h-full', className)}>
@@ -167,7 +240,7 @@ export function SlideRenderer({
           {slide.title}
         </h2>
 
-        {/* Content - Enhanced format */}
+        {/* Content - Enhanced format (v2 and v3) */}
         {enhanced && slide.type !== 'title' && (
           <div className="flex-1 overflow-auto space-y-4">
             {/* Main text */}
@@ -181,10 +254,22 @@ export function SlideRenderer({
                 <p className="font-semibold text-blue-600 dark:text-blue-400 mb-1">
                   {slide.content.definition.term}
                 </p>
-                <p className="text-base">{slide.content.definition.meaning}</p>
-                <p className="text-xs text-muted-foreground mt-2">
-                  Source: {slide.content.definition.source}
-                </p>
+                <p className="text-base">{getDefinitionText()}</p>
+                {getDefinitionSource() && (
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Source: {getDefinitionSource()}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* V3 Misconception box */}
+            {professor && (slide.content as any).misconception && (
+              <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/20">
+                <p className="font-medium text-red-600 dark:text-red-400 mb-2">⚠️ Common Misconception</p>
+                <p className="mb-2"><strong>Wrong belief:</strong> {(slide.content as any).misconception.wrong_belief}</p>
+                <p className="mb-2"><strong>Why it's wrong:</strong> {(slide.content as any).misconception.why_wrong}</p>
+                <p className="text-green-600 dark:text-green-400"><strong>Correct:</strong> {(slide.content as any).misconception.correct_understanding}</p>
               </div>
             )}
             
@@ -210,14 +295,14 @@ export function SlideRenderer({
               <div className="p-4 rounded-lg bg-green-500/10 border border-green-500/20">
                 <p className="font-medium text-green-600 dark:text-green-400 mb-2">Example</p>
                 <p className="mb-1">{slide.content.example.scenario}</p>
-                <p className="text-muted-foreground">{slide.content.example.explanation}</p>
+                <p className="text-muted-foreground">{getExampleExplanation()}</p>
               </div>
             )}
             
-            {/* Bullets */}
-            {slide.content.bullets && slide.content.bullets.length > 0 && (
+            {/* Bullets / Key Points */}
+            {getBullets().length > 0 && (
               <ul className="space-y-2">
-                {slide.content.bullets.map((item, index) => (
+                {getBullets().map((item: string, index: number) => (
                   <li key={index} className="flex items-start gap-3">
                     <span className={cn('mt-1.5 h-2 w-2 rounded-full flex-shrink-0', config.iconBg)} />
                     <span className="text-lg leading-relaxed">{item}</span>
@@ -255,8 +340,8 @@ export function SlideRenderer({
                     (e.target as HTMLImageElement).style.display = 'none';
                   }}
                 />
-                {slide.visual.source && (
-                  <p className="text-xs text-muted-foreground mt-2">Source: {slide.visual.source}</p>
+                {(slide.visual as any).source && (
+                  <p className="text-xs text-muted-foreground mt-2">Source: {(slide.visual as any).source}</p>
                 )}
               </div>
             ) : (
@@ -276,17 +361,25 @@ export function SlideRenderer({
           </div>
         )}
         
-        {/* Citations - Enhanced only */}
-        {enhanced && slide.citations && slide.citations.length > 0 && (
+        {/* Citations - v2 Enhanced only */}
+        {enhanced && !professor && (slide as any).citations && (slide as any).citations.length > 0 && (
           <div className="mt-4 pt-4 border-t">
             <p className="text-xs text-muted-foreground mb-1">References:</p>
             <div className="flex flex-wrap gap-2">
-              {slide.citations.map((citation, i) => (
+              {(slide as any).citations.map((citation: any, i: number) => (
                 <span key={i} className="text-xs bg-muted px-2 py-1 rounded">
                   [{i + 1}] {citation.source}
                 </span>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* Pedagogy hint - v3 only */}
+        {professor && showPedagogy && (slide as ProfessorSlide).pedagogy && (
+          <div className="mt-4 pt-4 border-t text-xs text-muted-foreground">
+            <p><strong>Purpose:</strong> {(slide as ProfessorSlide).pedagogy?.purpose}</p>
+            <p><strong>Next:</strong> {(slide as ProfessorSlide).pedagogy?.transition_to_next}</p>
           </div>
         )}
       </div>

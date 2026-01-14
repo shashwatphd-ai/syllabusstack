@@ -50,12 +50,70 @@ export interface EnhancedSlide {
   };
   speaker_notes: string;
   speaker_notes_duration_seconds?: number;
-  citations: {
+  citations?: {
     claim: string;
     source: string;
     url?: string;
   }[];
   quality_score?: number;
+}
+
+// Professor AI slide format (v3) - comprehensive pedagogical structure
+export interface ProfessorSlide {
+  order: number;
+  type: 'title' | 'hook' | 'recap' | 'definition' | 'explanation' | 
+        'example' | 'demonstration' | 'misconception' | 'practice' | 
+        'synthesis' | 'preview' | 'process' | 'summary';
+  title: string;
+  content: {
+    main_text: string;
+    key_points?: string[];
+    definition?: {
+      term: string;
+      formal_definition: string;
+      simple_explanation: string;
+    };
+    example?: {
+      scenario: string;
+      walkthrough: string;
+      connection_to_concept: string;
+    };
+    misconception?: {
+      wrong_belief: string;
+      why_wrong: string;
+      correct_understanding: string;
+    };
+    steps?: {
+      step: number;
+      title: string;
+      explanation: string;
+    }[];
+  };
+  visual: {
+    type: 'diagram' | 'screenshot' | 'comparison' | 'flowchart' | 'illustration' | 'none';
+    url?: string | null;
+    alt_text: string;
+    fallback_description: string;
+    elements?: string[];
+    style?: string;
+  };
+  speaker_notes: string;
+  speaker_notes_duration_seconds?: number;
+  pedagogy?: {
+    purpose: string;
+    bloom_action: string;
+    transition_to_next: string;
+  };
+  quality_score?: number;
+}
+
+// Type guard for Professor AI slides (v3)
+export function isProfessorSlide(slide: Slide | EnhancedSlide | ProfessorSlide): slide is ProfessorSlide {
+  return 'content' in slide && 
+         typeof slide.content === 'object' && 
+         slide.content !== null && 
+         'main_text' in slide.content &&
+         'pedagogy' in slide;
 }
 
 export interface LectureSlide {
@@ -235,10 +293,10 @@ export function useGenerateLectureSlides() {
       style?: 'standard' | 'minimal' | 'detailed' | 'interactive';
       regenerate?: boolean;
     }) => {
-      setProgress({ phase: 'starting', percent: 0, message: 'Initializing multi-agent generation...' });
+      setProgress({ phase: 'starting', percent: 0, message: 'Initializing Professor AI...' });
       
-      // Use v2 multi-agent endpoint
-      const { data, error } = await supabase.functions.invoke('generate-lecture-slides-v2', {
+      // Use v3 Professor AI endpoint
+      const { data, error } = await supabase.functions.invoke('generate-lecture-slides-v3', {
         body: { 
           teaching_unit_id: teachingUnitId,
           style,
@@ -262,7 +320,7 @@ export function useGenerateLectureSlides() {
       
       toast({
         title: '🎓 Lecture Slides Generated',
-        description: `Created ${data.slideCount} research-grounded slides${data.citationCount ? ` with ${data.citationCount} citations` : ''} (Quality: ${data.qualityScore || 'N/A'}%)`,
+        description: `Created ${data.slideCount} slides${data.visualCount ? ` with ${data.visualCount} custom visuals` : ''} (Quality: ${data.qualityScore || 'N/A'}%)`,
       });
     },
     onError: (error: Error) => {
@@ -275,16 +333,17 @@ export function useGenerateLectureSlides() {
     },
   });
 
-  // Progress simulation while waiting
+  // Progress simulation while waiting - v3 two-phase approach
   useEffect(() => {
     if (!mutation.isPending) return;
     
     const phases = [
-      { phase: 'research', percent: 20, message: '🔍 Research Agent: Finding authoritative sources...' },
-      { phase: 'visual', percent: 35, message: '🖼️ Visual Agent: Discovering diagrams and images...' },
-      { phase: 'curriculum', percent: 50, message: '📚 Curriculum Agent: Designing pedagogical structure...' },
-      { phase: 'synthesis', percent: 80, message: '✍️ Synthesis Agent: Creating detailed content...' },
-      { phase: 'quality', percent: 95, message: '✅ Quality Agent: Validating slides...' },
+      { phase: 'professor', percent: 15, message: '🎓 Professor AI: Analyzing teaching context...' },
+      { phase: 'professor', percent: 35, message: '🎓 Professor AI: Designing pedagogical sequence...' },
+      { phase: 'professor', percent: 55, message: '🎓 Professor AI: Writing slide content...' },
+      { phase: 'visual', percent: 70, message: '🎨 Visual AI: Generating custom diagrams...' },
+      { phase: 'visual', percent: 85, message: '🎨 Visual AI: Processing images...' },
+      { phase: 'finalize', percent: 95, message: '✅ Finalizing lecture deck...' },
     ];
     
     let currentPhaseIndex = 0;
@@ -293,7 +352,7 @@ export function useGenerateLectureSlides() {
         setProgress(phases[currentPhaseIndex]);
         currentPhaseIndex++;
       }
-    }, 10000); // ~10s per phase estimate
+    }, 8000); // ~8s per phase estimate (faster v3)
     
     return () => clearInterval(interval);
   }, [mutation.isPending]);
