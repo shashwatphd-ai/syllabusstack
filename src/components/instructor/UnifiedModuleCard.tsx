@@ -198,7 +198,7 @@ export function UnifiedModuleCard({ module, learningObjectives }: UnifiedModuleC
             </div>
           </CollapsibleTrigger>
           {module.description && (
-            <p className="text-xs sm:text-sm text-muted-foreground ml-7 mt-1 line-clamp-2">{module.description}</p>
+            <p className="text-xs sm:text-sm text-muted-foreground ml-7 mt-1">{module.description}</p>
           )}
         </CardHeader>
         <CollapsibleContent>
