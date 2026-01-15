@@ -45,4 +45,50 @@ export const queryKeys = {
     overview: ['dashboard', 'overview'] as const,
     stats: ['dashboard', 'stats'] as const,
   },
+
+  // Instructor Courses
+  instructorCourses: {
+    all: ['instructor-courses'] as const,
+    list: () => ['instructor-courses', 'list'] as const,
+    detail: (id: string) => ['instructor-courses', 'detail', id] as const,
+  },
+
+  // Modules
+  modules: {
+    all: ['modules'] as const,
+    list: (courseId: string) => ['modules', 'list', courseId] as const,
+  },
+
+  // Teaching Units
+  teachingUnits: {
+    all: ['teaching-units'] as const,
+    list: (loId?: string) => loId 
+      ? ['teaching-units', 'list', loId] as const 
+      : ['teaching-units', 'list'] as const,
+  },
+
+  // Content Matches
+  contentMatches: {
+    all: ['content-matches'] as const,
+    list: (unitId?: string) => unitId
+      ? ['content-matches', 'list', unitId] as const
+      : ['content-matches', 'list'] as const,
+  },
+
+  // Learning Objectives
+  learningObjectives: {
+    all: ['learning-objectives'] as const,
+    list: (courseId?: string) => courseId
+      ? ['learning-objectives', 'list', courseId] as const
+      : ['learning-objectives', 'list'] as const,
+    detail: (id: string) => ['learning-objectives', 'detail', id] as const,
+  },
+
+  // Course Students
+  courseStudents: (courseId: string) => ['course-students', courseId] as const,
+
+  // Admin
+  admin: {
+    stats: ['admin', 'stats'] as const,
+  },
 };

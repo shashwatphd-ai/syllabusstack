@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState, useCallback, memo } from 'react';
 import { ChevronDown, ChevronRight, Video, Search, Loader2, CheckCircle, XCircle, Play, Link, Clock, ExternalLink, Sparkles, Bot, AlertTriangle, ThumbsUp, Info, MessageSquare, Zap, Award, Users, Trash2, Brain, Layers } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -60,7 +60,7 @@ const bloomDescriptions: Record<string, { title: string; description: string; co
   },
 };
 
-export function UnifiedLOCard({ learningObjective, contentStatus }: UnifiedLOCardProps) {
+export const UnifiedLOCard = memo(function UnifiedLOCard({ learningObjective, contentStatus }: UnifiedLOCardProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [previewMatch, setPreviewMatch] = useState<ContentMatch | null>(null);
   const [showManualSearch, setShowManualSearch] = useState(false);
@@ -488,7 +488,7 @@ export function UnifiedLOCard({ learningObjective, contentStatus }: UnifiedLOCar
       )}
     </>
   );
-}
+});
 
 interface CompactContentCardProps {
   match: ContentMatch;
