@@ -247,7 +247,7 @@ interface CourseStructure {
  * 3. Extracts learning objectives and assigns to modules
  * 4. Saves everything to the database
  */
-serve(async (req) => {
+serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -546,12 +546,12 @@ RULES:
 
     // Create a map from sequence_order to module ID for LO assignment
     const moduleIdByIndex = new Map<number, string>();
-    savedModules?.forEach((m, i) => moduleIdByIndex.set(i, m.id));
+    savedModules?.forEach((m: { id: string }, i: number) => moduleIdByIndex.set(i, m.id));
 
     // Step 3b: Build ALL learning objectives with correct module_ids
     // DEDUPLICATION: Track seen LO texts to prevent duplicates
     let sequenceOrder = 1;
-    const losData: any[] = [];
+    const losData: Record<string, unknown>[] = [];
     const seenLoTexts = new Set<string>();
     
     // Helper to normalize LO text for deduplication
