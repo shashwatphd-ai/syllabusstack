@@ -96,7 +96,7 @@ export function AppHeader({ onMenuClick, showSearch = true, sidebarCollapsed = f
   return (
     <header className="h-16 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-40">
       <div className="h-full px-4 flex items-center justify-between gap-4">
-        {/* Left side - Menu button, branding, and title */}
+        {/* Left side - Menu button and title */}
         <div className="flex items-center gap-3">
           {/* Menu button - mobile only */}
           <Button
@@ -108,13 +108,10 @@ export function AppHeader({ onMenuClick, showSearch = true, sidebarCollapsed = f
             <Menu className="h-5 w-5" />
           </Button>
           
-          {/* Branding - always visible in header */}
-          <Link to="/">
+          {/* Branding - mobile only (sidebar has logo on desktop) */}
+          <Link to="/" className="lg:hidden">
             <Logo size="sm" variant="dark" />
           </Link>
-          
-          {/* Separator */}
-          <div className="h-6 w-px bg-border hidden sm:block" />
           
           {/* Page title */}
           <h1 className="text-lg font-semibold text-foreground truncate max-w-[150px] sm:max-w-none">
