@@ -123,7 +123,7 @@ export async function fetchExportData(): Promise<ExportData> {
 }
 
 // Export as JSON file
-export function exportAsJSON(data: ExportData, filename: string = 'eduthree-export'): void {
+export function exportAsJSON(data: ExportData, filename: string = 'syllabusstack-export'): void {
   const jsonString = JSON.stringify(data, null, 2);
   const blob = new Blob([jsonString], { type: 'application/json' });
   downloadBlob(blob, `${filename}.json`);

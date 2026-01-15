@@ -1,4 +1,4 @@
-// EduThree Standardized Error Handling
+// SyllabusStack Standardized Error Handling
 // Provides consistent error responses across all edge functions
 
 export interface StandardError {
