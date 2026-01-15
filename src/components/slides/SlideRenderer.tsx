@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { 
   BookOpen, 
@@ -232,6 +232,28 @@ export function SlideRenderer({
   const hasVisual = enhanced && slide.visual && slide.visual.type !== 'none' && (slide.visual.url || slide.visual.fallback_description || slide.visual.alt_text);
   const hasVisualUrl = enhanced && slide.visual?.url;
 
+  // Reference to text content scroll container
+  const textContentRef = useRef<HTMLDivElement>(null);
+
+  // Check if scroll indicator should be shown (only when content overflows)
+  useEffect(() => {
+    const checkScrollable = () => {
+      const el = textContentRef.current;
+      const indicator = el?.parentElement?.querySelector('.scroll-indicator') as HTMLElement;
+      if (el && indicator) {
+        const isScrollable = el.scrollHeight > el.clientHeight + 20;
+        const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 20;
+        indicator.style.opacity = (isScrollable && !atBottom) ? '1' : '0';
+      }
+    };
+    
+    // Check on mount and when slide changes
+    checkScrollable();
+    // Re-check after a brief delay for images to load
+    const timeout = setTimeout(checkScrollable, 300);
+    return () => clearTimeout(timeout);
+  }, [slide, slideNumber]);
+
   // Open lightbox with signed image URL
   const openLightbox = () => {
     if (signedImageUrl) {
@@ -313,11 +335,25 @@ export function SlideRenderer({
             'flex-1 min-h-0',
             hasVisualUrl ? 'flex gap-3' : 'overflow-y-auto'
           )}>
-            {/* Text content - scrollable when needed */}
+            {/* Text content - with scroll indicator */}
             <div className={cn(
-              'space-y-2 overflow-y-auto',
+              'relative',
               hasVisualUrl ? 'w-2/5 flex-shrink-0' : ''
             )}>
+              {/* Scrollable content area */}
+              <div 
+                ref={textContentRef}
+                className="space-y-2 overflow-y-auto max-h-full pr-2 scroll-smooth"
+                style={{ maxHeight: hasVisualUrl ? '340px' : 'auto' }}
+                onScroll={(e) => {
+                  const el = e.currentTarget;
+                  const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 20;
+                  const indicator = el.parentElement?.querySelector('.scroll-indicator') as HTMLElement;
+                  if (indicator) {
+                    indicator.style.opacity = atBottom ? '0' : '1';
+                  }
+                }}
+              >
               {/* Main text */}
               {slide.content.main_text && (
                 <p className="text-sm leading-relaxed">{slide.content.main_text}</p>
@@ -410,6 +446,17 @@ export function SlideRenderer({
                   })}
                 </div>
               )}
+              </div>
+              {/* Scroll indicator - shows when content is scrollable */}
+              <div 
+                className="scroll-indicator absolute bottom-0 left-0 right-2 h-8 bg-gradient-to-t from-background via-background/80 to-transparent pointer-events-none flex items-end justify-center pb-1 transition-opacity duration-200"
+                style={{ opacity: 1 }}
+              >
+                <div className="flex items-center gap-1 text-xs text-muted-foreground animate-pulse">
+                  <span>↓</span>
+                  <span>scroll for more</span>
+                </div>
+              </div>
             </div>
 
             {/* Visual - LARGE clickable for lightbox */}

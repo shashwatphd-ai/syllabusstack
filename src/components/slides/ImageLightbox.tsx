@@ -74,16 +74,14 @@ export function ImageLightbox({ src, alt, isOpen, onClose }: ImageLightboxProps)
         Click anywhere or press Escape to close • Use +/- to zoom
       </p>
 
-      {/* Image container */}
-      <div 
-        className="relative max-w-[95vw] max-h-[90vh] overflow-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
+      {/* Image container - clicking anywhere closes */}
+      <div className="relative max-w-[95vw] max-h-[90vh] overflow-auto flex items-center justify-center">
         <img
           src={src}
           alt={alt}
           className={cn(
-            "max-w-none transition-transform duration-200 cursor-grab active:cursor-grabbing rounded-lg shadow-2xl",
+            "max-w-none transition-transform duration-200 rounded-lg shadow-2xl",
+            scale > 1 ? "cursor-zoom-out" : "cursor-pointer"
           )}
           style={{ transform: `scale(${scale})`, transformOrigin: 'center center' }}
           draggable={false}
