@@ -17,6 +17,7 @@ import { SlideRenderer } from './SlideRenderer';
 import type { LectureSlide, Slide, ProfessorSlide, EnhancedSlide } from '@/hooks/useLectureSlides';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
+import { useSlideSync, parseSegmentMap, type AudioSegment } from '@/hooks/useSlideSync';
 
 interface StudentSlideViewerProps {
   lectureSlide: LectureSlide;
@@ -49,6 +50,17 @@ export function StudentSlideViewer({
   const currentSlide = slides[currentSlideIndex];
   const progress = ((highestSlideViewed + 1) / slides.length) * 100;
   const hasAudio = lectureSlide.has_audio && audioEnabled;
+
+  // Parse segment map for current slide (for audio-visual sync)
+  const currentSegmentMap = parseSegmentMap(currentSlide as any);
+  const currentAudioDuration = (currentSlide as any)?.audio_duration_seconds || 0;
+
+  // Audio-visual sync highlighting
+  const { activeBlockId, setAudioRef } = useSlideSync({
+    audioDuration: currentAudioDuration,
+    segmentMap: currentSegmentMap,
+    enabled: hasAudio && isAudioPlaying,
+  });
 
   // Track highest slide viewed
   useEffect(() => {
@@ -97,11 +109,15 @@ export function StudentSlideViewer({
       
       const audio = new Audio(urlToPlay);
       audioRef.current = audio;
+      
+      // Connect to sync hook for highlighting
+      setAudioRef(audio);
 
       audio.onplay = () => setIsAudioPlaying(true);
       audio.onpause = () => setIsAudioPlaying(false);
       audio.onended = () => {
         setIsAudioPlaying(false);
+        setAudioRef(null); // Disconnect sync
         // Auto-advance to next slide when audio ends
         if (currentSlideIndex < slides.length - 1) {
           setCurrentSlideIndex(prev => prev + 1);
@@ -113,6 +129,7 @@ export function StudentSlideViewer({
       audio.onerror = (e) => {
         console.error('Audio playback error:', e);
         setIsAudioPlaying(false);
+        setAudioRef(null); // Disconnect sync
       };
 
       // Auto-play audio for current slide
@@ -314,6 +331,7 @@ export function StudentSlideViewer({
               slideNumber={currentSlideIndex + 1}
               totalSlides={slides.length}
               showSpeakerNotes={showSpeakerNotes}
+              activeBlockId={activeBlockId}
               className="h-full"
             />
           )}

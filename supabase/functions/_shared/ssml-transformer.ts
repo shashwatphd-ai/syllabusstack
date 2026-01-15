@@ -9,10 +9,11 @@ export interface SSMLContext {
   slideType: string;
   slideIndex: number;
   totalSlides: number;
-  hasKeyPoints: boolean;
-  hasDefinition: boolean;
-  hasExample: boolean;
-  hasMisconception: boolean;
+  hasKeyPoints?: boolean;
+  hasDefinition?: boolean;
+  hasExample?: boolean;
+  hasMisconception?: boolean;
+  hasSteps?: boolean;
 }
 
 /**

@@ -13,8 +13,9 @@ import {
   Image,
   ListOrdered
 } from 'lucide-react';
-import type { Slide, EnhancedSlide, ProfessorSlide } from '@/hooks/useLectureSlides';
+import type { Slide, EnhancedSlide, ProfessorSlide, KeyPointWithHint, LayoutHint } from '@/hooks/useLectureSlides';
 import { AuthenticatedImage } from './AuthenticatedImage';
+import SlideContentBlock from './SlideContentBlock';
 
 interface SlideRendererProps {
   slide: Slide | EnhancedSlide | ProfessorSlide;
@@ -23,6 +24,15 @@ interface SlideRendererProps {
   showSpeakerNotes?: boolean;
   showPedagogy?: boolean;
   className?: string;
+  activeBlockId?: string | null; // For audio-visual sync highlighting
+}
+
+// Helper to normalize key_points to always have text and optional layout_hint
+function normalizeKeyPoint(point: string | KeyPointWithHint): { text: string; layoutHint?: LayoutHint } {
+  if (typeof point === 'string') {
+    return { text: point };
+  }
+  return { text: point.text, layoutHint: point.layout_hint };
 }
 
 const SLIDE_TYPE_CONFIG: Record<string, {
@@ -176,7 +186,8 @@ export function SlideRenderer({
   totalSlides, 
   showSpeakerNotes = false,
   showPedagogy = false,
-  className 
+  className,
+  activeBlockId = null
 }: SlideRendererProps) {
   const config = SLIDE_TYPE_CONFIG[slide.type] || SLIDE_TYPE_CONFIG.concept;
   const Icon = config.icon;
@@ -312,16 +323,41 @@ export function SlideRenderer({
                 </div>
               )}
               
-              {/* Bullets / Key Points */}
+              {/* Bullets / Key Points - with adaptive layout support */}
               {getBullets().length > 0 && (
-                <ul className="space-y-1.5">
-                  {getBullets().map((item: string, index: number) => (
-                    <li key={index} className="flex items-start gap-2">
-                      <span className={cn('mt-1.5 h-1.5 w-1.5 rounded-full flex-shrink-0', config.iconBg)} />
-                      <span className="text-base leading-relaxed">{item}</span>
-                    </li>
-                  ))}
-                </ul>
+                <div className="space-y-2">
+                  {getBullets().map((item: string | KeyPointWithHint, index: number) => {
+                    const normalized = normalizeKeyPoint(item);
+                    const blockId = `key_point_${index}`;
+                    const isActive = activeBlockId === blockId;
+                    
+                    // If has layout_hint, use SlideContentBlock for adaptive rendering
+                    if (normalized.layoutHint) {
+                      return (
+                        <SlideContentBlock
+                          key={index}
+                          text={normalized.text}
+                          layoutHint={normalized.layoutHint}
+                          isActive={isActive}
+                        />
+                      );
+                    }
+                    
+                    // Default bullet rendering for plain text
+                    return (
+                      <div
+                        key={index}
+                        className={cn(
+                          "flex items-start gap-2 p-1.5 rounded-md transition-all duration-300",
+                          isActive && "bg-primary/10 ring-2 ring-primary/30"
+                        )}
+                      >
+                        <span className={cn('mt-1.5 h-1.5 w-1.5 rounded-full flex-shrink-0', config.iconBg)} />
+                        <span className="text-base leading-relaxed">{normalized.text}</span>
+                      </div>
+                    );
+                  })}
+                </div>
               )}
             </div>
 

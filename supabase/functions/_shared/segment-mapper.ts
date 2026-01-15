@@ -16,26 +16,26 @@ export interface AudioSegment {
   target_block: string; // ContentBlock.id
   start_percent: number;
   end_percent: number;
-  narration_excerpt: string;
+  narration_excerpt?: string;
 }
 
 export interface SlideForMapping {
-  title: string;
-  content: {
-    main_text: string;
-    key_points?: string[];
+  title?: string;
+  content?: {
+    main_text?: string;
+    key_points?: (string | { text: string })[];
     definition?: {
-      term: string;
+      term?: string;
       formal_definition?: string;
       simple_explanation?: string;
     };
     example?: {
-      scenario: string;
+      scenario?: string;
       walkthrough?: string;
     };
     misconception?: {
-      wrong_belief: string;
-      correct_understanding: string;
+      wrong_belief?: string;
+      correct_understanding?: string;
     };
     steps?: {
       step: number;
@@ -43,7 +43,7 @@ export interface SlideForMapping {
       explanation: string;
     }[];
   };
-  speaker_notes: string;
+  speaker_notes?: string;
 }
 
 /**
@@ -51,66 +51,69 @@ export interface SlideForMapping {
  */
 export function extractContentBlocks(slide: SlideForMapping): ContentBlock[] {
   const blocks: ContentBlock[] = [];
+  const content = slide.content;
 
   // Title is always first
   blocks.push({
     id: 'title',
     type: 'title',
-    content: slide.title,
+    content: slide.title || 'Untitled',
   });
 
   // Main text
-  if (slide.content.main_text) {
+  if (content?.main_text) {
     blocks.push({
       id: 'main_text',
       type: 'main_text',
-      content: slide.content.main_text,
+      content: content.main_text,
     });
   }
 
   // Key points
-  if (slide.content.key_points?.length) {
-    slide.content.key_points.forEach((point, i) => {
+  if (content?.key_points?.length) {
+    content.key_points.forEach((point, i) => {
+      const text = typeof point === 'string' ? point : point.text;
       blocks.push({
         id: `key_point_${i}`,
         type: 'key_point',
-        content: point,
+        content: text,
         index: i,
       });
     });
   }
 
   // Definition
-  if (slide.content.definition) {
-    const def = slide.content.definition;
+  if (content?.definition) {
+    const def = content.definition;
+    const defText = def.formal_definition || def.simple_explanation || '';
     blocks.push({
       id: 'definition',
       type: 'definition',
-      content: `${def.term}: ${def.formal_definition || def.simple_explanation}`,
+      content: `${def.term || 'Term'}: ${defText}`,
     });
   }
 
   // Example
-  if (slide.content.example) {
+  if (content?.example?.scenario) {
     blocks.push({
       id: 'example',
       type: 'example',
-      content: slide.content.example.scenario,
+      content: content.example.scenario,
     });
   }
 
   // Misconception
-  if (slide.content.misconception) {
+  if (content?.misconception?.wrong_belief) {
     blocks.push({
       id: 'misconception',
       type: 'misconception',
-      content: slide.content.misconception.wrong_belief,
+      content: content.misconception.wrong_belief,
     });
   }
 
   // Steps
-  if (slide.content.steps?.length) {
-    slide.content.steps.forEach((step) => {
+  if (content?.steps?.length) {
+    content.steps.forEach((step) => {
       blocks.push({
         id: `step_${step.step}`,
         type: 'step',
@@ -124,6 +127,23 @@ export function extractContentBlocks(slide: SlideForMapping): ContentBlock[] {
 }
 
 /**
+ * Create proportional mapping based on block count (fallback)
+ */
+function createProportionalMapping(blocks: ContentBlock[], speakerNotes: string): AudioSegment[] {
+  if (blocks.length === 0) {
+    return [{ target_block: 'main_text', start_percent: 0, end_percent: 100 }];
+  }
+
+  const segmentSize = 100 / blocks.length;
+  return blocks.map((block, i) => ({
+    target_block: block.id,
+    start_percent: Math.round(i * segmentSize),
+    end_percent: Math.round((i + 1) * segmentSize),
+    narration_excerpt: speakerNotes.slice(0, 50),
+  }));
+}
+
+/**
  * Map speaker notes segments to content blocks using AI
  */
 export async function mapAudioSegments(
@@ -132,62 +152,36 @@ export async function mapAudioSegments(
   apiKey: string
 ): Promise<AudioSegment[]> {
   const blocks = extractContentBlocks(slide);
+  const speakerNotes = slide.speaker_notes || '';
   
-  if (blocks.length <= 1) {
-    // Only title, return single segment
-    return [{
-      target_block: 'title',
-      start_percent: 0,
-      end_percent: 100,
-      narration_excerpt: slide.speaker_notes.slice(0, 50),
-    }];
+  if (!speakerNotes || speakerNotes.length < 50 || blocks.length <= 1) {
+    return createProportionalMapping(blocks, speakerNotes);
   }
 
-  const blockDescriptions = blocks.map(b => 
-    `- ${b.id}: "${b.content.slice(0, 100)}${b.content.length > 100 ? '...' : ''}"`
-  ).join('\n');
+  const blocksSummary = blocks.map(b => `- ${b.id}: "${b.content.slice(0, 80)}..."`).join('\n');
 
-  const prompt = `Map this speaker narration to slide content blocks for synchronized highlighting during playback.
+  const prompt = `Map this speaker narration to slide content blocks for synchronized highlighting.
 
 SLIDE CONTENT BLOCKS:
-${blockDescriptions}
+${blocksSummary}
 
-SPEAKER NOTES (${slide.speaker_notes.length} characters, ~${audioDurationSeconds} seconds of audio):
-"""
-${slide.speaker_notes}
-"""
+SPEAKER NOTES (${speakerNotes.length} characters, ~${audioDurationSeconds} seconds of audio):
+"${speakerNotes}"
 
 TASK:
-Analyze the narration and identify which parts discuss which content blocks.
-Return a JSON array where each segment maps a portion of the narration to a content block.
+Analyze the speaker notes and determine which portions correspond to which content blocks.
+Return a JSON array mapping narration segments to content blocks.
 
 RULES:
-1. Segments must cover 0-100% without gaps or overlaps
-2. Each segment maps to exactly one target_block id from the list above
-3. A block can have multiple segments if the narration returns to it
-4. Order segments by start_percent ascending
-5. Estimate timing based on word density and natural speech patterns
-6. Include a short excerpt (first few words) of the narration for that segment
+1. Each segment must have: target_block (block id), start_percent (0-100), end_percent (0-100), narration_excerpt (first few words)
+2. Segments must be contiguous (end of one = start of next)
+3. Segments must cover 0-100% range completely
+4. Match semantic meaning, not just word order
+5. A block can have multiple segments if the narration returns to it
+6. Valid target_block values: ${blocks.map(b => b.id).join(', ')}
 
-IMPORTANT SEMANTIC MAPPING:
-- "As you can see" or "Look at" → usually references visual/example
-- "The key point here" → maps to relevant key_point_N
-- "Let me define" or "What is" → maps to definition
-- "For example" or "Consider this" → maps to example
-- "A common mistake" or "Many believe" → maps to misconception
-- "First/Second/Then" → maps to step_N
-- Opening and closing usually reference title or main_text
-
-Return ONLY a valid JSON array:
-[
-  {
-    "target_block": "main_text",
-    "start_percent": 0,
-    "end_percent": 25,
-    "narration_excerpt": "Let's begin by understanding..."
-  },
-  ...
-]`;
+Return ONLY the JSON array, no explanation:
+[{"target_block": "...", "start_percent": 0, "end_percent": X, "narration_excerpt": "..."}, ...]`;
 
   try {
     const response = await fetch(LOVABLE_API_URL, {
@@ -197,118 +191,89 @@ Return ONLY a valid JSON array:
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-3-flash-preview',
+        model: 'google/gemini-2.5-flash',
         messages: [
-          { 
-            role: 'system', 
-            content: 'You are an expert at analyzing lecture narration and mapping spoken content to slide elements. You understand how professors naturally reference visual content while speaking. Return only valid JSON.' 
+          {
+            role: 'system',
+            content: 'You are an expert at analyzing educational content structure. Output valid JSON only.'
           },
           { role: 'user', content: prompt }
         ],
-        temperature: 0.2, // Low temperature for consistent structure
+        max_tokens: 1000,
       }),
     });
 
     if (!response.ok) {
-      console.error('[Segment Mapper] API error:', response.status);
-      return createProportionalMapping(blocks, slide.speaker_notes);
+      console.error('AI API error:', response.status);
+      return createProportionalMapping(blocks, speakerNotes);
     }
 
     const data = await response.json();
-    let content = data.choices?.[0]?.message?.content?.trim();
+    let content = data.choices?.[0]?.message?.content?.trim() || '';
 
-    if (!content) {
-      return createProportionalMapping(blocks, slide.speaker_notes);
-    }
-
-    // Extract JSON from possible markdown wrapper
+    // Extract JSON from markdown code blocks if present
     const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (jsonMatch) {
       content = jsonMatch[1].trim();
     }
 
+    // Try to parse JSON
     const segments = JSON.parse(content) as AudioSegment[];
-    
+
     // Validate segments
     if (!Array.isArray(segments) || segments.length === 0) {
-      return createProportionalMapping(blocks, slide.speaker_notes);
+      console.warn('Invalid segment array, using proportional fallback');
+      return createProportionalMapping(blocks, speakerNotes);
     }
 
-    // Validate all target_blocks exist
+    // Validate each segment has required fields
     const validBlockIds = new Set(blocks.map(b => b.id));
-    const validSegments = segments.filter(s => validBlockIds.has(s.target_block));
+    const validSegments = segments.filter(s => 
+      typeof s.target_block === 'string' &&
+      validBlockIds.has(s.target_block) &&
+      typeof s.start_percent === 'number' &&
+      typeof s.end_percent === 'number' &&
+      s.start_percent >= 0 &&
+      s.end_percent <= 100 &&
+      s.end_percent > s.start_percent
+    );
 
     if (validSegments.length === 0) {
-      return createProportionalMapping(blocks, slide.speaker_notes);
+      console.warn('No valid segments, using proportional fallback');
+      return createProportionalMapping(blocks, speakerNotes);
     }
 
-    console.log(`[Segment Mapper] Mapped ${validSegments.length} segments to ${blocks.length} blocks`);
     return validSegments;
-
   } catch (error) {
-    console.error('[Segment Mapper] Error:', error);
-    return createProportionalMapping(blocks, slide.speaker_notes);
+    console.error('Segment mapping failed:', error);
+    return createProportionalMapping(blocks, speakerNotes);
   }
 }
 
 /**
- * Fallback: Create proportional mapping based on content length
- */
-function createProportionalMapping(
-  blocks: ContentBlock[],
-  speakerNotes: string
-): AudioSegment[] {
-  if (blocks.length === 0) return [];
-
-  const totalContentLength = blocks.reduce((sum, b) => sum + b.content.length, 0);
-  const segments: AudioSegment[] = [];
-  let currentPercent = 0;
-
-  blocks.forEach((block, i) => {
-    const proportion = block.content.length / totalContentLength;
-    const endPercent = i === blocks.length - 1 ? 100 : Math.round(currentPercent + proportion * 100);
-
-    segments.push({
-      target_block: block.id,
-      start_percent: Math.round(currentPercent),
-      end_percent: endPercent,
-      narration_excerpt: `Segment ${i + 1}`,
-    });
-
-    currentPercent = endPercent;
-  });
-
-  return segments;
-}
-
-/**
- * Batch process segment mapping for multiple slides
+ * Batch map segments for multiple slides
  */
 export async function batchMapSegments(
   slides: Array<SlideForMapping & { order: number; audio_duration_seconds?: number }>,
   apiKey: string
 ): Promise<Map<number, AudioSegment[]>> {
-  const mappings = new Map<number, AudioSegment[]>();
-
+  const results = new Map<number, AudioSegment[]>();
+  
   for (const slide of slides) {
-    if (!slide.speaker_notes || !slide.audio_duration_seconds) {
-      continue;
-    }
-
     try {
       const segments = await mapAudioSegments(
         slide,
-        slide.audio_duration_seconds,
+        slide.audio_duration_seconds || 60,
         apiKey
       );
-      mappings.set(slide.order, segments);
-
-      // Small delay between API calls
+      results.set(slide.order, segments);
+      
+      // Small delay to avoid rate limiting
       await new Promise(resolve => setTimeout(resolve, 100));
     } catch (error) {
-      console.error(`[Segment Mapper] Failed for slide ${slide.order}:`, error);
+      console.error(`Failed to map segments for slide ${slide.order}:`, error);
     }
   }
-
-  return mappings;
+  
+  return results;
 }
