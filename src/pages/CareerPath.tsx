@@ -371,7 +371,8 @@ export default function CareerPathPage() {
             </TabsTrigger>
             <TabsTrigger value="avoid" className="gap-1 sm:gap-2 py-2 sm:py-2.5 text-xs sm:text-sm">
               <AlertTriangle className="h-4 w-4 hidden sm:block" />
-              <span>Avoid</span>
+              <span className="sm:hidden">Avoid</span>
+              <span className="hidden sm:inline">Avoid</span>
             </TabsTrigger>
           </TabsList>
 
