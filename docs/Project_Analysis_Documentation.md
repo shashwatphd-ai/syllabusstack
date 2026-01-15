@@ -28,7 +28,7 @@
 
 ### 1.1 Product Overview
 
-**SyllabusStack** (formerly EduThree) is an AI-powered career navigation and verified learning platform that bridges the gap between academic coursework and career readiness. The platform transforms static course syllabi into actionable career intelligence through:
+**SyllabusStack** is an AI-powered career navigation and verified learning platform that bridges the gap between academic coursework and career readiness. The platform transforms static course syllabi into actionable career intelligence through:
 
 - **Capability Extraction**: AI analyzes syllabi to identify transferable skills
 - **Career Gap Analysis**: Compares student capabilities against job market requirements

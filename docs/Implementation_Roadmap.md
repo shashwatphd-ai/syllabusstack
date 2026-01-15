@@ -1,6 +1,6 @@
-# EduThree Strategic Analysis: A User-Centric Implementation Roadmap
+# SyllabusStack Strategic Analysis: A User-Centric Implementation Roadmap
 
-> **Document Purpose**: This document serves as the authoritative implementation guide for AI agents and developers working on EduThree. It provides narrative context for each feature, explaining WHO does WHAT, WHEN, WHY, and HOW. Use this for continuity across sessions and quality control.
+> **Document Purpose**: This document serves as the authoritative implementation guide for AI agents and developers working on SyllabusStack. It provides narrative context for each feature, explaining WHO does WHAT, WHEN, WHY, and HOW. Use this for continuity across sessions and quality control.
 
 ---
 

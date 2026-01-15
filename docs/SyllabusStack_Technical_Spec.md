@@ -1,4 +1,4 @@
-EduThree
+SyllabusStack
 Complete Technical Specification & Implementation Manual
 AI-Native Career Navigation Platform
 
@@ -24,15 +24,15 @@ Appendices: Environment Variables, File Structure, Seed Data
 
  
 Part 1: Executive Summary & Core Philosophy
-1.1 What EduThree Is
-EduThree is an AI-native career navigation platform that helps students understand their job-readiness through intelligent analysis of their coursework against real job market requirements. Unlike traditional career tools that use keyword matching and static databases, EduThree generates every analysis dynamically using large language models.
+1.1 What SyllabusStack Is
+SyllabusStack is an AI-native career navigation platform that helps students understand their job-readiness through intelligent analysis of their coursework against real job market requirements. Unlike traditional career tools that use keyword matching and static databases, SyllabusStack generates every analysis dynamically using large language models.
 1.2 Core Philosophy
 Nothing is hardcoded. No fixed skill taxonomies, no predetermined job lists, no static recommendation libraries. Every insight is generated contextually by AI.
 AI does the thinking. Claude/Gemini analyzes, matches, and recommends—not database lookups. The system understands context, nuance, and relationships that keyword matching cannot.
 Honesty over encouragement. Students receive realistic assessments. '58% match' is meaningless. 'Competitive for associate roles at non-tech companies but not yet for tech PM because you lack X, Y, Z' is actionable.
 Specificity is required. Generic advice fails. 'Complete Mode Analytics SQL tutorial, focus on JOINs (15 hours), addresses your gap in data querying which will eliminate you from PM interviews' succeeds.
 1.3 Business Model
-Students use EduThree FREE. Revenue from institutions:
+Students use SyllabusStack FREE. Revenue from institutions:
 Revenue Source Price Point Why They Pay
 University Licenses $3-5/student/year Career services needs outcomes data
 Employer Sponsorships $500-2,000/month Access to qualified talent pool
@@ -771,7 +771,7 @@ return new Response(JSON.stringify({ recommendations: inserted, what_not_to_do: 
  
 Part 7: Complete Prompt Library
 7.1 Master System Prompt
-export const MASTER_SYSTEM_PROMPT = `You are the intelligence layer of EduThree.
+export const MASTER_SYSTEM_PROMPT = `You are the intelligence layer of SyllabusStack.
 
 CORE PRINCIPLES:
 
@@ -1315,7 +1315,7 @@ GOOGLE_AI_API_KEY=your_google_ai_key
 ANTHROPIC_API_KEY=your_anthropic_key
 OPENAI_API_KEY=your_openai_key
 Appendix B: File Structure
-eduthree/
+syllabusstack/
 ├── src/
 │ ├── components/
 │ │ ├── analysis/ # HonestAssessment, GapsList, OverlapsList
@@ -1356,7 +1356,7 @@ Collect 20 syllabi across disciplines for testing.
 Document Control
 
 Field Value
-Document EduThree Technical Specification
+Document SyllabusStack Technical Specification
 Version 3.0
 Date December 2025
 Classification Confidential
