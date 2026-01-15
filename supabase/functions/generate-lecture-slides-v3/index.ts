@@ -260,63 +260,116 @@ function parseJsonFromAI(content: string): any {
 
 async function fetchTeachingUnitContext(
   supabase: any,
-  teachingUnitId: string
+  teachingUnitId: string,
+  userId?: string | null
 ): Promise<TeachingUnitContext> {
-  console.log('[Context] Fetching complete teaching unit context');
+  console.log('[Context] Fetching complete teaching unit context', { teachingUnitId, userId: userId ? 'present' : 'missing' });
 
-  // Fetch teaching unit with full hierarchy
-  // Use left joins for module since module_id can be null
+  // 1) Teaching unit (no joins) — avoids false negatives when related rows are missing
   const { data: unit, error: unitError } = await supabase
     .from('teaching_units')
-    .select(`
-      *,
-      learning_objective:learning_objectives!inner(
-        id,
-        text,
-        bloom_level,
-        core_concept,
-        action_verb,
-        instructor_course_id,
-        module:modules(
-          id,
-          title,
-          description,
-          sequence_order
-        )
-      )
-    `)
+    .select('*')
     .eq('id', teachingUnitId)
-    .single();
+    .maybeSingle();
 
-  if (unitError || !unit) {
-    console.error('[Context] Teaching unit not found:', unitError);
+  if (unitError) {
+    console.error('[Context] Error fetching teaching unit:', unitError);
+    throw new Error('Failed to fetch teaching unit');
+  }
+
+  if (!unit) {
+    console.error('[Context] Teaching unit not found:', { teachingUnitId });
     throw new Error('Teaching unit not found');
   }
 
-  const lo = unit.learning_objective;
-  
-  // Fetch instructor course separately since module might be null
+  if (!unit.learning_objective_id) {
+    console.error('[Context] Teaching unit missing learning_objective_id:', { teachingUnitId });
+    throw new Error('Teaching unit is missing learning objective linkage');
+  }
+
+  // 2) Learning objective
+  const { data: lo, error: loError } = await supabase
+    .from('learning_objectives')
+    .select('id, text, bloom_level, core_concept, action_verb, module_id, instructor_course_id, user_id')
+    .eq('id', unit.learning_objective_id)
+    .maybeSingle();
+
+  if (loError) {
+    console.error('[Context] Error fetching learning objective:', loError);
+    throw new Error('Failed to fetch learning objective');
+  }
+
+  if (!lo) {
+    console.error('[Context] Learning objective not found for teaching unit:', {
+      teachingUnitId,
+      learningObjectiveId: unit.learning_objective_id,
+    });
+    throw new Error('Learning objective not found for teaching unit');
+  }
+
+  if (!lo.instructor_course_id) {
+    console.error('[Context] Learning objective missing instructor_course_id:', { learningObjectiveId: lo.id });
+    throw new Error('Learning objective is missing course linkage');
+  }
+
+  // 3) Course (used for domain + syllabus grounding)
   const { data: course, error: courseError } = await supabase
     .from('instructor_courses')
-    .select('id, title, detected_domain, code, syllabus_text')
+    .select('id, title, detected_domain, code, syllabus_text, instructor_id')
     .eq('id', lo.instructor_course_id)
-    .single();
+    .maybeSingle();
 
-  if (courseError || !course) {
-    console.error('[Context] Course not found:', courseError);
+  if (courseError) {
+    console.error('[Context] Error fetching course:', courseError);
+    throw new Error('Failed to fetch course for teaching unit');
+  }
+
+  if (!course) {
+    console.error('[Context] Course not found for teaching unit:', { teachingUnitId, instructorCourseId: lo.instructor_course_id });
     throw new Error('Course not found for teaching unit');
   }
 
-  // Module might be null - provide defaults
-  const module = lo.module || { id: null, title: 'Unassigned', description: '', sequence_order: 0 };
+  // Multi-user safety: if we have an authenticated user, enforce ownership
+  if (userId && course.instructor_id && course.instructor_id !== userId) {
+    console.warn('[Auth] Instructor mismatch for teaching unit generation', {
+      teachingUnitId,
+      expectedInstructorId: course.instructor_id,
+      actualUserId: userId,
+    });
+    throw new Error('Not authorized to generate lecture for this course');
+  }
 
+  // 4) Module (optional)
+  let moduleTitle = 'Unassigned';
+  let moduleDescription = '';
+  let moduleSequence = 0;
 
-  // Fetch sibling teaching units for sequence context
-  const { data: siblingUnits } = await supabase
+  if (lo.module_id) {
+    const { data: mod, error: modError } = await supabase
+      .from('modules')
+      .select('title, description, sequence_order')
+      .eq('id', lo.module_id)
+      .maybeSingle();
+
+    if (modError) {
+      console.warn('[Context] Module fetch failed (continuing with defaults):', modError);
+    } else if (mod) {
+      moduleTitle = mod.title || moduleTitle;
+      moduleDescription = mod.description || moduleDescription;
+      moduleSequence = typeof mod.sequence_order === 'number' ? mod.sequence_order : moduleSequence;
+    }
+  }
+
+  // 5) Sibling teaching units for sequence context
+  const { data: siblingUnits, error: siblingsError } = await supabase
     .from('teaching_units')
     .select('id, title, what_to_teach, sequence_order')
     .eq('learning_objective_id', lo.id)
     .order('sequence_order');
+
+  if (siblingsError) {
+    console.warn('[Context] Failed to fetch sibling units (continuing):', siblingsError);
+  }
 
   const siblings = siblingUnits || [];
   const currentIndex = siblings.findIndex((s: any) => s.id === teachingUnitId);
@@ -345,9 +398,9 @@ async function fetchTeachingUnitContext(
       action_verb: lo.action_verb || 'explain',
     },
     module: {
-      title: module.title,
-      description: module.description || '',
-      sequence_order: module.sequence_order,
+      title: moduleTitle,
+      description: moduleDescription,
+      sequence_order: moduleSequence,
     },
     course: {
       id: course.id,
@@ -361,7 +414,7 @@ async function fetchTeachingUnitContext(
       what_to_teach: s.what_to_teach || '',
       sequence_order: s.sequence_order,
     })),
-    sequence_position: currentIndex + 1,
+    sequence_position: currentIndex >= 0 ? currentIndex + 1 : 1,
     total_siblings: siblings.length,
   };
 
@@ -1138,7 +1191,7 @@ serve(async (req) => {
 
     // PHASE 1: Fetch complete context
     console.log('[Main] === PHASE 1: CONTEXT GATHERING ===');
-    const context = await fetchTeachingUnitContext(supabase, teaching_unit_id);
+    const context = await fetchTeachingUnitContext(supabase, teaching_unit_id, userId);
 
     // Check for existing slides
     const { data: existingRecord } = await supabase
