@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { 
   BookOpen, 
@@ -11,11 +12,13 @@ import {
   HelpCircle,
   FileText,
   Image,
-  ListOrdered
+  ListOrdered,
+  Maximize2
 } from 'lucide-react';
 import type { Slide, EnhancedSlide, ProfessorSlide, KeyPointWithHint, LayoutHint } from '@/hooks/useLectureSlides';
 import { AuthenticatedImage } from './AuthenticatedImage';
 import SlideContentBlock from './SlideContentBlock';
+import ImageLightbox from './ImageLightbox';
 
 interface SlideRendererProps {
   slide: Slide | EnhancedSlide | ProfessorSlide;
@@ -189,6 +192,9 @@ export function SlideRenderer({
   className,
   activeBlockId = null
 }: SlideRendererProps) {
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [signedImageUrl, setSignedImageUrl] = useState('');
+  
   const config = SLIDE_TYPE_CONFIG[slide.type] || SLIDE_TYPE_CONFIG.concept;
   const Icon = config.icon;
   const enhanced = isEnhanced(slide);
@@ -226,24 +232,31 @@ export function SlideRenderer({
   const hasVisual = enhanced && slide.visual && slide.visual.type !== 'none' && (slide.visual.url || slide.visual.fallback_description || slide.visual.alt_text);
   const hasVisualUrl = enhanced && slide.visual?.url;
 
+  // Open lightbox with signed image URL
+  const openLightbox = () => {
+    if (signedImageUrl) {
+      setLightboxOpen(true);
+    }
+  };
+
   return (
     <div className={cn('flex flex-col h-full', className)}>
       {/* Main slide content */}
       <div className={cn(
-        'flex-1 rounded-xl border bg-gradient-to-br p-6 flex flex-col overflow-hidden',
+        'flex-1 rounded-xl border bg-gradient-to-br p-4 flex flex-col overflow-hidden',
         config.bgGradient
       )}>
         {/* Header */}
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
-            <div className={cn('p-1.5 rounded-lg', config.iconBg)}>
-              <Icon className={cn('h-4 w-4', config.accentColor)} />
+            <div className={cn('p-1 rounded-lg', config.iconBg)}>
+              <Icon className={cn('h-3.5 w-3.5', config.accentColor)} />
             </div>
-            <span className={cn('text-sm font-medium capitalize', config.accentColor)}>
+            <span className={cn('text-xs font-medium capitalize', config.accentColor)}>
               {slide.type.replace('_', ' ')}
             </span>
           </div>
-          <span className="text-sm text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             {slideNumber} / {totalSlides}
           </span>
         </div>
@@ -297,28 +310,28 @@ export function SlideRenderer({
         {/* Content area - side-by-side layout when visual exists */}
         {enhanced && slide.type !== 'title' && (
           <div className={cn(
-            'flex-1 overflow-auto',
-            hasVisualUrl ? 'flex gap-4' : ''
+            'flex-1 min-h-0',
+            hasVisualUrl ? 'flex gap-3' : 'overflow-y-auto'
           )}>
-            {/* Text content */}
+            {/* Text content - scrollable when needed */}
             <div className={cn(
-              'space-y-3',
-              hasVisualUrl ? 'flex-1 min-w-0' : ''
+              'space-y-2 overflow-y-auto',
+              hasVisualUrl ? 'w-2/5 flex-shrink-0' : ''
             )}>
               {/* Main text */}
               {slide.content.main_text && (
-                <p className="text-base leading-relaxed">{slide.content.main_text}</p>
+                <p className="text-sm leading-relaxed">{slide.content.main_text}</p>
               )}
               
               {/* Definition box */}
               {slide.content.definition && (
-                <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
-                  <p className="font-semibold text-blue-600 dark:text-blue-400 text-sm mb-1">
+                <div className="p-2 rounded-lg bg-blue-500/10 border border-blue-500/20">
+                  <p className="font-semibold text-blue-600 dark:text-blue-400 text-xs mb-0.5">
                     {slide.content.definition.term}
                   </p>
-                  <p className="text-sm">{getDefinitionText()}</p>
+                  <p className="text-xs">{getDefinitionText()}</p>
                   {getDefinitionSource() && (
-                    <p className="text-xs text-muted-foreground mt-1">
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
                       Source: {getDefinitionSource()}
                     </p>
                   )}
@@ -399,19 +412,28 @@ export function SlideRenderer({
               )}
             </div>
 
-            {/* Visual - side by side when URL exists - LARGER for readability */}
+            {/* Visual - LARGE clickable for lightbox */}
             {hasVisualUrl && (
-              <div className="w-1/2 lg:w-3/5 flex-shrink-0 flex items-start justify-center overflow-y-auto">
-                <div className="w-full rounded-lg overflow-hidden bg-muted/30 shadow-md">
+              <div className="flex-1 min-w-0 flex items-start justify-center">
+                <div 
+                  className="w-full rounded-lg overflow-hidden bg-muted/30 shadow-md cursor-pointer group relative"
+                  onClick={openLightbox}
+                >
                   <AuthenticatedImage 
                     src={slide.visual!.url} 
                     alt={slide.visual!.alt_text}
-                    className="w-full h-auto max-h-[420px] object-contain cursor-zoom-in hover:scale-[1.02] transition-transform"
+                    className="w-full h-auto max-h-[380px] object-contain group-hover:scale-[1.01] transition-transform"
                     fallbackText={slide.visual!.fallback_description || slide.visual!.alt_text}
                     bucket="lecture-visuals"
+                    onSignedUrlReady={setSignedImageUrl}
                   />
+                  {/* Click to expand hint */}
+                  <div className="absolute top-2 right-2 p-1.5 rounded-md bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                    <Maximize2 className="h-3.5 w-3.5" />
+                    <span className="text-xs">Click to expand</span>
+                  </div>
                   {(slide.visual as any).source && (
-                    <p className="text-xs text-muted-foreground text-center py-1.5 bg-muted/50">Source: {(slide.visual as any).source}</p>
+                    <p className="text-[10px] text-muted-foreground text-center py-1 bg-muted/50">Source: {(slide.visual as any).source}</p>
                   )}
                 </div>
               </div>
@@ -476,11 +498,19 @@ export function SlideRenderer({
 
       {/* Speaker notes panel */}
       {showSpeakerNotes && slide.speaker_notes && (
-        <div className="mt-3 p-3 rounded-lg bg-muted/50 border max-h-28 overflow-y-auto">
-          <p className="text-xs font-medium text-muted-foreground mb-1">Speaker Notes</p>
-          <p className="text-sm leading-relaxed">{slide.speaker_notes}</p>
+        <div className="mt-2 p-2 rounded-lg bg-muted/50 border max-h-20 overflow-y-auto">
+          <p className="text-[10px] font-medium text-muted-foreground mb-0.5">Speaker Notes</p>
+          <p className="text-xs leading-relaxed">{slide.speaker_notes}</p>
         </div>
       )}
+
+      {/* Image Lightbox */}
+      <ImageLightbox
+        src={signedImageUrl}
+        alt={enhanced && slide.visual?.alt_text || 'Slide visual'}
+        isOpen={lightboxOpen}
+        onClose={() => setLightboxOpen(false)}
+      />
     </div>
   );
 }
