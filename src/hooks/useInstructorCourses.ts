@@ -437,20 +437,25 @@ export function useCourseStudents(courseId?: string) {
     queryFn: async (): Promise<CourseStudentsProgress> => {
       if (!courseId) return { enrollments: [], totalLOs: 0, loProgress: {} };
 
-      // Get enrollments with profile info
-      const { data: enrollments, error: enrollError } = await supabase
-        .from('course_enrollments')
-        .select(`
-          id,
-          student_id,
-          enrolled_at,
-          overall_progress,
-          completed_at
-        `)
-        .eq('instructor_course_id', courseId)
-        .order('enrolled_at', { ascending: false });
+      // Fetch enrollments and LOs in parallel (N+1 fix - independent queries)
+      const [enrollmentsResult, losResult] = await Promise.all([
+        supabase
+          .from('course_enrollments')
+          .select(`id, student_id, enrolled_at, overall_progress, completed_at`)
+          .eq('instructor_course_id', courseId)
+          .order('enrolled_at', { ascending: false }),
+        supabase
+          .from('learning_objectives')
+          .select('id')
+          .eq('instructor_course_id', courseId)
+      ]);
 
-      if (enrollError) throw enrollError;
+      if (enrollmentsResult.error) throw enrollmentsResult.error;
+      if (losResult.error) throw losResult.error;
+
+      const enrollments = enrollmentsResult.data;
+      const los = losResult.data;
+      const totalLOs = los?.length || 0;
 
       // Get profiles for enrolled students
       const studentIds = enrollments?.map(e => e.student_id) || [];
@@ -469,15 +474,6 @@ export function useCourseStudents(courseId?: string) {
           }, {} as Record<string, { full_name: string | null; email: string | null }>);
         }
       }
-
-      // Get total LOs for the course
-      const { data: los, error: loError } = await supabase
-        .from('learning_objectives')
-        .select('id')
-        .eq('instructor_course_id', courseId);
-
-      if (loError) throw loError;
-      const totalLOs = los?.length || 0;
 
       // Get consumption records for all students in this course
       const loProgress: Record<string, StudentLOProgress[]> = {};
