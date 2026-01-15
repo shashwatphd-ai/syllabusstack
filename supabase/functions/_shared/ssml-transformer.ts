@@ -47,42 +47,38 @@ ${speakerNotes}
 
 SSML TRANSFORMATION RULES:
 
-1. PAUSES (contextual, not mechanical):
-   - <break time="400ms"/> after introducing a major concept
-   - <break time="600ms"/> before revealing important information or answers
-   - <break time="300ms"/> between logical sections or before transitions
-   - <break time="500ms"/> after rhetorical questions
-   - <break time="800ms"/> before key takeaways or conclusions
+CRITICAL: DO NOT slow down speech excessively. The base TTS already speaks at normal pace.
 
-2. EMPHASIS (semantic, not keyword-based):
-   - <emphasis level="strong">text</emphasis> for:
-     * Critical terms being defined
-     * Surprising facts or statistics
-     * Common mistakes to avoid
-     * Key takeaways
+1. PAUSES (sparingly - only at natural breath points):
+   - <break time="300ms"/> after introducing a major concept (use sparingly)
+   - <break time="400ms"/> before revealing a key answer or conclusion
+   - <break time="200ms"/> between sentences (only when needed for clarity)
+   - DO NOT add breaks after every sentence - trust natural speech rhythm
+
+2. EMPHASIS (use rarely - only 2-3 per slide max):
+   - <emphasis level="strong">text</emphasis> ONLY for:
+     * Terms being formally defined
+     * Surprising/counterintuitive facts
    - <emphasis level="moderate">text</emphasis> for:
-     * Important but not critical concepts
-     * Names, dates, or specific examples
-     * Contrasting ideas
+     * Key contrasts or comparisons
+   - DO NOT emphasize common words or connector phrases
 
-3. PROSODY (contextual tone):
-   - For opening slides: <prosody rate="medium" pitch="+5%">welcoming tone</prosody>
-   - For definitions: <prosody rate="slow" pitch="-2%">authoritative tone</prosody>
-   - For examples: <prosody rate="medium" pitch="-5%">storytelling tone</prosody>
-   - For misconceptions: <prosody rate="slow" pitch="+3%">corrective emphasis</prosody>
-   - For conclusions: <prosody rate="slow" pitch="-3%">reflective closure</prosody>
-   - For process steps: <prosody rate="medium">methodical delivery</prosody>
+3. PROSODY (AVOID rate="slow" - it causes audio distortion):
+   - NEVER use rate="slow" or rate="x-slow" - causes robotic distortion
+   - For emphasis, prefer <emphasis> over <prosody>
+   - If you must use prosody, keep rate="medium" or omit rate entirely
+   - Acceptable: <prosody pitch="+5%">text</prosody> for energy
+   - Acceptable: <prosody pitch="-3%">text</prosody> for gravity
 
 4. STRUCTURE:
    - Wrap output in <speak> tags
-   - Use <s> tags to break long sentences for better pacing
-   - Use <p> tags for paragraph-level breaks
+   - Use <s> tags ONLY for very long sentences that need breaking
+   - DO NOT wrap every sentence in <s> tags - let them flow naturally
 
-5. SEMANTIC UNDERSTANDING:
-   - Identify the emotional arc of the narration
-   - Add pauses before revelations or answers
-   - Emphasize words that carry meaning, not just connector words
-   - Match prosody to content tone, not just slide type
+5. KEEP IT SIMPLE:
+   - Less is more - natural speech doesn't need excessive markup
+   - Prioritize readability over complex prosody
+   - The goal is natural, engaging narration - not robotic emphasis
 
 Return ONLY the SSML markup, no explanation. The output must be valid SSML.`;
 

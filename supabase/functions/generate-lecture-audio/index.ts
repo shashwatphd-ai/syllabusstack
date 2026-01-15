@@ -218,8 +218,8 @@ serve(async (req) => {
               },
               audioConfig: {
                 audioEncoding: 'MP3',
-                pitch: -1.0, // Slightly lower for authority
-                speakingRate: 0.95 // Slightly slower for clarity
+                pitch: 0, // Natural pitch (was -1.0 which caused odd slowdowns)
+                speakingRate: 1.0 // Normal speed (was 0.95 which was too slow)
               }
             })
           }
