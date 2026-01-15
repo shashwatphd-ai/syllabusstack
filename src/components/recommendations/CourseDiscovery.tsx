@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { Search, Sparkles, Loader2, GraduationCap, AlertCircle, RefreshCw, Filter, Leaf } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -57,7 +57,7 @@ export function CourseDiscovery({ dreamJobId }: CourseDiscoveryProps) {
     ? priorityGaps.map(g => ({ gap: g.gap, priority: g.priority }))
     : criticalGaps.slice(0, 3).map(g => ({ gap: g.job_requirement }));
   
-  const handleSearch = () => {
+  const handleSearch = useCallback(() => {
     if (!dreamJobId || !selectedJob) return;
     
     searchCourses({
@@ -65,7 +65,7 @@ export function CourseDiscovery({ dreamJobId }: CourseDiscoveryProps) {
       dreamJobId,
       dreamJobTitle: selectedJob.title,
     });
-  };
+  }, [dreamJobId, selectedJob, gapsForSearch, searchCourses]);
   
   // Filter results
   const filteredResults = useMemo(() => {
