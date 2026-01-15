@@ -14,6 +14,7 @@ import {
   ListOrdered
 } from 'lucide-react';
 import type { Slide, EnhancedSlide, ProfessorSlide } from '@/hooks/useLectureSlides';
+import { AuthenticatedImage } from './AuthenticatedImage';
 
 interface SlideRendererProps {
   slide: Slide | EnhancedSlide | ProfessorSlide;
@@ -328,13 +329,12 @@ export function SlideRenderer({
             {hasVisualUrl && (
               <div className="w-2/5 flex-shrink-0 flex items-center justify-center">
                 <div className="w-full rounded-lg overflow-hidden bg-muted/30">
-                  <img 
+                  <AuthenticatedImage 
                     src={slide.visual!.url} 
                     alt={slide.visual!.alt_text}
                     className="w-full h-auto max-h-[280px] object-contain"
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).style.display = 'none';
-                    }}
+                    fallbackText={slide.visual!.fallback_description || slide.visual!.alt_text}
+                    bucket="lecture-visuals"
                   />
                   {(slide.visual as any).source && (
                     <p className="text-xs text-muted-foreground text-center py-1">Source: {(slide.visual as any).source}</p>
