@@ -265,6 +265,7 @@ async function fetchTeachingUnitContext(
   console.log('[Context] Fetching complete teaching unit context');
 
   // Fetch teaching unit with full hierarchy
+  // Use left joins for module since module_id can be null
   const { data: unit, error: unitError } = await supabase
     .from('teaching_units')
     .select(`
@@ -275,18 +276,12 @@ async function fetchTeachingUnitContext(
         bloom_level,
         core_concept,
         action_verb,
-        module:modules!inner(
+        instructor_course_id,
+        module:modules(
           id,
           title,
           description,
-          sequence_order,
-          instructor_course:instructor_courses!inner(
-            id,
-            title,
-            detected_domain,
-            code,
-            syllabus_text
-          )
+          sequence_order
         )
       )
     `)
@@ -299,8 +294,22 @@ async function fetchTeachingUnitContext(
   }
 
   const lo = unit.learning_objective;
-  const module = lo.module;
-  const course = module.instructor_course;
+  
+  // Fetch instructor course separately since module might be null
+  const { data: course, error: courseError } = await supabase
+    .from('instructor_courses')
+    .select('id, title, detected_domain, code, syllabus_text')
+    .eq('id', lo.instructor_course_id)
+    .single();
+
+  if (courseError || !course) {
+    console.error('[Context] Course not found:', courseError);
+    throw new Error('Course not found for teaching unit');
+  }
+
+  // Module might be null - provide defaults
+  const module = lo.module || { id: null, title: 'Unassigned', description: '', sequence_order: 0 };
+
 
   // Fetch sibling teaching units for sequence context
   const { data: siblingUnits } = await supabase
