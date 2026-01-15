@@ -120,12 +120,9 @@ export default function DreamJobsPage() {
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold font-display">Dream Jobs</h1>
-            <p className="text-muted-foreground">
-              Track your career aspirations or discover new paths
-            </p>
-          </div>
+          <p className="text-muted-foreground">
+            Track your career aspirations or discover new paths
+          </p>
           {activeTab === 'jobs' && (
             <Button onClick={() => setShowForm(!showForm)}>
               {showForm ? "View Jobs" : (

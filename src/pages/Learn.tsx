@@ -659,15 +659,10 @@ export default function LearnPage() {
   return (
     <AppShell>
       <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold font-display">My Learning</h1>
-            <p className="text-muted-foreground">
-              Track your courses, transcript, and skill development
-            </p>
-          </div>
-        </div>
+        {/* Page subtitle */}
+        <p className="text-muted-foreground">
+          Track your courses, transcript, and skill development
+        </p>
 
         {/* Stats Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

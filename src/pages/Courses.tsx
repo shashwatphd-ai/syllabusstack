@@ -666,12 +666,9 @@ export default function CoursesPage() {
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold font-display">My Courses</h1>
-            <p className="text-muted-foreground">
-              Manage your courses and syllabi
-            </p>
-          </div>
+          <p className="text-muted-foreground">
+            Manage your courses and syllabi
+          </p>
           <Button onClick={() => setShowUploader(!showUploader)}>
             {showUploader ? "View Courses" : (
               <>

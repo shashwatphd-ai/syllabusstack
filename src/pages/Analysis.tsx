@@ -41,12 +41,9 @@ export default function AnalysisPage() {
     return (
       <AppShell>
         <div className="space-y-6">
-          <div>
-            <h2 className="text-2xl font-bold">Gap Analysis</h2>
-            <p className="text-muted-foreground">
-              Analyze the gap between your skills and dream job requirements
-            </p>
-          </div>
+          <p className="text-muted-foreground">
+            Analyze the gap between your skills and dream job requirements
+          </p>
           <Card className="p-12 text-center">
             <div className="flex flex-col items-center gap-4">
               <div className="p-4 rounded-full bg-accent/10">
