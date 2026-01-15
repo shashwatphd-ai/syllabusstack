@@ -131,6 +131,17 @@ export function usePendingSuggestions(courseId?: string) {
   return useQuery({
     queryKey: ['content-suggestions', 'pending', courseId],
     queryFn: async () => {
+      // If courseId provided, get LO IDs for this course first (DB-side filter)
+      let loIds: string[] | null = null;
+      if (courseId) {
+        const { data: los } = await supabase
+          .from('learning_objectives')
+          .select('id')
+          .eq('instructor_course_id', courseId);
+        loIds = los?.map(lo => lo.id) || [];
+        if (loIds.length === 0) return []; // No LOs = no suggestions
+      }
+
       let query = supabase
         .from('content_suggestions')
         .select(`
@@ -148,15 +159,13 @@ export function usePendingSuggestions(courseId?: string) {
         .order('votes', { ascending: false })
         .order('created_at', { ascending: false });
 
+      // Add filter if we have specific LO IDs (avoids client-side filtering)
+      if (loIds) {
+        query = query.in('learning_objective_id', loIds);
+      }
+
       const { data, error } = await query;
       if (error) throw error;
-
-      // Filter by course if specified
-      if (courseId) {
-        return data?.filter(
-          s => (s.learning_objective as any)?.module?.course_id === courseId
-        );
-      }
 
       return data;
     },

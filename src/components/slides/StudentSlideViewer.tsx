@@ -84,6 +84,28 @@ export function StudentSlideViewer({
 
     // Get signed URL for audio from private bucket
     const audioUrl = currentSlide.audio_url;
+    let isMounted = true;
+    
+    // Define event handlers outside for proper cleanup
+    const handlePlay = () => { if (isMounted) setIsAudioPlaying(true); };
+    const handlePause = () => { if (isMounted) setIsAudioPlaying(false); };
+    const handleEnded = () => {
+      if (!isMounted) return;
+      setIsAudioPlaying(false);
+      setAudioRef(null); // Disconnect sync
+      // Auto-advance to next slide when audio ends
+      if (currentSlideIndex < slides.length - 1) {
+        setCurrentSlideIndex(prev => prev + 1);
+      } else {
+        handleComplete();
+      }
+    };
+    const handleError = (e: Event) => {
+      console.error('Audio playback error:', e);
+      if (!isMounted) return;
+      setIsAudioPlaying(false);
+      setAudioRef(null); // Disconnect sync
+    };
     
     async function playAudioWithSignedUrl() {
       let urlToPlay = audioUrl;
@@ -107,47 +129,39 @@ export function StudentSlideViewer({
         }
       }
       
+      if (!isMounted) return;
+      
       const audio = new Audio(urlToPlay);
       audioRef.current = audio;
       
       // Connect to sync hook for highlighting
       setAudioRef(audio);
 
-      audio.onplay = () => setIsAudioPlaying(true);
-      audio.onpause = () => setIsAudioPlaying(false);
-      audio.onended = () => {
-        setIsAudioPlaying(false);
-        setAudioRef(null); // Disconnect sync
-        // Auto-advance to next slide when audio ends
-        if (currentSlideIndex < slides.length - 1) {
-          setCurrentSlideIndex(prev => prev + 1);
-        } else {
-          handleComplete();
-        }
-      };
-
-      audio.onerror = (e) => {
-        console.error('Audio playback error:', e);
-        setIsAudioPlaying(false);
-        setAudioRef(null); // Disconnect sync
-      };
+      // Use addEventListener for proper cleanup (fixes memory leak)
+      audio.addEventListener('play', handlePlay);
+      audio.addEventListener('pause', handlePause);
+      audio.addEventListener('ended', handleEnded);
+      audio.addEventListener('error', handleError);
 
       // Auto-play audio for current slide
       audio.play().catch(e => {
         console.log('Audio autoplay blocked:', e);
-        setIsAudioPlaying(false);
+        if (isMounted) setIsAudioPlaying(false);
       });
     }
     
     playAudioWithSignedUrl();
 
     return () => {
+      isMounted = false;
       if (audioRef.current) {
         audioRef.current.pause();
-        audioRef.current.onended = null;
-        audioRef.current.onplay = null;
-        audioRef.current.onpause = null;
-        audioRef.current.onerror = null;
+        // Properly remove event listeners to prevent memory leaks
+        audioRef.current.removeEventListener('play', handlePlay);
+        audioRef.current.removeEventListener('pause', handlePause);
+        audioRef.current.removeEventListener('ended', handleEnded);
+        audioRef.current.removeEventListener('error', handleError);
+        audioRef.current = null;
       }
     };
   }, [currentSlideIndex, hasAudio, currentSlide, slides.length]);
