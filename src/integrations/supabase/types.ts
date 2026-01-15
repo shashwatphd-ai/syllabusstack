@@ -265,6 +265,48 @@ export type Database = {
           },
         ]
       }
+      assessment_item_bank: {
+        Row: {
+          created_at: string
+          difficulty_level: string | null
+          framework: string
+          id: string
+          is_quick_assessment: boolean | null
+          is_reverse_scored: boolean | null
+          measures_dimension: string
+          question_text: string
+          question_type: string
+          response_options: Json | null
+          sequence_order: number | null
+        }
+        Insert: {
+          created_at?: string
+          difficulty_level?: string | null
+          framework: string
+          id?: string
+          is_quick_assessment?: boolean | null
+          is_reverse_scored?: boolean | null
+          measures_dimension: string
+          question_text: string
+          question_type?: string
+          response_options?: Json | null
+          sequence_order?: number | null
+        }
+        Update: {
+          created_at?: string
+          difficulty_level?: string | null
+          framework?: string
+          id?: string
+          is_quick_assessment?: boolean | null
+          is_reverse_scored?: boolean | null
+          measures_dimension?: string
+          question_text?: string
+          question_type?: string
+          response_options?: Json | null
+          sequence_order?: number | null
+        }
+        Relationships: []
+      }
       assessment_questions: {
         Row: {
           accepted_answers: string[] | null
@@ -468,6 +510,78 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      career_matches: {
+        Row: {
+          created_at: string
+          dream_job_id: string | null
+          id: string
+          interest_match_score: number | null
+          is_dismissed: boolean | null
+          is_saved: boolean | null
+          match_breakdown: Json | null
+          occupation_title: string
+          onet_soc_code: string
+          overall_match_score: number
+          skill_gaps: Json | null
+          skill_match_score: number | null
+          skill_profile_id: string | null
+          updated_at: string
+          user_id: string
+          values_match_score: number | null
+        }
+        Insert: {
+          created_at?: string
+          dream_job_id?: string | null
+          id?: string
+          interest_match_score?: number | null
+          is_dismissed?: boolean | null
+          is_saved?: boolean | null
+          match_breakdown?: Json | null
+          occupation_title: string
+          onet_soc_code: string
+          overall_match_score: number
+          skill_gaps?: Json | null
+          skill_match_score?: number | null
+          skill_profile_id?: string | null
+          updated_at?: string
+          user_id: string
+          values_match_score?: number | null
+        }
+        Update: {
+          created_at?: string
+          dream_job_id?: string | null
+          id?: string
+          interest_match_score?: number | null
+          is_dismissed?: boolean | null
+          is_saved?: boolean | null
+          match_breakdown?: Json | null
+          occupation_title?: string
+          onet_soc_code?: string
+          overall_match_score?: number
+          skill_gaps?: Json | null
+          skill_match_score?: number | null
+          skill_profile_id?: string | null
+          updated_at?: string
+          user_id?: string
+          values_match_score?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "career_matches_dream_job_id_fkey"
+            columns: ["dream_job_id"]
+            isOneToOne: false
+            referencedRelation: "dream_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "career_matches_skill_profile_id_fkey"
+            columns: ["skill_profile_id"]
+            isOneToOne: false
+            referencedRelation: "skill_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       consumption_records: {
         Row: {
@@ -1255,6 +1369,74 @@ export type Database = {
           },
         ]
       }
+      generated_curricula: {
+        Row: {
+          career_match_id: string | null
+          completed_at: string | null
+          created_at: string
+          curriculum_structure: Json
+          estimated_weeks: number | null
+          generation_model: string | null
+          generation_prompt_hash: string | null
+          id: string
+          progress_percentage: number | null
+          started_at: string | null
+          status: string | null
+          target_occupation: string
+          total_learning_objectives: number | null
+          total_modules: number | null
+          total_subjects: number | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          career_match_id?: string | null
+          completed_at?: string | null
+          created_at?: string
+          curriculum_structure?: Json
+          estimated_weeks?: number | null
+          generation_model?: string | null
+          generation_prompt_hash?: string | null
+          id?: string
+          progress_percentage?: number | null
+          started_at?: string | null
+          status?: string | null
+          target_occupation: string
+          total_learning_objectives?: number | null
+          total_modules?: number | null
+          total_subjects?: number | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          career_match_id?: string | null
+          completed_at?: string | null
+          created_at?: string
+          curriculum_structure?: Json
+          estimated_weeks?: number | null
+          generation_model?: string | null
+          generation_prompt_hash?: string | null
+          id?: string
+          progress_percentage?: number | null
+          started_at?: string | null
+          status?: string | null
+          target_occupation?: string
+          total_learning_objectives?: number | null
+          total_modules?: number | null
+          total_subjects?: number | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "generated_curricula_career_match_id_fkey"
+            columns: ["career_match_id"]
+            isOneToOne: false
+            referencedRelation: "career_matches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       instructor_courses: {
         Row: {
           access_code: string | null
@@ -1761,6 +1943,75 @@ export type Database = {
           },
         ]
       }
+      onet_occupations: {
+        Row: {
+          bright_outlook: boolean | null
+          created_at: string
+          description: string | null
+          education_level: string | null
+          employment_count: number | null
+          experience_level: string | null
+          green_occupation: boolean | null
+          id: string
+          job_outlook: string | null
+          job_outlook_percent: number | null
+          median_wage: number | null
+          required_abilities: Json | null
+          required_knowledge: Json | null
+          required_skills: Json | null
+          riasec_code: string | null
+          riasec_scores: Json | null
+          soc_code: string
+          title: string
+          updated_at: string
+          work_values: Json | null
+        }
+        Insert: {
+          bright_outlook?: boolean | null
+          created_at?: string
+          description?: string | null
+          education_level?: string | null
+          employment_count?: number | null
+          experience_level?: string | null
+          green_occupation?: boolean | null
+          id?: string
+          job_outlook?: string | null
+          job_outlook_percent?: number | null
+          median_wage?: number | null
+          required_abilities?: Json | null
+          required_knowledge?: Json | null
+          required_skills?: Json | null
+          riasec_code?: string | null
+          riasec_scores?: Json | null
+          soc_code: string
+          title: string
+          updated_at?: string
+          work_values?: Json | null
+        }
+        Update: {
+          bright_outlook?: boolean | null
+          created_at?: string
+          description?: string | null
+          education_level?: string | null
+          employment_count?: number | null
+          experience_level?: string | null
+          green_occupation?: boolean | null
+          id?: string
+          job_outlook?: string | null
+          job_outlook_percent?: number | null
+          median_wage?: number | null
+          required_abilities?: Json | null
+          required_knowledge?: Json | null
+          required_skills?: Json | null
+          riasec_code?: string | null
+          riasec_scores?: Json | null
+          soc_code?: string
+          title?: string
+          updated_at?: string
+          work_values?: Json | null
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           ai_calls_reset_at: string | null
@@ -2005,6 +2256,132 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      skill_profiles: {
+        Row: {
+          assessment_version: string | null
+          completed_at: string | null
+          created_at: string
+          holland_code: string | null
+          holland_scores: Json | null
+          id: string
+          technical_skills: Json | null
+          updated_at: string
+          user_id: string
+          work_values: Json | null
+        }
+        Insert: {
+          assessment_version?: string | null
+          completed_at?: string | null
+          created_at?: string
+          holland_code?: string | null
+          holland_scores?: Json | null
+          id?: string
+          technical_skills?: Json | null
+          updated_at?: string
+          user_id: string
+          work_values?: Json | null
+        }
+        Update: {
+          assessment_version?: string | null
+          completed_at?: string | null
+          created_at?: string
+          holland_code?: string | null
+          holland_scores?: Json | null
+          id?: string
+          technical_skills?: Json | null
+          updated_at?: string
+          user_id?: string
+          work_values?: Json | null
+        }
+        Relationships: []
+      }
+      skills_assessment_responses: {
+        Row: {
+          created_at: string
+          id: string
+          question_id: string
+          response_time_ms: number | null
+          response_value: number
+          session_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          question_id: string
+          response_time_ms?: number | null
+          response_value: number
+          session_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          question_id?: string
+          response_time_ms?: number | null
+          response_value?: number
+          session_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "skills_assessment_responses_question_id_fkey"
+            columns: ["question_id"]
+            isOneToOne: false
+            referencedRelation: "assessment_item_bank"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "skills_assessment_responses_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "skills_assessment_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      skills_assessment_sessions: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          current_section: string | null
+          expires_at: string
+          id: string
+          questions_answered: number | null
+          session_type: string
+          started_at: string
+          status: string
+          total_questions: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          current_section?: string | null
+          expires_at?: string
+          id?: string
+          questions_answered?: number | null
+          session_type?: string
+          started_at?: string
+          status?: string
+          total_questions: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          current_section?: string | null
+          expires_at?: string
+          id?: string
+          questions_answered?: number | null
+          session_type?: string
+          started_at?: string
+          status?: string
+          total_questions?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       subscriptions: {
         Row: {
