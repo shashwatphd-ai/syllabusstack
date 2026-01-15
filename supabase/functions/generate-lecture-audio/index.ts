@@ -14,6 +14,37 @@ interface SlideWithAudio {
   [key: string]: unknown;
 }
 
+// Fallback narration generator for slides without speaker notes
+function generateFallbackNarration(slide: SlideWithAudio): string {
+  const parts: string[] = [];
+  
+  if (slide.title) {
+    parts.push(`Let's discuss ${slide.title}.`);
+  }
+  
+  const content = slide as any;
+  if (content.content?.main_text) {
+    parts.push(content.content.main_text);
+  }
+  
+  if (content.content?.key_points?.length) {
+    parts.push('Here are the key points to understand:');
+    content.content.key_points.forEach((point: string, i: number) => {
+      parts.push(`${i + 1}. ${point}`);
+    });
+  }
+  
+  if (content.content?.definition) {
+    parts.push(`${content.content.definition.term} is defined as: ${content.content.definition.formal_definition || content.content.definition.simple_explanation}`);
+  }
+  
+  if (content.content?.example?.scenario) {
+    parts.push(`For example: ${content.content.example.scenario}`);
+  }
+  
+  return parts.join(' ');
+}
+
 serve(async (req) => {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
@@ -75,10 +106,16 @@ serve(async (req) => {
     // Process each slide
     for (let i = 0; i < slides.length; i++) {
       const slide = slides[i];
-      const speakerNotes = slide.speaker_notes;
+      let speakerNotes = slide.speaker_notes;
 
-      if (!speakerNotes || speakerNotes.trim().length === 0) {
-        console.log(`Slide ${i + 1}: No speaker notes, skipping audio`);
+      // FALLBACK: Generate narration if speaker_notes missing or too short
+      if (!speakerNotes || speakerNotes.trim().length < 50) {
+        console.log(`Slide ${i + 1}: Generating fallback narration...`);
+        speakerNotes = generateFallbackNarration(slide);
+      }
+
+      if (speakerNotes.trim().length === 0) {
+        console.log(`Slide ${i + 1}: No content for narration, skipping`);
         updatedSlides.push(slide);
         continue;
       }

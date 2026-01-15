@@ -10,6 +10,15 @@ const corsHeaders = {
 // TYPE DEFINITIONS - Professor AI v3
 // ============================================================================
 
+// Layout hint for adaptive content rendering
+interface LayoutHint {
+  type: 'flow' | 'comparison' | 'equation' | 'list' | 'quote' | 'callout' | 'plain';
+  segments?: string[];           // For flows: ["Step 1", "Step 2", "Step 3"]
+  left_right?: [string, string]; // For comparisons: ["Vision", "Mission"]
+  formula?: string;              // For equations: "ROI = (Gain - Cost) / Cost"
+  emphasis_words?: string[];     // Words to highlight
+}
+
 interface ProfessorSlide {
   order: number;
   type: 'title' | 'hook' | 'recap' | 'definition' | 'explanation' | 
@@ -18,7 +27,9 @@ interface ProfessorSlide {
   title: string;
   content: {
     main_text: string;
+    main_text_layout?: LayoutHint;  // AI-determined layout for main_text
     key_points?: string[];
+    key_points_layout?: LayoutHint[]; // Layout hints for each key_point
     definition?: {
       term: string;
       formal_definition: string;
@@ -537,6 +548,17 @@ CRITICAL REQUIREMENTS:
    - examples: Use specific, verifiable real-world data (company names, statistics, case studies)
    - NO vague phrases—be specific and educational
 
+6. ADAPTIVE LAYOUT HINTS (AI-driven content presentation):
+   For EACH key_point, analyze its semantic structure and provide an optional layout_hint:
+   - Describes a sequence/process (A → B → C) → type: "flow", segments: ["Step A", "Step B", "Step C"]
+   - Compares two things (X vs Y, X = this; Y = that) → type: "comparison", left_right: ["X", "Y"]
+   - Contains formula/relationship (X = Y + Z) → type: "equation", formula: "X = Y + Z"
+   - Notable quote or key principle → type: "quote"
+   - Important insight or tip → type: "callout"
+   - Multiple items in a list → type: "list"
+   - Simple paragraph → type: "plain"
+   - Always include emphasis_words: 2-4 critical terms to highlight
+
 OUTPUT (JSON array of slides):
 {
   "slides": [
@@ -545,10 +567,18 @@ OUTPUT (JSON array of slides):
       "type": "title",
       "title": "Engaging title that frames the learning journey",
       "content": {
-        "main_text": "3-4 substantive sentences that introduce the topic, establish its importance in the field, and connect to what students will be able to do after mastering this material.",
+        "main_text": "3-4 substantive sentences that introduce the topic...",
+        "main_text_layout": {
+          "type": "plain",
+          "emphasis_words": ["critical term", "key concept"]
+        },
         "key_points": [
-          "Detailed point with explanation of why this matters",
-          "Second point with specific real-world relevance"
+          "Process: Set Direction → Analyze Environment → Implement → Review",
+          "Vision defines the future state; Mission defines present purpose"
+        ],
+        "key_points_layout": [
+          { "type": "flow", "segments": ["Set Direction", "Analyze", "Implement", "Review"] },
+          { "type": "comparison", "left_right": ["Vision (Future)", "Mission (Present)"] }
         ]
       },
       "visual_directive": {
@@ -572,7 +602,9 @@ OUTPUT (JSON array of slides):
       "title": "Defining [Core Concept]",
       "content": {
         "main_text": "Comprehensive introduction to the concept...",
+        "main_text_layout": { "type": "plain", "emphasis_words": ["concept name"] },
         "key_points": ["Detailed explanatory points..."],
+        "key_points_layout": [{ "type": "plain", "emphasis_words": ["key term"] }],
         "definition": {
           "term": "The exact term",
           "formal_definition": "Precise, textbook-quality definition",
@@ -589,7 +621,8 @@ OUTPUT (JSON array of slides):
   ]
 }
 
-Generate all ${targetSlides} slides now with RICH, EDUCATIONAL content.`;
+CRITICAL: Every slide MUST have speaker_notes with 200-300 words. Never leave speaker_notes empty or short.
+Generate all ${targetSlides} slides now with RICH, EDUCATIONAL content and LAYOUT HINTS for every key_point.`;
 
   const result = await callLovableAI(
     'google/gemini-3-pro-preview',
@@ -891,14 +924,16 @@ serve(async (req) => {
       console.log('[Main] === PHASE 3: SAVING SLIDES ===');
       await updateProgress(supabase, slideRecordId, 'finalize', 70, 'Saving lecture content...');
       
-      // Build initial slides without visuals
+      // Build initial slides without visuals - include layout hints from AI
       const initialSlides = slides.map(slide => ({
         order: slide.order,
         type: slide.type,
         title: slide.title,
         content: {
           main_text: slide.content?.main_text || '',
+          main_text_layout: slide.content?.main_text_layout || { type: 'plain' },
           key_points: slide.content?.key_points || [],
+          key_points_layout: slide.content?.key_points_layout || [],
           definition: slide.content?.definition,
           example: slide.content?.example,
           misconception: slide.content?.misconception,
