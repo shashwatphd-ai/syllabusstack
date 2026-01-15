@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { ChevronDown, ChevronRight, Loader2, Sparkles, Target, FileQuestion, CheckCircle2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -31,15 +31,25 @@ export function UnifiedModuleCard({ module, learningObjectives }: UnifiedModuleC
   const generateQuestions = useGenerateAssessmentQuestions();
   const { toast } = useToast();
 
-  const loIds = learningObjectives.map(lo => lo.id);
+  // Memoize loIds to prevent refetch on every render (was creating new array each render)
+  const loIds = useMemo(() => learningObjectives.map(lo => lo.id), [learningObjectives]);
   const { data: loContentStatus } = useLOContentStatus(loIds);
 
-  // Calculate module stats
-  const losWithContent = learningObjectives.filter(lo => loContentStatus?.[lo.id]?.approvedCount).length;
-  const losWithPending = learningObjectives.filter(lo =>
-    loContentStatus?.[lo.id]?.pendingCount && !loContentStatus?.[lo.id]?.approvedCount
-  ).length;
-  const losWithoutContent = learningObjectives.filter(lo => !loContentStatus?.[lo.id]?.hasContent).length;
+  // Calculate module stats - single pass instead of 3 separate filter calls
+  const { losWithContent, losWithPending, losWithoutContent } = useMemo(() => {
+    let withContent = 0;
+    let withPending = 0;
+    let withoutContent = 0;
+    
+    for (const lo of learningObjectives) {
+      const status = loContentStatus?.[lo.id];
+      if (status?.approvedCount) withContent++;
+      else if (status?.pendingCount) withPending++;
+      else if (!status?.hasContent) withoutContent++;
+    }
+    
+    return { losWithContent: withContent, losWithPending: withPending, losWithoutContent: withoutContent };
+  }, [learningObjectives, loContentStatus]);
 
   const handleFindAllContent = async () => {
     const losToSearch = learningObjectives.filter(lo => 

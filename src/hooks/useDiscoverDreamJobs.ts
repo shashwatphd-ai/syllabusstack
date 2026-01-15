@@ -26,38 +26,39 @@ export interface DiscoverJobsResult {
   insights: string;
 }
 
-// Get user profile data for auto-discovery
+// Get user profile data for auto-discovery - parallelized with Promise.all
 async function getUserProfileForDiscovery(): Promise<DiscoverJobsInput> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return {};
 
-  // Get profile data
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('full_name, major')
-    .eq('user_id', user.id)
-    .single();
-
-  // Get user's courses to infer major/field
-  const { data: courses } = await supabase
-    .from('courses')
-    .select('title, key_capabilities')
-    .eq('user_id', user.id)
-    .limit(5);
-
-  // Get user's capabilities to infer skills
-  const { data: capabilities } = await supabase
-    .from('capabilities')
-    .select('name')
-    .eq('user_id', user.id)
-    .limit(10);
-
-  // Get user's dream jobs for career goals context
-  const { data: dreamJobs } = await supabase
-    .from('dream_jobs')
-    .select('title, description')
-    .eq('user_id', user.id)
-    .limit(3);
+  // Fetch all data in parallel instead of 4 sequential queries
+  const [
+    { data: profile },
+    { data: courses },
+    { data: capabilities },
+    { data: dreamJobs }
+  ] = await Promise.all([
+    supabase
+      .from('profiles')
+      .select('full_name, major')
+      .eq('user_id', user.id)
+      .single(),
+    supabase
+      .from('courses')
+      .select('title, key_capabilities')
+      .eq('user_id', user.id)
+      .limit(5),
+    supabase
+      .from('capabilities')
+      .select('name')
+      .eq('user_id', user.id)
+      .limit(10),
+    supabase
+      .from('dream_jobs')
+      .select('title, description')
+      .eq('user_id', user.id)
+      .limit(3)
+  ]);
 
   return {
     interests: profile?.major || '',

@@ -70,22 +70,28 @@ async function fetchDashboardOverview(): Promise<DashboardOverview> {
     ? Math.round(matchScores.reduce((a, b) => a + b, 0) / matchScores.length)
     : 0;
 
-  // Progress summary by status
-  const completedRecs = recs.filter(r => r.status === 'completed').length;
-  const inProgressRecs = recs.filter(r => r.status === 'in_progress').length;
-  const pendingRecs = recs.filter(r => r.status === 'pending' || !r.status).length;
-  const skippedRecs = recs.filter(r => r.status === 'skipped').length;
+  // Progress summary by status - single pass with reduce (was 4 separate filter calls)
+  const recCounts = recs.reduce((acc, r) => {
+    if (r.status === 'completed') acc.completed++;
+    else if (r.status === 'in_progress') acc.inProgress++;
+    else if (r.status === 'skipped') acc.skipped++;
+    else acc.pending++; // 'pending' or no status
+    return acc;
+  }, { completed: 0, inProgress: 0, pending: 0, skipped: 0 });
 
   // Find top recommendation (first high priority pending item)
   const topRec = recs.find(r => 
     (r.status === 'pending' || !r.status) && r.priority === 'high'
   ) || recs.find(r => r.status === 'pending' || !r.status);
 
+  // Build job lookup Map for O(1) access (was O(n) find per gap)
+  const jobsById = new Map(jobs.map(j => [j.id, j]));
+
   // Calculate actual gaps from gap_analyses
   interface GapItem { job_requirement?: string; gap?: string }
   const topGaps: DashboardOverview['topGaps'] = [];
   for (const ga of gaps) {
-    const job = jobs.find(j => j.id === ga.dream_job_id);
+    const job = jobsById.get(ga.dream_job_id); // O(1) lookup instead of O(n) find
     const criticalGaps = (ga.critical_gaps as GapItem[] | null) || [];
     const priorityGaps = (ga.priority_gaps as GapItem[] | null) || [];
     
@@ -121,12 +127,12 @@ async function fetchDashboardOverview(): Promise<DashboardOverview> {
       priority: (r.priority as 'high' | 'medium' | 'low') || 'medium'
     })),
     progressSummary: {
-      completedRecommendations: completedRecs,
-      inProgressRecommendations: inProgressRecs,
-      pendingRecommendations: pendingRecs,
-      skippedRecommendations: skippedRecs,
+      completedRecommendations: recCounts.completed,
+      inProgressRecommendations: recCounts.inProgress,
+      pendingRecommendations: recCounts.pending,
+      skippedRecommendations: recCounts.skipped,
       totalRecommendations: recs.length,
-      hoursInvested: completedRecs * 5 // Estimate 5 hours per completed recommendation
+      hoursInvested: recCounts.completed * 5 // Estimate 5 hours per completed recommendation
     },
     topRecommendation: topRec?.title
   };
