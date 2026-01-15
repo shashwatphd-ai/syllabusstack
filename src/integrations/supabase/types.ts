@@ -1264,6 +1264,7 @@ export type Database = {
           default_passing_threshold: number | null
           description: string | null
           detected_domain: string | null
+          domain_config: Json | null
           id: string
           instructor_id: string
           is_published: boolean | null
@@ -1280,6 +1281,7 @@ export type Database = {
           default_passing_threshold?: number | null
           description?: string | null
           detected_domain?: string | null
+          domain_config?: Json | null
           id?: string
           instructor_id: string
           is_published?: boolean | null
@@ -1296,6 +1298,7 @@ export type Database = {
           default_passing_threshold?: number | null
           description?: string | null
           detected_domain?: string | null
+          domain_config?: Json | null
           id?: string
           instructor_id?: string
           is_published?: boolean | null

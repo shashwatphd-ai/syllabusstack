@@ -69,6 +69,154 @@ const DURATION_MATRIX: Record<string, Record<string, number>> = {
   create: { introductory: 20, intermediate: 30, advanced: 40 },
 };
 
+// ============================================================================
+// DOMAIN CONFIG INTERFACES - Universal Adaptive Engine
+// ============================================================================
+
+// AI-generated domain configuration for research grounding
+interface DomainConfig {
+  domain: string;                    // "strategic management", "organic chemistry", etc.
+  trusted_sites: string[];           // ["hbr.org", "jstor.org", ".edu"]
+  citation_style: string;            // "Case studies and academic references"
+  avoid_sources: string[];           // ["seo-blogs", "opinion-pieces"]
+  visual_templates: string[];        // ["framework diagrams", "comparison tables"]
+  academic_level: string;            // "graduate", "undergraduate", "professional"
+  terminology_preferences: string[]; // Domain-specific terms to prioritize
+}
+
+// ============================================================================
+// DOMAIN ANALYZER - AI-powered domain classification
+// ============================================================================
+
+async function analyzeDomainWithAI(
+  syllabusText: string, 
+  lovableApiKey: string
+): Promise<DomainConfig> {
+  console.log('[DOMAIN-ANALYZER] Starting AI-powered domain analysis');
+  
+  const metaPrompt = `You are an Academic Director analyzing a course syllabus to determine research strategy.
+
+SYLLABUS TEXT:
+${syllabusText.substring(0, 8000)}
+
+TASK: Generate research configuration rules for this academic field. This will be used to find authoritative sources when creating lecture content.
+
+OUTPUT (JSON only, no markdown, no code blocks):
+{
+  "domain": "Specific academic field (e.g., 'Strategic Management', 'Organic Chemistry', 'Renaissance Art History', 'Machine Learning', 'Nursing Practice')",
+  "trusted_sites": [
+    "3-6 authoritative domains for this specific field",
+    "Examples by field:",
+    "- Business: hbr.org, mckinsey.com, scholar.google.com",
+    "- Medicine: nih.gov, pubmed.ncbi.nlm.nih.gov, mayoclinic.org",
+    "- CS: docs.python.org, developer.mozilla.org, github.com",
+    "- History: jstor.org, archives.gov, smithsonianmag.com",
+    "- Engineering: ieee.org, asme.org, sciencedirect.com"
+  ],
+  "citation_style": "How citations should appear (e.g., 'APA format with case studies', 'IEEE format with code examples', 'Chicago style with primary sources')",
+  "avoid_sources": [
+    "Source types that should NOT be used for this field",
+    "e.g., 'seo-blogs', 'opinion-pieces', 'news-articles', 'wikipedia'"
+  ],
+  "visual_templates": [
+    "Common visual formats in this field",
+    "e.g., 'framework diagrams', 'molecular structures', 'architectural drawings', 'circuit diagrams', 'flowcharts'"
+  ],
+  "academic_level": "graduate | undergraduate | professional",
+  "terminology_preferences": [
+    "5-10 domain-specific terms that indicate quality content in this field"
+  ]
+}
+
+CRITICAL RULES:
+1. Analyze the syllabus content to identify the EXACT academic domain
+2. Choose trusted_sites that are THE authoritative sources for this specific field
+3. Be specific - "Computational Linguistics" not just "Computer Science"
+4. Match academic_level to the syllabus complexity`;
+
+  try {
+    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${lovableApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'google/gemini-2.5-flash',
+        messages: [{ role: 'user', content: metaPrompt }],
+        temperature: 0.3,
+      }),
+    });
+
+    if (!response.ok) {
+      console.warn('[DOMAIN-ANALYZER] AI call failed:', response.status);
+      return getFallbackDomainConfig(syllabusText);
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || '';
+
+    try {
+      const cleaned = content.replace(/```json?\n?|\n?```/g, '').trim();
+      const config = JSON.parse(cleaned) as DomainConfig;
+      console.log(`[DOMAIN-ANALYZER] AI identified domain: ${config.domain}`);
+      console.log(`[DOMAIN-ANALYZER] Trusted sites: ${config.trusted_sites.slice(0, 3).join(', ')}`);
+      return config;
+    } catch (parseError) {
+      console.warn('[DOMAIN-ANALYZER] Parse failed, using fallback');
+      return getFallbackDomainConfig(syllabusText);
+    }
+  } catch (error) {
+    console.error('[DOMAIN-ANALYZER] Error:', error);
+    return getFallbackDomainConfig(syllabusText);
+  }
+}
+
+function getFallbackDomainConfig(text: string): DomainConfig {
+  const detectedDomain = detectDomain(text);
+  console.log(`[DOMAIN-ANALYZER] Using fallback for domain: ${detectedDomain}`);
+  
+  // Domain-specific fallback configurations
+  const domainConfigs: Record<string, Partial<DomainConfig>> = {
+    business: {
+      trusted_sites: ['hbr.org', 'mckinsey.com', 'scholar.google.com', '.edu'],
+      visual_templates: ['framework diagrams', 'comparison matrices', 'process flowcharts'],
+    },
+    medicine: {
+      trusted_sites: ['nih.gov', 'pubmed.ncbi.nlm.nih.gov', 'mayoclinic.org', 'who.int'],
+      visual_templates: ['anatomical diagrams', 'clinical flowcharts', 'mechanism illustrations'],
+    },
+    science: {
+      trusted_sites: ['nature.com', 'sciencedirect.com', 'scholar.google.com', '.edu'],
+      visual_templates: ['experimental diagrams', 'molecular structures', 'data visualizations'],
+    },
+    technical: {
+      trusted_sites: ['developer.mozilla.org', 'docs.python.org', 'github.com', 'stackoverflow.com'],
+      visual_templates: ['architecture diagrams', 'flowcharts', 'code snippets', 'system diagrams'],
+    },
+    humanities: {
+      trusted_sites: ['jstor.org', 'muse.jhu.edu', 'scholar.google.com', '.edu'],
+      visual_templates: ['timeline diagrams', 'concept maps', 'historical images'],
+    },
+    arts: {
+      trusted_sites: ['moma.org', 'metmuseum.org', 'jstor.org', '.edu'],
+      visual_templates: ['artwork reproductions', 'technique diagrams', 'comparative images'],
+    },
+  };
+
+  const domainDefaults = domainConfigs[detectedDomain] || domainConfigs.humanities;
+
+  return {
+    domain: detectedDomain,
+    trusted_sites: domainDefaults.trusted_sites || ['scholar.google.com', '.edu', 'jstor.org'],
+    citation_style: 'Academic references with URLs',
+    avoid_sources: ['seo-blogs', 'opinion-pieces', 'unreferenced-wikis'],
+    visual_templates: domainDefaults.visual_templates || ['diagrams', 'flowcharts'],
+    academic_level: 'undergraduate',
+    terminology_preferences: [],
+  };
+}
+
 interface Module {
   title: string;
   description: string;
@@ -246,23 +394,31 @@ Do NOT summarize - extract the complete text content.`
       throw new Error("Could not extract sufficient text from the document");
     }
 
-    // ========== STEP 1.5: Extract domain terms and learn synonyms (background) ==========
-    // This enables dynamic synonym matching for future searches
-    const detectedDomain = detectDomain(extractedText);
+    // ========== STEP 1.5: AI-Powered Domain Analysis (Universal Adaptive Engine) ==========
+    // This generates domain-specific research rules for lecture grounding
+    console.log('[PROCESS-SYLLABUS] Starting AI-powered domain analysis');
+    
+    // Generate comprehensive domain configuration using AI
+    const domainConfig = await analyzeDomainWithAI(extractedText, LOVABLE_API_KEY);
+    console.log(`[PROCESS-SYLLABUS] Generated domain config for: ${domainConfig.domain}`);
+    console.log(`[PROCESS-SYLLABUS] Trusted sites: ${domainConfig.trusted_sites.slice(0, 3).join(', ')}`);
+    
+    // Also extract domain terms for synonym matching (background)
     const extractedTerms = extractDomainTerms(extractedText);
-    console.log(`[PROCESS-SYLLABUS] Detected domain: ${detectedDomain}, extracted ${extractedTerms.length} terms`);
+    console.log(`[PROCESS-SYLLABUS] Extracted ${extractedTerms.length} domain terms`);
 
-    // Store extracted terms and domain in the database (fire and forget for speed)
-    storeExtractedTerms(instructor_course_id, extractedTerms, detectedDomain).catch(e => {
+    // Store extracted terms in the database (fire and forget for speed)
+    storeExtractedTerms(instructor_course_id, extractedTerms, domainConfig.domain).catch(e => {
       console.log(`[PROCESS-SYLLABUS] Failed to store extracted terms: ${e}`);
     });
 
-    // Store syllabus text in instructor_courses for future reference
+    // Store syllabus text, domain, AND full domain_config in instructor_courses
     await supabaseClient
       .from('instructor_courses')
       .update({
         syllabus_text: extractedText.substring(0, 50000), // Limit to 50KB
-        detected_domain: detectedDomain,
+        detected_domain: domainConfig.domain,
+        domain_config: domainConfig, // NEW: Store full AI-generated config
       })
       .eq('id', instructor_course_id);
 

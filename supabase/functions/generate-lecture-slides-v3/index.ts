@@ -66,6 +66,43 @@ interface ProfessorSlide {
   };
 }
 
+// ============================================================================
+// UNIVERSAL ADAPTIVE ENGINE - Domain & Research Interfaces
+// ============================================================================
+
+// AI-generated domain configuration for research grounding
+interface DomainConfig {
+  domain: string;                    // "strategic management", "organic chemistry", etc.
+  trusted_sites: string[];           // ["hbr.org", "jstor.org", ".edu"]
+  citation_style: string;            // "Case studies and academic references"
+  avoid_sources: string[];           // ["seo-blogs", "opinion-pieces"]
+  visual_templates: string[];        // ["framework diagrams", "comparison tables"]
+  academic_level: string;            // "graduate", "undergraduate", "professional"
+  terminology_preferences: string[]; // Domain-specific terms to prioritize
+}
+
+// Research context from Google Search grounding
+interface ResearchContext {
+  topic: string;
+  grounded_content: {
+    claim: string;
+    source_url: string;
+    source_title: string;
+    confidence: number;
+  }[];
+  recommended_reading: {
+    title: string;
+    url: string;
+    type: 'Academic' | 'Industry' | 'Case Study' | 'Documentation';
+  }[];
+  visual_descriptions: {
+    framework_name: string;
+    description: string;
+    elements: string[];
+  }[];
+  raw_grounding_metadata?: any;
+}
+
 interface TeachingUnitContext {
   id: string;
   title: string;
@@ -397,6 +434,214 @@ TEACHING UNIT POSITION: ${context.sequence_position} of ${context.total_siblings
 }
 
 // ============================================================================
+// RESEARCH AGENT - Google Search Grounding (Universal Adaptive Engine)
+// ============================================================================
+
+async function runResearchAgent(
+  context: TeachingUnitContext,
+  domainConfig: DomainConfig | null
+): Promise<ResearchContext> {
+  console.log('[Research Agent] Starting grounded research for:', context.title);
+
+  const apiKey = Deno.env.get('LOVABLE_API_KEY');
+  if (!apiKey) {
+    console.warn('[Research Agent] LOVABLE_API_KEY not configured');
+    return getEmptyResearchContext(context.title);
+  }
+
+  // Build dynamic search strategy using domain config
+  const trustedSites = domainConfig?.trusted_sites || ['scholar.google.com', '.edu'];
+  const siteFilter = trustedSites
+    .slice(0, 3)
+    .map(s => `site:${s}`)
+    .join(' OR ');
+
+  const researchPrompt = `You are a research assistant gathering verified information for a ${domainConfig?.academic_level || 'university'}-level lecture.
+
+TOPIC: ${context.title}
+DOMAIN: ${domainConfig?.domain || context.domain}
+WHAT TO TEACH: ${context.what_to_teach}
+
+REQUIRED CONCEPTS TO RESEARCH:
+${context.required_concepts.map(c => `- ${c}`).join('\n') || '- ' + context.learning_objective.core_concept}
+
+RESEARCH REQUIREMENTS:
+1. Find the CORE DEFINITION of "${context.title}" from authoritative sources
+2. Find 2-3 SPECIFIC EXAMPLES or case studies with real data, names, dates
+3. Find any COMMON MISCONCEPTIONS and their corrections
+4. If this involves a framework or model, describe its visual structure exactly
+5. Find recommended readings or resources students should explore
+
+SEARCH STRATEGY:
+- Prioritize sources from: ${trustedSites.join(', ')}
+- Use search queries like: "${context.required_concepts[0] || context.title} ${siteFilter}"
+- AVOID: ${domainConfig?.avoid_sources?.join(', ') || 'blogs, opinion pieces, unreferenced content'}
+
+REQUIRED OUTPUT FORMAT (JSON only, no markdown):
+{
+  "topic": "${context.title}",
+  "grounded_content": [
+    {
+      "claim": "Verified factual statement with specific data",
+      "source_url": "URL from search results",
+      "source_title": "Source name/publication",
+      "confidence": 0.95
+    }
+  ],
+  "recommended_reading": [
+    {
+      "title": "Resource title",
+      "url": "URL",
+      "type": "Academic"
+    }
+  ],
+  "visual_descriptions": [
+    {
+      "framework_name": "e.g., Porter's Five Forces",
+      "description": "Text description of the visual structure",
+      "elements": ["Element 1", "Element 2", "Element 3"]
+    }
+  ]
+}
+
+Search now and return ONLY verified, factually grounded content.`;
+
+  try {
+    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'google/gemini-2.5-flash',
+        messages: [{ role: 'user', content: researchPrompt }],
+        tools: [{ googleSearch: {} }], // Enable Google Search grounding
+        temperature: 0.3,
+      }),
+    });
+
+    if (!response.ok) {
+      if (response.status === 429) {
+        console.warn('[Research Agent] Rate limited, returning empty context');
+        return getEmptyResearchContext(context.title);
+      }
+      if (response.status === 402) {
+        console.warn('[Research Agent] Credits exhausted, returning empty context');
+        return getEmptyResearchContext(context.title);
+      }
+      console.warn('[Research Agent] Search call failed:', response.status);
+      return getEmptyResearchContext(context.title);
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || '';
+
+    // Extract grounding metadata if available
+    const groundingMetadata = data.choices?.[0]?.groundingMetadata;
+
+    // Parse the structured response
+    let researchContext: ResearchContext;
+    try {
+      const cleaned = content.replace(/```json?\n?|\n?```/g, '').trim();
+      researchContext = JSON.parse(cleaned);
+    } catch (parseError) {
+      console.warn('[Research Agent] Failed to parse response, using grounding metadata');
+      researchContext = getEmptyResearchContext(context.title);
+    }
+
+    // Enrich with grounding metadata if available (from Google Search tool)
+    if (groundingMetadata?.groundingChunks) {
+      console.log(`[Research Agent] Found ${groundingMetadata.groundingChunks.length} grounding chunks`);
+      const additionalSources = groundingMetadata.groundingChunks.map((chunk: any) => ({
+        claim: chunk.web?.title || 'Additional verified source',
+        source_url: chunk.web?.uri || '',
+        source_title: chunk.web?.title || 'Unknown',
+        confidence: 0.9,
+      }));
+      researchContext.grounded_content = [
+        ...researchContext.grounded_content,
+        ...additionalSources,
+      ];
+      researchContext.raw_grounding_metadata = groundingMetadata;
+    }
+
+    // Also check for web search results in different response format
+    if (groundingMetadata?.webSearchQueries) {
+      console.log(`[Research Agent] Web search queries used: ${groundingMetadata.webSearchQueries.join(', ')}`);
+    }
+
+    console.log(`[Research Agent] Found ${researchContext.grounded_content.length} grounded claims`);
+    console.log(`[Research Agent] Found ${researchContext.visual_descriptions?.length || 0} visual descriptions`);
+    return researchContext;
+
+  } catch (error) {
+    console.error('[Research Agent] Error:', error);
+    return getEmptyResearchContext(context.title);
+  }
+}
+
+function getEmptyResearchContext(topic: string): ResearchContext {
+  return {
+    topic,
+    grounded_content: [],
+    recommended_reading: [],
+    visual_descriptions: [],
+  };
+}
+
+// ============================================================================
+// RESEARCH MERGER - Inject grounded content into lecture brief
+// ============================================================================
+
+function mergeResearchIntoBrief(
+  baseBrief: string,
+  research: ResearchContext
+): string {
+  if (research.grounded_content.length === 0) {
+    return baseBrief + `
+
+=== RESEARCH GROUNDING ===
+No external research available. Generate content from your training data.
+Mark any statistics or case studies as "illustrative examples" rather than verified facts.`;
+  }
+
+  const groundedSection = `
+
+=== RESEARCH GROUNDING (MANDATORY TO USE) ===
+
+VERIFIED DEFINITIONS AND FACTS:
+${research.grounded_content.slice(0, 10).map((c, i) => 
+  `[Source ${i + 1}] "${c.claim}"
+   Citation: ${c.source_title} (${c.source_url})`
+).join('\n\n')}
+
+${research.recommended_reading.length > 0 ? `
+RECOMMENDED READING (for "Further Reading" slide):
+${research.recommended_reading.slice(0, 5).map(r => 
+  `- ${r.title} [${r.type}]: ${r.url}`
+).join('\n')}
+` : ''}
+
+${research.visual_descriptions?.length > 0 ? `
+VISUAL FRAMEWORK DESCRIPTIONS (use EXACT structure for diagrams):
+${research.visual_descriptions.map(v => 
+  `- ${v.framework_name}: ${v.description}
+   Elements: ${v.elements.join(', ')}`
+).join('\n')}
+` : ''}
+
+CITATION RULES (CRITICAL):
+- You MUST use the verified definitions above, NOT your training data
+- Every factual claim must include [Source N] marker in the slide content
+- If a statistic is NOT in the research, clearly mark as "According to industry practice..."
+- Use the visual descriptions to guide EXACT diagram element composition
+- Include a "Sources" or "Further Reading" slide at the end`;
+
+  return baseBrief + groundedSection;
+}
+
+// ============================================================================
 // PROFESSOR AI SYSTEM PROMPT
 // ============================================================================
 
@@ -500,16 +745,48 @@ QUALITY STANDARDS:
 - NO abstract-only explanations—always ground in concrete examples
 - NO filler content—every sentence must teach something
 
+RAG (RETRIEVAL-AUGMENTED GENERATION) RULES:
+When a "RESEARCH GROUNDING" section is provided in the brief:
+
+1. CITATION MANDATE:
+   - You MUST use the verified facts from the research grounding section
+   - Every slide that uses a grounded fact must include [Source N] in the content
+   - Store the full citation in the slide's metadata for footer display
+
+2. NO HALLUCINATION RULE:
+   - If the research does not contain a specific statistic, DO NOT invent one
+   - Use phrases like "Research indicates..." or "According to established frameworks..."
+   - Never fabricate case studies, dates, or numerical data
+
+3. SOURCE ATTRIBUTION:
+   - For definition slides: Use the exact definition from research, cite source
+   - For example slides: Use real cases from research, or clearly mark as "Illustrative example"
+   - For misconception slides: Cross-reference with research corrections if available
+
+4. VISUAL ACCURACY:
+   - If research includes visual descriptions (e.g., "Porter's Five Forces has 5 forces..."),
+     use that EXACT structure in your visual_directive elements
+   - Never invent framework components not mentioned in research
+
+5. FALLBACK BEHAVIOR:
+   - If research says "No external research available", you may use training data
+   - Mark such content with lower confidence and add "(illustrative)" to examples
+   - Include a note in speaker_notes that this is based on general knowledge
+
 OUTPUT FORMAT: JSON with exact structure shown below.`;
 
 // ============================================================================
 // PROFESSOR AI - Main content generation
 // ============================================================================
 
-async function runProfessorAI(context: TeachingUnitContext): Promise<ProfessorSlide[]> {
+async function runProfessorAI(
+  context: TeachingUnitContext,
+  preBuiltBrief?: string
+): Promise<ProfessorSlide[]> {
   console.log('[Professor AI] Starting lecture generation');
 
-  const lectureBrief = buildLectureBrief(context);
+  // Use pre-built brief (with research) if provided, otherwise build from context
+  const lectureBrief = preBuiltBrief || buildLectureBrief(context);
   const targetSlides = Math.max(5, Math.round(context.target_duration_minutes * 1.5));
 
   const userPrompt = `${lectureBrief}
@@ -911,11 +1188,39 @@ serve(async (req) => {
     console.log('[Main] Slide record:', slideRecordId);
 
     try {
-      // PHASE 2: Professor AI - Complete lecture generation
-      console.log('[Main] === PHASE 2: PROFESSOR AI ===');
-      await updateProgress(supabase, slideRecordId, 'professor', 10, 'Professor AI: Crafting your lecture...');
-      
-      const slides = await runProfessorAI(context);
+      // PHASE 2A: Fetch domain config for research strategy
+      console.log('[Main] === PHASE 2A: DOMAIN CONFIG ===');
+      const { data: courseData } = await supabase
+        .from('instructor_courses')
+        .select('domain_config')
+        .eq('id', context.course.id)
+        .single();
+
+      const domainConfig = courseData?.domain_config as DomainConfig | null;
+      console.log('[Main] Domain config:', domainConfig?.domain || 'not configured');
+
+      // PHASE 2B: Research Agent - Google Search Grounding
+      console.log('[Main] === PHASE 2B: RESEARCH AGENT ===');
+      await updateProgress(supabase, slideRecordId, 'research', 10, 'Research Agent: Gathering verified sources...');
+
+      let researchContext: ResearchContext;
+      try {
+        researchContext = await runResearchAgent(context, domainConfig);
+        await updateProgress(supabase, slideRecordId, 'research', 30, `Found ${researchContext.grounded_content.length} verified sources`);
+      } catch (researchError) {
+        console.warn('[Main] Research failed, continuing without grounding:', researchError);
+        researchContext = getEmptyResearchContext(context.title);
+      }
+
+      // PHASE 2C: Professor AI - Complete lecture generation with research
+      console.log('[Main] === PHASE 2C: PROFESSOR AI ===');
+      await updateProgress(supabase, slideRecordId, 'professor', 40, 'Professor AI: Synthesizing lecture from research...');
+
+      // Merge research into the lecture brief
+      const baseBrief = buildLectureBrief(context);
+      const groundedBrief = mergeResearchIntoBrief(baseBrief, researchContext);
+
+      const slides = await runProfessorAI(context, groundedBrief);
       await updateProgress(supabase, slideRecordId, 'professor', 60, `Generated ${slides.length} slides`);
       
       console.log('[Main] Professor AI complete:', slides.length, 'slides');
@@ -982,7 +1287,9 @@ serve(async (req) => {
             message: 'Slides ready. Generating visuals...',
           },
           quality_score: qualityScore,
-          is_research_grounded: false,
+          is_research_grounded: researchContext.grounded_content.length > 0,
+          research_context: researchContext.grounded_content.length > 0 ? researchContext : null,
+          citation_count: researchContext.grounded_content.length,
           estimated_duration_minutes: Math.round(initialSlides.length * 1.5),
           generation_model: 'google/gemini-3-pro-preview',
         })
