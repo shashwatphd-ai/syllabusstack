@@ -1,4 +1,4 @@
-# EduThree Implementation Roadmap v2
+# SyllabusStack Implementation Roadmap v2
 
 > **Version:** 2.0  
 > **Created:** 2026-01-07  

@@ -1,4 +1,4 @@
-# EduThree Current Status Report & Work Plan
+# SyllabusStack Current Status Report & Work Plan
 
 > **Version:** 1.0  
 > **Created:** 2026-01-07  
@@ -25,7 +25,7 @@
 ## 1. Executive Summary
 
 ### Current State
-EduThree is an AI-powered career navigation and verified learning platform with **~75% core functionality complete**. The platform has three primary user flows:
+SyllabusStack is an AI-powered career navigation and verified learning platform with **~75% core functionality complete**. The platform has three primary user flows:
 
 1. **Student Career Path** (Gap Analysis) - ✅ 90% Complete
 2. **Student Learning Path** (Verified Learning) - ⚠️ 70% Complete  

@@ -1,6 +1,6 @@
-# EduThree Unified Implementation Proposal
+# SyllabusStack Unified Implementation Proposal
 
-> **Document Purpose**: Comprehensive proposal merging the Technical Specification, PRD v2, and Lovable Proposal with an audit of current codebase capabilities. This is the master plan for building the complete EduThree platform.
+> **Document Purpose**: Comprehensive proposal merging the Technical Specification, PRD v2, and Lovable Proposal with an audit of current codebase capabilities. This is the master plan for building the complete SyllabusStack platform.
 
 ---
 
@@ -11,15 +11,15 @@
 | **Version** | 1.0 |
 | **Created** | 2025-12-22 |
 | **Status** | Pending Approval |
-| **Sources** | EduThree_Technical_Spec.docx, EduThree_PRD_v2.docx, EduThree_Lovable_Proposal.docx |
+| **Sources** | SyllabusStack_Technical_Spec.docx, SyllabusStack_PRD_v2.docx, SyllabusStack_Lovable_Proposal.docx |
 
 ---
 
 ## Executive Summary
 
-### What EduThree Is Today (Current Codebase)
+### What SyllabusStack Is Today (Current Codebase)
 
-EduThree currently operates as an **AI-native career navigation platform** that helps students understand their job-readiness through intelligent analysis of coursework against real job market requirements. The existing platform includes:
+SyllabusStack currently operates as an **AI-native career navigation platform** that helps students understand their job-readiness through intelligent analysis of coursework against real job market requirements. The existing platform includes:
 
 **✅ FULLY IMPLEMENTED:**
 1. **Landing Page & Marketing** - Hero, features, testimonials, pricing sections
@@ -36,7 +36,7 @@ EduThree currently operates as an **AI-native career navigation platform** that 
 
 ### What the New Documents Propose
 
-The three uploaded documents propose transforming EduThree from a **career navigation platform** into a **verified learning platform** with three major feature extensions:
+The three uploaded documents propose transforming SyllabusStack from a **career navigation platform** into a **verified learning platform** with three major feature extensions:
 
 1. **Intelligent Content Curation Engine** — Auto-match free online resources (videos, readings) to learning objectives
 2. **Verified Consumption Tracking** — Ensure students actually engage with content before assessment
@@ -712,7 +712,7 @@ MVP is successful if ONE course with 5-10 learning objectives can be fully verif
 ## Part 9: Decision Points for Approval
 
 ### 1. Product Direction
-**Question**: Should EduThree expand from career navigation to verified learning, or keep these as separate products?
+**Question**: Should SyllabusStack expand from career navigation to verified learning, or keep these as separate products?
 
 **Options**:
 - A) Unified platform with both capabilities

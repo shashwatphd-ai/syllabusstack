@@ -1,8 +1,8 @@
-# EduThree AI Orchestration - Implementation Plan
+# SyllabusStack AI Orchestration - Implementation Plan
 
 ## Executive Summary
 
-This document outlines the implementation plan to bridge the gap between the EduThree Technical Specification v3.0 and the current implementation. The current system uses Lovable AI Gateway as a single provider, while the spec envisions a multi-model orchestration layer with embeddings, fallback logic, and structured output schemas.
+This document outlines the implementation plan to bridge the gap between the SyllabusStack Technical Specification v3.0 and the current implementation. The current system uses Lovable AI Gateway as a single provider, while the spec envisions a multi-model orchestration layer with embeddings, fallback logic, and structured output schemas.
 
 ---
 
