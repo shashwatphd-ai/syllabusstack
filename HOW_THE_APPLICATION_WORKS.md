@@ -183,9 +183,11 @@ const App = () => (
 
 **TooltipProvider**: From Radix UI, enables tooltips throughout the app.
 
-**Toaster & Sonner**: Two toast notification systems working in parallel - one from shadcn/ui (`Toaster`) and one from the Sonner library (`Sonner`).
+**Toaster & Sonner**: Two toast notification systems working in parallel:
+- **Toaster** (from shadcn/ui): Used for standard application notifications like success messages, errors, and warnings. This is the primary toast system integrated with the `useToast()` hook throughout the codebase.
+- **Sonner**: A more feature-rich toast library used specifically for richer notifications that benefit from its additional capabilities (like progress indicators and custom styling). Rather than migrating all existing toasts, the application uses both systems for their respective strengths - Toaster for simplicity and Sonner for enhanced UX where needed.
 
-**AchievementToastProvider**: Custom provider for achievement unlock notifications.
+**AchievementToastProvider**: Custom provider for achievement unlock notifications (gamification features like badges and XP).
 
 **BrowserRouter**: React Router's provider for client-side routing.
 
@@ -770,14 +772,31 @@ export async function generateRecommendations(
 
 ### Linked Course Tracking
 
-Recommendations can be linked to actual courses the user enrolls in:
+Recommendations can be linked to actual courses the user enrolls in. The following pseudocode illustrates the data flow:
 
 ```typescript
 async function fetchRecommendations(dreamJobId?: string): Promise<RecommendationWithLinks[]> {
-  // Fetch recommendations
+  // Step 0: Get authenticated user from Supabase auth context
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  // Step 1: Build and execute the recommendations query
+  // (query is built dynamically based on dreamJobId filter)
+  const query = supabase
+    .from('recommendations')
+    .select('*')
+    .eq('user_id', user.id);
+
+  if (dreamJobId) {
+    query.eq('dream_job_id', dreamJobId);
+  }
+
   const { data: recs } = await query;
 
-  // Fetch linked courses
+  // Step 2: Extract recommendation IDs for the next query
+  const recIds = recs?.map(r => r.id) || [];
+
+  // Step 3: Fetch linked courses for these recommendations
   const { data: links } = await supabase
     .from('recommendation_course_links')
     .select(`
@@ -788,19 +807,35 @@ async function fetchRecommendations(dreamJobId?: string): Promise<Recommendation
     .in('recommendation_id', recIds)
     .eq('link_status', 'active');
 
-  // Fetch enrollment progress
+  // Step 4: Fetch enrollment progress for the current user
   const { data: enrollments } = await supabase
     .from('course_enrollments')
     .select('instructor_course_id, overall_progress')
     .eq('student_id', user.id);
 
-  // Merge data
-  return recs.map(rec => ({
-    ...rec,
-    linked_course_id: linkedCourse?.courseId || null,
-    linked_course_title: linkedCourse?.title || null,
-    enrollment_progress: progressMap.get(linkedCourse.courseId) ?? null,
-  }));
+  // Step 5: Build lookup maps for O(1) access during merge
+  // linkMap: recommendation_id -> { courseId, title }
+  const linkMap = new Map(links?.map(l => [
+    l.recommendation_id,
+    { courseId: l.instructor_course_id, title: l.instructor_course?.title }
+  ]));
+
+  // progressMap: course_id -> progress percentage
+  const progressMap = new Map(enrollments?.map(e => [
+    e.instructor_course_id,
+    e.overall_progress
+  ]));
+
+  // Step 6: Merge all data into enriched recommendation objects
+  return (recs || []).map(rec => {
+    const linkedCourse = linkMap.get(rec.id);
+    return {
+      ...rec,
+      linked_course_id: linkedCourse?.courseId || null,
+      linked_course_title: linkedCourse?.title || null,
+      enrollment_progress: linkedCourse ? progressMap.get(linkedCourse.courseId) ?? null : null,
+    };
+  });
 }
 ```
 
@@ -990,9 +1025,18 @@ export interface DashboardOverview {
 
 ### Parallel Data Fetching
 
+The dashboard overview function demonstrates efficient parallel data fetching using `Promise.all`:
+
 ```typescript
 async function fetchDashboardOverview(): Promise<DashboardOverview> {
+  // First, get the authenticated user from Supabase auth
+  // This is required for all subsequent queries that filter by user_id
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+
   // Fetch all data in PARALLEL for performance
+  // Instead of sequential queries (slow), we fire all 5 queries simultaneously
+  // This reduces total wait time from sum(query times) to max(query times)
   const [
     { data: courses },
     { data: dreamJobs },
@@ -1008,7 +1052,13 @@ async function fetchDashboardOverview(): Promise<DashboardOverview> {
   ]);
 
   // Process and return aggregated data
-  // ...
+  // (counts, averages, top items, progress summaries, etc.)
+  return {
+    totalCourses: courses?.length || 0,
+    totalDreamJobs: dreamJobs?.length || 0,
+    totalCapabilities: capabilities?.length || 0,
+    // ... additional processing
+  };
 }
 ```
 
@@ -1327,7 +1377,11 @@ SyllabusStack is a symphony of modern web technologies working in harmony:
 The application demonstrates several key patterns:
 
 1. **Separation of Concerns**: Services handle API calls, hooks manage state, components render UI
-2. **Optimistic Updates**: Cache is updated immediately while mutations run
+2. **Asynchronous Cache Management**: After mutations complete successfully, React Query's cache is intelligently updated using `onSuccess` callbacks. The application uses two strategies:
+   - **Cache Invalidation**: `queryClient.invalidateQueries()` marks cached data as stale, triggering a background refetch
+   - **Direct Cache Updates**: `queryClient.setQueryData()` directly updates the cache with mutation results (as seen in `useRefreshGapAnalysis`)
+
+   *Note: This differs from true "optimistic updates" which would use `onMutate` to update the UI before the server confirms the mutation, with rollback on error.*
 3. **Background Processing**: Heavy AI work happens without blocking UI
 4. **Defensive Coding**: Every function checks auth state, handles errors gracefully
 5. **Performance Optimization**: N+1 queries are avoided, parallel fetching is preferred
