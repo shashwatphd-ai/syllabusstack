@@ -58,6 +58,21 @@ export interface EnhancedSlide {
   quality_score?: number;
 }
 
+// AI-generated layout hint for adaptive rendering
+export interface LayoutHint {
+  type: 'flow' | 'comparison' | 'equation' | 'list' | 'quote' | 'callout' | 'plain';
+  segments?: string[];        // For flows: ["Step 1", "Step 2", "Step 3"]
+  left_right?: [string, string]; // For comparisons: ["Left side", "Right side"]
+  formula?: string;           // For equations: "E = mc²"
+  emphasis_words?: string[];  // Words to bold/highlight
+}
+
+// Key point with optional layout hint for adaptive rendering
+export interface KeyPointWithHint {
+  text: string;
+  layout_hint?: LayoutHint;
+}
+
 // Professor AI slide format (v3) - comprehensive pedagogical structure
 export interface ProfessorSlide {
   order: number;
@@ -67,7 +82,8 @@ export interface ProfessorSlide {
   title: string;
   content: {
     main_text: string;
-    key_points?: string[];
+    // Support both string[] (legacy) and KeyPointWithHint[] (new with layout hints)
+    key_points?: (string | KeyPointWithHint)[];
     definition?: {
       term: string;
       formal_definition: string;
@@ -89,6 +105,15 @@ export interface ProfessorSlide {
       explanation: string;
     }[];
   };
+  // Audio segment map for synchronized highlighting
+  audio_segment_map?: {
+    target_block: string;
+    start_percent: number;
+    end_percent: number;
+    narration_excerpt?: string;
+  }[];
+  audio_url?: string;
+  audio_duration_seconds?: number;
   visual: {
     type: 'diagram' | 'screenshot' | 'comparison' | 'flowchart' | 'illustration' | 'none';
     url?: string | null;
