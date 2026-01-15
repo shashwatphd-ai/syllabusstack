@@ -81,15 +81,10 @@ export default function DashboardPage() {
   return (
     <AppShell>
       <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold font-display">Dashboard</h1>
-            <p className="text-sm text-muted-foreground">
-              Your career progress at a glance
-            </p>
-          </div>
-        </div>
+        {/* Page subtitle */}
+        <p className="text-muted-foreground">
+          Your career progress at a glance
+        </p>
 
         {/* Welcome Back Banner for returning users */}
         <WelcomeBackBanner />

@@ -234,12 +234,9 @@ export default function CareerPathPage() {
         {/* Header */}
         <div className="flex flex-col gap-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-bold font-display">Career Path</h1>
-              <p className="text-muted-foreground text-sm sm:text-base">
-                Track your goals, analyze gaps, and take action
-              </p>
-            </div>
+            <p className="text-muted-foreground text-sm sm:text-base">
+              Track your goals, analyze gaps, and take action
+            </p>
 
             {/* Dream Job Selector - full width on mobile */}
             {dreamJobs.length > 0 && (

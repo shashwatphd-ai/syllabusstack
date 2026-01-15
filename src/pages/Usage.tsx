@@ -126,12 +126,9 @@ export default function UsagePage() {
     <AppShell>
       <div className="space-y-6">
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">AI Usage</h1>
-            <p className="text-muted-foreground mt-1">
-              Monitor your AI analysis usage and costs
-            </p>
-          </div>
+          <p className="text-muted-foreground">
+            Monitor your AI analysis usage and costs
+          </p>
           <Select value={timeRange} onValueChange={setTimeRange}>
             <SelectTrigger className="w-40">
               <SelectValue />

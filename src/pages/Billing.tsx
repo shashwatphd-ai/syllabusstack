@@ -47,10 +47,9 @@ export default function BillingPage() {
   return (
     <AppShell>
       <PageContainer maxWidth="2xl">
-        <PageHeader
-          title="Billing & Subscription"
-          description="Manage your subscription, view usage, and access billing history."
-        />
+        <p className="text-muted-foreground mb-6">
+          Manage your subscription, view usage, and access billing history.
+        </p>
 
         {/* Current Plan Overview */}
         <Card className="mb-8">
