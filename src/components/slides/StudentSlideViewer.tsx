@@ -16,6 +16,7 @@ import {
 import { SlideRenderer } from './SlideRenderer';
 import type { LectureSlide, Slide, ProfessorSlide, EnhancedSlide } from '@/hooks/useLectureSlides';
 import { cn } from '@/lib/utils';
+import { supabase } from '@/integrations/supabase/client';
 
 interface StudentSlideViewerProps {
   lectureSlide: LectureSlide;
@@ -69,38 +70,68 @@ export function StudentSlideViewer({
       return;
     }
 
-    const audio = new Audio(currentSlide.audio_url);
-    audioRef.current = audio;
-
-    audio.onplay = () => setIsAudioPlaying(true);
-    audio.onpause = () => setIsAudioPlaying(false);
-    audio.onended = () => {
-      setIsAudioPlaying(false);
-      // Auto-advance to next slide when audio ends
-      if (currentSlideIndex < slides.length - 1) {
-        setCurrentSlideIndex(prev => prev + 1);
-      } else {
-        handleComplete();
+    // Get signed URL for audio from private bucket
+    const audioUrl = currentSlide.audio_url;
+    
+    async function playAudioWithSignedUrl() {
+      let urlToPlay = audioUrl;
+      
+      // Check if this is a Supabase storage URL that needs signing
+      const bucketPattern = '/storage/v1/object/public/lecture-audio/';
+      if (audioUrl.includes(bucketPattern)) {
+        const storagePath = audioUrl.split(bucketPattern)[1];
+        if (storagePath) {
+          try {
+            const { data, error } = await supabase.storage
+              .from('lecture-audio')
+              .createSignedUrl(storagePath, 3600); // 1 hour expiry
+            
+            if (!error && data?.signedUrl) {
+              urlToPlay = data.signedUrl;
+            }
+          } catch (err) {
+            console.error('Error creating signed URL for audio:', err);
+          }
+        }
       }
-    };
+      
+      const audio = new Audio(urlToPlay);
+      audioRef.current = audio;
 
-    audio.onerror = (e) => {
-      console.error('Audio playback error:', e);
-      setIsAudioPlaying(false);
-    };
+      audio.onplay = () => setIsAudioPlaying(true);
+      audio.onpause = () => setIsAudioPlaying(false);
+      audio.onended = () => {
+        setIsAudioPlaying(false);
+        // Auto-advance to next slide when audio ends
+        if (currentSlideIndex < slides.length - 1) {
+          setCurrentSlideIndex(prev => prev + 1);
+        } else {
+          handleComplete();
+        }
+      };
 
-    // Auto-play audio for current slide
-    audio.play().catch(e => {
-      console.log('Audio autoplay blocked:', e);
-      setIsAudioPlaying(false);
-    });
+      audio.onerror = (e) => {
+        console.error('Audio playback error:', e);
+        setIsAudioPlaying(false);
+      };
+
+      // Auto-play audio for current slide
+      audio.play().catch(e => {
+        console.log('Audio autoplay blocked:', e);
+        setIsAudioPlaying(false);
+      });
+    }
+    
+    playAudioWithSignedUrl();
 
     return () => {
-      audio.pause();
-      audio.onended = null;
-      audio.onplay = null;
-      audio.onpause = null;
-      audio.onerror = null;
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.onended = null;
+        audioRef.current.onplay = null;
+        audioRef.current.onpause = null;
+        audioRef.current.onerror = null;
+      }
     };
   }, [currentSlideIndex, hasAudio, currentSlide, slides.length]);
 
