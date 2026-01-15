@@ -1,0 +1,247 @@
+import { useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Loader2, ArrowRight, Brain, Clock, Target, Sparkles } from 'lucide-react';
+import { useSkillsAssessmentWizard } from '@/hooks/useSkillsAssessment';
+import { useMatchCareers } from '@/hooks/useCareerMatches';
+import { QuestionRenderer } from './QuestionRenderer';
+import { AssessmentProgressBar } from './AssessmentProgressBar';
+import { SkillsResultsSummary } from './SkillsResultsSummary';
+
+interface SkillsAssessmentWizardProps {
+  onComplete?: (skillProfileId: string) => void;
+  onCancel?: () => void;
+}
+
+type WizardStep = 'intro' | 'assessment' | 'processing' | 'results';
+
+export function SkillsAssessmentWizard({ onComplete, onCancel }: SkillsAssessmentWizardProps) {
+  const [step, setStep] = useState<WizardStep>('intro');
+  const [sessionType, setSessionType] = useState<'standard' | 'quick'>('standard');
+  const [skillProfile, setSkillProfile] = useState<{
+    id: string;
+    holland_code: string | null;
+    holland_scores: Record<string, number>;
+    technical_skills: Record<string, number>;
+    work_values: Record<string, number>;
+  } | null>(null);
+
+  const wizard = useSkillsAssessmentWizard();
+  const matchCareers = useMatchCareers();
+
+  const handleStart = async (type: 'standard' | 'quick') => {
+    setSessionType(type);
+    await wizard.start(type);
+    setStep('assessment');
+  };
+
+  const handleAnswer = async (value: number) => {
+    const result = await wizard.submitAnswer(value);
+    if (result?.is_complete) {
+      setStep('processing');
+      // Complete assessment and get profile
+      const completeResult = await wizard.complete();
+      if (completeResult?.skill_profile) {
+        setSkillProfile({
+          id: completeResult.skill_profile.id,
+          holland_code: completeResult.skill_profile.holland_code,
+          holland_scores: completeResult.skill_profile.holland_scores,
+          technical_skills: completeResult.skill_profile.technical_skills,
+          work_values: completeResult.skill_profile.work_values,
+        });
+        setStep('results');
+      }
+    }
+  };
+
+  const handleFindCareers = async () => {
+    await matchCareers.mutateAsync({});
+    if (skillProfile) {
+      onComplete?.(skillProfile.id);
+    }
+  };
+
+  // Intro step
+  if (step === 'intro') {
+    return (
+      <div className="max-w-3xl mx-auto space-y-6">
+        <Card>
+          <CardHeader className="text-center">
+            <div className="mx-auto w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
+              <Brain className="h-8 w-8 text-primary" />
+            </div>
+            <CardTitle className="text-2xl">Discover Your Career DNA</CardTitle>
+            <CardDescription className="text-base max-w-lg mx-auto">
+              Complete a scientifically-validated assessment to uncover careers that match your
+              interests, skills, and values.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {/* Benefits */}
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="text-center p-4 rounded-lg bg-muted/50">
+                <Target className="h-6 w-6 mx-auto mb-2 text-blue-500" />
+                <h4 className="font-medium">Holland RIASEC</h4>
+                <p className="text-xs text-muted-foreground">
+                  Proven interest assessment used by career counselors worldwide
+                </p>
+              </div>
+              <div className="text-center p-4 rounded-lg bg-muted/50">
+                <Brain className="h-6 w-6 mx-auto mb-2 text-purple-500" />
+                <h4 className="font-medium">35 O*NET Skills</h4>
+                <p className="text-xs text-muted-foreground">
+                  Self-rate your proficiency across industry-standard skills
+                </p>
+              </div>
+              <div className="text-center p-4 rounded-lg bg-muted/50">
+                <Sparkles className="h-6 w-6 mx-auto mb-2 text-amber-500" />
+                <h4 className="font-medium">Work Values</h4>
+                <p className="text-xs text-muted-foreground">
+                  Identify what matters most to you in a career
+                </p>
+              </div>
+            </div>
+
+            {/* Session type options */}
+            <div className="grid gap-4 md:grid-cols-2">
+              <Card
+                className="cursor-pointer hover:border-primary transition-colors"
+                onClick={() => handleStart('standard')}
+              >
+                <CardContent className="p-6">
+                  <div className="flex items-start gap-4">
+                    <Badge variant="secondary" className="mt-1">Recommended</Badge>
+                    <div className="flex-1">
+                      <h3 className="font-semibold">Full Assessment</h3>
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
+                        <Clock className="h-4 w-4" />
+                        15-20 minutes • 103 questions
+                      </div>
+                      <p className="text-sm text-muted-foreground mt-2">
+                        Comprehensive profile for accurate career matching
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card
+                className="cursor-pointer hover:border-primary transition-colors"
+                onClick={() => handleStart('quick')}
+              >
+                <CardContent className="p-6">
+                  <div className="flex items-start gap-4">
+                    <Badge variant="outline" className="mt-1">Quick</Badge>
+                    <div className="flex-1">
+                      <h3 className="font-semibold">Quick Assessment</h3>
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
+                        <Clock className="h-4 w-4" />
+                        8-12 minutes • 54 questions
+                      </div>
+                      <p className="text-sm text-muted-foreground mt-2">
+                        Essential questions only, good for exploration
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Cancel button */}
+            {onCancel && (
+              <div className="text-center">
+                <Button variant="ghost" onClick={onCancel}>
+                  Maybe Later
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Assessment step
+  if (step === 'assessment') {
+    return (
+      <div className="max-w-2xl mx-auto space-y-6">
+        {/* Progress */}
+        <AssessmentProgressBar
+          currentSection={wizard.currentQuestion?.framework || 'holland_riasec'}
+          answeredCount={wizard.progress.answered}
+          totalCount={wizard.progress.total}
+        />
+
+        {/* Current question */}
+        {wizard.currentQuestion && (
+          <QuestionRenderer
+            question={wizard.currentQuestion}
+            onAnswer={handleAnswer}
+            isSubmitting={wizard.isSubmitting}
+            questionNumber={wizard.progress.answered + 1}
+            totalQuestions={wizard.progress.total}
+          />
+        )}
+
+        {/* Loading state */}
+        {wizard.isLoading && !wizard.currentQuestion && (
+          <Card>
+            <CardContent className="py-12 text-center">
+              <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-primary" />
+              <p className="text-muted-foreground">Loading questions...</p>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    );
+  }
+
+  // Processing step
+  if (step === 'processing') {
+    return (
+      <div className="max-w-md mx-auto">
+        <Card>
+          <CardContent className="py-12 text-center">
+            <Loader2 className="h-12 w-12 animate-spin mx-auto mb-6 text-primary" />
+            <h3 className="text-xl font-semibold mb-2">Analyzing Your Profile</h3>
+            <p className="text-muted-foreground">
+              Computing your Holland code and matching against 800+ O*NET occupations...
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Results step
+  if (step === 'results' && skillProfile) {
+    return (
+      <div className="space-y-6">
+        <SkillsResultsSummary profile={skillProfile} />
+
+        <div className="flex justify-center gap-4">
+          <Button
+            size="lg"
+            onClick={handleFindCareers}
+            disabled={matchCareers.isPending}
+          >
+            {matchCareers.isPending ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                Finding Matches...
+              </>
+            ) : (
+              <>
+                Find Career Matches
+                <ArrowRight className="h-4 w-4 ml-2" />
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+}
