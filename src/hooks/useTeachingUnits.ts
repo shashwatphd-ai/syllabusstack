@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { queryKeys } from '@/lib/query-keys';
 
 export interface TeachingUnit {
   id: string;
@@ -28,7 +29,7 @@ export interface TeachingUnit {
 
 export function useTeachingUnits(learningObjectiveId?: string) {
   return useQuery({
-    queryKey: ['teaching-units', learningObjectiveId],
+    queryKey: queryKeys.teachingUnits.list(learningObjectiveId),
     queryFn: async () => {
       if (!learningObjectiveId) return [];
       
@@ -61,8 +62,8 @@ export function useDecomposeLearningObjective() {
       return data;
     },
     onSuccess: (data, learningObjectiveId) => {
-      queryClient.invalidateQueries({ queryKey: ['teaching-units', learningObjectiveId] });
-      queryClient.invalidateQueries({ queryKey: ['learning-objectives'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.teachingUnits.list(learningObjectiveId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.learningObjectives.all });
       toast({
         title: 'Learning Objective Analyzed',
         description: `Created ${data.teaching_units?.length || 0} teaching units`,
@@ -108,7 +109,7 @@ export function useUpdateTeachingUnitStatus() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ 
-        queryKey: ['teaching-units', data.learning_objective_id] 
+        queryKey: queryKeys.teachingUnits.list(data.learning_objective_id) 
       });
     },
   });
@@ -152,7 +153,7 @@ export function useSearchForTeachingUnit() {
         .eq('id', teachingUnitId);
       
       // Invalidate to show searching status immediately
-      queryClient.invalidateQueries({ queryKey: ['teaching-units'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.teachingUnits.all });
       
       const lo = unit.learning_objective as any;
       
@@ -192,8 +193,8 @@ export function useSearchForTeachingUnit() {
         })
         .eq('id', teachingUnitId);
       
-      queryClient.invalidateQueries({ queryKey: ['teaching-units'] });
-      queryClient.invalidateQueries({ queryKey: ['content-matches'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.teachingUnits.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.contentMatches.all });
       
       toast({
         title: 'Search Complete',
@@ -210,7 +211,7 @@ export function useSearchForTeachingUnit() {
         .update({ status: 'pending' })
         .eq('id', teachingUnitId);
       
-      queryClient.invalidateQueries({ queryKey: ['teaching-units'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.teachingUnits.all });
       
       const message = err instanceof Error 
         ? (err.name === 'AbortError' ? 'Search timed out. Please try again.' : err.message)

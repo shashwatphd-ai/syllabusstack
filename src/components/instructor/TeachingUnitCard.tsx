@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState, memo } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -65,7 +65,7 @@ function getStatusBadge(status: TeachingUnit['status'], videosFound: number) {
   }
 }
 
-export function TeachingUnitCard({ 
+export const TeachingUnitCard = memo(function TeachingUnitCard({ 
   unit, 
   contentMatches, 
   onSearch, 
@@ -401,4 +401,4 @@ export function TeachingUnitCard({
       </Card>
     </Collapsible>
   );
-}
+});

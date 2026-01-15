@@ -88,9 +88,11 @@ export function VerifiedVideoPlayer({
   const khanIframeRef = useRef<HTMLIFrameElement>(null);
   const playerInstanceRef = useRef<YT.Player | null>(null);
   const timeUpdateIntervalRef = useRef<number | null>(null);
+  const currentTimeRef = useRef(0); // Use ref to track time without re-renders
+  const lastDisplayedSecondRef = useRef(-1); // Track last displayed second for throttled updates
   
   const [playerState, setPlayerState] = useState<PlayerState>('LOADING');
-  const [currentTime, setCurrentTime] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0); // Only update for significant changes
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [watchedSegments, setWatchedSegments] = useState<WatchedSegment[]>([]);
@@ -166,16 +168,23 @@ export function VerifiedVideoPlayer({
     return merged;
   }
 
-  // Start time tracking interval
+  // Start time tracking interval - optimized to reduce re-renders
   const startTimeTracking = useCallback(() => {
     if (timeUpdateIntervalRef.current) return;
     
     timeUpdateIntervalRef.current = window.setInterval(() => {
       if (playerInstanceRef.current) {
         const time = playerInstanceRef.current.getCurrentTime();
-        setCurrentTime(time);
+        currentTimeRef.current = time;
+        
+        // Only update state once per second for progress bar (reduces re-renders from 4/sec to 1/sec)
+        const currentSecond = Math.floor(time);
+        if (currentSecond !== lastDisplayedSecondRef.current) {
+          lastDisplayedSecondRef.current = currentSecond;
+          setCurrentTime(time);
+        }
       }
-    }, 250); // Update 4 times per second for smooth progress
+    }, 250); // Still check 4x/sec for micro-check triggers but throttle state updates
   }, []);
 
   // Stop time tracking interval

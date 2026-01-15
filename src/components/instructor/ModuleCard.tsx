@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState, useCallback, memo } from 'react';
 import { ChevronDown, ChevronRight, Target, Video, Search, CheckCircle2, Sparkles, HelpCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -19,7 +19,7 @@ interface ModuleCardProps {
   learningObjectives: LearningObjective[];
 }
 
-export function ModuleCard({ module, learningObjectives }: ModuleCardProps) {
+export const ModuleCard = memo(function ModuleCard({ module, learningObjectives }: ModuleCardProps) {
   const [isOpen, setIsOpen] = useState(true);
   const [generatingForLO, setGeneratingForLO] = useState<string | null>(null);
   const searchContent = useSearchYouTubeContent();
@@ -191,4 +191,4 @@ export function ModuleCard({ module, learningObjectives }: ModuleCardProps) {
       </Card>
     </Collapsible>
   );
-}
+});
