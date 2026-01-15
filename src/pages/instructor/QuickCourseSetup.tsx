@@ -238,7 +238,6 @@ export default function QuickCourseSetupPage() {
               <Sparkles className="h-4 w-4" />
               AI-Powered Course Setup
             </div>
-            <h1 className="text-3xl font-bold text-foreground">Quick Course Setup</h1>
             <p className="text-muted-foreground max-w-xl mx-auto">
               Upload your syllabus and let AI create your entire course structure with curated video content in one step.
             </p>

@@ -67,12 +67,9 @@ export default function AdminDashboard() {
     <div className="container mx-auto p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold flex items-center gap-3">
-            <Building2 className="h-8 w-8 text-purple-600" />
-            Admin Dashboard
-          </h1>
-          <p className="text-muted-foreground mt-1">
+        <div className="flex items-center gap-3">
+          <Building2 className="h-8 w-8 text-purple-600" />
+          <p className="text-muted-foreground">
             Manage your organization's learning platform
           </p>
         </div>
