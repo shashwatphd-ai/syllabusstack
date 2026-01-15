@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { AppShell } from "@/components/layout";
 import { DashboardOverview, CapabilitySnapshot, DreamJobCards, NextActionBanner, ProgressWidget } from "@/components/dashboard";
 import { WelcomeBackBanner } from "@/components/dashboard/WelcomeBackBanner";
@@ -7,7 +8,6 @@ import { useCapabilities } from "@/hooks/useCapabilities";
 import { useNavigate } from "react-router-dom";
 import { useSEO, pageSEO } from "@/hooks/useSEO";
 import { useActivityTracking } from "@/hooks/useActivityTracking";
-
 export default function DashboardPage() {
   useSEO(pageSEO.dashboard);
   useActivityTracking(); // Track user activity for re-engagement
@@ -19,39 +19,48 @@ export default function DashboardPage() {
   const { data: capabilities = [], isLoading: capsLoading } = useCapabilities();
   const { data: gapAnalyses = [], isLoading: gapsLoading } = useGapAnalysesForJobs();
 
-  // Create a map of job id to gap count
-  const gapCountsByJobId = gapAnalyses.reduce((acc, ga) => {
-    const criticalCount = Array.isArray(ga.critical_gaps) ? ga.critical_gaps.length : 0;
-    const priorityCount = Array.isArray(ga.priority_gaps) ? ga.priority_gaps.length : 0;
-    acc[ga.dream_job_id] = criticalCount + priorityCount;
-    return acc;
-  }, {} as Record<string, number>);
+  // Memoized: Create a map of job id to gap count
+  const gapCountsByJobId = useMemo(() => 
+    gapAnalyses.reduce((acc, ga) => {
+      const criticalCount = Array.isArray(ga.critical_gaps) ? ga.critical_gaps.length : 0;
+      const priorityCount = Array.isArray(ga.priority_gaps) ? ga.priority_gaps.length : 0;
+      acc[ga.dream_job_id] = criticalCount + priorityCount;
+      return acc;
+    }, {} as Record<string, number>),
+    [gapAnalyses]
+  );
 
-  // Transform dream jobs for DreamJobCards component
-  const transformedJobs = dreamJobs.map(job => ({
-    id: job.id,
-    title: job.title,
-    company: job.company_type || undefined,
-    location: job.location || undefined,
-    salaryRange: job.salary_range || undefined,
-    matchScore: job.match_score || 0,
-    gapsCount: gapCountsByJobId[job.id] || 0,
-    status: job.is_primary ? 'active' as const : 'active' as const,
-  }));
+  // Memoized: Transform dream jobs for DreamJobCards component
+  const transformedJobs = useMemo(() => 
+    dreamJobs.map(job => ({
+      id: job.id,
+      title: job.title,
+      company: job.company_type || undefined,
+      location: job.location || undefined,
+      salaryRange: job.salary_range || undefined,
+      matchScore: job.match_score || 0,
+      gapsCount: gapCountsByJobId[job.id] || 0,
+      status: job.is_primary ? 'active' as const : 'active' as const,
+    })),
+    [dreamJobs, gapCountsByJobId]
+  );
 
-  // Transform capabilities for CapabilitySnapshot
-  const transformedCapabilities = capabilities.slice(0, 10).map(cap => ({
-    name: cap.name,
-    level: cap.proficiency_level === 'expert' ? 90 :
-           cap.proficiency_level === 'advanced' ? 75 :
-           cap.proficiency_level === 'intermediate' ? 55 : 35,
-    maxLevel: 100,
-    trend: 'stable' as const,
-    category: cap.category || 'Other',
-  }));
+  // Memoized: Transform capabilities for CapabilitySnapshot
+  const transformedCapabilities = useMemo(() => 
+    capabilities.slice(0, 10).map(cap => ({
+      name: cap.name,
+      level: cap.proficiency_level === 'expert' ? 90 :
+             cap.proficiency_level === 'advanced' ? 75 :
+             cap.proficiency_level === 'intermediate' ? 55 : 35,
+      maxLevel: 100,
+      trend: 'stable' as const,
+      category: cap.category || 'Other',
+    })),
+    [capabilities]
+  );
 
-  // Create overview stats from real data
-  const overviewStats = {
+  // Memoized: Create overview stats from real data
+  const overviewStats = useMemo(() => ({
     coursesAnalyzed: overview?.totalCourses || 0,
     dreamJobsTracked: overview?.totalDreamJobs || 0,
     capabilitiesIdentified: overview?.totalCapabilities || 0,
@@ -59,24 +68,24 @@ export default function DashboardPage() {
     recommendationsCompleted: overview?.progressSummary?.completedRecommendations || 0,
     totalRecommendations: overview?.progressSummary?.totalRecommendations || 0,
     overallReadiness: overview?.averageMatchScore || 0,
-  };
+  }), [overview]);
 
-  // Stats for NextActionBanner
-  const nextActionStats = {
+  // Memoized: Stats for NextActionBanner
+  const nextActionStats = useMemo(() => ({
     totalCourses: overview?.totalCourses || 0,
     totalDreamJobs: overview?.totalDreamJobs || 0,
     hasGapAnalysis: overview?.hasGapAnalysis || false,
     pendingRecommendations: overview?.progressSummary?.pendingRecommendations || 0,
     topRecommendation: overview?.topRecommendation,
-  };
+  }), [overview]);
 
-  // Stats for ProgressWidget
-  const progressStats = {
+  // Memoized: Stats for ProgressWidget
+  const progressStats = useMemo(() => ({
     pending: overview?.progressSummary?.pendingRecommendations || 0,
     in_progress: overview?.progressSummary?.inProgressRecommendations || 0,
     completed: overview?.progressSummary?.completedRecommendations || 0,
     skipped: overview?.progressSummary?.skippedRecommendations || 0,
-  };
+  }), [overview]);
 
   return (
     <AppShell>

@@ -81,6 +81,7 @@ async function isAnalysisFresh(dreamJobId: string, userId: string): Promise<bool
 
 // Auto-refresh gap analyses for all dream jobs when courses change
 // Only refreshes if existing analysis is older than 24 hours
+// Now parallelized with Promise.allSettled for better performance
 async function refreshAllGapAnalyses() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return;
@@ -94,24 +95,44 @@ async function refreshAllGapAnalyses() {
 
   console.log('[Workflow] Checking gap analyses freshness for', dreamJobs.length, 'dream jobs');
   
-  // Only refresh stale analyses to save AI costs
-  for (const job of dreamJobs) {
-    try {
-      const isFresh = await isAnalysisFresh(job.id, user.id);
-      if (isFresh) {
-        console.log('[Workflow] Skipping fresh analysis for job:', job.id);
-        continue;
-      }
-      
+  // Check freshness for all jobs in parallel
+  const freshnessChecks = await Promise.all(
+    dreamJobs.map(async job => ({
+      job,
+      isFresh: await isAnalysisFresh(job.id, user.id)
+    }))
+  );
+  
+  // Filter to only stale analyses
+  const staleJobs = freshnessChecks
+    .filter(({ isFresh }) => !isFresh)
+    .map(({ job }) => job);
+  
+  if (staleJobs.length === 0) {
+    console.log('[Workflow] All analyses are fresh, skipping refresh');
+    return;
+  }
+
+  console.log('[Workflow] Refreshing', staleJobs.length, 'stale analyses in parallel');
+  
+  // Process stale analyses in parallel with Promise.allSettled (handles partial failures)
+  const results = await Promise.allSettled(
+    staleJobs.map(async job => {
       console.log('[Workflow] Refreshing stale analysis for job:', job.id);
       const gapResult = await performGapAnalysis(job.id);
       if (gapResult.gaps && gapResult.gaps.length > 0) {
         await generateRecommendations(job.id, gapResult.gaps);
       }
-    } catch (error) {
-      console.error('[Workflow] Failed to refresh analysis for job:', job.id, error);
+      return job.id;
+    })
+  );
+  
+  // Log any failures
+  results.forEach((result, index) => {
+    if (result.status === 'rejected') {
+      console.error('[Workflow] Failed to refresh analysis for job:', staleJobs[index].id, result.reason);
     }
-  }
+  });
 }
 
 // Delete a course and its associated capabilities

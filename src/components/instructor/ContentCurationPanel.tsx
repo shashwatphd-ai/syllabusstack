@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Video, CheckCircle, XCircle, Clock, ExternalLink, Search, Loader2, Play, Sparkles } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -32,8 +32,8 @@ export function ContentCurationPanel({ courseId, learningObjectives, curationMod
   const updateStatus = useUpdateContentMatchStatus();
   const searchContent = useSearchYouTubeContent();
   
-  // Get content status for all LOs
-  const loIds = learningObjectives.map(lo => lo.id);
+  // Memoize loIds to prevent refetch on every render (was creating new array each render)
+  const loIds = useMemo(() => learningObjectives.map(lo => lo.id), [learningObjectives]);
   const { data: loContentStatus } = useLOContentStatus(loIds);
 
   const handleFindContent = (lo: LearningObjective) => {
@@ -109,9 +109,20 @@ export function ContentCurationPanel({ courseId, learningObjectives, curationMod
     return 'text-destructive';
   };
 
-  const pendingMatches = contentMatches?.filter(m => m.status === 'pending') || [];
-  const approvedMatches = contentMatches?.filter(m => m.status === 'approved' || m.status === 'auto_approved') || [];
-  const rejectedMatches = contentMatches?.filter(m => m.status === 'rejected') || [];
+  // Memoize filtered matches - single pass instead of 3 separate filters
+  const { pendingMatches, approvedMatches, rejectedMatches } = useMemo(() => {
+    const pending: ContentMatch[] = [];
+    const approved: ContentMatch[] = [];
+    const rejected: ContentMatch[] = [];
+    
+    for (const m of contentMatches || []) {
+      if (m.status === 'pending') pending.push(m);
+      else if (m.status === 'approved' || m.status === 'auto_approved') approved.push(m);
+      else if (m.status === 'rejected') rejected.push(m);
+    }
+    
+    return { pendingMatches: pending, approvedMatches: approved, rejectedMatches: rejected };
+  }, [contentMatches]);
 
   return (
     <div className="grid gap-6 lg:grid-cols-[280px,1fr]">
