@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+
 import { useInstructorCourse, useModules, useCreateModule, useUpdateInstructorCourse } from '@/hooks/useInstructorCourses';
 import { useLearningObjectives, useSearchYouTubeContent } from '@/hooks/useLearningObjectives';
 import { useContentStats } from '@/hooks/useContentStats';
@@ -258,21 +258,23 @@ export default function InstructorCourseDetailPage() {
             <OnboardingProgress steps={onboardingSteps} />
           )}
 
-          {/* Access Code Banner */}
+          {/* Access Code Banner - Using custom layout instead of Alert for interactive content */}
           {course.is_published && course.access_code && (
-            <Alert className="border-primary/50 bg-primary/5">
-              <Share2 className="h-4 w-4" />
-              <AlertTitle>Course Published!</AlertTitle>
-              <AlertDescription className="flex items-center justify-between">
-                <span>
-                  Share this access code with your students: <strong className="font-mono text-lg">{course.access_code}</strong>
-                </span>
-                <Button variant="outline" size="sm" onClick={copyAccessCode}>
-                  <Copy className="h-4 w-4 mr-2" />
-                  Copy
-                </Button>
-              </AlertDescription>
-            </Alert>
+            <div className="flex items-center justify-between gap-4 p-4 rounded-lg border border-primary/50 bg-primary/5">
+              <div className="flex items-center gap-3">
+                <Share2 className="h-5 w-5 text-primary shrink-0" />
+                <div>
+                  <p className="font-medium text-sm">Course Published!</p>
+                  <p className="text-sm text-muted-foreground">
+                    Share this access code with your students: <strong className="font-mono text-base text-foreground">{course.access_code}</strong>
+                  </p>
+                </div>
+              </div>
+              <Button variant="outline" size="sm" onClick={copyAccessCode} className="shrink-0">
+                <Copy className="h-4 w-4 mr-2" />
+                Copy
+              </Button>
+            </div>
           )}
 
           {/* Stats Cards - FIXED: Content counter now shows actual count */}
@@ -589,13 +591,15 @@ export default function InstructorCourseDetailPage() {
                 </div>
 
                 {!publishValidation.allLOsHaveContent && publishValidation.hasLOs && (
-                  <Alert variant="default" className="border-warning/50 bg-warning/5">
-                    <AlertCircle className="h-4 w-4 text-warning" />
-                    <AlertTitle className="text-warning">Some objectives missing content</AlertTitle>
-                    <AlertDescription>
-                      Not all learning objectives have content matched. Students won't be able to complete objectives without content.
-                    </AlertDescription>
-                  </Alert>
+                  <div className="flex items-start gap-3 p-4 rounded-lg border border-warning/50 bg-warning/5">
+                    <AlertCircle className="h-5 w-5 text-warning shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-medium text-warning text-sm">Some objectives missing content</p>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Not all learning objectives have content matched. Students won't be able to complete objectives without content.
+                      </p>
+                    </div>
+                  </div>
                 )}
               </div>
               <DialogFooter className="flex gap-2">
