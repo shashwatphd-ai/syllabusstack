@@ -25,30 +25,21 @@ export default function AdminDashboard() {
   const { data: stats, isLoading: statsLoading } = useQuery({
     queryKey: ['admin', 'stats'],
     queryFn: async () => {
-      // Get organization stats - this would need an organization_id context
-      const { data: users, error: usersError } = await supabase
-        .from('profiles')
-        .select('id', { count: 'exact' });
-
-      const { data: courses, error: coursesError } = await supabase
-        .from('courses')
-        .select('id', { count: 'exact' });
-
-      const { data: completions } = await supabase
-        .from('recommendations')
-        .select('id', { count: 'exact' })
-        .eq('status', 'completed');
-
-      const { data: activeToday } = await supabase
-        .from('profiles')
-        .select('id', { count: 'exact' })
-        .gte('last_active_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
+      // Get organization stats in parallel (N+1 fix)
+      const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      
+      const [usersResult, coursesResult, completionsResult, activeTodayResult] = await Promise.all([
+        supabase.from('profiles').select('id', { count: 'exact' }),
+        supabase.from('courses').select('id', { count: 'exact' }),
+        supabase.from('recommendations').select('id', { count: 'exact' }).eq('status', 'completed'),
+        supabase.from('profiles').select('id', { count: 'exact' }).gte('last_active_at', dayAgo)
+      ]);
 
       return {
-        totalUsers: users?.length || 0,
-        totalCourses: courses?.length || 0,
-        totalCompletions: completions?.length || 0,
-        activeToday: activeToday?.length || 0,
+        totalUsers: usersResult.data?.length || 0,
+        totalCourses: coursesResult.data?.length || 0,
+        totalCompletions: completionsResult.data?.length || 0,
+        activeToday: activeTodayResult.data?.length || 0,
       };
     },
     enabled: tier === 'university',

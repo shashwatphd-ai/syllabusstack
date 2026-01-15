@@ -36,26 +36,29 @@ async function fetchRecommendations(dreamJobId?: string): Promise<Recommendation
   if (error) throw error;
   if (!recs || recs.length === 0) return [];
 
-  // Then fetch linked courses for these recommendations
+  // Fetch linked courses and enrollments in parallel (N+1 fix)
   const recIds = recs.map(r => r.id);
-  const { data: links } = await supabase
-    .from('recommendation_course_links')
-    .select(`
-      recommendation_id,
-      instructor_course_id,
-      instructor_course:instructor_courses (
-        id,
-        title
-      )
-    `)
-    .in('recommendation_id', recIds)
-    .eq('link_status', 'active');
+  const [linksResult, enrollmentsResult] = await Promise.all([
+    supabase
+      .from('recommendation_course_links')
+      .select(`
+        recommendation_id,
+        instructor_course_id,
+        instructor_course:instructor_courses (
+          id,
+          title
+        )
+      `)
+      .in('recommendation_id', recIds)
+      .eq('link_status', 'active'),
+    supabase
+      .from('course_enrollments')
+      .select('instructor_course_id, overall_progress')
+      .eq('student_id', user.id)
+  ]);
 
-  // Fetch enrollments to get progress
-  const { data: enrollments } = await supabase
-    .from('course_enrollments')
-    .select('instructor_course_id, overall_progress')
-    .eq('student_id', user.id);
+  const links = linksResult.data;
+  const enrollments = enrollmentsResult.data;
 
   // Create lookup maps
   const linkMap = new Map<string, { courseId: string; title: string }>();
