@@ -7,7 +7,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Stripe price IDs for EduThree Pro
+// Stripe price IDs for SyllabusStack Pro
 const STRIPE_PRICES = {
   pro_monthly: "price_1SnXUZRsfnRI3vWDGdLskq3C", // $9.99/month
 };
@@ -99,7 +99,7 @@ serve(async (req) => {
     const origin = req.headers.get("origin") || 
                    req.headers.get("referer")?.replace(/\/[^/]*$/, '') ||
                    Deno.env.get("PUBLIC_APP_URL") ||
-                   "https://eduthree.lovable.app";
+                   "https://syllabusstack.lovable.app";
     
     console.log(`Using origin: ${origin} for checkout redirects`);
 

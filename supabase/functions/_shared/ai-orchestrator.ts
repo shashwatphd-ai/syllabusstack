@@ -1,4 +1,4 @@
-// EduThree AI Orchestrator
+// SyllabusStack AI Orchestrator
 // Centralized AI request handling with model selection, caching, fallback logic, and cost tracking
 // Updated to use Google Cloud API directly for cost savings
 

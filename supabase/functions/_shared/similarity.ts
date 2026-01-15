@@ -1,4 +1,4 @@
-// EduThree Similarity Utilities
+// SyllabusStack Similarity Utilities
 // Keyword-based similarity matching for semantic search
 // Per AI Orchestration Implementation Plan - Phase 3
 

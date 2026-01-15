@@ -1,4 +1,4 @@
-// EduThree Centralized AI Schemas
+// SyllabusStack Centralized AI Schemas
 // All structured output schemas for function calling
 // Per AI Orchestration Implementation Plan - Phase 1
 

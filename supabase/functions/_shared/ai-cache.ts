@@ -1,4 +1,4 @@
-// EduThree AI Cache Utilities
+// SyllabusStack AI Cache Utilities
 // Implements caching strategy from Technical Specification v3.0
 
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";

@@ -1,4 +1,4 @@
-// EduThree Server-Side Rate Limiting
+// SyllabusStack Server-Side Rate Limiting
 // Implements production-grade rate limiting based on ai_usage table
 
 // Using 'any' for SupabaseClient to avoid import issues in Deno edge runtime
