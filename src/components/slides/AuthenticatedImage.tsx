@@ -8,6 +8,7 @@ interface AuthenticatedImageProps {
   className?: string;
   fallbackText?: string;
   bucket?: string;
+  onSignedUrlReady?: (url: string) => void; // Callback to pass signed URL to parent for lightbox
 }
 
 /**
@@ -19,7 +20,8 @@ export function AuthenticatedImage({
   alt, 
   className, 
   fallbackText,
-  bucket = 'lecture-visuals'
+  bucket = 'lecture-visuals',
+  onSignedUrlReady
 }: AuthenticatedImageProps) {
   const [signedUrl, setSignedUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -41,6 +43,7 @@ export function AuthenticatedImage({
     if (!storagePath) {
       // External URL or invalid - try using directly
       setSignedUrl(src);
+      onSignedUrlReady?.(src);
       setIsLoading(false);
       return;
     }
@@ -58,12 +61,15 @@ export function AuthenticatedImage({
           console.error('Failed to create signed URL:', error);
           // Fall back to original URL
           setSignedUrl(src!);
+          onSignedUrlReady?.(src!);
         } else {
           setSignedUrl(data.signedUrl);
+          onSignedUrlReady?.(data.signedUrl);
         }
       } catch (err) {
         console.error('Error creating signed URL:', err);
         setSignedUrl(src!);
+        onSignedUrlReady?.(src!);
       } finally {
         setIsLoading(false);
       }
