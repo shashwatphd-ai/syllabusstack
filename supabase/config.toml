@@ -128,3 +128,9 @@ verify_jwt = true
 
 [functions.complete-skills-assessment]
 verify_jwt = true
+
+[functions.match-careers]
+verify_jwt = true
+
+[functions.get-onet-occupation]
+verify_jwt = false
