@@ -251,10 +251,48 @@ export function SlideRenderer({
         {/* Title */}
         <h2 className={cn(
           'text-xl md:text-2xl font-bold mb-4',
-          slide.type === 'title' && 'text-3xl md:text-4xl text-center my-auto'
+          slide.type === 'title' && 'text-3xl md:text-4xl text-center mt-8'
         )}>
           {slide.title}
         </h2>
+
+        {/* Title slide - show agenda/key points if available for progressive reveal during narration */}
+        {enhanced && slide.type === 'title' && getBullets().length > 0 && (
+          <div className="flex-1 flex flex-col items-center justify-center mt-4">
+            <p className="text-sm text-muted-foreground mb-4">In this lecture:</p>
+            <div className="space-y-3 max-w-2xl">
+              {getBullets().map((item: string | KeyPointWithHint, index: number) => {
+                const normalized = normalizeKeyPoint(item);
+                const blockId = `key_point_${index}`;
+                const isActive = activeBlockId === blockId;
+                
+                return (
+                  <div
+                    key={index}
+                    className={cn(
+                      "flex items-start gap-3 p-3 rounded-lg transition-all duration-500",
+                      isActive && "bg-primary/15 ring-2 ring-primary/40 scale-[1.02]",
+                      !isActive && "bg-muted/30"
+                    )}
+                  >
+                    <span className={cn(
+                      'flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-sm font-semibold',
+                      isActive ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+                    )}>
+                      {index + 1}
+                    </span>
+                    <span className={cn(
+                      "text-base leading-relaxed transition-colors duration-300",
+                      isActive && "text-foreground font-medium"
+                    )}>
+                      {normalized.text}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Content area - side-by-side layout when visual exists */}
         {enhanced && slide.type !== 'title' && (
@@ -361,19 +399,19 @@ export function SlideRenderer({
               )}
             </div>
 
-            {/* Visual - side by side when URL exists */}
+            {/* Visual - side by side when URL exists - LARGER for readability */}
             {hasVisualUrl && (
-              <div className="w-2/5 flex-shrink-0 flex items-center justify-center">
-                <div className="w-full rounded-lg overflow-hidden bg-muted/30">
+              <div className="w-1/2 lg:w-3/5 flex-shrink-0 flex items-start justify-center overflow-y-auto">
+                <div className="w-full rounded-lg overflow-hidden bg-muted/30 shadow-md">
                   <AuthenticatedImage 
                     src={slide.visual!.url} 
                     alt={slide.visual!.alt_text}
-                    className="w-full h-auto max-h-[280px] object-contain"
+                    className="w-full h-auto max-h-[420px] object-contain cursor-zoom-in hover:scale-[1.02] transition-transform"
                     fallbackText={slide.visual!.fallback_description || slide.visual!.alt_text}
                     bucket="lecture-visuals"
                   />
                   {(slide.visual as any).source && (
-                    <p className="text-xs text-muted-foreground text-center py-1">Source: {(slide.visual as any).source}</p>
+                    <p className="text-xs text-muted-foreground text-center py-1.5 bg-muted/50">Source: {(slide.visual as any).source}</p>
                   )}
                 </div>
               </div>
