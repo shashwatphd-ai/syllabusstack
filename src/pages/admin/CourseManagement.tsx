@@ -92,11 +92,8 @@ export default function CourseManagement() {
             <ArrowLeft className="h-5 w-5" />
           </Link>
         </Button>
-        <div className="flex-1">
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <BookOpen className="h-6 w-6" />
-            Course Management
-          </h1>
+        <div className="flex-1 flex items-center gap-2">
+          <BookOpen className="h-6 w-6" />
           <p className="text-muted-foreground">
             View and manage all courses across your organization
           </p>

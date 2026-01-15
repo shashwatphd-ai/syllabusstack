@@ -186,11 +186,8 @@ export default function UserManagement() {
             <ArrowLeft className="h-5 w-5" />
           </Link>
         </Button>
-        <div className="flex-1">
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Users className="h-6 w-6" />
-            User Management
-          </h1>
+        <div className="flex-1 flex items-center gap-2">
+          <Users className="h-6 w-6" />
           <p className="text-muted-foreground">
             Manage student and staff accounts
           </p>

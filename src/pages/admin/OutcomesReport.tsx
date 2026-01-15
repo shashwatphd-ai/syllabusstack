@@ -168,11 +168,8 @@ export default function OutcomesReport() {
             <ArrowLeft className="h-5 w-5" />
           </Link>
         </Button>
-        <div className="flex-1">
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <FileText className="h-6 w-6" />
-            Outcomes Report
-          </h1>
+        <div className="flex-1 flex items-center gap-2">
+          <FileText className="h-6 w-6" />
           <p className="text-muted-foreground">
             Student progress and career readiness analytics
           </p>

@@ -82,7 +82,6 @@ export default function InstructorCoursesPage() {
     return (
       <AppShell>
         <PageContainer>
-          <PageHeader title="Instructor Dashboard" />
           <LoadingState message="Loading your courses..." />
         </PageContainer>
       </AppShell>
@@ -92,10 +91,9 @@ export default function InstructorCoursesPage() {
   return (
     <AppShell>
       <PageContainer>
-        <PageHeader 
-          title="Instructor Dashboard"
-          description="Manage your courses, content, and student progress"
-        />
+        <p className="text-muted-foreground mb-4">
+          Manage your courses, content, and student progress
+        </p>
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-6">
           <h2 className="text-lg sm:text-xl font-semibold text-foreground">Your Courses</h2>
           <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
