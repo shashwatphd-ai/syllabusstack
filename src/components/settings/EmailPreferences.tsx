@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Bell, Mail, TrendingUp, Lightbulb, Trophy, BookOpen, Target, Sparkles } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
@@ -32,13 +32,7 @@ export function EmailPreferences() {
   const [preferences, setPreferences] = useState<EmailPreferencesData>(defaultPreferences);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    if (user) {
-      fetchPreferences();
-    }
-  }, [user]);
-
-  const fetchPreferences = async () => {
+  const fetchPreferences = useCallback(async () => {
     if (!user) return;
     
     try {
@@ -66,7 +60,14 @@ export function EmailPreferences() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [user]);
+
+  useEffect(() => {
+    if (user) {
+      fetchPreferences();
+    }
+  }, [user, fetchPreferences]);
+
 
   const updatePreference = async (key: keyof EmailPreferencesData, value: boolean) => {
     if (!user) return;

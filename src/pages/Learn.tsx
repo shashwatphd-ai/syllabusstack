@@ -218,12 +218,19 @@ export default function LearnPage() {
     }
   });
 
-  // Calculate stats
-  const activeCoursesCount = enrollments.filter((e: any) => !e.completed_at).length;
-  const completedCoursesCount = enrollments.filter((e: any) => e.completed_at).length;
+  // Calculate stats - single pass instead of multiple O(n) filters
+  const { activeCoursesCount, completedCoursesCount, verifiedSkillsCount, totalSkillsCount } = useMemo(() => {
+    let active = 0, completed = 0, verified = 0;
+    enrollments.forEach((e: any) => e.completed_at ? completed++ : active++);
+    skillProfile.forEach(s => { if (s.verified) verified++; });
+    return {
+      activeCoursesCount: active,
+      completedCoursesCount: completed,
+      verifiedSkillsCount: verified,
+      totalSkillsCount: skillProfile.length
+    };
+  }, [enrollments, skillProfile]);
   const transcriptCount = personalCourses.length;
-  const verifiedSkillsCount = skillProfile.filter(s => s.verified).length;
-  const totalSkillsCount = skillProfile.length;
 
   // Pre-compute skill counts ONCE using Map for O(1) lookups instead of O(n) filter per call
   const skillCountMap = useMemo(() => {

@@ -106,12 +106,14 @@ async function fetchCapabilityProfile(): Promise<CapabilityProfile> {
     percentage: caps.length > 0 ? Math.round((count / caps.length) * 100) : 0
   })).sort((a, b) => b.count - a.count);
 
-  // Top skills (by proficiency)
-  const proficiencyOrder = ['expert', 'advanced', 'intermediate', 'beginner'];
+  // Top skills (by proficiency) - O(n log n) using Map for O(1) lookups
+  const proficiencyMap = new Map<string, number>([
+    ['expert', 0], ['advanced', 1], ['intermediate', 2], ['beginner', 3]
+  ]);
   const topSkills = [...caps]
     .sort((a, b) => {
-      const aIdx = proficiencyOrder.indexOf(a.proficiency_level || 'beginner');
-      const bIdx = proficiencyOrder.indexOf(b.proficiency_level || 'beginner');
+      const aIdx = proficiencyMap.get(a.proficiency_level || 'beginner') ?? 3;
+      const bIdx = proficiencyMap.get(b.proficiency_level || 'beginner') ?? 3;
       return aIdx - bIdx;
     })
     .slice(0, 5)

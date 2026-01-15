@@ -93,26 +93,20 @@ export function useCreateInstructorCourse() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      // Generate a unique access code with collision check
-      let accessCode: string;
-      let attempts = 0;
-      const maxAttempts = 10;
+      // Generate batch of candidate access codes and check all at once (N+1 fix)
+      const candidates = Array.from({ length: 10 }, () =>
+        Math.random().toString(36).substring(2, 8).toUpperCase()
+      );
 
-      do {
-        accessCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+      const { data: existing } = await supabase
+        .from('instructor_courses')
+        .select('access_code')
+        .in('access_code', candidates);
 
-        // Check if code already exists
-        const { data: existing } = await supabase
-          .from('instructor_courses')
-          .select('id')
-          .eq('access_code', accessCode)
-          .maybeSingle();
+      const existingCodes = new Set(existing?.map(e => e.access_code) || []);
+      const accessCode = candidates.find(c => !existingCodes.has(c));
 
-        if (!existing) break; // Code is unique
-        attempts++;
-      } while (attempts < maxAttempts);
-
-      if (attempts >= maxAttempts) {
+      if (!accessCode) {
         throw new Error('Failed to generate unique access code. Please try again.');
       }
 
@@ -232,19 +226,22 @@ export function useDuplicateInstructorCourse() {
 
       if (fetchError) throw fetchError;
 
-      // Generate new access code
-      let accessCode: string;
-      let attempts = 0;
-      do {
-        accessCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-        const { data: existing } = await supabase
-          .from('instructor_courses')
-          .select('id')
-          .eq('access_code', accessCode)
-          .maybeSingle();
-        if (!existing) break;
-        attempts++;
-      } while (attempts < 10);
+      // Generate batch of candidate access codes and check all at once (N+1 fix)
+      const candidates = Array.from({ length: 10 }, () =>
+        Math.random().toString(36).substring(2, 8).toUpperCase()
+      );
+
+      const { data: existingCodes } = await supabase
+        .from('instructor_courses')
+        .select('access_code')
+        .in('access_code', candidates);
+
+      const existingSet = new Set(existingCodes?.map(e => e.access_code) || []);
+      const accessCode = candidates.find(c => !existingSet.has(c));
+
+      if (!accessCode) {
+        throw new Error('Failed to generate unique access code. Please try again.');
+      }
 
       // Create duplicate
       const { data: newCourse, error: createError } = await supabase

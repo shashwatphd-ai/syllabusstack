@@ -104,8 +104,9 @@ export function useConsumptionTracking(
   const currentSegmentStartRef = useRef<number | null>(null);
   const lastSyncTimeRef = useRef<number>(0);
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Retry pending syncs when queue changes
+  // Retry pending syncs when queue changes (with proper cleanup)
   useEffect(() => {
     if (pendingSyncsQueue.length > 0 && syncStatus !== 'syncing' && syncStatus !== 'retrying') {
       const oldestPending = pendingSyncsQueue[0];
@@ -113,15 +114,26 @@ export function useConsumptionTracking(
         const delay = RETRY_DELAYS[oldestPending.retries] || 8000;
         setSyncStatus('retrying');
 
-        retryTimeoutRef.current = setTimeout(async () => {
-          await retrySync(oldestPending);
+        // Create new abort controller for this retry cycle
+        abortControllerRef.current = new AbortController();
+        const signal = abortControllerRef.current.signal;
+
+        retryTimeoutRef.current = setTimeout(() => {
+          // Check if aborted before executing async work
+          if (!signal.aborted) {
+            retrySync(oldestPending);
+          }
         }, delay);
       }
     }
 
     return () => {
+      // Cleanup: clear timeout and abort any pending async work
       if (retryTimeoutRef.current) {
         clearTimeout(retryTimeoutRef.current);
+      }
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
       }
     };
   }, [pendingSyncsQueue, syncStatus]);

@@ -2714,6 +2714,10 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      set_primary_dream_job: {
+        Args: { p_job_id: string; p_user_id: string }
+        Returns: Json
+      }
       track_api_usage: {
         Args: { p_api_name: string; p_units?: number }
         Returns: number

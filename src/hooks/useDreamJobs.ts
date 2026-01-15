@@ -236,19 +236,11 @@ export function useSetPrimaryDreamJob() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      // First, set all jobs to not primary
-      await supabase
-        .from('dream_jobs')
-        .update({ is_primary: false })
-        .eq('user_id', user.id);
-
-      // Then set the selected one as primary
-      const { data, error } = await supabase
-        .from('dream_jobs')
-        .update({ is_primary: true })
-        .eq('id', id)
-        .select()
-        .single();
+      // Use atomic RPC function to prevent race conditions
+      const { data, error } = await supabase.rpc('set_primary_dream_job', {
+        p_user_id: user.id,
+        p_job_id: id,
+      });
 
       if (error) throw error;
       return data;
