@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { queryKeys } from '@/lib/query-keys';
 
 export interface InstructorCourse {
   id: string;
@@ -29,7 +30,7 @@ export interface Module {
 // Fetch instructor's courses
 export function useInstructorCourses() {
   return useQuery({
-    queryKey: ['instructor-courses'],
+    queryKey: queryKeys.instructorCourses.list(),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('instructor_courses')
@@ -45,7 +46,7 @@ export function useInstructorCourses() {
 // Fetch a single instructor course with modules
 export function useInstructorCourse(courseId?: string) {
   return useQuery({
-    queryKey: ['instructor-course', courseId],
+    queryKey: queryKeys.instructorCourses.detail(courseId || ''),
     queryFn: async () => {
       if (!courseId) return null;
 
@@ -65,7 +66,7 @@ export function useInstructorCourse(courseId?: string) {
 // Fetch modules for a course
 export function useModules(courseId?: string) {
   return useQuery({
-    queryKey: ['modules', courseId],
+    queryKey: queryKeys.modules.list(courseId || ''),
     queryFn: async () => {
       if (!courseId) return [];
 
@@ -129,7 +130,7 @@ export function useCreateInstructorCourse() {
       return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['instructor-courses'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.instructorCourses.all });
       toast({
         title: 'Course Created',
         description: 'Your new course has been created successfully',
@@ -163,8 +164,8 @@ export function useUpdateInstructorCourse() {
       return data;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['instructor-courses'] });
-      queryClient.invalidateQueries({ queryKey: ['instructor-course', data.id] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.instructorCourses.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.instructorCourses.detail(data.id) });
       toast({
         title: 'Course Updated',
         description: 'Your course has been updated successfully',
@@ -196,7 +197,7 @@ export function useDeleteInstructorCourse() {
       return courseId;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['instructor-courses'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.instructorCourses.all });
       toast({
         title: 'Course Deleted',
         description: 'The course has been permanently deleted',
@@ -271,23 +272,27 @@ export function useDuplicateInstructorCourse() {
         .order('sequence_order');
 
       if (modules && modules.length > 0) {
+        // Batch insert all modules at once instead of sequential loop
+        const { data: newModules } = await supabase
+          .from('modules')
+          .insert(modules.map(mod => ({
+            instructor_course_id: newCourse.id,
+            title: mod.title,
+            description: mod.description,
+            sequence_order: mod.sequence_order,
+          })))
+          .select()
+          .order('sequence_order', { ascending: true });
+
+        // Build module mapping from original order (sequence_order preserved)
         const moduleMapping: Record<string, string> = {};
-        
-        for (const mod of modules) {
-          const { data: newModule } = await supabase
-            .from('modules')
-            .insert({
-              instructor_course_id: newCourse.id,
-              title: mod.title,
-              description: mod.description,
-              sequence_order: mod.sequence_order,
-            })
-            .select()
-            .single();
-          
-          if (newModule) {
-            moduleMapping[mod.id] = newModule.id;
-          }
+        if (newModules) {
+          modules.forEach((oldMod, i) => {
+            const newMod = newModules.find(m => m.sequence_order === oldMod.sequence_order);
+            if (newMod) {
+              moduleMapping[oldMod.id] = newMod.id;
+            }
+          });
         }
 
         // Copy learning objectives
@@ -318,7 +323,7 @@ export function useDuplicateInstructorCourse() {
       return newCourse;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['instructor-courses'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.instructorCourses.all });
       toast({
         title: 'Course Duplicated',
         description: 'A copy of the course has been created',
@@ -351,7 +356,7 @@ export function useCreateModule() {
       return data;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['modules', data.instructor_course_id] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.modules.list(data.instructor_course_id) });
       toast({
         title: 'Module Created',
         description: 'New module has been added to the course',
@@ -383,7 +388,7 @@ export function useDeleteModule() {
       return { moduleId, courseId };
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['modules', data.courseId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.modules.list(data.courseId) });
       toast({
         title: 'Module Deleted',
         description: 'The module has been removed from the course',
@@ -428,7 +433,7 @@ export interface CourseStudentsProgress {
 // Fetch enrolled students and their progress for a course
 export function useCourseStudents(courseId?: string) {
   return useQuery({
-    queryKey: ['course-students', courseId],
+    queryKey: queryKeys.courseStudents(courseId || ''),
     queryFn: async (): Promise<CourseStudentsProgress> => {
       if (!courseId) return { enrollments: [], totalLOs: 0, loProgress: {} };
 
