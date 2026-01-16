@@ -1,14 +1,25 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
+import {
+  validateStartAssessmentRequest,
+  corsPreflightResponse,
+  successResponse,
+  validationErrorResponse,
+  authErrorResponse,
+  internalErrorResponse,
+  generateRequestId,
+  PipelineLogger,
+  authenticateRequest,
+  checkRateLimit,
+  getUserLimits,
+  rateLimitResponse,
+  ErrorCodes,
+} from "../_shared/skills-pipeline/index.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
-
-interface StartAssessmentRequest {
-  session_type: 'standard' | 'quick';
-}
 
 interface AssessmentItem {
   id: string;
@@ -21,54 +32,80 @@ interface AssessmentItem {
 }
 
 serve(async (req) => {
+  const requestId = generateRequestId();
+  const logger = new PipelineLogger('start-skills-assessment', requestId);
+  const startTime = Date.now();
+
+  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return corsPreflightResponse();
   }
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
 
+    // Parse and validate request body
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      body = {};
+    }
+
+    const validation = validateStartAssessmentRequest(body);
+    if (!validation.success) {
+      logger.warn('Validation failed', { errors: validation.errors });
+      return validationErrorResponse(validation.errors!, requestId);
+    }
+
+    const { session_type } = validation.data!;
+    logger.info('Starting assessment', { session_type });
+
     // Authenticate user
     const authHeader = req.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
-      return new Response(JSON.stringify({ error: 'No authorization header' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return authErrorResponse(ErrorCodes.AUTH_MISSING_HEADER, 'Authorization header required', requestId);
     }
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey, {
       global: { headers: { Authorization: authHeader } }
     });
 
-    // Validate token and get user
-    const token = authHeader.replace('Bearer ', '');
-    const { data: authData, error: authError } = await supabase.auth.getUser(token);
+    const authResult = await authenticateRequest(req, supabase, requestId);
+    if (authResult instanceof Response) return authResult;
+    const { userId } = authResult;
 
-    if (authError || !authData?.user) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+    // Check rate limits
+    const limits = await getUserLimits(supabase, userId);
+    const rateLimitResult = await checkRateLimit(supabase, userId, 'start-skills-assessment', limits);
+    
+    if (!rateLimitResult.allowed) {
+      logger.warn('Rate limit exceeded', { remaining: rateLimitResult.remaining });
+      return rateLimitResponse(
+        rateLimitResult.reason || 'Rate limit exceeded',
+        rateLimitResult.retryAfter || 3600,
+        requestId,
+        rateLimitResult.remaining
+      );
     }
 
-    const userId = authData.user.id;
-    const body: StartAssessmentRequest = await req.json();
-    const { session_type = 'standard' } = body;
-
-    console.log(`Starting skills assessment for user: ${userId}, type: ${session_type}`);
+    logger.info('User authenticated', { userId, session_type });
 
     // Check for existing in-progress session
-    const { data: existingSession } = await supabase
+    const { data: existingSession, error: existingError } = await supabase
       .from('skills_assessment_sessions')
       .select('*')
       .eq('user_id', userId)
       .eq('status', 'in_progress')
       .maybeSingle();
 
+    if (existingError) {
+      logger.error('Failed to check existing session', existingError);
+    }
+
     if (existingSession) {
-      console.log(`Resuming existing session: ${existingSession.id}`);
+      logger.info('Resuming existing session', { sessionId: existingSession.id });
       
       // Get answered question IDs
       const { data: responses } = await supabase
@@ -76,7 +113,7 @@ serve(async (req) => {
         .select('question_id')
         .eq('session_id', existingSession.id);
 
-      const answeredIds = new Set(responses?.map(r => r.question_id) || []);
+      const answeredIds = new Set(responses?.map((r: { question_id: string }) => r.question_id) || []);
 
       // Get remaining questions
       const isQuick = existingSession.session_type === 'quick';
@@ -99,17 +136,20 @@ serve(async (req) => {
       const batchSize = 10;
       const firstBatch = remainingQuestions.slice(0, batchSize);
 
-      return new Response(JSON.stringify({
-        success: true,
+      logger.complete('success', { 
+        sessionId: existingSession.id, 
+        resumed: true, 
+        questionsRemaining: remainingQuestions.length 
+      });
+
+      return successResponse({
         session_id: existingSession.id,
         session_type: existingSession.session_type,
         total_questions: (allQuestions || []).length,
         questions_answered: answeredIds.size,
         first_batch: firstBatch,
         is_resumed: true,
-      }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      }, requestId, startTime);
     }
 
     // Fetch questions based on session type
@@ -127,10 +167,14 @@ serve(async (req) => {
     const { data: questions, error: questionsError } = await query;
 
     if (questionsError || !questions || questions.length === 0) {
-      console.error('Error fetching questions:', questionsError);
+      logger.error('Failed to fetch questions', questionsError);
       return new Response(JSON.stringify({
-        error: 'No assessment questions available',
-        details: questionsError?.message,
+        success: false,
+        error: {
+          code: ErrorCodes.RESOURCE_NOT_FOUND,
+          message: 'No assessment questions available',
+        },
+        meta: { request_id: requestId },
       }), {
         status: 404,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -152,34 +196,29 @@ serve(async (req) => {
       .single();
 
     if (sessionError) {
-      console.error('Error creating session:', sessionError);
+      logger.error('Failed to create session', sessionError);
       throw sessionError;
     }
 
-    console.log(`Created session ${session.id} with ${questions.length} questions`);
+    logger.info('Session created', { sessionId: session.id, totalQuestions: questions.length });
 
     // Return first batch
     const batchSize = 10;
     const firstBatch = questions.slice(0, batchSize);
 
-    return new Response(JSON.stringify({
-      success: true,
+    logger.complete('success', { sessionId: session.id, totalQuestions: questions.length });
+
+    return successResponse({
       session_id: session.id,
       session_type,
       total_questions: questions.length,
       questions_answered: 0,
       first_batch: firstBatch,
       is_resumed: false,
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    }, requestId, startTime);
 
-  } catch (error: unknown) {
-    console.error('Error in start-skills-assessment:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Failed to start assessment';
-    return new Response(JSON.stringify({ error: errorMessage }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+  } catch (error) {
+    logger.error('Unhandled error', error);
+    return internalErrorResponse(error, requestId);
   }
 });

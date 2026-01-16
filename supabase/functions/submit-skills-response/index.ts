@@ -1,17 +1,26 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
+import {
+  validateSubmitResponseRequest,
+  corsPreflightResponse,
+  successResponse,
+  validationErrorResponse,
+  authErrorResponse,
+  notFoundResponse,
+  internalErrorResponse,
+  generateRequestId,
+  PipelineLogger,
+  authenticateRequest,
+  checkRateLimit,
+  getUserLimits,
+  rateLimitResponse,
+  ErrorCodes,
+} from "../_shared/skills-pipeline/index.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
-
-interface SubmitResponseRequest {
-  session_id: string;
-  question_id: string;
-  response_value: number;
-  response_time_ms?: number;
-}
 
 interface AssessmentItem {
   id: string;
@@ -24,43 +33,68 @@ interface AssessmentItem {
 }
 
 serve(async (req) => {
+  const requestId = generateRequestId();
+  const logger = new PipelineLogger('submit-skills-response', requestId);
+  const startTime = Date.now();
+
+  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return corsPreflightResponse();
   }
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
 
+    // Parse and validate request body
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return validationErrorResponse([{
+        code: ErrorCodes.VALIDATION_REQUIRED_FIELD,
+        field: 'body',
+        message: 'Request body is required',
+      }], requestId);
+    }
+
+    const validation = validateSubmitResponseRequest(body);
+    if (!validation.success) {
+      logger.warn('Validation failed', { errors: validation.errors });
+      return validationErrorResponse(validation.errors!, requestId);
+    }
+
+    const { session_id, question_id, response_value, response_time_ms } = validation.data!;
+
     // Authenticate user
     const authHeader = req.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
-      return new Response(JSON.stringify({ error: 'No authorization header' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return authErrorResponse(ErrorCodes.AUTH_MISSING_HEADER, 'Authorization header required', requestId);
     }
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey, {
       global: { headers: { Authorization: authHeader } }
     });
 
-    // Validate token and get user
-    const token = authHeader.replace('Bearer ', '');
-    const { data: authData, error: authError } = await supabase.auth.getUser(token);
+    const authResult = await authenticateRequest(req, supabase, requestId);
+    if (authResult instanceof Response) return authResult;
+    const { userId } = authResult;
 
-    if (authError || !authData?.user) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+    // Rate limiting (lighter weight for response submissions)
+    const limits = await getUserLimits(supabase, userId);
+    const rateLimitResult = await checkRateLimit(supabase, userId, 'submit-skills-response', limits);
+    
+    if (!rateLimitResult.allowed) {
+      logger.warn('Rate limit exceeded', { remaining: rateLimitResult.remaining });
+      return rateLimitResponse(
+        rateLimitResult.reason || 'Rate limit exceeded',
+        rateLimitResult.retryAfter || 3600,
+        requestId,
+        rateLimitResult.remaining
+      );
     }
 
-    const userId = authData.user.id;
-    const body: SubmitResponseRequest = await req.json();
-    const { session_id, question_id, response_value, response_time_ms } = body;
-
-    console.log(`Submitting response for session: ${session_id}, question: ${question_id}`);
+    logger.info('Processing response', { session_id, question_id, response_value });
 
     // Validate session belongs to user and is in progress
     const { data: session, error: sessionError } = await supabase
@@ -71,14 +105,20 @@ serve(async (req) => {
       .single();
 
     if (sessionError || !session) {
-      return new Response(JSON.stringify({ error: 'Session not found' }), {
-        status: 404,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      logger.warn('Session not found', { session_id, userId });
+      return notFoundResponse('Assessment session', requestId);
     }
 
     if (session.status !== 'in_progress') {
-      return new Response(JSON.stringify({ error: 'Session is not in progress' }), {
+      logger.warn('Session not in progress', { session_id, status: session.status });
+      return new Response(JSON.stringify({
+        success: false,
+        error: {
+          code: ErrorCodes.SESSION_NOT_IN_PROGRESS,
+          message: 'Assessment session is not in progress',
+        },
+        meta: { request_id: requestId },
+      }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -92,10 +132,8 @@ serve(async (req) => {
       .single();
 
     if (questionError || !question) {
-      return new Response(JSON.stringify({ error: 'Question not found' }), {
-        status: 404,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      logger.warn('Question not found', { question_id });
+      return notFoundResponse('Assessment question', requestId);
     }
 
     // Check if already answered (upsert to handle duplicates)
@@ -108,7 +146,7 @@ serve(async (req) => {
 
     if (existingResponse) {
       // Update existing response
-      await supabase
+      const { error: updateError } = await supabase
         .from('skills_assessment_responses')
         .update({
           response_value,
@@ -116,6 +154,12 @@ serve(async (req) => {
           updated_at: new Date().toISOString(),
         })
         .eq('id', existingResponse.id);
+
+      if (updateError) {
+        logger.error('Failed to update response', updateError);
+        throw updateError;
+      }
+      logger.info('Updated existing response', { responseId: existingResponse.id });
     } else {
       // Insert new response
       const { error: insertError } = await supabase
@@ -128,9 +172,10 @@ serve(async (req) => {
         });
 
       if (insertError) {
-        console.error('Error inserting response:', insertError);
+        logger.error('Failed to insert response', insertError);
         throw insertError;
       }
+      logger.info('Inserted new response');
     }
 
     // Count total responses
@@ -160,7 +205,7 @@ serve(async (req) => {
         .select('question_id')
         .eq('session_id', session_id);
 
-      const answeredIds = new Set(allResponses?.map(r => r.question_id) || []);
+      const answeredIds = new Set(allResponses?.map((r: { question_id: string }) => r.question_id) || []);
 
       // Get remaining questions
       const isQuick = session.session_type === 'quick';
@@ -183,27 +228,22 @@ serve(async (req) => {
       nextBatch = remainingQuestions.slice(0, batchSize);
     }
 
-    console.log(`Progress: ${answeredCount}/${session.total_questions}, complete: ${isComplete}`);
+    const progress = {
+      answered: answeredCount || 0,
+      total: session.total_questions,
+      percentage: Math.round(((answeredCount || 0) / session.total_questions) * 100),
+    };
 
-    return new Response(JSON.stringify({
-      success: true,
-      progress: {
-        answered: answeredCount || 0,
-        total: session.total_questions,
-        percentage: Math.round(((answeredCount || 0) / session.total_questions) * 100),
-      },
+    logger.complete('success', { progress, isComplete });
+
+    return successResponse({
+      progress,
       next_batch: nextBatch,
       is_complete: isComplete,
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    }, requestId, startTime);
 
-  } catch (error: unknown) {
-    console.error('Error in submit-skills-response:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Failed to submit response';
-    return new Response(JSON.stringify({ error: errorMessage }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+  } catch (error) {
+    logger.error('Unhandled error', error);
+    return internalErrorResponse(error, requestId);
   }
 });
