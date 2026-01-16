@@ -350,13 +350,21 @@ export default function InstructorCourseDetailPage() {
                     <Presentation className="h-4 w-4 sm:h-5 sm:w-5 text-purple-500" />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-xl sm:text-2xl font-bold">{slidesStats.published}</p>
+                    <p className="text-xl sm:text-2xl font-bold">{slidesStats.published + slidesStats.ready}</p>
                     <p className="text-xs sm:text-sm text-muted-foreground leading-tight">
-                      Published Slides
-                      {slidesStats.ready > 0 && (
-                        <span className="text-warning ml-1">({slidesStats.ready} ready)</span>
-                      )}
+                      Lecture Slides
                     </p>
+                    {(slidesStats.published > 0 || slidesStats.ready > 0) && (
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {slidesStats.published > 0 && (
+                          <span className="text-green-600">{slidesStats.published} published</span>
+                        )}
+                        {slidesStats.published > 0 && slidesStats.ready > 0 && ' • '}
+                        {slidesStats.ready > 0 && (
+                          <span className="text-amber-600">{slidesStats.ready} ready</span>
+                        )}
+                      </p>
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -475,10 +483,10 @@ export default function InstructorCourseDetailPage() {
                               <span className="hidden sm:inline">Publishing...</span>
                             </>
                           ) : (
-                            <>
+                          <>
                               <Presentation className="h-4 w-4" />
-                              <span className="hidden sm:inline">Publish All Slides ({slidesStats.ready})</span>
-                              <span className="sm:hidden">Publish ({slidesStats.ready})</span>
+                              <span className="hidden sm:inline">Publish {slidesStats.ready} Ready Slides</span>
+                              <span className="sm:hidden">Publish {slidesStats.ready}</span>
                             </>
                           )}
                         </Button>

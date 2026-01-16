@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Menu, X } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
@@ -34,8 +35,7 @@ export function Header() {
           {/* CTA buttons - prevent flickering by checking isLoading */}
           <div className="hidden md:flex items-center gap-3">
             {isLoading ? (
-              // Show placeholder while auth state is loading
-              <div className="w-32 h-9" />
+              <Skeleton className="w-32 h-9 rounded-md bg-primary-foreground/10" />
             ) : user ? (
               <Button asChild variant="hero" size="sm">
                 <Link to="/dashboard">Go to Dashboard</Link>
@@ -76,7 +76,7 @@ export function Header() {
               </a>
               <div className="pt-4 border-t border-primary-foreground/10 flex flex-col gap-3">
                 {isLoading ? (
-                  <div className="w-full h-10" />
+                  <Skeleton className="w-full h-10 rounded-md bg-primary-foreground/10" />
                 ) : user ? (
                   <Button asChild variant="hero" className="w-full">
                     <Link to="/dashboard">Go to Dashboard</Link>
