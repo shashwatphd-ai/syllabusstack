@@ -16,7 +16,7 @@ import { useInstructorCourse, useModules, useCreateModule, useUpdateInstructorCo
 import { useLearningObjectives, useSearchYouTubeContent } from '@/hooks/useLearningObjectives';
 import { useContentStats } from '@/hooks/useContentStats';
 import { useLOContentStatus } from '@/hooks/useContentStats';
-import { useCourseLectureSlides, useBulkPublishSlides } from '@/hooks/useLectureSlides';
+import { useCourseLectureSlides, useBulkPublishSlides, useBulkQueueSlides, useQueueStatus, useCleanupStuckSlides } from '@/hooks/useLectureSlides';
 import { LoadingState } from '@/components/common/LoadingState';
 import { EmptyState } from '@/components/common/EmptyState';
 import { UnifiedModuleCard } from '@/components/instructor/UnifiedModuleCard';
@@ -26,6 +26,7 @@ import { OnboardingProgress } from '@/components/instructor/OnboardingProgress';
 import { StudentProgressDashboard } from '@/components/instructor/StudentProgressDashboard';
 import { toast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
 
 export default function InstructorCourseDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -51,11 +52,17 @@ export default function InstructorCourseDetailPage() {
   // Get lecture slides stats
   const { data: lectureSlides } = useCourseLectureSlides(id);
   const bulkPublishSlides = useBulkPublishSlides();
+  const bulkQueueSlides = useBulkQueueSlides();
+  const { data: queueStatus } = useQueueStatus(id);
+  const cleanupStuck = useCleanupStuckSlides();
   
   const slidesStats = {
     total: lectureSlides?.length || 0,
     ready: lectureSlides?.filter(s => s.status === 'ready').length || 0,
     published: lectureSlides?.filter(s => s.status === 'published').length || 0,
+    pending: lectureSlides?.filter(s => s.status === 'pending').length || 0,
+    generating: lectureSlides?.filter(s => s.status === 'generating').length || 0,
+    failed: lectureSlides?.filter(s => s.status === 'failed').length || 0,
   };
 
   const [isModuleDialogOpen, setIsModuleDialogOpen] = useState(false);
@@ -399,6 +406,53 @@ export default function InstructorCourseDetailPage() {
                         </Button>
                       )}
                       
+                      {/* Generate All Slides - queue-based */}
+                      {courseLOs.length > 0 && (
+                        <Button 
+                          variant="outline" 
+                          className="gap-2 min-h-11 flex-1 sm:flex-none"
+                          onClick={async () => {
+                            if (!id) return;
+                            // Fetch all teaching units for this course
+                            const { data: allUnits } = await supabase
+                              .from('teaching_units')
+                              .select('id, learning_objectives!inner(instructor_course_id)')
+                              .eq('learning_objectives.instructor_course_id', id);
+                            
+                            if (allUnits && allUnits.length > 0) {
+                              bulkQueueSlides.mutate({
+                                instructorCourseId: id,
+                                teachingUnitIds: allUnits.map(u => u.id),
+                              });
+                            }
+                          }}
+                          disabled={bulkQueueSlides.isPending || (queueStatus?.generating || 0) > 0}
+                        >
+                          {bulkQueueSlides.isPending ? (
+                            <>
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              <span className="hidden sm:inline">Queueing...</span>
+                            </>
+                          ) : (queueStatus?.pending || 0) > 0 || (queueStatus?.generating || 0) > 0 ? (
+                            <>
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              <span className="hidden sm:inline">
+                                Generating ({queueStatus?.generating || 0} active, {queueStatus?.pending || 0} queued)
+                              </span>
+                              <span className="sm:hidden">
+                                {queueStatus?.generating || 0}/{queueStatus?.pending || 0}
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <Presentation className="h-4 w-4" />
+                              <span className="hidden sm:inline">Generate All Slides</span>
+                              <span className="sm:hidden">Gen Slides</span>
+                            </>
+                          )}
+                        </Button>
+                      )}
+
                       {/* Bulk Publish Slides */}
                       {slidesStats.ready > 0 && (
                         <Button 

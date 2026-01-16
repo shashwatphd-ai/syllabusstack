@@ -137,3 +137,6 @@ verify_jwt = false
 
 [functions.generate-curriculum]
 verify_jwt = true
+
+[functions.process-lecture-queue]
+verify_jwt = true
