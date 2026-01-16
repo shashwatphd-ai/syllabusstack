@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Plus, FileText, Video, CheckCircle2, Clock, AlertCircle, Settings2, Copy, Share2, Loader2, Sparkles, Users, Presentation } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
@@ -38,10 +38,15 @@ export default function InstructorCourseDetailPage() {
   const updateCourse = useUpdateInstructorCourse();
   const searchContent = useSearchYouTubeContent();
 
-  // Get content stats for visibility fix
-  const loIds = learningObjectives?.map(lo => lo.id) || [];
-  const { data: contentStats } = useContentStats(loIds);
-  const { data: loContentStatus } = useLOContentStatus(loIds);
+  // Memoize loIds to prevent unnecessary re-renders and query re-triggers
+  const loIds = useMemo(
+    () => learningObjectives?.map(lo => lo.id) ?? [],
+    [learningObjectives]
+  );
+  
+  // Get content stats for visibility fix - now with proper loading states
+  const { data: contentStats, isLoading: contentStatsLoading } = useContentStats(loIds);
+  const { data: loContentStatus, isLoading: loStatusLoading } = useLOContentStatus(loIds);
 
   // Get lecture slides stats
   const { data: lectureSlides } = useCourseLectureSlides(id);
