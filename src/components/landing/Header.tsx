@@ -7,7 +7,7 @@ import { Logo } from "@/components/common/Logo";
 
 export function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50">
@@ -31,9 +31,12 @@ export function Header() {
             </a>
           </nav>
 
-          {/* CTA buttons */}
+          {/* CTA buttons - prevent flickering by checking isLoading */}
           <div className="hidden md:flex items-center gap-3">
-            {user ? (
+            {isLoading ? (
+              // Show placeholder while auth state is loading
+              <div className="w-32 h-9" />
+            ) : user ? (
               <Button asChild variant="hero" size="sm">
                 <Link to="/dashboard">Go to Dashboard</Link>
               </Button>
@@ -72,7 +75,9 @@ export function Header() {
                 Pricing
               </a>
               <div className="pt-4 border-t border-primary-foreground/10 flex flex-col gap-3">
-                {user ? (
+                {isLoading ? (
+                  <div className="w-full h-10" />
+                ) : user ? (
                   <Button asChild variant="hero" className="w-full">
                     <Link to="/dashboard">Go to Dashboard</Link>
                   </Button>
