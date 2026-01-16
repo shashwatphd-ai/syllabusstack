@@ -9,6 +9,10 @@ export interface ContentStats {
 }
 
 export function useContentStats(learningObjectiveIds: string[]) {
+  // Stricter validation: ensure all IDs are valid non-empty strings
+  const hasValidIds = learningObjectiveIds.length > 0 && 
+    learningObjectiveIds.every(id => typeof id === 'string' && id.length > 0);
+
   return useQuery({
     queryKey: ['content-stats', learningObjectiveIds],
     queryFn: async (): Promise<ContentStats> => {
@@ -43,7 +47,8 @@ export function useContentStats(learningObjectiveIds: string[]) {
 
       return stats;
     },
-    enabled: learningObjectiveIds.length > 0,
+    enabled: hasValidIds,
+    staleTime: 30000, // Cache for 30 seconds to prevent unnecessary refetches
   });
 }
 
@@ -56,6 +61,10 @@ export interface LOContentStatus {
 }
 
 export function useLOContentStatus(learningObjectiveIds: string[]) {
+  // Stricter validation: ensure all IDs are valid non-empty strings
+  const hasValidIds = learningObjectiveIds.length > 0 && 
+    learningObjectiveIds.every(id => typeof id === 'string' && id.length > 0);
+
   return useQuery({
     queryKey: ['lo-content-status', learningObjectiveIds],
     queryFn: async (): Promise<Record<string, LOContentStatus>> => {
@@ -95,6 +104,7 @@ export function useLOContentStatus(learningObjectiveIds: string[]) {
 
       return statusMap;
     },
-    enabled: learningObjectiveIds.length > 0,
+    enabled: hasValidIds,
+    staleTime: 30000, // Cache for 30 seconds to prevent unnecessary refetches
   });
 }
