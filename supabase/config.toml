@@ -115,7 +115,7 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.generate-lecture-slides-v3]
-verify_jwt = true
+verify_jwt = false
 
 [functions.generate-lecture-audio]
 verify_jwt = true
