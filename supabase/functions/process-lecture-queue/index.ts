@@ -25,13 +25,13 @@ serve(async (req) => {
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, serviceRoleKey);
 
     const body = await req.json().catch(() => ({}));
     const { action, instructor_course_id, teaching_unit_ids } = body;
 
-    // Get auth from request
+    // Get auth from request to identify the user
     const authHeader = req.headers.get('Authorization');
     let userId: string | null = null;
     if (authHeader) {
@@ -123,8 +123,9 @@ serve(async (req) => {
 
       console.log(`[Queue] Queued ${queuedCount}, skipped ${skippedCount}`);
 
-      // Trigger immediate processing (fire and forget)
-      EdgeRuntime.waitUntil(processQueue(supabase, userId));
+      // Trigger immediate processing using service role (fire and forget)
+      // Pass userId for audit trail but use service role for actual processing
+      EdgeRuntime.waitUntil(processQueue(supabase, supabaseUrl, serviceRoleKey, userId));
 
       return new Response(JSON.stringify({
         success: true,
@@ -138,7 +139,7 @@ serve(async (req) => {
 
     // ACTION: process-next - Process pending items from the queue
     if (action === 'process-next') {
-      const result = await processQueue(supabase, userId);
+      const result = await processQueue(supabase, supabaseUrl, serviceRoleKey, userId);
       return new Response(JSON.stringify(result), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -224,12 +225,14 @@ serve(async (req) => {
 });
 
 /**
- * Process pending items from the queue with controlled concurrency
+ * Process pending items from the queue with controlled concurrency.
+ * Uses service role for all operations - no JWT dependency.
  */
-// deno-lint-ignore no-explicit-any
 async function processQueue(
-  supabase: any,
-  userId: string | null
+  supabase: SupabaseClient,
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  initiatingUserId: string | null
 ): Promise<{ processed: number; remaining: number }> {
   // Check how many are currently generating
   const { data: generating } = await supabase
@@ -248,7 +251,7 @@ async function processQueue(
   // Get pending items, ordered by created_at
   const { data: pending } = await supabase
     .from('lecture_slides')
-    .select('id, teaching_unit_id')
+    .select('id, teaching_unit_id, created_by')
     .eq('status', 'pending')
     .order('created_at', { ascending: true })
     .limit(slotsAvailable);
@@ -270,18 +273,25 @@ async function processQueue(
   let processed = 0;
   for (const item of pending) {
     try {
-      // Call the actual generation function
-      const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+      // Use the original creator's user_id for ownership tracking
+      // If not available, use the initiating user or null
+      const ownerUserId = item.created_by || initiatingUserId;
+
+      // Call the generation function with SERVICE ROLE and explicit user_id
+      // This allows background processing without a user JWT
       const response = await fetch(`${supabaseUrl}/functions/v1/generate-lecture-slides-v3`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+          'Authorization': `Bearer ${serviceRoleKey}`,
         },
         body: JSON.stringify({
           teaching_unit_id: item.teaching_unit_id,
           style: 'standard',
           regenerate: false,
+          // CRITICAL: Pass user_id explicitly for service role calls
+          user_id: ownerUserId,
+          _from_queue: true, // Flag to indicate this is a queue call
         }),
       });
 
@@ -289,22 +299,31 @@ async function processQueue(
         const errorText = await response.text();
         console.error(`[Queue] Generation failed for ${item.teaching_unit_id}:`, errorText);
         
-        // Mark as failed if the call itself failed
-        if (response.status === 429) {
-          // Rate limited - put back in queue
-          await supabase
-            .from('lecture_slides')
-            .update({
-              status: 'pending',
-              error_message: 'Rate limited - will retry',
-            })
-            .eq('id', item.id);
-        }
+        // Mark as failed with error details
+        await supabase
+          .from('lecture_slides')
+          .update({
+            status: response.status === 429 ? 'pending' : 'failed',
+            error_message: response.status === 429 
+              ? 'Rate limited - will retry' 
+              : `Generation failed: ${response.status}`,
+          })
+          .eq('id', item.id);
       } else {
         processed++;
+        console.log(`[Queue] Successfully processed ${item.teaching_unit_id}`);
       }
     } catch (err) {
       console.error(`[Queue] Error processing ${item.teaching_unit_id}:`, err);
+      
+      // Mark as failed on exception
+      await supabase
+        .from('lecture_slides')
+        .update({
+          status: 'failed',
+          error_message: err instanceof Error ? err.message : 'Unknown error',
+        })
+        .eq('id', item.id);
     }
   }
 

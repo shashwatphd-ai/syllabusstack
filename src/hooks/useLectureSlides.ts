@@ -243,9 +243,57 @@ export function useLectureSlide(slideId?: string) {
 }
 
 /**
- * Fetch all lecture slides for a course, ordered by teaching unit sequence
+ * Fetch all lecture slides for a course, ordered by teaching unit sequence.
+ * Includes Realtime subscription for auto-updating status changes.
  */
 export function useCourseLectureSlides(instructorCourseId?: string) {
+  const queryClient = useQueryClient();
+  
+  // Set up Realtime subscription for status changes
+  useEffect(() => {
+    if (!instructorCourseId) return;
+    
+    console.log('[Realtime] Setting up lecture_slides subscription for:', instructorCourseId);
+    
+    const channel = supabase
+      .channel(`lecture-slides-${instructorCourseId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'lecture_slides',
+          filter: `instructor_course_id=eq.${instructorCourseId}`,
+        },
+        (payload) => {
+          console.log('[Realtime] Lecture slide change:', payload.eventType, payload.new);
+          
+          // Invalidate queries to refresh the data
+          queryClient.invalidateQueries({ 
+            queryKey: ['course-lecture-slides', instructorCourseId] 
+          });
+          queryClient.invalidateQueries({ 
+            queryKey: ['lecture-queue-status', instructorCourseId] 
+          });
+          
+          // Also invalidate specific teaching unit query if available
+          if (payload.new && typeof payload.new === 'object' && 'teaching_unit_id' in payload.new) {
+            queryClient.invalidateQueries({ 
+              queryKey: ['lecture-slides', (payload.new as any).teaching_unit_id] 
+            });
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('[Realtime] Subscription status:', status);
+      });
+    
+    return () => {
+      console.log('[Realtime] Cleaning up lecture_slides subscription');
+      supabase.removeChannel(channel);
+    };
+  }, [instructorCourseId, queryClient]);
+  
   return useQuery({
     queryKey: ['course-lecture-slides', instructorCourseId],
     queryFn: async () => {
