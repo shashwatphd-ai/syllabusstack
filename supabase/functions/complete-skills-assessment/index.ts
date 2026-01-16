@@ -41,6 +41,33 @@ const WORK_VALUE_CLUSTERS = [
   'achievement', 'independence', 'recognition', 'relationships', 'support', 'working_conditions'
 ];
 
+// Background task to trigger career matching after assessment completion
+async function triggerCareerMatching(supabaseUrl: string, supabaseKey: string, authHeader: string, userId: string) {
+  try {
+    console.log(`[Background] Triggering career matching for user: ${userId}`);
+    
+    const response = await fetch(`${supabaseUrl}/functions/v1/match-careers`, {
+      method: 'POST',
+      headers: {
+        'Authorization': authHeader,
+        'Content-Type': 'application/json',
+        'apikey': supabaseKey,
+      },
+      body: JSON.stringify({ limit: 20 }),
+    });
+    
+    if (!response.ok) {
+      const error = await response.text();
+      console.error(`[Background] Career matching failed:`, error);
+    } else {
+      const result = await response.json();
+      console.log(`[Background] Career matching completed. Found ${result.matches?.length || 0} matches.`);
+    }
+  } catch (error) {
+    console.error('[Background] Error triggering career matching:', error);
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -283,9 +310,23 @@ serve(async (req) => {
 
     console.log(`Completed assessment. Holland code: ${hollandCode}, Profile ID: ${skillProfile.id}`);
 
+    // ASYNC: Trigger career matching in background (per spec section 7.3 step 8)
+    // @ts-ignore - EdgeRuntime is available in Supabase Edge Functions
+    if (typeof EdgeRuntime !== 'undefined' && EdgeRuntime.waitUntil) {
+      // @ts-ignore
+      EdgeRuntime.waitUntil(
+        triggerCareerMatching(supabaseUrl, supabaseAnonKey, authHeader, userId)
+      );
+      console.log(`[Background] Career matching task queued for user: ${userId}`);
+    } else {
+      // Fallback: don't block response, just log
+      console.log(`[Info] EdgeRuntime.waitUntil not available - career matching will be triggered by UI`);
+    }
+
     return new Response(JSON.stringify({
       success: true,
       skill_profile: skillProfile,
+      career_matching_triggered: true,
       summary: {
         holland_code: hollandCode,
         top_interests: topInterests.slice(0, 3),
