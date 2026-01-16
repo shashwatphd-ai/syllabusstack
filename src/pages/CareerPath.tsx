@@ -407,8 +407,8 @@ export default function CareerPathPage() {
                     Take Skills Assessment
                   </Button>
                 )}
-                {/* Show Career Matches if they have a profile */}
-                {skillProfile && (
+                {/* Show Career Matches only if they have a completed profile with holland_code */}
+                {skillProfile && skillProfile.holland_code && (
                   <Button 
                     variant="outline" 
                     onClick={() => {
