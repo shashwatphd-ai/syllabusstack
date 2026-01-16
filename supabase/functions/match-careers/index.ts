@@ -1,22 +1,27 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
+import {
+  validateMatchCareersRequest,
+  corsPreflightResponse,
+  successResponse,
+  validationErrorResponse,
+  authErrorResponse,
+  internalErrorResponse,
+  generateRequestId,
+  PipelineLogger,
+  authenticateRequest,
+  checkRateLimit,
+  getUserLimits,
+  rateLimitResponse,
+  ErrorCodes,
+} from "../_shared/skills-pipeline/index.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-interface MatchCareersRequest {
-  limit?: number;
-  filters?: {
-    min_education_level?: string;
-    min_salary?: number;
-    job_outlook?: string;
-  };
-}
-
 // Holland RIASEC adjacency for Iachan's M Index
-// Adjacent types get partial credit for matching
 const HOLLAND_ADJACENCY: Record<string, string[]> = {
   'R': ['I', 'C'],
   'I': ['R', 'A'],
@@ -138,43 +143,64 @@ function calculateValuesMatch(
 }
 
 serve(async (req) => {
+  const requestId = generateRequestId();
+  const logger = new PipelineLogger('match-careers', requestId);
+  const startTime = Date.now();
+
+  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return corsPreflightResponse();
   }
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
 
+    // Parse and validate request body
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      body = {};
+    }
+
+    const validation = validateMatchCareersRequest(body);
+    if (!validation.success) {
+      logger.warn('Validation failed', { errors: validation.errors });
+      return validationErrorResponse(validation.errors!, requestId);
+    }
+
+    const { limit = 20, filters } = validation.data!;
+
     // Authenticate user
     const authHeader = req.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
-      return new Response(JSON.stringify({ error: 'No authorization header' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return authErrorResponse(ErrorCodes.AUTH_MISSING_HEADER, 'Authorization header required', requestId);
     }
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey, {
       global: { headers: { Authorization: authHeader } }
     });
 
-    // Validate token and get user
-    const token = authHeader.replace('Bearer ', '');
-    const { data: authData, error: authError } = await supabase.auth.getUser(token);
+    const authResult = await authenticateRequest(req, supabase, requestId);
+    if (authResult instanceof Response) return authResult;
+    const { userId } = authResult;
 
-    if (authError || !authData?.user) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+    // Check rate limits
+    const userLimits = await getUserLimits(supabase, userId);
+    const rateLimitResult = await checkRateLimit(supabase, userId, 'match-careers', userLimits);
+    
+    if (!rateLimitResult.allowed) {
+      logger.warn('Rate limit exceeded', { remaining: rateLimitResult.remaining });
+      return rateLimitResponse(
+        rateLimitResult.reason || 'Rate limit exceeded',
+        rateLimitResult.retryAfter || 3600,
+        requestId,
+        rateLimitResult.remaining
+      );
     }
 
-    const userId = authData.user.id;
-    const body: MatchCareersRequest = await req.json();
-    const { limit = 20, filters } = body;
-
-    console.log(`Matching careers for user: ${userId}`);
+    logger.info('Matching careers for user', { userId, limit });
 
     // Fetch user's skill profile
     const { data: skillProfile, error: profileError } = await supabase
@@ -184,12 +210,18 @@ serve(async (req) => {
       .maybeSingle();
 
     if (profileError) {
-      console.error('Error fetching skill profile:', profileError);
+      logger.error('Failed to fetch skill profile', profileError);
     }
 
     if (!skillProfile) {
+      logger.warn('No skill profile found', { userId });
       return new Response(JSON.stringify({
-        error: 'No skill profile found. Please complete the skills assessment first.',
+        success: false,
+        error: {
+          code: ErrorCodes.PROFILE_NOT_FOUND,
+          message: 'No skill profile found. Please complete the skills assessment first.',
+        },
+        meta: { request_id: requestId },
         needs_assessment: true,
       }), {
         status: 400,
@@ -197,7 +229,7 @@ serve(async (req) => {
       });
     }
 
-    console.log(`Found skill profile with Holland code: ${skillProfile.holland_code}`);
+    logger.info('Found skill profile', { hollandCode: skillProfile.holland_code });
 
     // Fetch all occupations
     let query = supabase
@@ -215,16 +247,21 @@ serve(async (req) => {
     const { data: occupations, error: occError } = await query;
 
     if (occError || !occupations || occupations.length === 0) {
+      logger.warn('No occupations found', { error: occError });
       return new Response(JSON.stringify({
-        error: 'No occupations available for matching',
-        details: occError?.message,
+        success: false,
+        error: {
+          code: ErrorCodes.RESOURCE_NOT_FOUND,
+          message: 'No occupations available for matching',
+        },
+        meta: { request_id: requestId },
       }), {
         status: 404,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    console.log(`Matching against ${occupations.length} occupations`);
+    logger.info('Matching against occupations', { count: occupations.length });
 
     // Calculate matches for each occupation
     const matches = occupations.map(occupation => {
@@ -297,12 +334,12 @@ serve(async (req) => {
       updated_at: new Date().toISOString(),
     }));
 
-    // Delete old matches for this user
+    // Delete old matches for this user (unlinked ones only)
     await supabase
       .from('career_matches')
       .delete()
       .eq('user_id', userId)
-      .is('dream_job_id', null); // Only delete unlinked matches
+      .is('dream_job_id', null);
 
     // Insert new matches
     const { error: insertError } = await supabase
@@ -312,14 +349,16 @@ serve(async (req) => {
       });
 
     if (insertError) {
-      console.error('Error saving matches:', insertError);
+      logger.error('Failed to save matches', insertError);
       // Don't fail - still return calculated matches
     }
 
-    console.log(`Returning ${topMatches.length} career matches`);
+    logger.complete('success', { 
+      matchesReturned: topMatches.length, 
+      occupationsAnalyzed: occupations.length 
+    });
 
-    return new Response(JSON.stringify({
-      success: true,
+    return successResponse({
       matches: topMatches,
       total_occupations_analyzed: occupations.length,
       skill_profile_summary: {
@@ -327,16 +366,10 @@ serve(async (req) => {
         strong_skills_count: (skillProfile.strong_skills as unknown[])?.length || 0,
         development_areas_count: (skillProfile.development_areas as unknown[])?.length || 0,
       },
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    }, requestId, startTime);
 
-  } catch (error: unknown) {
-    console.error('Error in match-careers:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Failed to match careers';
-    return new Response(JSON.stringify({ error: errorMessage }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+  } catch (error) {
+    logger.error('Unhandled error', error);
+    return internalErrorResponse(error, requestId);
   }
 });

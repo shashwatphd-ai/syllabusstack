@@ -1,14 +1,26 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
+import {
+  validateCompleteAssessmentRequest,
+  corsPreflightResponse,
+  successResponse,
+  validationErrorResponse,
+  authErrorResponse,
+  notFoundResponse,
+  internalErrorResponse,
+  generateRequestId,
+  PipelineLogger,
+  authenticateRequest,
+  checkRateLimit,
+  getUserLimits,
+  rateLimitResponse,
+  ErrorCodes,
+} from "../_shared/skills-pipeline/index.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
-
-interface CompleteAssessmentRequest {
-  session_id: string;
-}
 
 interface AssessmentItemInfo {
   framework: string;
@@ -42,9 +54,15 @@ const WORK_VALUE_CLUSTERS = [
 ];
 
 // Background task to trigger career matching after assessment completion
-async function triggerCareerMatching(supabaseUrl: string, supabaseKey: string, authHeader: string, userId: string) {
+async function triggerCareerMatching(
+  supabaseUrl: string, 
+  supabaseKey: string, 
+  authHeader: string, 
+  userId: string,
+  logger: PipelineLogger
+): Promise<void> {
   try {
-    console.log(`[Background] Triggering career matching for user: ${userId}`);
+    logger.info('Triggering career matching in background', { userId });
     
     const response = await fetch(`${supabaseUrl}/functions/v1/match-careers`, {
       method: 'POST',
@@ -58,54 +76,79 @@ async function triggerCareerMatching(supabaseUrl: string, supabaseKey: string, a
     
     if (!response.ok) {
       const error = await response.text();
-      console.error(`[Background] Career matching failed:`, error);
+      logger.error('Career matching failed in background', { status: response.status, error });
     } else {
       const result = await response.json();
-      console.log(`[Background] Career matching completed. Found ${result.matches?.length || 0} matches.`);
+      logger.info('Career matching completed in background', { matchesFound: result.matches?.length || 0 });
     }
   } catch (error) {
-    console.error('[Background] Error triggering career matching:', error);
+    logger.error('Error triggering career matching', error);
   }
 }
 
 serve(async (req) => {
+  const requestId = generateRequestId();
+  const logger = new PipelineLogger('complete-skills-assessment', requestId);
+  const startTime = Date.now();
+
+  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return corsPreflightResponse();
   }
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
 
+    // Parse and validate request body
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return validationErrorResponse([{
+        code: ErrorCodes.VALIDATION_REQUIRED_FIELD,
+        field: 'body',
+        message: 'Request body is required',
+      }], requestId);
+    }
+
+    const validation = validateCompleteAssessmentRequest(body);
+    if (!validation.success) {
+      logger.warn('Validation failed', { errors: validation.errors });
+      return validationErrorResponse(validation.errors!, requestId);
+    }
+
+    const { session_id } = validation.data!;
+
     // Authenticate user
     const authHeader = req.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
-      return new Response(JSON.stringify({ error: 'No authorization header' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return authErrorResponse(ErrorCodes.AUTH_MISSING_HEADER, 'Authorization header required', requestId);
     }
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey, {
       global: { headers: { Authorization: authHeader } }
     });
 
-    // Validate token and get user
-    const token = authHeader.replace('Bearer ', '');
-    const { data: authData, error: authError } = await supabase.auth.getUser(token);
+    const authResult = await authenticateRequest(req, supabase, requestId);
+    if (authResult instanceof Response) return authResult;
+    const { userId } = authResult;
 
-    if (authError || !authData?.user) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+    // Check rate limits
+    const limits = await getUserLimits(supabase, userId);
+    const rateLimitResult = await checkRateLimit(supabase, userId, 'complete-skills-assessment', limits);
+    
+    if (!rateLimitResult.allowed) {
+      logger.warn('Rate limit exceeded', { remaining: rateLimitResult.remaining });
+      return rateLimitResponse(
+        rateLimitResult.reason || 'Rate limit exceeded',
+        rateLimitResult.retryAfter || 3600,
+        requestId,
+        rateLimitResult.remaining
+      );
     }
 
-    const userId = authData.user.id;
-    const body: CompleteAssessmentRequest = await req.json();
-    const { session_id } = body;
-
-    console.log(`Completing skills assessment for session: ${session_id}`);
+    logger.info('Completing assessment', { session_id, userId });
 
     // Validate session belongs to user
     const { data: session, error: sessionError } = await supabase
@@ -116,13 +159,13 @@ serve(async (req) => {
       .single();
 
     if (sessionError || !session) {
-      return new Response(JSON.stringify({ error: 'Session not found' }), {
-        status: 404,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      logger.warn('Session not found', { session_id });
+      return notFoundResponse('Assessment session', requestId);
     }
 
     if (session.status === 'completed') {
+      logger.info('Session already completed, returning existing profile');
+      
       // Return existing skill profile
       const { data: existingProfile } = await supabase
         .from('skill_profiles')
@@ -130,13 +173,11 @@ serve(async (req) => {
         .eq('user_id', userId)
         .maybeSingle();
 
-      return new Response(JSON.stringify({
-        success: true,
+      return successResponse({
         already_completed: true,
         skill_profile: existingProfile,
-      }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+        career_matching_triggered: false,
+      }, requestId, startTime);
     }
 
     // Fetch all responses with question metadata
@@ -153,13 +194,21 @@ serve(async (req) => {
       .eq('session_id', session_id);
 
     if (responsesError || !responses || responses.length === 0) {
-      return new Response(JSON.stringify({ error: 'No responses found for session' }), {
+      logger.warn('No responses found', { session_id, error: responsesError });
+      return new Response(JSON.stringify({
+        success: false,
+        error: {
+          code: ErrorCodes.ASSESSMENT_INCOMPLETE,
+          message: 'No responses found for this session. Please complete the assessment first.',
+        },
+        meta: { request_id: requestId },
+      }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    console.log(`Processing ${responses.length} responses`);
+    logger.info('Processing responses', { count: responses.length });
 
     // Calculate scores by framework
     const hollandScores: Record<string, number[]> = {};
@@ -272,6 +321,12 @@ serve(async (req) => {
     // Calculate overall confidence based on response patterns
     const responseTimeStats = responses.length > 10 ? 'sufficient_data' : 'limited_data';
 
+    logger.info('Computed profile', { 
+      hollandCode, 
+      strongSkillsCount: strongSkills.length, 
+      developmentAreasCount: developmentAreas.length 
+    });
+
     // Upsert skill profile
     const { data: skillProfile, error: profileError } = await supabase
       .from('skill_profiles')
@@ -294,7 +349,7 @@ serve(async (req) => {
       .single();
 
     if (profileError) {
-      console.error('Error upserting skill profile:', profileError);
+      logger.error('Failed to upsert skill profile', profileError);
       throw profileError;
     }
 
@@ -308,23 +363,27 @@ serve(async (req) => {
       })
       .eq('id', session_id);
 
-    console.log(`Completed assessment. Holland code: ${hollandCode}, Profile ID: ${skillProfile.id}`);
+    logger.info('Profile saved', { profileId: skillProfile.id, hollandCode });
 
     // ASYNC: Trigger career matching in background (per spec section 7.3 step 8)
     // @ts-ignore - EdgeRuntime is available in Supabase Edge Functions
     if (typeof EdgeRuntime !== 'undefined' && EdgeRuntime.waitUntil) {
       // @ts-ignore
       EdgeRuntime.waitUntil(
-        triggerCareerMatching(supabaseUrl, supabaseAnonKey, authHeader, userId)
+        triggerCareerMatching(supabaseUrl, supabaseAnonKey, authHeader, userId, logger)
       );
-      console.log(`[Background] Career matching task queued for user: ${userId}`);
+      logger.info('Career matching task queued');
     } else {
-      // Fallback: don't block response, just log
-      console.log(`[Info] EdgeRuntime.waitUntil not available - career matching will be triggered by UI`);
+      logger.info('EdgeRuntime.waitUntil not available - career matching will be triggered by UI');
     }
 
-    return new Response(JSON.stringify({
-      success: true,
+    logger.complete('success', { 
+      profileId: skillProfile.id, 
+      hollandCode,
+      responsesProcessed: responses.length,
+    });
+
+    return successResponse({
       skill_profile: skillProfile,
       career_matching_triggered: true,
       summary: {
@@ -334,16 +393,10 @@ serve(async (req) => {
         development_areas_count: developmentAreas.length,
         total_questions_answered: responses.length,
       },
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    }, requestId, startTime);
 
-  } catch (error: unknown) {
-    console.error('Error in complete-skills-assessment:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Failed to complete assessment';
-    return new Response(JSON.stringify({ error: errorMessage }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+  } catch (error) {
+    logger.error('Unhandled error', error);
+    return internalErrorResponse(error, requestId);
   }
 });
