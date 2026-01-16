@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   GraduationCap,
@@ -34,15 +33,15 @@ export function Sidebar({ collapsed = false, onCollapse }: SidebarProps) {
   const navigate = useNavigate();
   const { user, profile, signOut } = useAuth();
   const { data: roles } = useUserRoles();
-  const [isCollapsed, setIsCollapsed] = useState(collapsed);
+  
+  // Use the controlled collapsed prop directly - no internal state needed
+  const isCollapsed = collapsed;
   
   const isInstructor = roles?.some(r => r.role === 'instructor' || r.role === 'admin');
   const isAdmin = roles?.some(r => r.role === 'admin');
 
   const handleCollapse = () => {
-    const newState = !isCollapsed;
-    setIsCollapsed(newState);
-    onCollapse?.(newState);
+    onCollapse?.(!collapsed);
   };
 
   const handleLogout = async () => {
