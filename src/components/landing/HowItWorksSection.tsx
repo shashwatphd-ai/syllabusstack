@@ -1,5 +1,5 @@
+import { forwardRef, useState } from "react";
 import { Upload, Search, CheckCircle, Rocket, FileText, Video, Users, BarChart3, GraduationCap, BookOpen } from "lucide-react";
-import { useState } from "react";
 import { cn } from "@/lib/utils";
 
 type Audience = "students" | "instructors";
@@ -231,12 +231,12 @@ const instructorSteps = [
   },
 ];
 
-export function HowItWorksSection() {
+export const HowItWorksSection = forwardRef<HTMLElement>(function HowItWorksSection(_props, ref) {
   const [audience, setAudience] = useState<Audience>("students");
   const steps = audience === "students" ? studentSteps : instructorSteps;
 
   return (
-    <section id="how-it-works" className="py-24 bg-muted/30 relative overflow-hidden">
+    <section ref={ref} id="how-it-works" className="py-24 bg-muted/30 relative overflow-hidden">
       <div className="container mx-auto px-6">
         {/* Section header */}
         <div className="text-center max-w-2xl mx-auto mb-12">
@@ -319,4 +319,6 @@ export function HowItWorksSection() {
       </div>
     </section>
   );
-}
+});
+
+HowItWorksSection.displayName = "HowItWorksSection";

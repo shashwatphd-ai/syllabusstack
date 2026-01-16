@@ -1,9 +1,10 @@
+import { forwardRef } from "react";
 import { Link } from "react-router-dom";
 import { GraduationCap, Twitter, Linkedin, Mail } from "lucide-react";
 
-export function Footer() {
+export const Footer = forwardRef<HTMLElement>(function Footer(_props, ref) {
   return (
-    <footer className="bg-indigo-900 border-t border-primary-foreground/10">
+    <footer ref={ref} className="bg-indigo-900 border-t border-primary-foreground/10">
       <div className="container mx-auto px-6 py-16">
         <div className="grid md:grid-cols-4 gap-12">
           {/* Brand */}
@@ -93,4 +94,6 @@ export function Footer() {
       </div>
     </footer>
   );
-}
+});
+
+Footer.displayName = "Footer";

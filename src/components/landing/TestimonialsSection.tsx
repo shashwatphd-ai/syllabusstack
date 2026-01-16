@@ -1,3 +1,4 @@
+import { forwardRef } from "react";
 import { Star, Quote } from "lucide-react";
 
 const testimonials = [
@@ -24,9 +25,9 @@ const testimonials = [
   },
 ];
 
-export function TestimonialsSection() {
+export const TestimonialsSection = forwardRef<HTMLElement>(function TestimonialsSection(_props, ref) {
   return (
-    <section className="py-24 bg-background relative overflow-hidden">
+    <section ref={ref} className="py-24 bg-background relative overflow-hidden">
       <div className="container mx-auto px-6">
         {/* Section header */}
         <div className="text-center max-w-2xl mx-auto mb-16">
@@ -44,7 +45,7 @@ export function TestimonialsSection() {
 
         {/* Testimonials grid */}
         <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
-          {testimonials.map((testimonial, index) => (
+          {testimonials.map((testimonial) => (
             <div
               key={testimonial.name}
               className="bg-card rounded-2xl border border-border p-6 hover:shadow-lg transition-all duration-300 relative"
@@ -93,4 +94,6 @@ export function TestimonialsSection() {
       </div>
     </section>
   );
-}
+});
+
+TestimonialsSection.displayName = "TestimonialsSection";

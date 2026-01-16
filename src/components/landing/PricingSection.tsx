@@ -1,3 +1,4 @@
+import { forwardRef } from "react";
 import { Link } from "react-router-dom";
 import { Check, Sparkles, GraduationCap, BookOpen, Building2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -51,9 +52,9 @@ const plans = [
   },
 ] as const;
 
-export function PricingSection() {
+export const PricingSection = forwardRef<HTMLElement>(function PricingSection(_props, ref) {
   return (
-    <section id="pricing" className="py-24 bg-background">
+    <section ref={ref} id="pricing" className="py-24 bg-background">
       <div className="container mx-auto px-6">
         <div className="text-center max-w-2xl mx-auto mb-12">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-coral-500/10 text-coral-500 text-sm font-medium mb-4">
@@ -117,4 +118,6 @@ export function PricingSection() {
       </div>
     </section>
   );
-}
+});
+
+PricingSection.displayName = "PricingSection";
