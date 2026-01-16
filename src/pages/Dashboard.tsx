@@ -111,7 +111,7 @@ export default function DashboardPage() {
         />
 
         {/* Main Content - Balanced 3 column layout */}
-        <div className="grid gap-6 lg:grid-cols-12">
+        <div className="grid gap-4 sm:gap-6 grid-cols-1 lg:grid-cols-12">
           {/* Dream Jobs - Takes more space when needed */}
           <div className="lg:col-span-5">
             <DreamJobCards 

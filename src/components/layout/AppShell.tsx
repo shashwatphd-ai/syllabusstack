@@ -39,7 +39,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(
             showSearch={showSearch}
             sidebarCollapsed={sidebarCollapsed}
           />
-          <main className="flex-1 p-6">
+          <main className="flex-1 p-4 sm:p-6">
             {children}
           </main>
         </div>
