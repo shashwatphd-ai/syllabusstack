@@ -6,18 +6,11 @@ import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import { Filter, X, Search } from 'lucide-react';
+import { Filter, X, Search, ArrowLeft } from 'lucide-react';
 import { CareerMatchCard } from './CareerMatchCard';
 import { 
   useCareerMatches, 
@@ -25,6 +18,8 @@ import {
   useAddMatchToDreamJobs,
   type CareerMatch,
 } from '@/hooks/useCareerMatches';
+import { useGeneratedCurriculumById } from '@/hooks/useGeneratedCurriculum';
+import { CurriculumGeneratorWizard, GeneratedCurriculumView } from '@/components/curriculum-generation';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 
@@ -37,6 +32,8 @@ export function CareerMatchesGrid({ onViewDetails, className }: CareerMatchesGri
   const [searchQuery, setSearchQuery] = useState('');
   const [minScore, setMinScore] = useState(0);
   const [showDismissed, setShowDismissed] = useState(false);
+  const [selectedMatchForCurriculum, setSelectedMatchForCurriculum] = useState<CareerMatch | null>(null);
+  const [generatedCurriculumId, setGeneratedCurriculumId] = useState<string | null>(null);
 
   const { data: matches = [], isLoading } = useCareerMatches({
     minMatchScore: minScore,
@@ -45,8 +42,8 @@ export function CareerMatchesGrid({ onViewDetails, className }: CareerMatchesGri
   
   const updateMatch = useUpdateCareerMatch();
   const addToDreamJobs = useAddMatchToDreamJobs();
+  const { data: generatedCurriculum } = useGeneratedCurriculumById(generatedCurriculumId || undefined);
 
-  // Filter matches by search
   const filteredMatches = matches.filter(match =>
     match.occupation_title.toLowerCase().includes(searchQuery.toLowerCase()) ||
     match.onet_soc_code.toLowerCase().includes(searchQuery.toLowerCase())
@@ -63,6 +60,44 @@ export function CareerMatchesGrid({ onViewDetails, className }: CareerMatchesGri
   const handleAddToDreamJobs = (match: CareerMatch) => {
     addToDreamJobs.mutate({ match });
   };
+
+  const handleGenerateCurriculum = (match: CareerMatch) => {
+    setSelectedMatchForCurriculum(match);
+  };
+
+  const handleCurriculumComplete = (curriculumId: string) => {
+    setSelectedMatchForCurriculum(null);
+    setGeneratedCurriculumId(curriculumId);
+  };
+
+  if (generatedCurriculumId && generatedCurriculum) {
+    return (
+      <div className={cn('space-y-4', className)}>
+        <GeneratedCurriculumView 
+          curriculum={generatedCurriculum} 
+          onBack={() => setGeneratedCurriculumId(null)} 
+        />
+      </div>
+    );
+  }
+
+  if (selectedMatchForCurriculum) {
+    return (
+      <div className={cn('space-y-4', className)}>
+        <Button variant="ghost" size="sm" onClick={() => setSelectedMatchForCurriculum(null)} className="mb-4">
+          <ArrowLeft className="h-4 w-4 mr-1" />
+          Back to matches
+        </Button>
+        <CurriculumGeneratorWizard
+          careerMatch={selectedMatchForCurriculum}
+          occupationTitle={selectedMatchForCurriculum.occupation_title}
+          skillGaps={selectedMatchForCurriculum.skill_gaps || []}
+          onComplete={handleCurriculumComplete}
+          onCancel={() => setSelectedMatchForCurriculum(null)}
+        />
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (
@@ -82,7 +117,6 @@ export function CareerMatchesGrid({ onViewDetails, className }: CareerMatchesGri
 
   return (
     <div className={cn('space-y-4', className)}>
-      {/* Search and Filters */}
       <div className="flex gap-4 flex-wrap">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -117,25 +151,11 @@ export function CareerMatchesGrid({ onViewDetails, className }: CareerMatchesGri
                 step={5}
               />
             </div>
-
             <div className="flex items-center justify-between">
               <Label htmlFor="show-dismissed">Show dismissed</Label>
-              <Switch
-                id="show-dismissed"
-                checked={showDismissed}
-                onCheckedChange={setShowDismissed}
-              />
+              <Switch id="show-dismissed" checked={showDismissed} onCheckedChange={setShowDismissed} />
             </div>
-
-            <Button
-              variant="ghost"
-              size="sm"
-              className="w-full"
-              onClick={() => {
-                setMinScore(0);
-                setShowDismissed(false);
-              }}
-            >
+            <Button variant="ghost" size="sm" className="w-full" onClick={() => { setMinScore(0); setShowDismissed(false); }}>
               <X className="h-4 w-4 mr-2" />
               Clear Filters
             </Button>
@@ -143,13 +163,11 @@ export function CareerMatchesGrid({ onViewDetails, className }: CareerMatchesGri
         </Popover>
       </div>
 
-      {/* Results count */}
       <div className="text-sm text-muted-foreground">
         Showing {filteredMatches.length} career matches
         {searchQuery && ` for "${searchQuery}"`}
       </div>
 
-      {/* Grid */}
       {filteredMatches.length > 0 ? (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {filteredMatches.map((match) => (
@@ -159,6 +177,7 @@ export function CareerMatchesGrid({ onViewDetails, className }: CareerMatchesGri
               onSave={() => handleSave(match.id)}
               onDismiss={() => handleDismiss(match.id)}
               onAddToDreamJobs={() => handleAddToDreamJobs(match)}
+              onGenerateCurriculum={() => handleGenerateCurriculum(match)}
               onViewDetails={() => onViewDetails?.(match)}
               isLoading={updateMatch.isPending || addToDreamJobs.isPending}
             />

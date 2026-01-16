@@ -13,6 +13,7 @@ import {
   XCircle,
   Leaf,
   Sparkles,
+  BookOpen,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { CareerMatch } from '@/hooks/useCareerMatches';
@@ -23,6 +24,7 @@ interface CareerMatchCardProps {
   onDismiss?: () => void;
   onAddToDreamJobs?: () => void;
   onViewDetails?: () => void;
+  onGenerateCurriculum?: () => void;
   isLoading?: boolean;
 }
 
@@ -32,6 +34,7 @@ export function CareerMatchCard({
   onDismiss,
   onAddToDreamJobs,
   onViewDetails,
+  onGenerateCurriculum,
   isLoading,
 }: CareerMatchCardProps) {
   const getMatchColor = (score: number): string => {
@@ -123,7 +126,7 @@ export function CareerMatchCard({
         )}
 
         {/* Actions */}
-        <div className="flex gap-2 pt-2">
+        <div className="flex flex-wrap gap-2 pt-2">
           {!match.dream_job_id && onAddToDreamJobs && (
             <Button
               size="sm"
@@ -134,6 +137,19 @@ export function CareerMatchCard({
             >
               <Plus className="h-4 w-4 mr-1" />
               Add to Dream Jobs
+            </Button>
+          )}
+
+          {onGenerateCurriculum && (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={onGenerateCurriculum}
+              disabled={isLoading}
+              className="flex-1"
+            >
+              <BookOpen className="h-4 w-4 mr-1" />
+              Generate Curriculum
             </Button>
           )}
           

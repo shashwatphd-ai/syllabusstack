@@ -134,3 +134,6 @@ verify_jwt = true
 
 [functions.get-onet-occupation]
 verify_jwt = false
+
+[functions.generate-curriculum]
+verify_jwt = true
