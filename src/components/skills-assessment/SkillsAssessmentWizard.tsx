@@ -223,7 +223,7 @@ export function SkillsAssessmentWizard({ onComplete, onCancel }: SkillsAssessmen
   if (step === 'results' && skillProfile) {
     return (
       <div className="space-y-6">
-        <SkillsResultsSummary profile={skillProfile} />
+        <SkillsResultsSummary profile={skillProfile} assessmentType={sessionType} />
 
         <Card className="border-primary/20 bg-primary/5">
           <CardContent className="py-4">

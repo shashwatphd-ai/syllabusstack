@@ -3,15 +3,10 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { 
-  Briefcase, 
-  TrendingUp, 
-  DollarSign, 
-  GraduationCap, 
   Bookmark, 
   BookmarkCheck,
   Plus,
   XCircle,
-  Leaf,
   Sparkles,
   BookOpen,
 } from 'lucide-react';

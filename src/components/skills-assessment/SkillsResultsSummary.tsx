@@ -13,6 +13,7 @@ interface SkillProfile {
 
 interface SkillsResultsSummaryProps {
   profile: SkillProfile;
+  assessmentType?: 'standard' | 'quick';
   className?: string;
 }
 
@@ -25,7 +26,8 @@ const WORK_VALUE_LABELS: Record<string, string> = {
   working_conditions: 'Working Conditions',
 };
 
-export function SkillsResultsSummary({ profile, className }: SkillsResultsSummaryProps) {
+export function SkillsResultsSummary({ profile, assessmentType = 'standard', className }: SkillsResultsSummaryProps) {
+  const questionCount = assessmentType === 'quick' ? 54 : 103;
   // Sort skills by score
   const topSkills = Object.entries(profile.technical_skills)
     .sort((a, b) => b[1] - a[1])
@@ -63,7 +65,7 @@ export function SkillsResultsSummary({ profile, className }: SkillsResultsSummar
               Assessment Complete
             </CardTitle>
             <CardDescription>
-              Your personalized profile based on 103 validated questions
+              Your personalized profile based on {questionCount} validated questions
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
