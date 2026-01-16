@@ -3,6 +3,9 @@
 // import { Tables } from '@/integrations/supabase/types'
 // This file is kept for documentation purposes.
 
+// Re-export skills assessment types for convenient access
+export * from './skills-assessment';
+
 export type StudentLevel = 'freshman' | 'sophomore' | 'junior' | 'senior' | 'graduate';
 export type RecommendationType = 'project' | 'course' | 'certification' | 'action' | 'reading';
 export type RecommendationStatus = 'not_started' | 'in_progress' | 'completed' | 'skipped';
