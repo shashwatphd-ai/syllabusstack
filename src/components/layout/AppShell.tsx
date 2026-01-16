@@ -16,7 +16,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(
     return (
       <div ref={ref} className="min-h-screen bg-background">
         {/* Desktop Sidebar */}
-        <div className="hidden lg:fixed lg:inset-y-0 lg:z-50 lg:flex">
+        <div className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:top-0 lg:z-50 lg:flex">
           <Sidebar 
             collapsed={sidebarCollapsed} 
             onCollapse={setSidebarCollapsed} 
