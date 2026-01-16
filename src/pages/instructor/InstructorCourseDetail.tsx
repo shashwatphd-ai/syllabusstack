@@ -7,7 +7,15 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import {
+  ResponsiveDialog,
+  ResponsiveDialogContent,
+  ResponsiveDialogDescription,
+  ResponsiveDialogFooter,
+  ResponsiveDialogHeader,
+  ResponsiveDialogTitle,
+  ResponsiveDialogTrigger,
+} from '@/components/common/ResponsiveDialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -476,20 +484,20 @@ export default function InstructorCourseDetailPage() {
                         </Button>
                       )}
                       
-                      <Dialog open={isModuleDialogOpen} onOpenChange={setIsModuleDialogOpen}>
-                        <DialogTrigger asChild>
+                      <ResponsiveDialog open={isModuleDialogOpen} onOpenChange={setIsModuleDialogOpen}>
+                        <ResponsiveDialogTrigger asChild>
                           <Button className="gap-2 min-h-11">
                             <Plus className="h-4 w-4" />
                             <span className="sr-only sm:not-sr-only">Add Module</span>
                           </Button>
-                        </DialogTrigger>
-                        <DialogContent>
-                          <DialogHeader>
-                            <DialogTitle>Create New Module</DialogTitle>
-                            <DialogDescription>
+                        </ResponsiveDialogTrigger>
+                        <ResponsiveDialogContent>
+                          <ResponsiveDialogHeader>
+                            <ResponsiveDialogTitle>Create New Module</ResponsiveDialogTitle>
+                            <ResponsiveDialogDescription>
                               Add a module to organize learning objectives.
-                            </DialogDescription>
-                          </DialogHeader>
+                            </ResponsiveDialogDescription>
+                          </ResponsiveDialogHeader>
                           <div className="space-y-4 py-4">
                             <div className="space-y-2">
                               <Label htmlFor="module-title">Module Title</Label>
@@ -510,16 +518,16 @@ export default function InstructorCourseDetailPage() {
                               />
                             </div>
                           </div>
-                          <DialogFooter>
+                          <ResponsiveDialogFooter>
                             <Button variant="outline" onClick={() => setIsModuleDialogOpen(false)}>
                               Cancel
                             </Button>
                             <Button onClick={handleCreateModule} disabled={createModule.isPending}>
                               {createModule.isPending ? 'Creating...' : 'Create Module'}
                             </Button>
-                          </DialogFooter>
-                        </DialogContent>
-                      </Dialog>
+                          </ResponsiveDialogFooter>
+                        </ResponsiveDialogContent>
+                      </ResponsiveDialog>
                     </div>
                   </div>
 
@@ -589,17 +597,17 @@ export default function InstructorCourseDetailPage() {
           </Tabs>
 
           {/* Publish Validation Dialog */}
-          <Dialog open={publishValidationDialog} onOpenChange={setPublishValidationDialog}>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
+          <ResponsiveDialog open={publishValidationDialog} onOpenChange={setPublishValidationDialog}>
+            <ResponsiveDialogContent>
+              <ResponsiveDialogHeader>
+                <ResponsiveDialogTitle className="flex items-center gap-2">
                   <AlertCircle className="h-5 w-5 text-warning" />
                   Course Not Ready to Publish
-                </DialogTitle>
-                <DialogDescription>
+                </ResponsiveDialogTitle>
+                <ResponsiveDialogDescription>
                   Your course is missing some required content. Please complete the following before publishing:
-                </DialogDescription>
-              </DialogHeader>
+                </ResponsiveDialogDescription>
+              </ResponsiveDialogHeader>
               <div className="space-y-3 py-4">
                 <div className={`flex items-center gap-3 p-3 rounded-lg ${publishValidation.hasModules ? 'bg-success/10' : 'bg-destructive/10'}`}>
                   {publishValidation.hasModules ? (
@@ -661,7 +669,7 @@ export default function InstructorCourseDetailPage() {
                   </div>
                 )}
               </div>
-              <DialogFooter className="flex gap-2">
+              <ResponsiveDialogFooter className="flex gap-2">
                 <Button variant="outline" onClick={() => setPublishValidationDialog(false)}>
                   Go Back & Fix
                 </Button>
@@ -677,9 +685,9 @@ export default function InstructorCourseDetailPage() {
                     Publish Anyway
                   </Button>
                 )}
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+              </ResponsiveDialogFooter>
+            </ResponsiveDialogContent>
+          </ResponsiveDialog>
         </div>
       </PageContainer>
     </AppShell>

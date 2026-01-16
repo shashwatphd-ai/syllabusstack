@@ -95,13 +95,13 @@ export default function ProfilePage() {
   if (isLoading) {
     return (
       <AppShell>
-        <div className="max-w-2xl mx-auto space-y-6">
+        <div className="max-w-2xl mx-auto px-0 sm:px-4 space-y-6">
           <div>
             <Skeleton className="h-8 w-48" />
             <Skeleton className="h-4 w-72 mt-2" />
           </div>
           <Card>
-            <CardContent className="p-6 space-y-4">
+            <CardContent className="p-4 sm:p-6 space-y-4">
               {[1, 2, 3, 4].map((i) => (
                 <Skeleton key={i} className="h-10 w-full" />
               ))}
@@ -114,7 +114,7 @@ export default function ProfilePage() {
 
   return (
     <AppShell>
-      <div className="max-w-2xl mx-auto space-y-6">
+      <div className="max-w-2xl mx-auto px-0 sm:px-4 space-y-6">
         <div className="flex items-start justify-between">
           <p className="text-muted-foreground">
             Manage your account information and preferences

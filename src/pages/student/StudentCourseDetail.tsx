@@ -77,7 +77,7 @@ export default function StudentCourseDetailPage() {
       <PageContainer>
         <div className="space-y-6">
           {/* Header */}
-          <div className="flex items-start justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
             <div className="space-y-1">
               <Button
                 variant="ghost"
@@ -88,9 +88,9 @@ export default function StudentCourseDetailPage() {
                 <ArrowLeft className="mr-2 h-4 w-4" />
                 Back to Courses
               </Button>
-              <h1 className="text-2xl font-bold">{course.title}</h1>
+              <h1 className="text-xl sm:text-2xl font-bold">{course.title}</h1>
               {course.code && (
-                <p className="text-muted-foreground font-mono">{course.code}</p>
+                <p className="text-muted-foreground font-mono text-sm">{course.code}</p>
               )}
             </div>
           </div>
