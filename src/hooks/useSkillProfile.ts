@@ -79,6 +79,10 @@ const WORK_VALUE_LABELS: Record<string, { label: string; description: string }> 
 export function useSkillProfile() {
   return useQuery({
     queryKey: ['skill-profile'],
+    staleTime: 30000, // 30 seconds - prevent serving stale data
+    gcTime: 300000, // 5 minutes garbage collection
+    refetchOnWindowFocus: true,
+    refetchOnMount: true,
     queryFn: async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return null;
@@ -90,7 +94,9 @@ export function useSkillProfile() {
         .maybeSingle();
 
       if (error) throw error;
-      return data as SkillProfile | null;
+      // Explicit null check - no profile means assessment not completed
+      if (!data) return null;
+      return data as SkillProfile;
     },
   });
 }
