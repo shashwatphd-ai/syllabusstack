@@ -250,6 +250,7 @@ export function useCourseLectureSlides(instructorCourseId?: string) {
   const queryClient = useQueryClient();
   
   // Set up Realtime subscription for status changes
+  // Use a ref to avoid stale closures with queryClient
   useEffect(() => {
     if (!instructorCourseId) return;
     
@@ -268,20 +269,23 @@ export function useCourseLectureSlides(instructorCourseId?: string) {
         (payload) => {
           console.log('[Realtime] Lecture slide change:', payload.eventType, payload.new);
           
-          // Invalidate queries to refresh the data
-          queryClient.invalidateQueries({ 
-            queryKey: ['course-lecture-slides', instructorCourseId] 
-          });
-          queryClient.invalidateQueries({ 
-            queryKey: ['lecture-queue-status', instructorCourseId] 
-          });
-          
-          // Also invalidate specific teaching unit query if available
-          if (payload.new && typeof payload.new === 'object' && 'teaching_unit_id' in payload.new) {
+          // Use setTimeout to ensure we're not in a render cycle
+          setTimeout(() => {
+            // Invalidate queries to refresh the data
             queryClient.invalidateQueries({ 
-              queryKey: ['lecture-slides', (payload.new as any).teaching_unit_id] 
+              queryKey: ['course-lecture-slides', instructorCourseId] 
             });
-          }
+            queryClient.invalidateQueries({ 
+              queryKey: ['lecture-queue-status', instructorCourseId] 
+            });
+            
+            // Also invalidate specific teaching unit query if available
+            if (payload.new && typeof payload.new === 'object' && 'teaching_unit_id' in payload.new) {
+              queryClient.invalidateQueries({ 
+                queryKey: ['lecture-slides', (payload.new as any).teaching_unit_id] 
+              });
+            }
+          }, 0);
         }
       )
       .subscribe((status) => {
@@ -292,7 +296,8 @@ export function useCourseLectureSlides(instructorCourseId?: string) {
       console.log('[Realtime] Cleaning up lecture_slides subscription');
       supabase.removeChannel(channel);
     };
-  }, [instructorCourseId, queryClient]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [instructorCourseId]);
   
   return useQuery({
     queryKey: ['course-lecture-slides', instructorCourseId],
