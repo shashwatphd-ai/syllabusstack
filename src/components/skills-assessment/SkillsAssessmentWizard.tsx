@@ -41,6 +41,8 @@ export function SkillsAssessmentWizard({ onComplete, onCancel }: SkillsAssessmen
     if (result?.is_complete) {
       setStep('processing');
       // Complete assessment and get profile
+      // Note: Career matching is now triggered automatically in the background
+      // by the complete-skills-assessment edge function (per spec section 7.3 step 8)
       const completeResult = await wizard.complete();
       if (completeResult?.skill_profile) {
         setSkillProfile({
@@ -205,8 +207,11 @@ export function SkillsAssessmentWizard({ onComplete, onCancel }: SkillsAssessmen
           <CardContent className="py-12 text-center">
             <Loader2 className="h-12 w-12 animate-spin mx-auto mb-6 text-primary" />
             <h3 className="text-xl font-semibold mb-2">Analyzing Your Profile</h3>
-            <p className="text-muted-foreground">
-              Computing your Holland code and matching against 800+ O*NET occupations...
+            <p className="text-muted-foreground mb-4">
+              Computing your Holland code and skill profile...
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Career matching will run automatically in the background
             </p>
           </CardContent>
         </Card>
@@ -219,6 +224,22 @@ export function SkillsAssessmentWizard({ onComplete, onCancel }: SkillsAssessmen
     return (
       <div className="space-y-6">
         <SkillsResultsSummary profile={skillProfile} />
+
+        <Card className="border-primary/20 bg-primary/5">
+          <CardContent className="py-4">
+            <div className="flex items-center gap-3">
+              <div className="animate-pulse">
+                <Sparkles className="h-5 w-5 text-primary" />
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-medium">Career Matching in Progress</p>
+                <p className="text-xs text-muted-foreground">
+                  We're finding your top career matches from 800+ O*NET occupations
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         <div className="flex justify-center gap-4">
           <Button
@@ -233,7 +254,7 @@ export function SkillsAssessmentWizard({ onComplete, onCancel }: SkillsAssessmen
               </>
             ) : (
               <>
-                Find Career Matches
+                View Career Matches
                 <ArrowRight className="h-4 w-4 ml-2" />
               </>
             )}
