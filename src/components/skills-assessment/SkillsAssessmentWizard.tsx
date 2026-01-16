@@ -116,7 +116,7 @@ export function SkillsAssessmentWizard({ onComplete, onCancel }: SkillsAssessmen
                       <h3 className="font-semibold">Full Assessment</h3>
                       <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
                         <Clock className="h-4 w-4" />
-                        15-20 minutes • 103 questions
+                        ~20 minutes • 103 questions
                       </div>
                       <p className="text-sm text-muted-foreground mt-2">
                         Comprehensive profile for accurate career matching
@@ -137,7 +137,7 @@ export function SkillsAssessmentWizard({ onComplete, onCancel }: SkillsAssessmen
                       <h3 className="font-semibold">Quick Assessment</h3>
                       <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
                         <Clock className="h-4 w-4" />
-                        8-12 minutes • 54 questions
+                        ~10 minutes • 54 questions
                       </div>
                       <p className="text-sm text-muted-foreground mt-2">
                         Essential questions only, good for exploration
