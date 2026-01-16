@@ -17,6 +17,105 @@ const MAX_CONCURRENT = 2;
 // Timeout threshold for stuck "generating" records (in minutes)
 const STUCK_THRESHOLD_MINUTES = 10;
 
+// Retry configuration for resilient database operations
+const RETRY_CONFIG = {
+  maxRetries: 3,
+  baseDelayMs: 1000,
+};
+
+/**
+ * Sleep utility for retry delays
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Serialize any error to a string for consistent error responses
+ */
+function serializeError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === 'object' && error !== null) {
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return String(error);
+    }
+  }
+  return String(error);
+}
+
+/**
+ * Safe status query with retry logic and exponential backoff.
+ * NEVER throws - always returns a valid response (empty on failure).
+ */
+async function safeGetStatus(
+  supabase: SupabaseClient,
+  instructorCourseId: string,
+  retries: number = RETRY_CONFIG.maxRetries
+): Promise<{ data: any[] | null; error: string | null }> {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const { data, error } = await supabase
+        .from('lecture_slides')
+        .select('id, teaching_unit_id, status, error_message, updated_at')
+        .eq('instructor_course_id', instructorCourseId);
+
+      if (!error) {
+        return { data, error: null };
+      }
+
+      console.warn(`[Status] Attempt ${attempt}/${retries} failed:`, error.message);
+      
+      if (attempt < retries) {
+        const delay = RETRY_CONFIG.baseDelayMs * attempt;
+        console.log(`[Status] Retrying in ${delay}ms...`);
+        await sleep(delay);
+      }
+    } catch (e) {
+      console.warn(`[Status] Network error on attempt ${attempt}/${retries}:`, serializeError(e));
+      
+      if (attempt < retries) {
+        const delay = RETRY_CONFIG.baseDelayMs * attempt;
+        console.log(`[Status] Retrying in ${delay}ms...`);
+        await sleep(delay);
+      }
+    }
+  }
+
+  // Return empty array instead of throwing - UI shows "0 items" gracefully
+  console.error(`[Status] All ${retries} attempts failed, returning empty result`);
+  return { data: [], error: 'Failed after retries - check logs for details' };
+}
+
+/**
+ * Calculate status counts from slides array
+ */
+function calculateStatusCounts(slides: any[]): {
+  pending: number;
+  generating: number;
+  ready: number;
+  published: number;
+  failed: number;
+} {
+  const counts = {
+    pending: 0,
+    generating: 0,
+    ready: 0,
+    published: 0,
+    failed: 0,
+  };
+
+  for (const slide of slides) {
+    const status = slide.status as keyof typeof counts;
+    if (status in counts) counts[status]++;
+  }
+
+  return counts;
+}
+
 serve(async (req) => {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
@@ -146,25 +245,24 @@ serve(async (req) => {
     }
 
     // ACTION: get-status - Get queue status for a course
+    // FIX #1: Uses safeGetStatus with retries - NEVER crashes
+    // FIX #2: Self-healing - kicks queue if pending items exist and slots available
     if (action === 'get-status' && instructor_course_id) {
-      const { data: slides, error } = await supabase
-        .from('lecture_slides')
-        .select('id, teaching_unit_id, status, error_message, updated_at')
-        .eq('instructor_course_id', instructor_course_id);
+      // Use safe query with retry logic - never throws
+      const { data: slides, error: statusError } = await safeGetStatus(supabase, instructor_course_id);
+      
+      const statusCounts = calculateStatusCounts(slides || []);
 
-      if (error) throw error;
-
-      const statusCounts = {
-        pending: 0,
-        generating: 0,
-        ready: 0,
-        published: 0,
-        failed: 0,
-      };
-
-      for (const slide of slides || []) {
-        const status = slide.status as keyof typeof statusCounts;
-        if (status in statusCounts) statusCounts[status]++;
+      // SELF-HEALING: If pending items exist and processing slots available, restart queue
+      if (statusCounts.pending > 0 && statusCounts.generating < MAX_CONCURRENT) {
+        console.log(`[Status] Self-healing: ${statusCounts.pending} pending, ${statusCounts.generating}/${MAX_CONCURRENT} generating - kicking queue`);
+        
+        // Fire and forget - don't await, let it run in background
+        EdgeRuntime.waitUntil(
+          processQueue(supabase, supabaseUrl, serviceRoleKey, null).catch(err => {
+            console.error('[Status] Self-healing queue error:', serializeError(err));
+          })
+        );
       }
 
       return new Response(JSON.stringify({
@@ -172,6 +270,8 @@ serve(async (req) => {
         total: slides?.length || 0,
         ...statusCounts,
         slides,
+        // Include error info if retries failed but we still have partial data
+        ...(statusError ? { warning: statusError, recoverable: true } : {}),
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -197,6 +297,15 @@ serve(async (req) => {
 
       console.log(`[Cleanup] Reset ${stuckSlides?.length || 0} stuck records`);
 
+      // Also trigger queue processing if we reset any items
+      if (stuckSlides && stuckSlides.length > 0) {
+        EdgeRuntime.waitUntil(
+          processQueue(supabase, supabaseUrl, serviceRoleKey, null).catch(err => {
+            console.error('[Cleanup] Queue restart error:', serializeError(err));
+          })
+        );
+      }
+
       return new Response(JSON.stringify({
         success: true,
         reset: stuckSlides?.length || 0,
@@ -213,10 +322,14 @@ serve(async (req) => {
     });
 
   } catch (error) {
-    console.error('[Queue] Error:', error);
+    // FIX #3: Better error serialization with recoverable flag
+    const errorMessage = serializeError(error);
+    console.error('[Queue] Error:', errorMessage, error);
+    
     return new Response(JSON.stringify({ 
       success: false, 
-      error: error instanceof Error ? error.message : 'Unknown error' 
+      error: errorMessage,
+      recoverable: true, // Tell UI this is retryable
     }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -227,6 +340,12 @@ serve(async (req) => {
 /**
  * Process pending items from the queue with controlled concurrency.
  * Uses service role for all operations - no JWT dependency.
+ * 
+ * This function is designed to be called:
+ * 1. When user clicks "Generate All" (from queue-bulk action)
+ * 2. Automatically from get-status polls when pending items exist (self-healing)
+ * 3. Manually from process-next action
+ * 4. After cleanup-stuck resets stuck items
  */
 async function processQueue(
   supabase: SupabaseClient,
@@ -234,101 +353,116 @@ async function processQueue(
   serviceRoleKey: string,
   initiatingUserId: string | null
 ): Promise<{ processed: number; remaining: number }> {
-  // Check how many are currently generating
-  const { data: generating } = await supabase
-    .from('lecture_slides')
-    .select('id')
-    .eq('status', 'generating');
+  try {
+    // Check how many are currently generating
+    const { data: generating, error: genError } = await supabase
+      .from('lecture_slides')
+      .select('id')
+      .eq('status', 'generating');
 
-  const currentlyGenerating = generating?.length || 0;
-  const slotsAvailable = Math.max(0, MAX_CONCURRENT - currentlyGenerating);
+    if (genError) {
+      console.warn('[Queue] Error checking generating count:', genError.message);
+      // Continue anyway - assume 0 generating if we can't check
+    }
 
-  if (slotsAvailable === 0) {
-    console.log(`[Queue] No slots available (${currentlyGenerating}/${MAX_CONCURRENT} generating)`);
-    return { processed: 0, remaining: -1 };
-  }
+    const currentlyGenerating = generating?.length || 0;
+    const slotsAvailable = Math.max(0, MAX_CONCURRENT - currentlyGenerating);
 
-  // Get pending items, ordered by created_at
-  const { data: pending } = await supabase
-    .from('lecture_slides')
-    .select('id, teaching_unit_id, created_by')
-    .eq('status', 'pending')
-    .order('created_at', { ascending: true })
-    .limit(slotsAvailable);
+    if (slotsAvailable === 0) {
+      console.log(`[Queue] No slots available (${currentlyGenerating}/${MAX_CONCURRENT} generating)`);
+      return { processed: 0, remaining: -1 };
+    }
 
-  if (!pending || pending.length === 0) {
-    console.log('[Queue] No pending items');
-    return { processed: 0, remaining: 0 };
-  }
+    // Get pending items, ordered by created_at
+    const { data: pending, error: pendingError } = await supabase
+      .from('lecture_slides')
+      .select('id, teaching_unit_id, created_by')
+      .eq('status', 'pending')
+      .order('created_at', { ascending: true })
+      .limit(slotsAvailable);
 
-  console.log(`[Queue] Processing ${pending.length} items (${slotsAvailable} slots available)`);
+    if (pendingError) {
+      console.warn('[Queue] Error fetching pending items:', pendingError.message);
+      return { processed: 0, remaining: -1 };
+    }
 
-  // Get remaining count
-  const { count: remainingCount } = await supabase
-    .from('lecture_slides')
-    .select('id', { count: 'exact', head: true })
-    .eq('status', 'pending');
+    if (!pending || pending.length === 0) {
+      console.log('[Queue] No pending items');
+      return { processed: 0, remaining: 0 };
+    }
 
-  // Process each item
-  let processed = 0;
-  for (const item of pending) {
-    try {
-      // Use the original creator's user_id for ownership tracking
-      // If not available, use the initiating user or null
-      const ownerUserId = item.created_by || initiatingUserId;
+    console.log(`[Queue] Processing ${pending.length} items (${slotsAvailable} slots available)`);
 
-      // Call the generation function with SERVICE ROLE and explicit user_id
-      // This allows background processing without a user JWT
-      const response = await fetch(`${supabaseUrl}/functions/v1/generate-lecture-slides-v3`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${serviceRoleKey}`,
-        },
-        body: JSON.stringify({
-          teaching_unit_id: item.teaching_unit_id,
-          style: 'standard',
-          regenerate: false,
-          // CRITICAL: Pass user_id explicitly for service role calls
-          user_id: ownerUserId,
-          _from_queue: true, // Flag to indicate this is a queue call
-        }),
-      });
+    // Get remaining count
+    const { count: remainingCount } = await supabase
+      .from('lecture_slides')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'pending');
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`[Queue] Generation failed for ${item.teaching_unit_id}:`, errorText);
+    // Process each item
+    let processed = 0;
+    for (const item of pending) {
+      try {
+        // Use the original creator's user_id for ownership tracking
+        // If not available, use the initiating user or null
+        const ownerUserId = item.created_by || initiatingUserId;
+
+        // Call the generation function with SERVICE ROLE and explicit user_id
+        // This allows background processing without a user JWT
+        const response = await fetch(`${supabaseUrl}/functions/v1/generate-lecture-slides-v3`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${serviceRoleKey}`,
+          },
+          body: JSON.stringify({
+            teaching_unit_id: item.teaching_unit_id,
+            style: 'standard',
+            regenerate: false,
+            // CRITICAL: Pass user_id explicitly for service role calls
+            user_id: ownerUserId,
+            _from_queue: true, // Flag to indicate this is a queue call
+          }),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error(`[Queue] Generation failed for ${item.teaching_unit_id}:`, errorText);
+          
+          // Mark as failed with error details
+          await supabase
+            .from('lecture_slides')
+            .update({
+              status: response.status === 429 ? 'pending' : 'failed',
+              error_message: response.status === 429 
+                ? 'Rate limited - will retry' 
+                : `Generation failed: ${response.status}`,
+            })
+            .eq('id', item.id);
+        } else {
+          processed++;
+          console.log(`[Queue] Successfully processed ${item.teaching_unit_id}`);
+        }
+      } catch (err) {
+        console.error(`[Queue] Error processing ${item.teaching_unit_id}:`, serializeError(err));
         
-        // Mark as failed with error details
+        // Mark as failed on exception
         await supabase
           .from('lecture_slides')
           .update({
-            status: response.status === 429 ? 'pending' : 'failed',
-            error_message: response.status === 429 
-              ? 'Rate limited - will retry' 
-              : `Generation failed: ${response.status}`,
+            status: 'failed',
+            error_message: serializeError(err),
           })
           .eq('id', item.id);
-      } else {
-        processed++;
-        console.log(`[Queue] Successfully processed ${item.teaching_unit_id}`);
       }
-    } catch (err) {
-      console.error(`[Queue] Error processing ${item.teaching_unit_id}:`, err);
-      
-      // Mark as failed on exception
-      await supabase
-        .from('lecture_slides')
-        .update({
-          status: 'failed',
-          error_message: err instanceof Error ? err.message : 'Unknown error',
-        })
-        .eq('id', item.id);
     }
-  }
 
-  return { 
-    processed, 
-    remaining: (remainingCount || 0) - processed,
-  };
+    return { 
+      processed, 
+      remaining: (remainingCount || 0) - processed,
+    };
+  } catch (err) {
+    console.error('[Queue] processQueue error:', serializeError(err));
+    return { processed: 0, remaining: -1 };
+  }
 }
