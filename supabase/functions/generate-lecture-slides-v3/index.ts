@@ -1164,7 +1164,14 @@ serve(async (req) => {
   const startTime = Date.now();
 
   try {
-    const { teaching_unit_id, style = 'standard', regenerate = false } = await req.json();
+    const { 
+      teaching_unit_id, 
+      style = 'standard', 
+      regenerate = false,
+      // Support explicit user_id for service role calls from queue processor
+      user_id: explicitUserId,
+      _from_queue = false,
+    } = await req.json();
     
     if (!teaching_unit_id) {
       return new Response(
@@ -1173,21 +1180,40 @@ serve(async (req) => {
       );
     }
 
-    console.log(`[Main] === PROFESSOR AI v3 === Starting for: ${teaching_unit_id}`);
+    console.log(`[Main] === PROFESSOR AI v3 === Starting for: ${teaching_unit_id}`, {
+      fromQueue: _from_queue,
+      explicitUserId: explicitUserId ? 'provided' : 'none',
+    });
 
-    // Initialize Supabase client
+    // Initialize Supabase client with service role
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Get auth from request
+    // Determine user ID: from JWT token OR from explicit param (for queue calls)
     const authHeader = req.headers.get('Authorization');
-    let userId = null;
+    let userId: string | null = null;
+    let isServiceRoleCall = false;
+    
     if (authHeader) {
       const token = authHeader.replace('Bearer ', '');
-      const { data: { user } } = await supabase.auth.getUser(token);
-      userId = user?.id;
+      
+      // Check if this is a service role key (not a user JWT)
+      if (token === supabaseKey) {
+        // Service role call - use explicit user_id if provided
+        isServiceRoleCall = true;
+        userId = explicitUserId || null;
+        console.log('[Auth] Service role call, using explicit user_id:', userId ? 'present' : 'none');
+      } else {
+        // Regular user JWT - validate it
+        const { data: { user } } = await supabase.auth.getUser(token);
+        userId = user?.id || null;
+        console.log('[Auth] User JWT validated:', userId ? 'success' : 'failed');
+      }
     }
+    
+    // For queue calls without a user, we proceed but ownership checks in fetchTeachingUnitContext
+    // will be skipped (it already handles null userId gracefully)
 
     // PHASE 1: Fetch complete context
     console.log('[Main] === PHASE 1: CONTEXT GATHERING ===');
