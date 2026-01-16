@@ -1,10 +1,11 @@
+import { forwardRef } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Sparkles, CheckCircle } from "lucide-react";
 
-export function CTASection() {
+export const CTASection = forwardRef<HTMLElement>(function CTASection(_props, ref) {
   return (
-    <section className="py-24 bg-hero relative overflow-hidden">
+    <section ref={ref} className="py-24 bg-hero relative overflow-hidden">
       {/* Background effects */}
       <div className="absolute inset-0 overflow-hidden">
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-coral-500/10 rounded-full blur-3xl" />
@@ -59,4 +60,6 @@ export function CTASection() {
       </div>
     </section>
   );
-}
+});
+
+CTASection.displayName = "CTASection";

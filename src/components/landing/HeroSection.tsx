@@ -1,16 +1,16 @@
+import { forwardRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, GraduationCap, BookOpen, Users, Video, CheckCircle, Sparkles } from "lucide-react";
-import { useState } from "react";
 import { cn } from "@/lib/utils";
 
 type Audience = "students" | "instructors";
 
-export function HeroSection() {
+export const HeroSection = forwardRef<HTMLElement>(function HeroSection(_props, ref) {
   const [audience, setAudience] = useState<Audience>("students");
 
   return (
-    <section className="relative min-h-screen bg-hero overflow-hidden">
+    <section ref={ref} className="relative min-h-screen bg-hero overflow-hidden">
       {/* Background decoration */}
       <div className="absolute inset-0 overflow-hidden">
         <div className="absolute top-20 left-10 w-72 h-72 bg-coral-500/10 rounded-full blur-3xl" />
@@ -130,7 +130,9 @@ export function HeroSection() {
       </div>
     </section>
   );
-}
+});
+
+HeroSection.displayName = "HeroSection";
 
 function StudentHero() {
   return (

@@ -1,9 +1,9 @@
+import { forwardRef, useState } from "react";
 import { 
   FileText, Target, Lightbulb, TrendingUp, 
   Video, Users, CheckCircle2, Brain,
   GraduationCap, BookOpen
 } from "lucide-react";
-import { useState } from "react";
 import { cn } from "@/lib/utils";
 
 type Audience = "students" | "instructors";
@@ -54,12 +54,12 @@ const instructorFeatures = [
   },
 ];
 
-export function FeaturesSection() {
+export const FeaturesSection = forwardRef<HTMLElement>(function FeaturesSection(_props, ref) {
   const [audience, setAudience] = useState<Audience>("students");
   const features = audience === "students" ? studentFeatures : instructorFeatures;
 
   return (
-    <section id="features" className="py-24 bg-background relative overflow-hidden">
+    <section ref={ref} id="features" className="py-24 bg-background relative overflow-hidden">
       {/* Subtle background pattern */}
       <div className="absolute inset-0 opacity-50">
         <div className="absolute top-0 right-0 w-1/2 h-1/2 bg-gradient-to-bl from-coral-500/5 to-transparent" />
@@ -141,4 +141,6 @@ export function FeaturesSection() {
       </div>
     </section>
   );
-}
+});
+
+FeaturesSection.displayName = "FeaturesSection";
