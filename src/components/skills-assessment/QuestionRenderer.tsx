@@ -79,13 +79,16 @@ export function QuestionRenderer({
           <div className="space-y-4">
             <ProficiencySlider
               value={selectedValue ?? 50}
-              onChange={setSelectedValue}
+              onChange={(val) => setSelectedValue(val)}
               disabled={isSubmitting}
             />
+            <p className="text-sm text-muted-foreground text-center">
+              Drag the slider to rate your proficiency, then confirm
+            </p>
             <button
               type="button"
-              onClick={() => selectedValue !== null && handleSelect(selectedValue)}
-              disabled={isSubmitting || selectedValue === null}
+              onClick={() => handleSelect(selectedValue ?? 50)}
+              disabled={isSubmitting}
               className={cn(
                 'w-full py-3 rounded-lg font-medium transition-all',
                 'bg-primary text-primary-foreground hover:bg-primary/90',

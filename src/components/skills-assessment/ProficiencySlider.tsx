@@ -30,6 +30,8 @@ export function ProficiencySlider({
   disabled = false,
   className,
 }: ProficiencySliderProps) {
+  // Track if user has interacted with the slider
+  const hasInteracted = value !== undefined && value !== null;
   const getProficiencyLabel = (val: number): string => {
     if (val < 15) return 'No Experience';
     if (val < 35) return 'Beginner';
