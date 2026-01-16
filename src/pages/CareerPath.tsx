@@ -59,9 +59,12 @@ import { useRecommendations, useAntiRecommendations, useUpdateRecommendationStat
 import { useCourseSearch } from "@/hooks/useCourseSearch";
 import { useStudentEnrollments } from "@/hooks/useStudentCourses";
 import { useLinkCourseToRecommendation } from "@/hooks/useLinkCourseToRecommendation";
+import { useSkillProfile } from "@/hooks/useSkillProfile";
 import { useToast } from "@/hooks/use-toast";
 import { AddDreamJobForm } from "@/components/forms";
 import { DreamJobDiscovery } from "@/components/dreamjobs/DreamJobDiscovery";
+import { SkillsAssessmentWizard } from "@/components/skills-assessment/SkillsAssessmentWizard";
+import { CareerMatchesGrid } from "@/components/career-exploration/CareerMatchesGrid";
 import { RecommendationsList } from "@/components/recommendations/RecommendationsList";
 import { RecommendationsErrorBoundary } from "@/components/recommendations/RecommendationsErrorBoundary";
 import { AntiRecommendations } from "@/components/recommendations/AntiRecommendations";
@@ -80,10 +83,15 @@ export default function CareerPathPage() {
   const activeTab = searchParams.get("tab") || "jobs";
   const [showAddJob, setShowAddJob] = useState(false);
   const [showDiscover, setShowDiscover] = useState(false);
+  const [showAssessment, setShowAssessment] = useState(false);
+  const [showCareerMatches, setShowCareerMatches] = useState(false);
   const [isCreatingJob, setIsCreatingJob] = useState(false);
   const [freeFirst, setFreeFirst] = useState(true);
   const [priceFilter, setPriceFilter] = useState<'all' | 'free' | 'paid' | 'unknown'>('all');
   const [deleteConfirmJob, setDeleteConfirmJob] = useState<string | null>(null);
+
+  // Skill Profile - check if user has completed assessment
+  const { data: skillProfile, isLoading: profileLoading } = useSkillProfile();
 
   // Dream Jobs
   const { data: dreamJobs = [], isLoading: jobsLoading } = useDreamJobs();
@@ -382,19 +390,90 @@ export default function CareerPathPage() {
               <p className="text-sm text-muted-foreground">
                 Your career aspirations and match scores
               </p>
-              <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-                <Button variant="outline" onClick={() => setShowDiscover(!showDiscover)} className="w-full sm:w-auto min-h-11">
+              <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+                {/* Skills Assessment Button - primary action if no profile */}
+                {!skillProfile && !profileLoading && (
+                  <Button 
+                    variant="default" 
+                    onClick={() => {
+                      setShowAssessment(true);
+                      setShowDiscover(false);
+                      setShowCareerMatches(false);
+                      setShowAddJob(false);
+                    }} 
+                    className="w-full sm:w-auto min-h-11"
+                  >
+                    <Target className="h-4 w-4 mr-2" />
+                    Take Skills Assessment
+                  </Button>
+                )}
+                {/* Show Career Matches if they have a profile */}
+                {skillProfile && (
+                  <Button 
+                    variant="outline" 
+                    onClick={() => {
+                      setShowCareerMatches(!showCareerMatches);
+                      setShowAssessment(false);
+                      setShowDiscover(false);
+                      setShowAddJob(false);
+                    }} 
+                    className="w-full sm:w-auto min-h-11"
+                  >
+                    <Sparkles className="h-4 w-4 mr-2" />
+                    {showCareerMatches ? "Show Jobs" : "View Career Matches"}
+                  </Button>
+                )}
+                <Button 
+                  variant="outline" 
+                  onClick={() => {
+                    setShowDiscover(!showDiscover);
+                    setShowAssessment(false);
+                    setShowCareerMatches(false);
+                    setShowAddJob(false);
+                  }} 
+                  className="w-full sm:w-auto min-h-11"
+                >
                   <Search className="h-4 w-4 mr-2" />
-                  {showDiscover ? "Show Jobs" : "Discover Careers"}
+                  {showDiscover ? "Show Jobs" : "Quick Discover"}
                 </Button>
-                <Button onClick={() => setShowAddJob(!showAddJob)} className="w-full sm:w-auto min-h-11">
+                <Button 
+                  onClick={() => {
+                    setShowAddJob(!showAddJob);
+                    setShowAssessment(false);
+                    setShowDiscover(false);
+                    setShowCareerMatches(false);
+                  }} 
+                  className="w-full sm:w-auto min-h-11"
+                >
                   <Plus className="h-4 w-4 mr-2" />
                   Add Dream Job
                 </Button>
               </div>
             </div>
 
-            {showAddJob ? (
+            {/* Skills Assessment Wizard */}
+            {showAssessment ? (
+              <SkillsAssessmentWizard 
+                onComplete={() => {
+                  setShowAssessment(false);
+                  setShowCareerMatches(true);
+                  toast({
+                    title: "Assessment Complete!",
+                    description: "Your career matches are now ready to view.",
+                  });
+                }}
+                onCancel={() => setShowAssessment(false)}
+              />
+            ) : showCareerMatches && skillProfile ? (
+              <CareerMatchesGrid 
+                onViewDetails={(match) => {
+                  toast({
+                    title: match.occupation_title,
+                    description: `Match score: ${match.overall_match_score}%`,
+                  });
+                }}
+              />
+            ) : showAddJob ? (
               <AddDreamJobForm
                 onSubmit={handleAddJob}
                 onCancel={() => setShowAddJob(false)}
