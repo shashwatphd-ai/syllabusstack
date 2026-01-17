@@ -250,32 +250,35 @@ export function StudentSlideViewer({
   return (
     <div className="fixed inset-0 z-50 bg-background flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b bg-background/95 backdrop-blur">
-        <div className="flex items-center gap-3">
-          <h3 className="font-semibold truncate max-w-md">{unitTitle}</h3>
-          <span className="text-sm text-muted-foreground">
+      <div className="flex items-center justify-between px-2 sm:px-4 py-2 sm:py-3 border-b bg-background/95 backdrop-blur">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          <h3 className="font-semibold truncate max-w-[35vw] sm:max-w-md text-sm sm:text-base">{unitTitle}</h3>
+          <span className="hidden sm:inline text-sm text-muted-foreground">
             {lectureSlide.total_slides} slides • ~{lectureSlide.estimated_duration_minutes || 10} min
+          </span>
+          <span className="sm:hidden text-xs text-muted-foreground">
+            {lectureSlide.total_slides} slides
           </span>
         </div>
         
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 sm:gap-4">
           {/* Progress */}
-          <div className="flex items-center gap-2 w-48">
+          <div className="flex items-center gap-1 sm:gap-2 w-20 sm:w-48">
             <Progress value={progress} className="h-2" />
-            <span className="text-xs text-muted-foreground w-12">
+            <span className="text-xs text-muted-foreground w-8 sm:w-12">
               {Math.round(progress)}%
             </span>
           </div>
 
           {/* Controls */}
-          <div className="flex items-center gap-2">
-            {/* Auto-play only shown when no audio */}
+          <div className="flex items-center gap-1 sm:gap-2">
+            {/* Auto-play only shown when no audio - hidden on mobile */}
             {!lectureSlide.has_audio && (
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={toggleAutoPlay}
-                className="gap-1"
+                className="hidden sm:flex gap-1"
               >
                 {isAutoPlaying ? (
                   <>
@@ -297,7 +300,7 @@ export function StudentSlideViewer({
                 variant="ghost"
                 size="sm"
                 onClick={toggleAudio}
-                className="gap-1"
+                className="gap-1 px-2 sm:px-3"
               >
                 {audioEnabled ? (
                   <>
@@ -313,7 +316,8 @@ export function StudentSlideViewer({
               </Button>
             )}
 
-            <div className="flex items-center gap-2 pl-2 border-l">
+            {/* Transcript toggle - hidden on mobile */}
+            <div className="hidden sm:flex items-center gap-2 pl-2 border-l">
               <Switch
                 id="student-notes"
                 checked={showSpeakerNotes}
@@ -330,6 +334,7 @@ export function StudentSlideViewer({
             variant="ghost"
             size="icon"
             onClick={handleClose}
+            className="h-8 w-8 sm:h-9 sm:w-9"
           >
             <X className="h-4 w-4" />
           </Button>
@@ -338,7 +343,7 @@ export function StudentSlideViewer({
 
       {/* Main slide content */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="flex-1 p-8 overflow-hidden max-w-5xl mx-auto w-full">
+        <div className="flex-1 p-3 sm:p-8 overflow-hidden max-w-5xl mx-auto w-full">
           {currentSlide && (
             <SlideRenderer
               slide={currentSlide}
@@ -360,20 +365,20 @@ export function StudentSlideViewer({
         )}
 
         {/* Navigation footer */}
-        <div className="flex items-center justify-between px-6 py-4 border-t bg-background/95">
+        <div className="flex items-center justify-between px-3 sm:px-6 py-3 sm:py-4 border-t bg-background/95">
           <Button
             variant="outline"
-            size="lg"
+            size="default"
             onClick={goToPreviousSlide}
             disabled={currentSlideIndex === 0}
-            className="min-w-32"
+            className="min-w-16 sm:min-w-32 px-2 sm:px-4"
           >
-            <ChevronLeft className="h-5 w-5 mr-1" />
-            Previous
+            <ChevronLeft className="h-5 w-5 sm:mr-1" />
+            <span className="hidden sm:inline">Previous</span>
           </Button>
 
           {/* Slide dots */}
-          <div className="flex items-center gap-1 max-w-md overflow-x-auto py-2">
+          <div className="flex items-center gap-1 max-w-[40vw] sm:max-w-md overflow-x-auto py-2">
             {slides.map((_, index) => (
               <button
                 key={index}
@@ -382,9 +387,9 @@ export function StudentSlideViewer({
                   setCurrentSlideIndex(index);
                 }}
                 className={cn(
-                  "w-2 h-2 rounded-full transition-all",
+                  "w-2 h-2 rounded-full transition-all shrink-0",
                   index === currentSlideIndex
-                    ? "w-6 bg-primary"
+                    ? "w-4 sm:w-6 bg-primary"
                     : index <= highestSlideViewed
                     ? "bg-primary/50 hover:bg-primary/70"
                     : "bg-muted hover:bg-muted-foreground/30"
@@ -396,16 +401,19 @@ export function StudentSlideViewer({
 
           <Button
             variant={currentSlideIndex === slides.length - 1 ? "default" : "outline"}
-            size="lg"
+            size="default"
             onClick={goToNextSlide}
-            className="min-w-32"
+            className="min-w-16 sm:min-w-32 px-2 sm:px-4"
           >
             {currentSlideIndex === slides.length - 1 ? (
-              'Complete'
+              <>
+                <span className="hidden sm:inline">Complete</span>
+                <span className="sm:hidden">Done</span>
+              </>
             ) : (
               <>
-                Next
-                <ChevronRight className="h-5 w-5 ml-1" />
+                <span className="hidden sm:inline">Next</span>
+                <ChevronRight className="h-5 w-5 sm:ml-1" />
               </>
             )}
           </Button>

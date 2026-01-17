@@ -31,6 +31,7 @@ import {
 } from '@/hooks/useLectureSlides';
 import { TeachingUnit } from '@/hooks/useTeachingUnits';
 import { cn } from '@/lib/utils';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 interface LectureSlideViewerProps {
   lectureSlide: LectureSlide;
@@ -45,9 +46,10 @@ export function LectureSlideViewer({
   open,
   onOpenChange 
 }: LectureSlideViewerProps) {
+  const isMobile = useIsMobile();
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [showSpeakerNotes, setShowSpeakerNotes] = useState(false);
-  const [showThumbnails, setShowThumbnails] = useState(true);
+  const [showThumbnails, setShowThumbnails] = useState(!isMobile);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   const publishSlides = usePublishLectureSlides();
@@ -131,16 +133,17 @@ export function LectureSlideViewer({
           <DialogTitle>{lectureSlide.title}</DialogTitle>
         </VisuallyHidden>
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b bg-background/95 backdrop-blur">
-          <div className="flex items-center gap-3">
-            <h3 className="font-semibold truncate max-w-md">{lectureSlide.title}</h3>
-            <Badge variant={isPublished ? 'default' : 'secondary'}>
+        <div className="flex items-center justify-between px-2 sm:px-4 py-2 sm:py-3 border-b bg-background/95 backdrop-blur">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            <h3 className="font-semibold truncate max-w-[40vw] sm:max-w-md text-sm sm:text-base">{lectureSlide.title}</h3>
+            <Badge variant={isPublished ? 'default' : 'secondary'} className="text-xs shrink-0">
               {isPublished ? 'Published' : 'Draft'}
             </Badge>
           </div>
           
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-2 mr-4">
+          <div className="flex items-center gap-1 sm:gap-2">
+            {/* Controls hidden on mobile, shown on tablet+ */}
+            <div className="hidden md:flex items-center gap-2 mr-4">
               <Switch
                 id="speaker-notes"
                 checked={showSpeakerNotes}
@@ -152,7 +155,7 @@ export function LectureSlideViewer({
               </Label>
             </div>
             
-            <div className="flex items-center gap-2 mr-4">
+            <div className="hidden md:flex items-center gap-2 mr-4">
               <Switch
                 id="thumbnails"
                 checked={showThumbnails}
@@ -248,9 +251,9 @@ export function LectureSlideViewer({
 
         {/* Main content */}
         <div className="flex-1 flex overflow-hidden">
-          {/* Thumbnail sidebar */}
+          {/* Thumbnail sidebar - hidden on mobile */}
           {showThumbnails && (
-            <ScrollArea className="w-52 flex-shrink-0 border-r bg-muted/30">
+            <ScrollArea className="hidden md:block w-52 flex-shrink-0 border-r bg-muted/30">
               <div className="p-2 space-y-1">
                 {slides.map((slide, index) => (
                   <button
@@ -288,7 +291,7 @@ export function LectureSlideViewer({
 
           {/* Slide viewer */}
           <div className="flex-1 flex flex-col">
-            <div className="flex-1 p-6 overflow-hidden">
+            <div className="flex-1 p-3 sm:p-6 overflow-hidden">
               {currentSlide && (
                 <SlideRenderer
                   slide={currentSlide}
@@ -301,32 +304,36 @@ export function LectureSlideViewer({
             </div>
 
             {/* Navigation footer */}
-            <div className="flex items-center justify-between px-6 py-3 border-t bg-background/95">
+            <div className="flex items-center justify-between px-3 sm:px-6 py-2 sm:py-3 border-t bg-background/95">
               <Button
                 variant="outline"
+                size="sm"
                 onClick={goToPreviousSlide}
                 disabled={currentSlideIndex === 0}
+                className="min-w-0 px-2 sm:px-4"
               >
-                <ChevronLeft className="h-4 w-4 mr-1" />
-                Previous
+                <ChevronLeft className="h-4 w-4 sm:mr-1" />
+                <span className="hidden sm:inline">Previous</span>
               </Button>
 
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">
-                  Slide {currentSlideIndex + 1} of {slides.length}
+              <div className="flex items-center gap-1 sm:gap-2">
+                <span className="text-xs sm:text-sm text-muted-foreground">
+                  {currentSlideIndex + 1} / {slides.length}
                 </span>
-                <span className="text-xs text-muted-foreground">
+                <span className="hidden sm:inline text-xs text-muted-foreground">
                   (~{lectureSlide.estimated_duration_minutes || teachingUnit.target_duration_minutes} min)
                 </span>
               </div>
 
               <Button
                 variant="outline"
+                size="sm"
                 onClick={goToNextSlide}
                 disabled={currentSlideIndex === slides.length - 1}
+                className="min-w-0 px-2 sm:px-4"
               >
-                Next
-                <ChevronRight className="h-4 w-4 ml-1" />
+                <span className="hidden sm:inline">Next</span>
+                <ChevronRight className="h-4 w-4 sm:ml-1" />
               </Button>
             </div>
           </div>
