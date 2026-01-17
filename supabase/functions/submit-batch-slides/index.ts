@@ -486,18 +486,31 @@ serve(async (req) => {
     console.log(`[Batch] Built ${batchRequests.length} batch requests`);
 
     // ========================================================================
-    // 5. SUBMIT TO GOOGLE ASYNC BATCH API
+    // 5. SUBMIT TO GOOGLE BATCH API
     // ========================================================================
     //
-    // Submit the batch to Google's ASYNC Batch API endpoint.
+    // Submit the batch to Google's Batch API endpoint.
     // This is the endpoint that provides 50% cost discount.
     //
-    // - Returns immediately with a job ID
+    // Request format:
+    //   - model: which Gemini model to use
+    //   - src: array of inline generateContent requests
+    //   - config: optional batch configuration (display_name, etc.)
+    //
+    // - Returns immediately with a job ID (BatchJob object)
     // - Processes asynchronously (usually <1 hour for ~100 requests)
     // - Poll via poll-batch-status for completion
     //
     // API Documentation: https://ai.google.dev/gemini-api/docs/batch-api
     //
+
+    // Build inline batch requests in the correct format
+    // Each item in src array is a complete generateContent request
+    const inlineRequests = batchRequests.map((req) => ({
+      contents: req.contents,
+      systemInstruction: req.systemInstruction,
+      generationConfig: req.generationConfig,
+    }));
 
     const batchResponse = await fetch(
       `${GOOGLE_BATCH_API}?key=${googleApiKey}`,
@@ -507,21 +520,14 @@ serve(async (req) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          // Google Async Batch API requires nested structure:
-          // batch.input_config.requests.requests[]
-          // Each request wrapped in { request: ... }
-          batch: {
+          // Google Batch API format:
+          // - model: which model to use
+          // - src: array of inline requests (or file reference)
+          // - config: optional batch configuration
+          model: `models/${GEMINI_MODEL}`,
+          src: inlineRequests,
+          config: {
             display_name: `slides-${instructor_course_id}-${Date.now()}`,
-            input_config: {
-              requests: {
-                requests: batchRequests.map((req, idx) => ({
-                  request: {
-                    model: `models/${GEMINI_MODEL}`,
-                    ...req,
-                  },
-                })),
-              },
-            },
           },
         }),
       }
