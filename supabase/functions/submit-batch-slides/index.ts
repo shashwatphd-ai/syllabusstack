@@ -41,9 +41,11 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Google Batch API endpoint - ASYNC version for 50% discount
-// This submits a job and returns immediately, unlike batchGenerateContent which is synchronous
-const GOOGLE_BATCH_API = 'https://generativelanguage.googleapis.com/v1beta/batches';
+// Google Batch API endpoint - uses batchGenerateContent for 50% discount
+// See: https://ai.google.dev/gemini-api/docs/batch-api
+// Format: POST /v1beta/models/{model}:batchGenerateContent
+const GEMINI_MODEL = 'gemini-2.5-flash';
+const GOOGLE_BATCH_API = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:batchGenerateContent`;
 
 // ============================================================================
 // PROFESSOR SYSTEM PROMPT (Same as v3 - for consistency)
@@ -512,9 +514,9 @@ serve(async (req) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          // Async batch API format - specify model at top level
-          model: 'models/gemini-2.5-flash',
-          // Requests with unique keys for correlation
+          // batchGenerateContent expects an array of requests
+          // Model is specified in the URL path, not the body
+          // Each request has a unique key for correlation
           requests: batchRequests,
         }),
       }
@@ -546,7 +548,8 @@ serve(async (req) => {
 
     const batchData = await batchResponse.json();
 
-    // Async batch API returns: { name: "batches/xxx", state: "PENDING", totalCount: N }
+    // batchGenerateContent returns: { name: "batches/xxx", state: "JOB_STATE_PENDING", ... }
+    // States: JOB_STATE_PENDING, JOB_STATE_RUNNING, JOB_STATE_SUCCEEDED, JOB_STATE_FAILED
     const googleBatchId = batchData.name;
     const batchState = batchData.state;
 
