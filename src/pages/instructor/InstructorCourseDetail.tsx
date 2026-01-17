@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, FileText, Video, CheckCircle2, Clock, AlertCircle, Settings2, Copy, Share2, Loader2, Sparkles, Users, Presentation } from 'lucide-react';
+import { ArrowLeft, Plus, FileText, Video, CheckCircle2, Clock, AlertCircle, Settings2, Copy, Share2, Loader2, Sparkles, Users, Presentation, RotateCcw } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { Button } from '@/components/ui/button';
@@ -24,7 +24,7 @@ import { useInstructorCourse, useModules, useCreateModule, useUpdateInstructorCo
 import { useLearningObjectives, useSearchYouTubeContent } from '@/hooks/useLearningObjectives';
 import { useContentStats } from '@/hooks/useContentStats';
 import { useLOContentStatus } from '@/hooks/useContentStats';
-import { useCourseLectureSlides, useBulkPublishSlides, useBulkQueueSlides, useQueueStatus, useCleanupStuckSlides } from '@/hooks/useLectureSlides';
+import { useCourseLectureSlides, useBulkPublishSlides, useBulkQueueSlides, useQueueStatus, useCleanupStuckSlides, useRetryFailedSlides } from '@/hooks/useLectureSlides';
 import { LoadingState } from '@/components/common/LoadingState';
 import { EmptyState } from '@/components/common/EmptyState';
 import { UnifiedModuleCard } from '@/components/instructor/UnifiedModuleCard';
@@ -63,6 +63,7 @@ export default function InstructorCourseDetailPage() {
   const bulkQueueSlides = useBulkQueueSlides();
   const { data: queueStatus } = useQueueStatus(id);
   const cleanupStuck = useCleanupStuckSlides();
+  const retryFailed = useRetryFailedSlides();
   
   const slidesStats = {
     total: lectureSlides?.length || 0,
@@ -489,6 +490,48 @@ export default function InstructorCourseDetailPage() {
                               <span className="sm:hidden">Publish {slidesStats.ready}</span>
                             </>
                           )}
+                        </Button>
+                      )}
+                      
+                      {/* Retry Failed Slides */}
+                      {slidesStats.failed > 0 && (
+                        <Button 
+                          variant="outline" 
+                          className="gap-2 min-h-11 flex-1 sm:flex-none border-orange-300 text-orange-700 hover:bg-orange-50"
+                          onClick={() => id && retryFailed.mutate(id)}
+                          disabled={retryFailed.isPending}
+                        >
+                          {retryFailed.isPending ? (
+                            <>
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              <span className="hidden sm:inline">Retrying...</span>
+                            </>
+                          ) : (
+                            <>
+                              <RotateCcw className="h-4 w-4" />
+                              <span className="hidden sm:inline">Retry {slidesStats.failed} Failed</span>
+                              <span className="sm:hidden">Retry {slidesStats.failed}</span>
+                            </>
+                          )}
+                        </Button>
+                      )}
+                      
+                      {/* Reset Stuck Slides - visible when generating for extended time */}
+                      {slidesStats.generating > 0 && (
+                        <Button 
+                          variant="ghost" 
+                          size="sm"
+                          className="gap-1 text-muted-foreground"
+                          onClick={() => cleanupStuck.mutate()}
+                          disabled={cleanupStuck.isPending}
+                          title="Reset slides stuck in generating state"
+                        >
+                          {cleanupStuck.isPending ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <AlertCircle className="h-3 w-3" />
+                          )}
+                          <span className="text-xs">Stuck?</span>
                         </Button>
                       )}
                       
