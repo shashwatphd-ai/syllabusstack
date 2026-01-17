@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { MODEL_CONFIG } from '../_shared/ai-orchestrator.ts';
 
 // ============================================================================
 // POLL BATCH STATUS - Check and process batch job results
@@ -77,8 +78,13 @@ serve(async (req) => {
       // Poll Google API for current status
       if (googleApiKey && batchJob.google_batch_id) {
         const pollResponse = await fetch(
-          `${GOOGLE_BATCH_API}/${batchJob.google_batch_id}?key=${googleApiKey}`,
-          { method: 'GET' }
+          `${GOOGLE_BATCH_API}/${batchJob.google_batch_id}`,
+          {
+            method: 'GET',
+            headers: {
+              'x-goog-api-key': googleApiKey,
+            },
+          }
         );
 
         if (pollResponse.ok) {
@@ -193,8 +199,13 @@ serve(async (req) => {
       // If there's an active batch, poll it
       if (activeBatch && googleApiKey && activeBatch.google_batch_id) {
         const pollResponse = await fetch(
-          `${GOOGLE_BATCH_API}/${activeBatch.google_batch_id}?key=${googleApiKey}`,
-          { method: 'GET' }
+          `${GOOGLE_BATCH_API}/${activeBatch.google_batch_id}`,
+          {
+            method: 'GET',
+            headers: {
+              'x-goog-api-key': googleApiKey,
+            },
+          }
         );
 
         if (pollResponse.ok) {
@@ -284,9 +295,10 @@ async function processCompletedBatch(
   console.log(`[Poll] Processing completed batch: ${batchJob.google_batch_id}`);
 
   // Fetch the full batch results
-  // For inline batches, results are in googleStatus.responses
+  // For inline batches, results are in googleStatus.inlined_responses (REST API)
+  // or googleStatus.responses (SDK format)
   // For file-based batches, need to download from output URI
-  const responses = googleStatus.responses || [];
+  const responses = googleStatus.inlined_responses || googleStatus.responses || [];
 
   if (responses.length === 0) {
     console.log('[Poll] No inline responses, batch may use file output');
@@ -297,11 +309,15 @@ async function processCompletedBatch(
   let succeededCount = 0;
   let failedCount = 0;
 
-  // Process responses by index (batchGenerateContent returns in same order)
+  // Process responses - they include metadata.key for correlation
   for (let i = 0; i < responses.length; i++) {
-    const response = responses[i];
-    // Support both index-based (new) and key-based (legacy) mapping
-    const teachingUnitId = requestMapping[i] || requestMapping[`slide_${i}`];
+    const responseWrapper = responses[i];
+    // REST API wraps response in { response: {...}, metadata: {key: "slide_N"} }
+    const response = responseWrapper.response || responseWrapper;
+    const responseKey = responseWrapper.metadata?.key || `slide_${i}`;
+
+    // Support both key-based (new) and index-based (legacy) mapping
+    const teachingUnitId = requestMapping[responseKey] || requestMapping[i] || requestMapping[`slide_${i}`];
 
     if (!teachingUnitId) {
       console.warn(`[Poll] No mapping for index ${i}`);
@@ -390,7 +406,7 @@ async function processCompletedBatch(
           slides: formattedSlides,
           total_slides: formattedSlides.length,
           status: 'ready',
-          generation_model: 'gemini-2.5-flash',
+          generation_model: MODEL_CONFIG.GEMINI_FLASH,
           estimated_duration_minutes: Math.round(formattedSlides.length * 1.5),
           generation_phases: {
             method: 'batch_api',

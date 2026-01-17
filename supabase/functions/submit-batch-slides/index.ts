@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { MODEL_CONFIG } from '../_shared/ai-orchestrator.ts';
 
 // ============================================================================
 // SUBMIT BATCH SLIDES - Google Batch API Integration
@@ -41,11 +42,16 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Google Batch API endpoint - uses async batch for 50% discount
+// Google Batch API endpoint - uses batchGenerateContent for 50% discount
 // See: https://ai.google.dev/gemini-api/docs/batch-api
-// Format: POST /v1beta/batches (async, returns job ID)
-const GEMINI_MODEL = 'gemini-2.5-flash';
-const GOOGLE_BATCH_API = 'https://generativelanguage.googleapis.com/v1beta/batches';
+// Format: POST models/{model}:batchGenerateContent (async, returns job ID)
+const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+
+// Model configuration - use orchestrator's MODEL_CONFIG for consistency
+// Batch uses flash for cost optimization (50% discount + cheaper model)
+// For premium quality, users should use single slide generation (v3)
+// which uses GEMINI_PRO for complex reasoning
+const BATCH_MODEL = MODEL_CONFIG.GEMINI_FLASH;
 
 // ============================================================================
 // PROFESSOR SYSTEM PROMPT (Same as v3 - for consistency)
@@ -423,7 +429,7 @@ serve(async (req) => {
     //
 
     const batchRequests: BatchRequest[] = [];
-    const requestMapping: Record<number, string> = {}; // index -> teaching_unit_id
+    const requestMapping: Record<string, string> = {}; // key -> teaching_unit_id
 
     for (let i = 0; i < unitsToProcess.length; i++) {
       const unit = unitsToProcess[i];
@@ -462,10 +468,12 @@ serve(async (req) => {
       // Build prompt
       const userPrompt = buildPromptForUnit(unitData);
 
-      // Map by index (responses come back in same order as requests)
-      requestMapping[batchRequests.length] = unit.id;
+      // Map by key (responses come back with metadata.key for correlation)
+      // Using slide_N format to match the metadata.key in the request
+      const requestKey = `slide_${batchRequests.length}`;
+      requestMapping[requestKey] = unit.id;
 
-      // Add to batch - flat structure, no wrapper
+      // Add to batch request
       batchRequests.push({
         contents: [
           {
@@ -486,16 +494,26 @@ serve(async (req) => {
     console.log(`[Batch] Built ${batchRequests.length} batch requests`);
 
     // ========================================================================
-    // 5. SUBMIT TO GOOGLE BATCH API
+    // 5. SUBMIT TO GOOGLE BATCH API (batchGenerateContent)
     // ========================================================================
     //
-    // Submit the batch to Google's Batch API endpoint.
-    // This is the endpoint that provides 50% cost discount.
+    // Submit the batch to Google's batchGenerateContent endpoint.
+    // This is the REST endpoint that provides 50% cost discount.
     //
-    // Request format:
-    //   - model: which Gemini model to use
-    //   - src: array of inline generateContent requests
-    //   - config: optional batch configuration (display_name, etc.)
+    // Endpoint: POST /v1beta/models/{model}:batchGenerateContent
+    // Auth: x-goog-api-key header
+    //
+    // Request format (REST API):
+    //   {
+    //     "batch": {
+    //       "display_name": "...",
+    //       "input_config": {
+    //         "requests": {
+    //           "requests": [{ "request": {...}, "metadata": {"key": "..."} }, ...]
+    //         }
+    //       }
+    //     }
+    //   }
     //
     // - Returns immediately with a job ID (BatchJob object)
     // - Processes asynchronously (usually <1 hour for ~100 requests)
@@ -504,30 +522,39 @@ serve(async (req) => {
     // API Documentation: https://ai.google.dev/gemini-api/docs/batch-api
     //
 
-    // Build inline batch requests in the correct format
-    // Each item in src array is a complete generateContent request
-    const inlineRequests = batchRequests.map((req) => ({
-      contents: req.contents,
-      systemInstruction: req.systemInstruction,
-      generationConfig: req.generationConfig,
+    // Build batch requests in the correct REST API format
+    // Each request needs: { request: {contents, systemInstruction, generationConfig}, metadata: {key} }
+    const formattedRequests = batchRequests.map((req, idx) => ({
+      request: {
+        contents: req.contents,
+        systemInstruction: req.systemInstruction,
+        generationConfig: req.generationConfig,
+      },
+      metadata: {
+        key: `slide_${idx}`, // Key for correlating responses
+      },
     }));
 
+    const batchEndpoint = `${GOOGLE_API_BASE}/models/${BATCH_MODEL}:batchGenerateContent`;
+    console.log(`[Batch] Submitting to: ${batchEndpoint}`);
+
     const batchResponse = await fetch(
-      `${GOOGLE_BATCH_API}?key=${googleApiKey}`,
+      batchEndpoint,
       {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'x-goog-api-key': googleApiKey,
         },
         body: JSON.stringify({
-          // Google Batch API format:
-          // - model: which model to use
-          // - src: array of inline requests (or file reference)
-          // - config: optional batch configuration
-          model: `models/${GEMINI_MODEL}`,
-          src: inlineRequests,
-          config: {
+          // Google Batch API REST format (not SDK format)
+          batch: {
             display_name: `slides-${instructor_course_id}-${Date.now()}`,
+            input_config: {
+              requests: {
+                requests: formattedRequests,
+              },
+            },
           },
         }),
       }
