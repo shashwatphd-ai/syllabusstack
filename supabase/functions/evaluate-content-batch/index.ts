@@ -6,6 +6,9 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Google Cloud API configuration
+const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+
 // Bloom's Taxonomy descriptions for evaluation context
 const BLOOM_EVALUATION_CRITERIA: Record<string, string> = {
   remember: "Does this video clearly introduce and explain key facts, definitions, and concepts? Look for clear explanations of WHAT things are.",
@@ -30,9 +33,9 @@ serve(async (req) => {
       });
     }
 
-    const lovableApiKey = Deno.env.get('LOVABLE_API_KEY');
-    if (!lovableApiKey) {
-      throw new Error('LOVABLE_API_KEY is not configured');
+    const googleApiKey = Deno.env.get('GOOGLE_CLOUD_API_KEY');
+    if (!googleApiKey) {
+      throw new Error('GOOGLE_CLOUD_API_KEY is not configured');
     }
 
     const { learning_objective, teaching_unit, videos } = await req.json();
@@ -184,39 +187,41 @@ Note: total_score = (relevance_score * 0.4) + (pedagogy_score * 0.35) + (quality
 
     console.log(`Evaluating ${videosToEvaluate.length} videos for LO: ${learning_objective.id}${hasTeachingUnit ? `, Teaching Unit: ${teaching_unit.id}` : ''}`);
 
-
-    const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    const url = `${GOOGLE_API_BASE}/models/gemini-2.5-flash:generateContent?key=${googleApiKey}`;
+    const aiResponse = await fetch(url, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${lovableApiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
+        contents: [
+          { role: 'user', parts: [{ text: userPrompt }] }
         ],
-        temperature: 0.3, // Lower temperature for more consistent scoring
+        systemInstruction: {
+          parts: [{ text: systemPrompt }]
+        },
+        generationConfig: {
+          temperature: 0.3, // Lower temperature for more consistent scoring
+        },
       }),
     });
 
     if (!aiResponse.ok) {
       const errorText = await aiResponse.text();
       console.error('AI API error:', aiResponse.status, errorText);
-      
+
       if (aiResponse.status === 429) {
         return new Response(JSON.stringify({ error: 'Rate limit exceeded, please try again later' }), {
           status: 429,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
-      
+
       throw new Error(`AI API error: ${aiResponse.status}`);
     }
 
     const aiData = await aiResponse.json();
-    const content = aiData.choices?.[0]?.message?.content;
+    const content = aiData.candidates?.[0]?.content?.parts?.[0]?.text;
 
     if (!content) {
       throw new Error('No content in AI response');

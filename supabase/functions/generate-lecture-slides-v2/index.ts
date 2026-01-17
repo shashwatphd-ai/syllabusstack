@@ -126,45 +126,63 @@ interface TeachingUnitContext {
 // AI GATEWAY HELPER
 // ============================================================================
 
-async function callLovableAI(
-  model: string, 
-  systemPrompt: string, 
+// Google Cloud API configuration
+const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+
+// Model mapping from old names to Google Cloud API model names
+const MODEL_MAP: Record<string, string> = {
+  'google/gemini-2.5-flash': 'gemini-2.5-flash',
+  'google/gemini-2.5-flash-lite': 'gemini-2.5-flash-lite',
+  'google/gemini-2.5-pro': 'gemini-2.5-pro',
+  'google/gemini-3-flash-preview': 'gemini-3-flash-preview',
+  'google/gemini-3-pro-preview': 'gemini-3-pro-preview',
+  'openai/gpt-5.2': 'gemini-3-pro-preview',
+};
+
+async function callGoogleAI(
+  model: string,
+  systemPrompt: string,
   userPrompt: string,
   temperature: number = 0.7
 ): Promise<string> {
-  const apiKey = Deno.env.get('LOVABLE_API_KEY');
-  if (!apiKey) throw new Error('LOVABLE_API_KEY not configured');
+  const apiKey = Deno.env.get('GOOGLE_CLOUD_API_KEY');
+  if (!apiKey) throw new Error('GOOGLE_CLOUD_API_KEY not configured');
 
-  console.log(`[AI] Calling ${model} with ${userPrompt.length} chars prompt`);
-  
-  const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+  // Map old model names to Google Cloud API model names
+  const googleModel = MODEL_MAP[model] || model;
+  console.log(`[AI] Calling ${googleModel} with ${userPrompt.length} chars prompt`);
+
+  const url = `${GOOGLE_API_BASE}/models/${googleModel}:generateContent?key=${apiKey}`;
+  const response = await fetch(url, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt }
+      contents: [
+        { role: 'user', parts: [{ text: userPrompt }] }
       ],
-      temperature,
+      systemInstruction: {
+        parts: [{ text: systemPrompt }]
+      },
+      generationConfig: {
+        temperature,
+      },
     }),
   });
 
   if (!response.ok) {
     const errText = await response.text();
-    console.error(`[AI] Error from ${model}:`, response.status, errText);
+    console.error(`[AI] Error from ${googleModel}:`, response.status, errText);
     throw new Error(`AI call failed: ${response.status}`);
   }
 
   const data = await response.json();
-  const content = data.choices?.[0]?.message?.content;
-  
+  const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
   if (!content) throw new Error('No content in AI response');
-  
-  console.log(`[AI] ${model} returned ${content.length} chars`);
+
+  console.log(`[AI] ${googleModel} returned ${content.length} chars`);
   return content;
 }
 
@@ -273,7 +291,7 @@ OUTPUT FORMAT (JSON):
 Extract at least 2 definitions, 3 examples, and identify any step-by-step processes if applicable.`;
 
   try {
-    const extractionResult = await callLovableAI(
+    const extractionResult = await callGoogleAI(
       'google/gemini-2.5-flash',
       'You are an educational content extractor. Extract structured, cited information from search results.',
       extractionPrompt,
@@ -472,7 +490,7 @@ OUTPUT FORMAT (JSON):
   "reasoning": "Brief explanation of the pedagogical rationale for this sequence"
 }`;
 
-  const result = await callLovableAI('openai/gpt-5.2', systemPrompt, userPrompt, 0.7);
+  const result = await callGoogleAI('openai/gpt-5.2', systemPrompt, userPrompt, 0.7);
   
   try {
     return parseJsonFromAI(result);
@@ -582,7 +600,7 @@ For EACH slide in the blueprint, generate complete content following this exact 
 
 Generate all ${blueprint.slides.length} slides with complete, educational content.`;
 
-  const result = await callLovableAI('google/gemini-2.5-pro', systemPrompt, userPrompt, 0.7);
+  const result = await callGoogleAI('google/gemini-2.5-pro', systemPrompt, userPrompt, 0.7);
   
   try {
     const parsed = parseJsonFromAI(result);
@@ -639,7 +657,7 @@ OUTPUT FORMAT (JSON):
 }`;
 
   try {
-    const result = await callLovableAI('google/gemini-2.5-flash', systemPrompt, userPrompt, 0.3);
+    const result = await callGoogleAI('google/gemini-2.5-flash', systemPrompt, userPrompt, 0.3);
     const validation = parseJsonFromAI(result);
     
     // Attach quality scores to slides

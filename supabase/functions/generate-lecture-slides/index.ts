@@ -7,6 +7,9 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Google Cloud API configuration
+const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+
 interface Slide {
   order: number;
   type: 'title' | 'objectives' | 'prerequisites' | 'concept' | 'example' | 
@@ -172,45 +175,47 @@ async function callAI(systemPrompt: string, userPrompt: string): Promise<{
   total_slides: number;
   estimated_duration_minutes: number;
 }> {
-  const lovableApiKey = Deno.env.get('LOVABLE_API_KEY');
-  
-  if (!lovableApiKey) {
-    throw new Error('LOVABLE_API_KEY not configured');
+  const googleApiKey = Deno.env.get('GOOGLE_CLOUD_API_KEY');
+
+  if (!googleApiKey) {
+    throw new Error('GOOGLE_CLOUD_API_KEY not configured');
   }
 
-  console.log('[generate-lecture-slides] Calling Lovable AI Gateway...');
-  
-  const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+  console.log('[generate-lecture-slides] Calling Google Cloud API...');
+
+  // Using gemini-3-pro-preview (mapped from openai/gpt-5.2) for pedagogical content
+  const url = `${GOOGLE_API_BASE}/models/gemini-3-pro-preview:generateContent?key=${googleApiKey}`;
+  const response = await fetch(url, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${lovableApiKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'openai/gpt-5.2', // Best reasoning model for pedagogical content
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt }
+      contents: [
+        { role: 'user', parts: [{ text: userPrompt }] }
       ],
+      systemInstruction: {
+        parts: [{ text: systemPrompt }]
+      },
     }),
   });
 
   if (!response.ok) {
     const error = await response.text();
-    console.error('[generate-lecture-slides] AI Gateway error:', error);
-    
+    console.error('[generate-lecture-slides] Google Cloud API error:', error);
+
     if (response.status === 429) {
       throw new Error('Rate limit exceeded. Please try again later.');
     }
     if (response.status === 402) {
       throw new Error('AI credits exhausted. Please add funds to your workspace.');
     }
-    
+
     throw new Error(`AI Gateway error: ${response.status}`);
   }
 
   const responseText = await response.text();
-  
+
   if (!responseText || responseText.trim() === '') {
     console.error('[generate-lecture-slides] Empty response from AI gateway');
     throw new Error('Empty response from AI gateway. Please try again.');
@@ -224,21 +229,21 @@ async function callAI(systemPrompt: string, userPrompt: string): Promise<{
     throw new Error('Invalid JSON from AI gateway');
   }
 
-  const content = data.choices?.[0]?.message?.content;
-  
+  const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
   if (!content) {
     throw new Error('No content in AI response');
   }
 
   console.log('[generate-lecture-slides] Raw AI response length:', content.length);
-  
+
   // Extract JSON from response (may be wrapped in markdown)
   let jsonContent = content;
   const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (jsonMatch) {
     jsonContent = jsonMatch[1].trim();
   }
-  
+
   try {
     return JSON.parse(jsonContent);
   } catch (e) {
@@ -435,7 +440,7 @@ serve(async (req) => {
         slides: normalizedSlides,
         total_slides: normalizedSlides.length,
         estimated_duration_minutes: result.estimated_duration_minutes || unit.target_duration_minutes,
-        generation_model: 'openai/gpt-5.2',
+        generation_model: 'gemini-3-pro-preview',
         generation_context: {
           teaching_unit_title: unit.title,
           learning_objective_text: lo.text,

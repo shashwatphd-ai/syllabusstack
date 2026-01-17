@@ -10,6 +10,9 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Google Cloud API configuration
+const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -25,9 +28,9 @@ serve(async (req) => {
       );
     }
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY is not configured");
+    const GOOGLE_CLOUD_API_KEY = Deno.env.get("GOOGLE_CLOUD_API_KEY");
+    if (!GOOGLE_CLOUD_API_KEY) {
+      throw new Error("GOOGLE_CLOUD_API_KEY is not configured");
     }
 
     console.log("Analyzing dream job:", jobTitle);
@@ -84,22 +87,7 @@ serve(async (req) => {
 
 ${JOB_REQUIREMENTS_PROMPT}`;
 
-        const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${LOVABLE_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: "google/gemini-2.5-flash",
-            messages: [
-              {
-                role: "system",
-                content: systemPrompt
-              },
-              {
-                role: "user",
-                content: `Analyze this dream job and provide REALISTIC requirements that employers actually look for:
+        const userContent = `Analyze this dream job and provide REALISTIC requirements that employers actually look for:
 
 JOB TITLE: ${jobTitle}
 ${companyType ? `COMPANY TYPE: ${companyType}` : ""}
@@ -112,18 +100,39 @@ Provide a comprehensive analysis including:
 4. Common misconceptions - what students think matters but doesn't
 5. Realistic bar - the minimum viable candidate profile
 
-Be specific to this role and company type. Use real industry knowledge.`
-              }
+Be specific to this role and company type. Use real industry knowledge.
+
+Return your response using the generate_job_requirements function.`;
+
+        const url = `${GOOGLE_API_BASE}/models/gemini-2.5-flash:generateContent?key=${GOOGLE_CLOUD_API_KEY}`;
+        const response = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            contents: [
+              { role: "user", parts: [{ text: userContent }] }
             ],
-            tools: [createToolDefinition(JOB_REQUIREMENTS_SCHEMA)],
-            tool_choice: createToolChoice(JOB_REQUIREMENTS_SCHEMA)
+            systemInstruction: {
+              parts: [{ text: systemPrompt }]
+            },
+            tools: [{
+              functionDeclarations: [JOB_REQUIREMENTS_SCHEMA]
+            }],
+            toolConfig: {
+              functionCallingConfig: {
+                mode: "ANY",
+                allowedFunctionNames: [JOB_REQUIREMENTS_SCHEMA.name]
+              }
+            }
           }),
         });
 
         if (!response.ok) {
           const errorText = await response.text();
-          console.error("AI gateway error:", response.status, errorText);
-          
+          console.error("Google Cloud API error:", response.status, errorText);
+
           if (response.status === 429) {
             return new Response(
               JSON.stringify({ error: "Rate limit exceeded. Please try again later." }),
@@ -142,12 +151,12 @@ Be specific to this role and company type. Use real industry knowledge.`
         const data = await response.json();
         console.log("AI response received");
 
-        const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
-        if (!toolCall?.function?.arguments) {
+        const functionCall = data.candidates?.[0]?.content?.parts?.[0]?.functionCall;
+        if (!functionCall?.args) {
           throw new Error("Invalid AI response format");
         }
+        const parsed = functionCall.args;
 
-        const parsed = JSON.parse(toolCall.function.arguments);
         requirements = parsed.requirements || [];
         description = parsed.description || null;
         salaryRange = parsed.salary_range || null;

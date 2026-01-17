@@ -148,54 +148,95 @@ interface TeachingUnitContext {
 }
 
 // ============================================================================
-// AI GATEWAY HELPER - Lovable AI
+// AI GATEWAY HELPER - Google Cloud Generative Language API
 // ============================================================================
+//
+// MIGRATION NOTES: Lovable AI Gateway → Google Cloud API
+//
+// WHAT CHANGED:
+// - API endpoint: ai.gateway.lovable.dev → generativelanguage.googleapis.com
+// - Authentication: API key passed as URL parameter (?key=...)
+// - Request format: Google's native format with systemInstruction and contents
+// - Image generation: Uses gemini-3-pro-image-preview with responseModalities: ['TEXT', 'IMAGE']
+// - Google Search grounding: Uses tools: [{ googleSearch: {} }] parameter
+//
+// EXPECTED OUTCOMES:
+// - callGoogleAI(): Same text generation with Gemini models
+// - generateImage(): Native image generation using Gemini 3 Pro Image model
+// - runResearchAgent(): Google Search grounding for verified, cited content
+//
+// MODEL MAPPING:
+// - google/gemini-3-pro-preview → gemini-3-pro-preview (complex reasoning, lectures)
+// - gemini-2.5-flash → Used for research agent (fast, with search grounding)
+// - gemini-3-pro-image-preview → Used for diagram/illustration generation
+//
 
-async function callLovableAI(
-  model: string, 
-  systemPrompt: string, 
+const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+
+// Map Lovable model names to Google Cloud model names
+const MODEL_MAP: Record<string, string> = {
+  'google/gemini-2.5-flash': 'gemini-2.5-flash',
+  'google/gemini-2.5-flash-lite': 'gemini-2.5-flash-lite',
+  'google/gemini-2.5-pro': 'gemini-2.5-pro',
+  'google/gemini-3-flash-preview': 'gemini-3-flash-preview',
+  'google/gemini-3-pro-preview': 'gemini-3-pro-preview',
+  'google/gemini-3-pro-image-preview': 'gemini-3-pro-image-preview',
+  'openai/gpt-5.2': 'gemini-3-pro-preview',
+  'openai/gpt-5': 'gemini-3-pro-preview',
+  'openai/gpt-5-mini': 'gemini-3-flash-preview',
+  'openai/gpt-5-nano': 'gemini-2.5-flash-lite',
+};
+
+async function callGoogleAI(
+  model: string,
+  systemPrompt: string,
   userPrompt: string,
   temperature: number = 0.7
 ): Promise<string> {
-  const apiKey = Deno.env.get('LOVABLE_API_KEY');
-  if (!apiKey) throw new Error('LOVABLE_API_KEY not configured');
+  const apiKey = Deno.env.get('GOOGLE_CLOUD_API_KEY');
+  if (!apiKey) throw new Error('GOOGLE_CLOUD_API_KEY not configured');
 
-  console.log(`[Professor AI] Calling ${model} with ${userPrompt.length} chars prompt`);
-  
-  const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+  const googleModel = MODEL_MAP[model] || model;
+  console.log(`[Professor AI] Calling ${googleModel} with ${userPrompt.length} chars prompt`);
+
+  const url = `${GOOGLE_API_BASE}/models/${googleModel}:generateContent?key=${apiKey}`;
+
+  const response = await fetch(url, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt }
+      contents: [
+        {
+          role: 'user',
+          parts: [{ text: userPrompt }],
+        },
       ],
-      temperature,
+      systemInstruction: {
+        parts: [{ text: systemPrompt }],
+      },
+      generationConfig: {
+        temperature,
+      },
     }),
   });
 
   if (!response.ok) {
     const errText = await response.text();
-    console.error(`[Professor AI] Error from ${model}:`, response.status, errText);
+    console.error(`[Professor AI] Error from ${googleModel}:`, response.status, errText);
     if (response.status === 429) {
       throw new Error('Rate limit exceeded. Please try again in a moment.');
-    }
-    if (response.status === 402) {
-      throw new Error('AI credits exhausted. Please add funds to continue.');
     }
     throw new Error(`AI call failed: ${response.status}`);
   }
 
   const data = await response.json();
-  const content = data.choices?.[0]?.message?.content;
-  
+  const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
   if (!content) throw new Error('No content in AI response');
-  
-  console.log(`[Professor AI] ${model} returned ${content.length} chars`);
+
+  console.log(`[Professor AI] ${googleModel} returned ${content.length} chars`);
   return content;
 }
 
@@ -203,25 +244,30 @@ async function generateImage(
   prompt: string,
   slideTitle: string
 ): Promise<{ base64: string; text?: string } | null> {
-  const apiKey = Deno.env.get('LOVABLE_API_KEY');
+  const apiKey = Deno.env.get('GOOGLE_CLOUD_API_KEY');
   if (!apiKey) return null;
 
   console.log(`[Visual AI] Generating image for: ${slideTitle}`);
 
   try {
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    const model = 'gemini-3-pro-image-preview';
+    const url = `${GOOGLE_API_BASE}/models/${model}:generateContent?key=${apiKey}`;
+
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-3-pro-image-preview',
-        messages: [{
-          role: 'user',
-          content: prompt
-        }],
-        modalities: ['image', 'text'],
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text: prompt }],
+          },
+        ],
+        generationConfig: {
+          responseModalities: ['TEXT', 'IMAGE'],
+        },
       }),
     });
 
@@ -231,12 +277,21 @@ async function generateImage(
     }
 
     const data = await response.json();
-    const imageUrl = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
-    const text = data.choices?.[0]?.message?.content;
-    
-    if (imageUrl && imageUrl.startsWith('data:image')) {
-      // Extract base64 from data URL
-      const base64 = imageUrl.split(',')[1];
+    const parts = data.candidates?.[0]?.content?.parts || [];
+
+    let text: string | undefined;
+    let base64: string | undefined;
+
+    for (const part of parts) {
+      if (part.text) {
+        text = part.text;
+      }
+      if (part.inlineData) {
+        base64 = part.inlineData.data;
+      }
+    }
+
+    if (base64) {
       return { base64, text };
     }
 
@@ -505,9 +560,9 @@ async function runResearchAgent(
 ): Promise<ResearchContext> {
   console.log('[Research Agent] Starting grounded research for:', context.title);
 
-  const apiKey = Deno.env.get('LOVABLE_API_KEY');
+  const apiKey = Deno.env.get('GOOGLE_CLOUD_API_KEY');
   if (!apiKey) {
-    console.warn('[Research Agent] LOVABLE_API_KEY not configured');
+    console.warn('[Research Agent] GOOGLE_CLOUD_API_KEY not configured');
     return getEmptyResearchContext(context.title);
   }
 
@@ -569,17 +624,25 @@ REQUIRED OUTPUT FORMAT (JSON only, no markdown):
 Search now and return ONLY verified, factually grounded content.`;
 
   try {
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    const model = 'gemini-2.5-flash';
+    const url = `${GOOGLE_API_BASE}/models/${model}:generateContent?key=${apiKey}`;
+
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
-        messages: [{ role: 'user', content: researchPrompt }],
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text: researchPrompt }],
+          },
+        ],
         tools: [{ googleSearch: {} }], // Enable Google Search grounding
-        temperature: 0.3,
+        generationConfig: {
+          temperature: 0.3,
+        },
       }),
     });
 
@@ -588,19 +651,15 @@ Search now and return ONLY verified, factually grounded content.`;
         console.warn('[Research Agent] Rate limited, returning empty context');
         return getEmptyResearchContext(context.title);
       }
-      if (response.status === 402) {
-        console.warn('[Research Agent] Credits exhausted, returning empty context');
-        return getEmptyResearchContext(context.title);
-      }
       console.warn('[Research Agent] Search call failed:', response.status);
       return getEmptyResearchContext(context.title);
     }
 
     const data = await response.json();
-    const content = data.choices?.[0]?.message?.content || '';
+    const content = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
     // Extract grounding metadata if available
-    const groundingMetadata = data.choices?.[0]?.groundingMetadata;
+    const groundingMetadata = data.candidates?.[0]?.groundingMetadata;
 
     // Parse the structured response
     let researchContext: ResearchContext;
@@ -963,7 +1022,7 @@ OUTPUT (JSON array of slides):
 CRITICAL: Every slide MUST have speaker_notes with 200-300 words. Never leave speaker_notes empty or short.
 Generate all ${targetSlides} slides now with RICH, EDUCATIONAL content and LAYOUT HINTS for every key_point.`;
 
-  const result = await callLovableAI(
+  const result = await callGoogleAI(
     'google/gemini-3-pro-preview',
     PROFESSOR_SYSTEM_PROMPT,
     userPrompt,
@@ -1379,7 +1438,7 @@ serve(async (req) => {
           research_context: researchContext.grounded_content.length > 0 ? researchContext : null,
           citation_count: researchContext.grounded_content.length,
           estimated_duration_minutes: Math.round(initialSlides.length * 1.5),
-          generation_model: 'google/gemini-3-pro-preview',
+          generation_model: 'gemini-3-pro-preview',
         })
         .eq('id', slideRecordId);
 

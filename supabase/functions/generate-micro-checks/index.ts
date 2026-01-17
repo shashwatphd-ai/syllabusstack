@@ -6,6 +6,9 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Google Cloud API configuration
+const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+
 interface MicroCheckRequest {
   content_id: string;
   learning_objective_id: string;
@@ -33,7 +36,7 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const lovableApiKey = Deno.env.get('LOVABLE_API_KEY');
+    const googleApiKey = Deno.env.get('GOOGLE_CLOUD_API_KEY');
     
     const supabase = createClient(supabaseUrl, supabaseKey);
 
@@ -105,23 +108,23 @@ Return a JSON array with exactly ${num_checks} objects in this format:
 
 Return ONLY the JSON array, no other text.`;
 
-    // Use Lovable AI Gateway
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    // Use Google Cloud API
+    const url = `${GOOGLE_API_BASE}/models/gemini-2.5-flash:generateContent?key=${googleApiKey}`;
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${lovableApiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
-        messages: [
-          { 
-            role: 'system', 
-            content: 'You are an educational assessment expert. Generate micro-check questions in valid JSON format only.' 
-          },
-          { role: 'user', content: prompt }
+        contents: [
+          { role: 'user', parts: [{ text: prompt }] }
         ],
-        temperature: 0.7,
+        systemInstruction: {
+          parts: [{ text: 'You are an educational assessment expert. Generate micro-check questions in valid JSON format only.' }]
+        },
+        generationConfig: {
+          temperature: 0.7,
+        },
       }),
     });
 
@@ -132,7 +135,7 @@ Return ONLY the JSON array, no other text.`;
     }
 
     const aiData = await response.json();
-    const generatedText = aiData.choices[0]?.message?.content;
+    const generatedText = aiData.candidates?.[0]?.content?.parts?.[0]?.text;
 
     if (!generatedText) {
       throw new Error('No response from AI');

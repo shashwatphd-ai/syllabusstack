@@ -90,10 +90,8 @@ serve(async (req) => {
       );
     }
 
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-    if (!LOVABLE_API_KEY) {
-      console.warn('LOVABLE_API_KEY not set - AI narration and SSML will be disabled');
-    }
+    // GOOGLE_CLOUD_API_KEY is used for AI narration and SSML features
+    // (already checked above)
 
     // Create Supabase client with service role
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -137,7 +135,7 @@ serve(async (req) => {
       let narrationText = slide.speaker_notes || '';
 
       // PHASE 1: Generate AI narration if needed
-      if (LOVABLE_API_KEY && needsNarration(narrationText)) {
+      if (GOOGLE_CLOUD_API_KEY && needsNarration(narrationText)) {
         console.log(`Slide ${i + 1}: Generating AI narration...`);
         try {
           narrationText = await generateNarration(
@@ -153,7 +151,7 @@ serve(async (req) => {
               unitTitle,
               domain,
             },
-            LOVABLE_API_KEY
+            GOOGLE_CLOUD_API_KEY
           );
           console.log(`Slide ${i + 1}: AI narration generated (${narrationText.length} chars)`);
         } catch (err) {
@@ -173,7 +171,7 @@ serve(async (req) => {
       // PHASE 2: Transform narration to SSML for natural prosody
       let ttsInput: { text?: string; ssml?: string } = { text: narrationText };
       
-      if (enableSSML && LOVABLE_API_KEY && !isSSML(narrationText)) {
+      if (enableSSML && GOOGLE_CLOUD_API_KEY && !isSSML(narrationText)) {
         console.log(`Slide ${i + 1}: Transforming to SSML...`);
         try {
           const ssmlOutput = await transformToSSML(
@@ -186,7 +184,7 @@ serve(async (req) => {
               hasExample: !!slide.content?.example,
               hasSteps: !!(slide.content?.steps?.length),
             },
-            LOVABLE_API_KEY
+            GOOGLE_CLOUD_API_KEY
           );
           
           if (isSSML(ssmlOutput)) {
@@ -271,7 +269,7 @@ serve(async (req) => {
         // PHASE 4: Map audio segments to content blocks for sync highlighting
         let audioSegmentMap: SlideWithAudio['audio_segment_map'] = undefined;
         
-        if (enableSegmentMapping && LOVABLE_API_KEY) {
+        if (enableSegmentMapping && GOOGLE_CLOUD_API_KEY) {
           console.log(`Slide ${i + 1}: Mapping audio segments...`);
           try {
             audioSegmentMap = await mapAudioSegments(
@@ -281,7 +279,7 @@ serve(async (req) => {
                 speaker_notes: narrationText,
               },
               estimatedDuration,
-              LOVABLE_API_KEY
+              GOOGLE_CLOUD_API_KEY
             );
             console.log(`Slide ${i + 1}: Mapped ${audioSegmentMap?.length || 0} segments`);
           } catch (err) {

@@ -6,6 +6,9 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Google Cloud API configuration
+const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+
 interface SubmitAnswerRequest {
   session_id: string;
   question_id: string;
@@ -22,7 +25,7 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
-    const lovableApiKey = Deno.env.get('LOVABLE_API_KEY');
+    const googleApiKey = Deno.env.get('GOOGLE_CLOUD_API_KEY');
 
     // Server-side timestamp for validation
     const serverReceivedAt = new Date();
@@ -214,7 +217,7 @@ serve(async (req) => {
       }
 
       // AI evaluation for complex short answers
-      if (!isCorrect && user_answer.length > 10 && lovableApiKey) {
+      if (!isCorrect && user_answer.length > 10 && googleApiKey) {
         try {
           const aiPrompt = `Evaluate if this student answer is correct.
 
@@ -232,24 +235,25 @@ Consider:
 Respond with JSON only:
 {"is_correct": true/false, "confidence": 0.0-1.0, "reasoning": "brief explanation"}`;
 
-          const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+          const url = `${GOOGLE_API_BASE}/models/gemini-2.5-flash-lite:generateContent?key=${googleApiKey}`;
+          const response = await fetch(url, {
             method: 'POST',
             headers: {
-              'Authorization': `Bearer ${lovableApiKey}`,
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'google/gemini-2.5-flash-lite',
-              messages: [
-                { role: 'system', content: 'You are an educational assessment evaluator. Return only valid JSON.' },
-                { role: 'user', content: aiPrompt }
+              contents: [
+                { role: 'user', parts: [{ text: aiPrompt }] }
               ],
+              systemInstruction: {
+                parts: [{ text: 'You are an educational assessment evaluator. Return only valid JSON.' }]
+              },
             }),
           });
 
           if (response.ok) {
             const aiData = await response.json();
-            const aiText = aiData.choices[0]?.message?.content;
+            const aiText = aiData.candidates?.[0]?.content?.parts?.[0]?.text;
             const jsonMatch = aiText?.match(/\{[\s\S]*\}/);
             if (jsonMatch) {
               const aiResult = JSON.parse(jsonMatch[0]);

@@ -13,6 +13,9 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Google Cloud API configuration
+const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -139,9 +142,9 @@ serve(async (req) => {
     };
     // --- END PHASE 5 PRE-ANALYSIS ---
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY is not configured");
+    const GOOGLE_CLOUD_API_KEY = Deno.env.get("GOOGLE_CLOUD_API_KEY");
+    if (!GOOGLE_CLOUD_API_KEY) {
+      throw new Error("GOOGLE_CLOUD_API_KEY is not configured");
     }
 
     // Format capabilities with proficiency info
@@ -183,22 +186,7 @@ Note: This is keyword-based analysis. Use your judgment to refine - some capabil
 
 ${GAP_ANALYSIS_PROMPT}`;
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          {
-            role: "system",
-            content: systemPrompt
-          },
-          {
-            role: "user",
-            content: `Perform a BRUTALLY HONEST gap analysis for this student:
+    const userContent = `Perform a BRUTALLY HONEST gap analysis for this student:
 
 DREAM JOB: ${dreamJob.title}
 ${dreamJob.company_type ? `Company Type: ${dreamJob.company_type}` : ""}
@@ -227,11 +215,32 @@ Focus on:
 2. What they CANNOT yet do (critical gaps)
 3. Where they have partial foundations to build on
 4. A brutally honest overall assessment
-5. Specific priority gaps to address first`
-          }
+5. Specific priority gaps to address first
+
+Return your response using the generate_gap_analysis function.`;
+
+    const url = `${GOOGLE_API_BASE}/models/gemini-2.5-flash:generateContent?key=${GOOGLE_CLOUD_API_KEY}`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        contents: [
+          { role: "user", parts: [{ text: userContent }] }
         ],
-        tools: [createToolDefinition(GAP_ANALYSIS_SCHEMA)],
-        tool_choice: createToolChoice(GAP_ANALYSIS_SCHEMA)
+        systemInstruction: {
+          parts: [{ text: systemPrompt }]
+        },
+        tools: [{
+          functionDeclarations: [GAP_ANALYSIS_SCHEMA]
+        }],
+        toolConfig: {
+          functionCallingConfig: {
+            mode: "ANY",
+            allowedFunctionNames: [GAP_ANALYSIS_SCHEMA.name]
+          }
+        }
       }),
     });
 
@@ -255,12 +264,12 @@ Focus on:
     }
 
     const data = await response.json();
-    const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
-    if (!toolCall?.function?.arguments) {
+    const functionCall = data.candidates?.[0]?.content?.parts?.[0]?.functionCall;
+    if (!functionCall?.args) {
       throw new Error("Invalid AI response format");
     }
 
-    const analysis = JSON.parse(toolCall.function.arguments);
+    const analysis = functionCall.args;
 
     // Blend keyword-based score with AI analysis for final score
     // Weight: 30% keyword, 70% AI assessment

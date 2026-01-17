@@ -3,6 +3,12 @@
  *
  * Extracts domain-specific terms from instructor_courses and learns synonyms automatically.
  * No hardcoded concept lists - everything is derived from the syllabus content.
+ *
+ * MIGRATION NOTES: Uses Google Cloud Generative Language API directly
+ * - API endpoint: generativelanguage.googleapis.com/v1beta
+ * - Model: gemini-2.5-flash for fast synonym learning
+ * - API key: GOOGLE_CLOUD_API_KEY environment variable (standardized from GEMINI_API_KEY)
+ * - Request format: Google's native format with contents and generationConfig
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
@@ -179,9 +185,9 @@ export async function learnSynonymsWithAI(
   context: string[],
   domain: string
 ): Promise<string[]> {
-  const geminiApiKey = Deno.env.get('GEMINI_API_KEY') || Deno.env.get('GOOGLE_AI_API_KEY');
-  if (!geminiApiKey) {
-    console.log('[DYNAMIC-TERMS] No AI API key, skipping synonym learning');
+  const apiKey = Deno.env.get('GOOGLE_CLOUD_API_KEY');
+  if (!apiKey) {
+    console.log('[DYNAMIC-TERMS] No GOOGLE_CLOUD_API_KEY, skipping synonym learning');
     return [];
   }
 
@@ -194,7 +200,7 @@ ${context.slice(0, 2).map(c => `- "${c}"`).join('\n')}
 Return ONLY a JSON array of strings, no explanation. Example: ["synonym1", "synonym2", "synonym3"]`;
 
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

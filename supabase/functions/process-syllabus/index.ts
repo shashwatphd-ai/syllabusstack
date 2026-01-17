@@ -88,12 +88,15 @@ interface DomainConfig {
 // DOMAIN ANALYZER - AI-powered domain classification
 // ============================================================================
 
+// Google Cloud API configuration
+const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+
 async function analyzeDomainWithAI(
-  syllabusText: string, 
-  lovableApiKey: string
+  syllabusText: string,
+  googleApiKey: string
 ): Promise<DomainConfig> {
   console.log('[DOMAIN-ANALYZER] Starting AI-powered domain analysis');
-  
+
   const metaPrompt = `You are an Academic Director analyzing a course syllabus to determine research strategy.
 
 SYLLABUS TEXT:
@@ -135,16 +138,19 @@ CRITICAL RULES:
 4. Match academic_level to the syllabus complexity`;
 
   try {
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    const url = `${GOOGLE_API_BASE}/models/gemini-2.5-flash:generateContent?key=${googleApiKey}`;
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${lovableApiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
-        messages: [{ role: 'user', content: metaPrompt }],
-        temperature: 0.3,
+        contents: [
+          { role: 'user', parts: [{ text: metaPrompt }] }
+        ],
+        generationConfig: {
+          temperature: 0.3,
+        },
       }),
     });
 
@@ -154,7 +160,7 @@ CRITICAL RULES:
     }
 
     const data = await response.json();
-    const content = data.choices?.[0]?.message?.content || '';
+    const content = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
     try {
       const cleaned = content.replace(/```json?\n?|\n?```/g, '').trim();
@@ -254,13 +260,9 @@ serve(async (req: Request) => {
 
   try {
     const GOOGLE_CLOUD_API_KEY = Deno.env.get("GOOGLE_CLOUD_API_KEY");
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    
+
     if (!GOOGLE_CLOUD_API_KEY) {
       throw new Error("GOOGLE_CLOUD_API_KEY is not configured");
-    }
-    if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY is not configured");
     }
 
     const authHeader = req.headers.get("Authorization");
@@ -399,7 +401,7 @@ Do NOT summarize - extract the complete text content.`
     console.log('[PROCESS-SYLLABUS] Starting AI-powered domain analysis');
     
     // Generate comprehensive domain configuration using AI
-    const domainConfig = await analyzeDomainWithAI(extractedText, LOVABLE_API_KEY);
+    const domainConfig = await analyzeDomainWithAI(extractedText, GOOGLE_CLOUD_API_KEY);
     console.log(`[PROCESS-SYLLABUS] Generated domain config for: ${domainConfig.domain}`);
     console.log(`[PROCESS-SYLLABUS] Trusted sites: ${domainConfig.trusted_sites.slice(0, 3).join(', ')}`);
     
@@ -480,16 +482,15 @@ RULES:
 7. Course-level objectives (that apply to the whole course) should go in "unassigned_objectives"
 8. If an objective seems relevant to multiple modules, assign it to the MOST specific module or to unassigned_objectives`;
 
-    const structureResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const structureUrl = `${GOOGLE_API_BASE}/models/gemini-2.5-flash:generateContent?key=${GOOGLE_CLOUD_API_KEY}`;
+    const structureResponse = await fetch(structureUrl, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          { role: "user", content: structurePrompt },
+        contents: [
+          { role: "user", parts: [{ text: structurePrompt }] },
         ],
       }),
     });
@@ -502,12 +503,12 @@ RULES:
         throw new Error("AI credits exhausted. Please add credits to continue.");
       }
       const errorText = await structureResponse.text();
-      console.error("AI gateway error:", structureResponse.status, errorText);
+      console.error("Google Cloud API error:", structureResponse.status, errorText);
       throw new Error(`AI analysis failed: ${structureResponse.status}`);
     }
 
     const structureData = await structureResponse.json();
-    const content = structureData.choices?.[0]?.message?.content;
+    const content = structureData.candidates?.[0]?.content?.parts?.[0]?.text;
 
     if (!content) {
       throw new Error("No content returned from AI");

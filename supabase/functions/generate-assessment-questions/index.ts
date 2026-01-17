@@ -7,6 +7,9 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Google Cloud API configuration
+const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+
 /**
  * Assessment Question Generation Schema
  * Generates MCQ and short answer questions from learning objectives
@@ -114,9 +117,9 @@ serve(async (req) => {
   }
 
   try {
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY is not configured");
+    const GOOGLE_CLOUD_API_KEY = Deno.env.get("GOOGLE_CLOUD_API_KEY");
+    if (!GOOGLE_CLOUD_API_KEY) {
+      throw new Error("GOOGLE_CLOUD_API_KEY is not configured");
     }
 
     const authHeader = req.headers.get("Authorization");
@@ -184,43 +187,39 @@ Include a mix of:
 For each multiple choice question, provide exactly 4 options with one correct answer.
 For short answer questions, include keywords that indicate correct understanding.`;
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const url = `${GOOGLE_API_BASE}/models/gemini-2.5-flash:generateContent?key=${GOOGLE_CLOUD_API_KEY}`;
+    const response = await fetch(url, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          {
-            role: "system",
-            content: QUESTION_GENERATION_PROMPT
-          },
-          {
-            role: "user",
-            content: userPrompt
-          }
+        contents: [
+          { role: "user", parts: [{ text: userPrompt + "\n\nReturn your response using the generate_questions function." }] }
         ],
+        systemInstruction: {
+          parts: [{ text: QUESTION_GENERATION_PROMPT }]
+        },
         tools: [{
-          type: "function",
-          function: {
+          functionDeclarations: [{
             name: QUESTION_GENERATION_SCHEMA.name,
             description: QUESTION_GENERATION_SCHEMA.description,
             parameters: QUESTION_GENERATION_SCHEMA.parameters
-          }
+          }]
         }],
-        tool_choice: { 
-          type: "function", 
-          function: { name: QUESTION_GENERATION_SCHEMA.name } 
+        toolConfig: {
+          functionCallingConfig: {
+            mode: "ANY",
+            allowedFunctionNames: [QUESTION_GENERATION_SCHEMA.name]
+          }
         }
       }),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("AI gateway error:", response.status, errorText);
-      
+      console.error("Google Cloud API error:", response.status, errorText);
+
       if (response.status === 429) {
         return new Response(
           JSON.stringify({ error: "Rate limit exceeded. Please try again later." }),
@@ -239,13 +238,13 @@ For short answer questions, include keywords that indicate correct understanding
     const data = await response.json();
     console.log("AI response received");
 
-    // Extract questions from tool call response
-    const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
-    if (!toolCall?.function?.arguments) {
+    // Extract questions from function call response
+    const functionCall = data.candidates?.[0]?.content?.parts?.[0]?.functionCall;
+    if (!functionCall?.args) {
       throw new Error("Invalid AI response format");
     }
 
-    const parsed = JSON.parse(toolCall.function.arguments);
+    const parsed = functionCall.args;
     const questions = parsed.questions || [];
 
     console.log(`Generated ${questions.length} questions`);
