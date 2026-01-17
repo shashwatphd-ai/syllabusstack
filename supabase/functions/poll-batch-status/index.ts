@@ -298,7 +298,20 @@ async function processCompletedBatch(
   // For inline batches, results are in googleStatus.inlined_responses (REST API)
   // or googleStatus.responses (SDK format)
   // For file-based batches, need to download from output URI
-  const responses = googleStatus.inlined_responses || googleStatus.responses || [];
+  // Note: Response location may vary by API version, check dest.* as fallback
+  const responses =
+    googleStatus.inlined_responses ||
+    googleStatus.dest?.inlined_responses ||
+    googleStatus.responses ||
+    googleStatus.dest?.responses ||
+    [];
+
+  // Debug logging for response structure
+  console.log('[Poll] Google response keys:', JSON.stringify(Object.keys(googleStatus)));
+  if (googleStatus.dest) {
+    console.log('[Poll] dest keys:', JSON.stringify(Object.keys(googleStatus.dest)));
+  }
+  console.log(`[Poll] Found ${responses.length} responses`);
 
   if (responses.length === 0) {
     console.log('[Poll] No inline responses, batch may use file output');

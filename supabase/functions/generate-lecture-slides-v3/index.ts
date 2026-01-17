@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { MODEL_CONFIG } from '../_shared/ai-orchestrator.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -145,6 +146,7 @@ interface TeachingUnitContext {
   }[];
   sequence_position: number;
   total_siblings: number;
+  domain_config?: DomainConfig | null;
 }
 
 // ============================================================================
@@ -370,7 +372,7 @@ async function fetchTeachingUnitContext(
   // 3) Course (used for domain + syllabus grounding)
   const { data: course, error: courseError } = await supabase
     .from('instructor_courses')
-    .select('id, title, detected_domain, code, syllabus_text, instructor_id')
+    .select('id, title, detected_domain, code, syllabus_text, instructor_id, domain_config')
     .eq('id', lo.instructor_course_id)
     .maybeSingle();
 
@@ -471,6 +473,7 @@ async function fetchTeachingUnitContext(
     })),
     sequence_position: currentIndex >= 0 ? currentIndex + 1 : 1,
     total_siblings: siblings.length,
+    domain_config: course.domain_config as DomainConfig | null,
   };
 
   console.log('[Context] Context built:', {
@@ -624,13 +627,14 @@ REQUIRED OUTPUT FORMAT (JSON only, no markdown):
 Search now and return ONLY verified, factually grounded content.`;
 
   try {
-    const model = 'gemini-2.5-flash';
-    const url = `${GOOGLE_API_BASE}/models/${model}:generateContent?key=${apiKey}`;
+    const model = MODEL_CONFIG.GEMINI_FLASH;
+    const url = `${GOOGLE_API_BASE}/models/${model}:generateContent`;
 
     const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
       },
       body: JSON.stringify({
         contents: [
@@ -1023,7 +1027,7 @@ CRITICAL: Every slide MUST have speaker_notes with 200-300 words. Never leave sp
 Generate all ${targetSlides} slides now with RICH, EDUCATIONAL content and LAYOUT HINTS for every key_point.`;
 
   const result = await callGoogleAI(
-    'google/gemini-3-pro-preview',
+    MODEL_CONFIG.GEMINI_PRO,
     PROFESSOR_SYSTEM_PROMPT,
     userPrompt,
     0.7
@@ -1170,6 +1174,7 @@ function mergeSlideswithVisuals(
         fallback_description: slide.visual_directive?.description || '',
         elements: slide.visual_directive?.elements || [],
         style: slide.visual_directive?.style || '',
+        educational_purpose: slide.visual_directive?.educational_purpose || '',
       },
       speaker_notes: slide.speaker_notes || '',
       speaker_notes_duration_seconds: slide.estimated_seconds || 60,
@@ -1335,24 +1340,15 @@ serve(async (req) => {
     console.log('[Main] Slide record:', slideRecordId);
 
     try {
-      // PHASE 2A: Fetch domain config for research strategy
-      console.log('[Main] === PHASE 2A: DOMAIN CONFIG ===');
-      const { data: courseData } = await supabase
-        .from('instructor_courses')
-        .select('domain_config')
-        .eq('id', context.course.id)
-        .single();
-
-      const domainConfig = courseData?.domain_config as DomainConfig | null;
-      console.log('[Main] Domain config:', domainConfig?.domain || 'not configured');
-
-      // PHASE 2B: Research Agent - Google Search Grounding
-      console.log('[Main] === PHASE 2B: RESEARCH AGENT ===');
+      // PHASE 2: Research Agent - Google Search Grounding
+      // Note: domain_config is now fetched with course data in fetchTeachingUnitContext
+      console.log('[Main] === PHASE 2: RESEARCH AGENT ===');
+      console.log('[Main] Domain config:', context.domain_config?.domain || 'not configured');
       await updateProgress(supabase, slideRecordId, 'research', 10, 'Research Agent: Gathering verified sources...');
 
       let researchContext: ResearchContext;
       try {
-        researchContext = await runResearchAgent(context, domainConfig);
+        researchContext = await runResearchAgent(context, context.domain_config || null);
         await updateProgress(supabase, slideRecordId, 'research', 30, `Found ${researchContext.grounded_content.length} verified sources`);
       } catch (researchError) {
         console.warn('[Main] Research failed, continuing without grounding:', researchError);
@@ -1398,6 +1394,7 @@ serve(async (req) => {
           fallback_description: slide.visual_directive?.description || '',
           elements: slide.visual_directive?.elements || [],
           style: slide.visual_directive?.style || '',
+          educational_purpose: slide.visual_directive?.educational_purpose || '',
         },
         speaker_notes: slide.speaker_notes || '',
         speaker_notes_duration_seconds: slide.estimated_seconds || 60,
