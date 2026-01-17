@@ -297,18 +297,21 @@ async function processCompletedBatch(
   let succeededCount = 0;
   let failedCount = 0;
 
-  for (const response of responses) {
-    const key = response.key;
-    const teachingUnitId = requestMapping[key];
+  // Process responses by index (batchGenerateContent returns in same order)
+  for (let i = 0; i < responses.length; i++) {
+    const response = responses[i];
+    // Support both index-based (new) and key-based (legacy) mapping
+    const teachingUnitId = requestMapping[i] || requestMapping[`slide_${i}`];
 
     if (!teachingUnitId) {
-      console.warn(`[Poll] No mapping for key ${key}`);
+      console.warn(`[Poll] No mapping for index ${i}`);
       continue;
     }
 
     try {
+      // Handle error in response
       if (response.error) {
-        console.error(`[Poll] Error for ${key}:`, response.error);
+        console.error(`[Poll] Error for index ${i}:`, response.error);
         failedCount++;
 
         await supabase
@@ -322,11 +325,12 @@ async function processCompletedBatch(
         continue;
       }
 
-      // Extract content from response
-      const content = response.response?.candidates?.[0]?.content?.parts?.[0]?.text;
+      // Extract content from response (support both formats)
+      const content = response.candidates?.[0]?.content?.parts?.[0]?.text ||
+                      response.response?.candidates?.[0]?.content?.parts?.[0]?.text;
 
       if (!content) {
-        console.warn(`[Poll] No content for ${key}`);
+        console.warn(`[Poll] No content for index ${i}`);
         failedCount++;
         continue;
       }
@@ -339,7 +343,7 @@ async function processCompletedBatch(
         const parsed = JSON.parse(jsonStr);
         slides = parsed.slides || parsed;
       } catch (parseError) {
-        console.error(`[Poll] JSON parse error for ${key}:`, parseError);
+        console.error(`[Poll] JSON parse error for index ${i}:`, parseError);
         failedCount++;
 
         await supabase
@@ -399,7 +403,7 @@ async function processCompletedBatch(
       console.log(`[Poll] Saved ${formattedSlides.length} slides for ${teachingUnitId}`);
 
     } catch (err) {
-      console.error(`[Poll] Error processing ${key}:`, err);
+      console.error(`[Poll] Error processing index ${i}:`, err);
       failedCount++;
     }
   }
