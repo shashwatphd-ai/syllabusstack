@@ -1,6 +1,37 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
+// ============================================================================
+// DEPRECATED: Queue-based slide generation
+// ============================================================================
+//
+// THIS FUNCTION IS DEPRECATED - Use submit-batch-slides instead
+//
+// WHY DEPRECATED:
+//   - Queue system is inefficient (MAX_CONCURRENT = 2)
+//   - No cost savings (pays full API price)
+//   - Complex error handling prone to "stuck" states
+//   - Poor user visibility ("2 active, 83 queued" is confusing)
+//
+// NEW SYSTEM:
+//   - submit-batch-slides: Submit all slides to Google Batch API
+//   - poll-batch-status: Check batch job progress
+//   - 50% cost savings via Batch API discount
+//   - Simpler architecture, better UX
+//
+// MIGRATION PATH:
+//   1. Frontend updated to use submit-batch-slides for "Generate All"
+//   2. This function processes any remaining queue items
+//   3. After migration complete, remove queue-bulk and process-next actions
+//   4. Keep cleanup-stuck for legacy stuck items
+//
+// KEPT ACTIONS:
+//   - cleanup-stuck: Reset items stuck in 'generating' state
+//   - retry-failed: Reset failed items for retry
+//   - get-status: Returns status (for backwards compatibility during migration)
+//
+// ============================================================================
+
 // Declare EdgeRuntime for background tasks
 declare const EdgeRuntime: {
   waitUntil: (promise: Promise<unknown>) => void;
@@ -12,6 +43,7 @@ const corsHeaders = {
 };
 
 // Maximum concurrent generations to prevent rate limiting
+// DEPRECATED: Batch API doesn't need this limit
 const MAX_CONCURRENT = 2;
 
 // Timeout threshold for stuck "generating" records (in minutes)
