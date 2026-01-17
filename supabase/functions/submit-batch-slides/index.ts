@@ -48,18 +48,18 @@ const corsHeaders = {
 const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 // Model configuration - use orchestrator's MODEL_CONFIG for consistency
-// Batch uses flash for cost optimization (50% discount + cheaper model)
-// For premium quality, users should use single slide generation (v3)
-// which uses GEMINI_PRO for complex reasoning
-const BATCH_MODEL = MODEL_CONFIG.GEMINI_FLASH;
+// CRITICAL: Batch MUST use the same model as v3 for quality parity.
+// Cost savings come from Google's 50% batch API discount, NOT from
+// degrading model quality. Both v3 and batch use GEMINI_PRO.
+const BATCH_MODEL = MODEL_CONFIG.GEMINI_PRO;
 
 // ============================================================================
-// PROFESSOR SYSTEM PROMPT (Same as v3 - for consistency)
+// PROFESSOR SYSTEM PROMPT - Full version matching generate-lecture-slides-v3
 // ============================================================================
 //
-// NOTE: This is intentionally duplicated from generate-lecture-slides-v3
-// to keep this function self-contained and avoid import issues.
-// Any changes to prompts should be made in BOTH places.
+// CRITICAL: This MUST be identical to generate-lecture-slides-v3 for quality parity.
+// The 50% cost savings comes from Google's batch API discount, NOT from
+// degrading prompt quality. Any changes here must be mirrored in v3.
 //
 
 const PROFESSOR_SYSTEM_PROMPT = `You are an expert university professor creating comprehensive, self-contained lecture slides. You have decades of teaching experience, deep subject matter expertise, and mastery of evidence-based pedagogy.
@@ -74,39 +74,162 @@ CORE TEACHING PHILOSOPHY:
 - Build understanding step-by-step, never assuming the student will "figure it out"
 - Anticipate confusion and address it proactively
 
-SLIDE TYPES (use appropriately):
-- title: Opening that hooks attention with real-world relevance
-- hook: Why students should care—use statistics, trends, career implications
-- recap: Connect to prerequisites with specific callbacks
-- definition: COMPREHENSIVE treatment—formal definition + explanation + significance
-- explanation: Detailed conceptual exploration with reasoning
-- example: Rich, detailed real-world application
-- demonstration: Step-by-step walkthrough with explicit reasoning
-- process: Multi-step procedures with clear explanations
-- misconception: Directly address wrong beliefs
-- practice: Guided mental exercise with thinking prompts
-- synthesis: Connect multiple concepts, show relationships
-- summary: Consolidate key learning points
-- preview: Foreshadow next topics, create anticipation
+PEDAGOGICAL STRUCTURE:
+1. ACTIVATE prior knowledge (connect explicitly to prerequisites they've learned)
+2. HOOK with real-world relevance (use specific statistics, case studies, or current events)
+3. DEFINE every new term with:
+   a) Formal academic definition (as found in authoritative textbooks)
+   b) Plain-language explanation of what this means in practice
+   c) Why this concept matters in the field
+4. EXPLAIN the underlying reasoning (not just WHAT, but WHY and HOW)
+5. ILLUSTRATE with concrete examples that include:
+   a) Specific real-world scenarios with actual data when possible
+   b) Step-by-step walkthrough of application
+   c) Connection back to the abstract concept
+6. ADDRESS misconceptions explicitly—name the wrong belief, explain why it's wrong, provide the correct understanding
+7. SYNTHESIZE by connecting concepts to each other and the bigger picture
+8. PREVIEW upcoming content to build anticipation and show learning progression
 
-CONTENT REQUIREMENTS:
-1. main_text: 3-4 substantive sentences that TEACH
-2. key_points: 4-5 detailed bullet points with explanations
-3. speaker_notes: 200-300 words of natural lecture narration
-4. visual_directive: Type, description, elements, style
+SLIDE TYPES (use appropriately):
+- title: Opening that hooks attention with real-world relevance and clear learning objectives
+- hook: Why students should care—use statistics, trends, career implications, or compelling scenarios
+- recap: Connect to prerequisites with specific callbacks to prior learning
+- definition: COMPREHENSIVE treatment—formal definition + explanation + significance + example
+- explanation: Detailed conceptual exploration with reasoning, cause-effect relationships, and context
+- example: Rich, detailed real-world application with specific data, names, dates when relevant
+- demonstration: Step-by-step walkthrough with explicit reasoning at each step
+- process: Multi-step procedures with clear explanations of why each step matters
+- misconception: Directly address wrong beliefs—state the misconception, explain why it's wrong, provide correct understanding
+- practice: Guided mental exercise with thinking prompts
+- synthesis: Connect multiple concepts, show relationships, build bigger picture
+- summary: Consolidate key learning points with actionable takeaways
+- preview: Foreshadow next topics, create anticipation, show learning path
+
+CONTENT DEPTH REQUIREMENTS:
+
+1. main_text: 3-4 substantive sentences that TEACH, not tease. Include:
+   - Core concept or principle being taught
+   - Why it matters or how it applies
+   - Connection to broader context or real-world implications
+
+2. key_points: 4-5 detailed bullet points where each point:
+   - Makes a complete, educational statement (not fragments)
+   - Explains the WHY behind the WHAT
+   - Includes specific details, data, or examples where relevant
+   - Stands alone as a learnable piece of information
+
+   BAD: "Important for analysis"
+   GOOD: "Critical for data analysis because it reveals patterns that would be invisible in raw numbers—for instance, identifying that 80% of customer complaints come from just 20% of product categories enables targeted improvement efforts"
+
+3. definition blocks (when introducing concepts):
+   - term: The exact term being defined
+   - formal_definition: Textbook-quality definition with precision
+   - simple_explanation: Plain-language version with analogy if helpful
+   - significance: Why this concept matters in the field (1-2 sentences)
+   - example: Brief concrete instance showing the concept in action
+
+4. example blocks (rich and specific):
+   - scenario: Detailed, realistic situation with specifics (company names, data, context)
+   - walkthrough: Step-by-step explanation of how the concept applies
+   - connection_to_concept: Explicit link back to the abstract principle
+   - real_world_data: Include actual statistics, case study references, or verifiable facts when possible
+
+5. speaker_notes: 200-300 words of natural, conversational lecture narration that:
+   - Sounds like a professor actually speaking to students
+   - Adds context, anecdotes, and explanatory depth beyond the slides
+   - Anticipates questions students might have
+   - Provides additional examples or clarifications
+   - Guides students through the material with clear transitions
+
+6. MANDATORY COVERAGE:
+   - Every common_misconception from the brief MUST have a dedicated slide
+   - Every required_concept MUST be formally defined before use
+   - Prerequisites must be explicitly referenced in the recap
+   - The enables/next topics must be mentioned in the preview slide
+
+VISUAL DIRECTIVES:
+Specify visuals that genuinely enhance understanding:
+- type: diagram/screenshot/comparison/flowchart/illustration/chart/infographic/none
+- description: Detailed description for AI image generation (be specific about what to show)
+- elements: Specific elements that MUST appear, labeled clearly
+- style: "clean technical diagram", "annotated screenshot", "minimalist academic", "data visualization", etc.
+- educational_purpose: What concept this visual helps explain
 
 QUALITY STANDARDS:
-- NO vague phrases—be SPECIFIC
-- NO unexplained jargon—define every term
-- NO orphaned concepts—connect everything
-- NO filler content—every sentence must teach
+- NO vague phrases like "important for business" or "useful in practice"—be SPECIFIC
+- NO unexplained jargon—every technical term gets a definition
+- NO orphaned concepts—everything connects to something the student knows
+- NO abstract-only explanations—always ground in concrete examples
+- NO filler content—every sentence must teach something
 
-OUTPUT FORMAT: JSON with slides array containing order, type, title, content, visual_directive, speaker_notes, estimated_seconds, pedagogy.`;
+RAG (RETRIEVAL-AUGMENTED GENERATION) RULES:
+When a "RESEARCH GROUNDING" section is provided in the brief:
+
+1. CITATION MANDATE:
+   - You MUST use the verified facts from the research grounding section
+   - Every slide that uses a grounded fact must include [Source N] in the content
+   - Store the full citation in the slide's metadata for footer display
+
+2. NO HALLUCINATION RULE:
+   - If the research does not contain a specific statistic, DO NOT invent one
+   - Use phrases like "Research indicates..." or "According to established frameworks..."
+   - Never fabricate case studies, dates, or numerical data
+
+3. SOURCE ATTRIBUTION:
+   - For definition slides: Use the exact definition from research, cite source
+   - For example slides: Use real cases from research, or clearly mark as "Illustrative example"
+   - For misconception slides: Cross-reference with research corrections if available
+
+4. VISUAL ACCURACY:
+   - If research includes visual descriptions (e.g., "Porter's Five Forces has 5 forces..."),
+     use that EXACT structure in your visual_directive elements
+   - Never invent framework components not mentioned in research
+
+5. FALLBACK BEHAVIOR:
+   - If research says "No external research available", you may use training data
+   - Mark such content with lower confidence and add "(illustrative)" to examples
+   - Include a note in speaker_notes that this is based on general knowledge
+
+OUTPUT FORMAT: JSON with exact structure shown below.`;
 
 // ============================================================================
-// TYPES
+// TYPES - Matching generate-lecture-slides-v3 exactly
 // ============================================================================
 
+// Domain configuration for research grounding (from course.domain_config)
+interface DomainConfig {
+  domain: string;
+  trusted_sites: string[];
+  citation_style: string;
+  avoid_sources: string[];
+  visual_templates: string[];
+  academic_level: string;
+  terminology_preferences: string[];
+}
+
+// Research context from Google Search grounding
+interface ResearchContext {
+  topic: string;
+  grounded_content: {
+    claim: string;
+    source_url: string;
+    source_title: string;
+    confidence: number;
+  }[];
+  recommended_reading: {
+    title: string;
+    url: string;
+    type: 'Academic' | 'Industry' | 'Case Study' | 'Documentation';
+  }[];
+  visual_descriptions: {
+    framework_name: string;
+    description: string;
+    elements: string[];
+  }[];
+  raw_grounding_metadata?: any;
+}
+
+// Teaching unit context - MUST match v3's TeachingUnitContext exactly
 interface TeachingUnitData {
   id: string;
   title: string;
@@ -114,14 +237,21 @@ interface TeachingUnitData {
   why_this_matters: string;
   how_to_teach: string;
   target_duration_minutes: number;
+  target_video_type: string;
   prerequisites: string[];
+  enables: string[];
   common_misconceptions: string[];
   required_concepts: string[];
+  avoid_terms: string[];
+  search_queries: string[];
+  domain: string;
+  syllabus_text?: string;
   learning_objective: {
     id: string;
     text: string;
     bloom_level: string;
     core_concept: string;
+    action_verb: string;
   };
   course: {
     id: string;
@@ -132,7 +262,18 @@ interface TeachingUnitData {
   module: {
     title: string;
     description: string;
+    sequence_order: number;
   };
+  sibling_units: {
+    id: string;
+    title: string;
+    what_to_teach: string;
+    sequence_order: number;
+  }[];
+  sequence_position: number;
+  total_siblings: number;
+  // Research context (populated by research agent)
+  research_context?: ResearchContext;
 }
 
 interface BatchRequest {
@@ -150,63 +291,184 @@ interface BatchRequest {
 }
 
 // ============================================================================
-// PROMPT BUILDER
+// LECTURE BRIEF BUILDER - Identical to generate-lecture-slides-v3
 // ============================================================================
 //
-// Builds the lecture brief and user prompt for a teaching unit.
-// Same logic as generate-lecture-slides-v3 for consistency.
+// CRITICAL: This MUST match v3's buildLectureBrief() exactly for quality parity.
 //
 
-function buildPromptForUnit(unit: TeachingUnitData): string {
-  const targetSlides = Math.max(5, Math.round(unit.target_duration_minutes * 1.5));
+function buildLectureBrief(context: TeachingUnitData): string {
+  // Build sequence context showing position within learning objective
+  const sequenceContext = context.sibling_units.map((unit, i) => {
+    const status = unit.id === context.id
+      ? '<-- GENERATING THIS'
+      : i < context.sequence_position - 1
+        ? '(COMPLETED)'
+        : '(UPCOMING)';
+    return `${unit.sequence_order}. ${unit.title} - ${unit.what_to_teach?.slice(0, 100) || 'No description'} ${status}`;
+  }).join('\n');
 
-  const lectureBrief = `
+  return `
 === COURSE CONTEXT ===
-Course: ${unit.course.title} (${unit.course.code || 'No code'})
-Domain: ${unit.course.detected_domain || 'general'}
+Course: ${context.course.title} (${context.course.code || 'No code'})
+Domain: ${context.domain}
+${context.syllabus_text ? `Syllabus excerpt: ${context.syllabus_text.slice(0, 500)}...` : ''}
 
 === MODULE CONTEXT ===
-Module: ${unit.module.title}
-Description: ${unit.module.description || 'No description provided'}
+Module: ${context.module.title}
+Description: ${context.module.description || 'No description provided'}
 
 === LEARNING OBJECTIVE ===
-"${unit.learning_objective.text}"
-Bloom Level: ${unit.learning_objective.bloom_level}
-Core Concept: ${unit.learning_objective.core_concept}
+"${context.learning_objective.text}"
+Bloom Level: ${context.learning_objective.bloom_level}
+Core Concept: ${context.learning_objective.core_concept}
+Action Verb: ${context.learning_objective.action_verb}
 
-=== CURRENT TEACHING UNIT: ${unit.title} ===
+=== TEACHING UNIT SEQUENCE (Full Learning Objective) ===
+${sequenceContext}
+
+=== CURRENT TEACHING UNIT: ${context.title} ===
 
 WHAT TO TEACH:
-${unit.what_to_teach}
+${context.what_to_teach}
 
 WHY THIS MATTERS:
-${unit.why_this_matters}
+${context.why_this_matters}
 
 HOW TO TEACH:
-${unit.how_to_teach || 'Use clear explanations with concrete examples'}
+${context.how_to_teach || 'Use clear explanations with concrete examples'}
 
 PREREQUISITES (assume student knows):
-${unit.prerequisites?.length > 0 ? unit.prerequisites.map(p => `- ${p}`).join('\n') : '- None specified'}
+${context.prerequisites.length > 0 ? context.prerequisites.map(p => `- ${p}`).join('\n') : '- None specified'}
+
+ENABLES (what this unlocks):
+${context.enables.length > 0 ? context.enables.map(e => `- ${e}`).join('\n') : '- None specified'}
 
 COMMON MISCONCEPTIONS (must address):
-${unit.common_misconceptions?.length > 0 ? unit.common_misconceptions.map(m => `- ${m}`).join('\n') : '- None specified'}
+${context.common_misconceptions.length > 0 ? context.common_misconceptions.map(m => `- ${m}`).join('\n') : '- None specified'}
 
 REQUIRED CONCEPTS (must define):
-${unit.required_concepts?.length > 0 ? unit.required_concepts.map(c => `- ${c}`).join('\n') : '- Derive from what_to_teach'}
+${context.required_concepts.length > 0 ? context.required_concepts.map(c => `- ${c}`).join('\n') : '- Derive from what_to_teach'}
 
-TARGET DURATION: ${unit.target_duration_minutes} minutes
+TERMS TO AVOID (confusing for students):
+${context.avoid_terms.length > 0 ? context.avoid_terms.map(t => `- ${t}`).join('\n') : '- None specified'}
+
+TARGET DURATION: ${context.target_duration_minutes} minutes
+TARGET STYLE: ${context.target_video_type}
+TEACHING UNIT POSITION: ${context.sequence_position} of ${context.total_siblings} in this learning objective
 `.trim();
+}
 
-  const userPrompt = `${lectureBrief}
+// ============================================================================
+// RESEARCH MERGER - Inject grounded content into lecture brief
+// ============================================================================
+//
+// Identical to v3's mergeResearchIntoBrief()
+//
+
+function mergeResearchIntoBrief(
+  baseBrief: string,
+  research: ResearchContext
+): string {
+  if (research.grounded_content.length === 0) {
+    return baseBrief + `
+
+=== RESEARCH GROUNDING ===
+No external research available. Generate content from your training data.
+Mark any statistics or case studies as "illustrative examples" rather than verified facts.`;
+  }
+
+  const groundedSection = `
+
+=== RESEARCH GROUNDING (MANDATORY TO USE) ===
+
+VERIFIED DEFINITIONS AND FACTS:
+${research.grounded_content.slice(0, 10).map((c, i) =>
+  `[Source ${i + 1}] "${c.claim}"
+   Citation: ${c.source_title} (${c.source_url})`
+).join('\n\n')}
+
+${research.recommended_reading.length > 0 ? `
+RECOMMENDED READING (for "Further Reading" slide):
+${research.recommended_reading.slice(0, 5).map(r =>
+  `- ${r.title} [${r.type}]: ${r.url}`
+).join('\n')}
+` : ''}
+
+${research.visual_descriptions?.length > 0 ? `
+VISUAL FRAMEWORK DESCRIPTIONS (use EXACT structure for diagrams):
+${research.visual_descriptions.map(v =>
+  `- ${v.framework_name}: ${v.description}
+   Elements: ${v.elements.join(', ')}`
+).join('\n')}
+` : ''}
+
+CITATION RULES (CRITICAL):
+- You MUST use the verified definitions above, NOT your training data
+- Every factual claim must include [Source N] marker in the slide content
+- If a statistic is NOT in the research, clearly mark as "According to industry practice..."
+- Use the visual descriptions to guide EXACT diagram element composition
+- Include a "Sources" or "Further Reading" slide at the end`;
+
+  return baseBrief + groundedSection;
+}
+
+// ============================================================================
+// USER PROMPT BUILDER - Identical to generate-lecture-slides-v3
+// ============================================================================
+//
+// CRITICAL: This MUST match v3's user prompt exactly for quality parity.
+//
+
+function buildUserPrompt(context: TeachingUnitData, lectureBrief: string): string {
+  const targetSlides = Math.max(5, Math.round(context.target_duration_minutes * 1.5));
+
+  return `${lectureBrief}
 
 === YOUR TASK ===
 Create a comprehensive ${targetSlides}-slide lecture deck for this teaching unit.
 
 CRITICAL REQUIREMENTS:
-1. Every common_misconception MUST have a dedicated "misconception" slide
-2. Every required_concept MUST be defined with formal definition + explanation
-3. Speaker notes MUST be 200-300 words of natural lecture narration
-4. Bloom level "${unit.learning_objective.bloom_level}" dictates cognitive depth
+1. Every common_misconception MUST have a dedicated "misconception" slide that:
+   - States the wrong belief explicitly
+   - Explains WHY students typically believe this
+   - Provides the correct understanding with evidence
+
+2. Every required_concept MUST be defined with:
+   - Formal academic definition (textbook quality)
+   - Plain-language explanation
+   - Real-world example showing the concept in action
+   - Why this concept matters in the field
+
+3. Speaker notes MUST be 200-300 words of natural lecture narration that:
+   - Sounds like an actual professor speaking
+   - Adds depth beyond what's on the slide
+   - Anticipates student questions
+
+4. Bloom level "${context.learning_objective.bloom_level}" dictates cognitive depth:
+   - remember: Emphasize clear definitions, memorable examples, key facts
+   - understand: Focus on explanations, reasoning, cause-effect relationships
+   - apply: Provide worked examples, step-by-step demonstrations, practical scenarios
+   - analyze: Compare/contrast, examine relationships, break down components
+   - evaluate: Include criteria for judgment, pros/cons analysis, critical assessment
+   - create: Show design processes, synthesis of components, novel applications
+
+5. CONTENT DEPTH:
+   - main_text: 3-4 substantive sentences that teach a complete idea
+   - key_points: 4-5 detailed bullets, each making a complete educational statement with explanations
+   - examples: Use specific, verifiable real-world data (company names, statistics, case studies)
+   - NO vague phrases—be specific and educational
+
+6. ADAPTIVE LAYOUT HINTS (AI-driven content presentation):
+   For EACH key_point, analyze its semantic structure and provide an optional layout_hint:
+   - Describes a sequence/process (A → B → C) → type: "flow", segments: ["Step A", "Step B", "Step C"]
+   - Compares two things (X vs Y, X = this; Y = that) → type: "comparison", left_right: ["X", "Y"]
+   - Contains formula/relationship (X = Y + Z) → type: "equation", formula: "X = Y + Z"
+   - Notable quote or key principle → type: "quote"
+   - Important insight or tip → type: "callout"
+   - Multiple items in a list → type: "list"
+   - Simple paragraph → type: "plain"
+   - Always include emphasis_words: 2-4 critical terms to highlight
 
 OUTPUT (JSON array of slides):
 {
@@ -214,31 +476,253 @@ OUTPUT (JSON array of slides):
     {
       "order": 1,
       "type": "title",
-      "title": "Engaging title",
+      "title": "Engaging title that frames the learning journey",
       "content": {
-        "main_text": "3-4 substantive sentences...",
-        "key_points": ["Detailed point 1", "Detailed point 2"]
+        "main_text": "3-4 substantive sentences that introduce the topic...",
+        "main_text_layout": {
+          "type": "plain",
+          "emphasis_words": ["critical term", "key concept"]
+        },
+        "key_points": [
+          "Process: Set Direction → Analyze Environment → Implement → Review",
+          "Vision defines the future state; Mission defines present purpose"
+        ],
+        "key_points_layout": [
+          { "type": "flow", "segments": ["Set Direction", "Analyze", "Implement", "Review"] },
+          { "type": "comparison", "left_right": ["Vision (Future)", "Mission (Present)"] }
+        ]
       },
       "visual_directive": {
         "type": "illustration",
-        "description": "Description for image generation",
+        "description": "Detailed description for image generation",
         "elements": ["element1", "element2"],
-        "style": "clean academic"
+        "style": "clean academic",
+        "educational_purpose": "What this visual helps students understand"
       },
-      "speaker_notes": "200-300 words of natural lecture narration...",
+      "speaker_notes": "200-300 words of natural lecture narration. Start by welcoming students and framing why this topic matters. Provide additional context not on the slide. Anticipate a question students might have. Use a conversational, professorial tone...",
       "estimated_seconds": 90,
       "pedagogy": {
-        "purpose": "Hook attention",
-        "bloom_action": "activate prior knowledge",
-        "transition_to_next": "Now let's define..."
+        "purpose": "Hook attention and establish real-world relevance",
+        "bloom_action": "activate prior knowledge and create motivation",
+        "transition_to_next": "Now that we understand why this matters, let's define the foundational concepts..."
       }
+    },
+    {
+      "order": 2,
+      "type": "definition",
+      "title": "Defining [Core Concept]",
+      "content": {
+        "main_text": "Comprehensive introduction to the concept...",
+        "main_text_layout": { "type": "plain", "emphasis_words": ["concept name"] },
+        "key_points": ["Detailed explanatory points..."],
+        "key_points_layout": [{ "type": "plain", "emphasis_words": ["key term"] }],
+        "definition": {
+          "term": "The exact term",
+          "formal_definition": "Precise, textbook-quality definition",
+          "simple_explanation": "Plain-language version: Think of it like...",
+          "significance": "This concept is fundamental because...",
+          "example": "For instance, at [Company X], this concept enabled..."
+        }
+      },
+      "visual_directive": {...},
+      "speaker_notes": "200-300 words expanding on the definition...",
+      "estimated_seconds": 90,
+      "pedagogy": {...}
     }
   ]
 }
 
-Generate all ${targetSlides} slides now with RICH, EDUCATIONAL content.`;
+CRITICAL: Every slide MUST have speaker_notes with 200-300 words. Never leave speaker_notes empty or short.
+Generate all ${targetSlides} slides now with RICH, EDUCATIONAL content and LAYOUT HINTS for every key_point.`;
+}
 
-  return userPrompt;
+// ============================================================================
+// COMBINED PROMPT BUILDER (for batch processing)
+// ============================================================================
+
+function buildPromptForUnit(unit: TeachingUnitData): string {
+  // Build the lecture brief
+  const baseBrief = buildLectureBrief(unit);
+
+  // Merge research if available
+  const groundedBrief = unit.research_context
+    ? mergeResearchIntoBrief(baseBrief, unit.research_context)
+    : mergeResearchIntoBrief(baseBrief, {
+        topic: unit.title,
+        grounded_content: [],
+        recommended_reading: [],
+        visual_descriptions: []
+      });
+
+  // Build the full user prompt
+  return buildUserPrompt(unit, groundedBrief);
+}
+
+// ============================================================================
+// RESEARCH AGENT - Google Search Grounding (Identical to v3)
+// ============================================================================
+//
+// CRITICAL: This MUST be identical to v3's runResearchAgent for quality parity.
+// Research grounding provides verified facts, citations, and framework descriptions.
+//
+
+async function runResearchAgent(
+  context: TeachingUnitData,
+  domainConfig: DomainConfig | null,
+  googleApiKey: string
+): Promise<ResearchContext> {
+  console.log('[Research Agent] Starting grounded research for:', context.title);
+
+  if (!googleApiKey) {
+    console.warn('[Research Agent] GOOGLE_CLOUD_API_KEY not configured');
+    return getEmptyResearchContext(context.title);
+  }
+
+  // Build dynamic search strategy using domain config
+  const trustedSites = domainConfig?.trusted_sites || ['scholar.google.com', '.edu'];
+  const siteFilter = trustedSites
+    .slice(0, 3)
+    .map(s => `site:${s}`)
+    .join(' OR ');
+
+  const researchPrompt = `You are a research assistant gathering verified information for a ${domainConfig?.academic_level || 'university'}-level lecture.
+
+TOPIC: ${context.title}
+DOMAIN: ${domainConfig?.domain || context.domain}
+WHAT TO TEACH: ${context.what_to_teach}
+
+REQUIRED CONCEPTS TO RESEARCH:
+${context.required_concepts.map(c => `- ${c}`).join('\n') || '- ' + context.learning_objective.core_concept}
+
+RESEARCH REQUIREMENTS:
+1. Find the CORE DEFINITION of "${context.title}" from authoritative sources
+2. Find 2-3 SPECIFIC EXAMPLES or case studies with real data, names, dates
+3. Find any COMMON MISCONCEPTIONS and their corrections
+4. If this involves a framework or model, describe its visual structure exactly
+5. Find recommended readings or resources students should explore
+
+SEARCH STRATEGY:
+- Prioritize sources from: ${trustedSites.join(', ')}
+- Use search queries like: "${context.required_concepts[0] || context.title} ${siteFilter}"
+- AVOID: ${domainConfig?.avoid_sources?.join(', ') || 'blogs, opinion pieces, unreferenced content'}
+
+REQUIRED OUTPUT FORMAT (JSON only, no markdown):
+{
+  "topic": "${context.title}",
+  "grounded_content": [
+    {
+      "claim": "Verified factual statement with specific data",
+      "source_url": "URL from search results",
+      "source_title": "Source name/publication",
+      "confidence": 0.95
+    }
+  ],
+  "recommended_reading": [
+    {
+      "title": "Resource title",
+      "url": "URL",
+      "type": "Academic"
+    }
+  ],
+  "visual_descriptions": [
+    {
+      "framework_name": "e.g., Porter's Five Forces",
+      "description": "Text description of the visual structure",
+      "elements": ["Element 1", "Element 2", "Element 3"]
+    }
+  ]
+}
+
+Search now and return ONLY verified, factually grounded content.`;
+
+  try {
+    // Use flash for research (with Google Search grounding) - same as v3
+    const model = MODEL_CONFIG.GEMINI_FLASH;
+    const url = `${GOOGLE_API_BASE}/models/${model}:generateContent`;
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': googleApiKey,
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text: researchPrompt }],
+          },
+        ],
+        tools: [{ googleSearch: {} }], // Enable Google Search grounding
+        generationConfig: {
+          temperature: 0.3,
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      if (response.status === 429) {
+        console.warn('[Research Agent] Rate limited, returning empty context');
+        return getEmptyResearchContext(context.title);
+      }
+      console.warn('[Research Agent] Search call failed:', response.status);
+      return getEmptyResearchContext(context.title);
+    }
+
+    const data = await response.json();
+    const content = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+    // Extract grounding metadata if available
+    const groundingMetadata = data.candidates?.[0]?.groundingMetadata;
+
+    // Parse the structured response
+    let researchContext: ResearchContext;
+    try {
+      const cleaned = content.replace(/```json?\n?|\n?```/g, '').trim();
+      researchContext = JSON.parse(cleaned);
+    } catch (parseError) {
+      console.warn('[Research Agent] Failed to parse response, using grounding metadata');
+      researchContext = getEmptyResearchContext(context.title);
+    }
+
+    // Enrich with grounding metadata if available (from Google Search tool)
+    if (groundingMetadata?.groundingChunks) {
+      console.log(`[Research Agent] Found ${groundingMetadata.groundingChunks.length} grounding chunks`);
+      const additionalSources = groundingMetadata.groundingChunks.map((chunk: any) => ({
+        claim: chunk.web?.title || 'Additional verified source',
+        source_url: chunk.web?.uri || '',
+        source_title: chunk.web?.title || 'Unknown',
+        confidence: 0.9,
+      }));
+      researchContext.grounded_content = [
+        ...researchContext.grounded_content,
+        ...additionalSources,
+      ];
+      researchContext.raw_grounding_metadata = groundingMetadata;
+    }
+
+    // Also check for web search results in different response format
+    if (groundingMetadata?.webSearchQueries) {
+      console.log(`[Research Agent] Web search queries used: ${groundingMetadata.webSearchQueries.join(', ')}`);
+    }
+
+    console.log(`[Research Agent] Found ${researchContext.grounded_content.length} grounded claims`);
+    console.log(`[Research Agent] Found ${researchContext.visual_descriptions?.length || 0} visual descriptions`);
+    return researchContext;
+
+  } catch (error) {
+    console.error('[Research Agent] Error:', error);
+    return getEmptyResearchContext(context.title);
+  }
+}
+
+function getEmptyResearchContext(topic: string): ResearchContext {
+  return {
+    topic,
+    grounded_content: [],
+    recommended_reading: [],
+    visual_descriptions: [],
+  };
 }
 
 // ============================================================================
@@ -300,11 +784,11 @@ serve(async (req) => {
     console.log(`[Batch] Starting batch submission for ${teaching_unit_ids.length} teaching units`);
 
     // ========================================================================
-    // 2. FETCH TEACHING UNIT DATA
+    // 2. FETCH TEACHING UNIT DATA (Full context matching v3)
     // ========================================================================
     //
-    // Get all the context needed to build prompts for each teaching unit.
-    // This includes course, module, and learning objective data.
+    // CRITICAL: This MUST fetch ALL fields that v3 uses for quality parity.
+    // Missing fields would result in incomplete prompts and lower quality slides.
     //
 
     const { data: units, error: unitsError } = await supabase
@@ -316,20 +800,27 @@ serve(async (req) => {
         why_this_matters,
         how_to_teach,
         target_duration_minutes,
+        target_video_type,
         prerequisites,
+        enables,
         common_misconceptions,
         required_concepts,
+        avoid_terms,
+        search_queries,
+        sequence_order,
         learning_objective_id,
         learning_objectives!inner (
           id,
           text,
           bloom_level,
           core_concept,
+          action_verb,
           module_id,
           instructor_course_id,
           modules (
             title,
-            description
+            description,
+            sequence_order
           )
         )
       `)
@@ -350,10 +841,10 @@ serve(async (req) => {
       );
     }
 
-    // Fetch course data (including instructor_id for authorization)
+    // Fetch course data (including syllabus_text and domain_config for v3 parity)
     const { data: course, error: courseError } = await supabase
       .from('instructor_courses')
-      .select('id, title, code, detected_domain, instructor_id')
+      .select('id, title, code, detected_domain, instructor_id, syllabus_text, domain_config')
       .eq('id', instructor_course_id)
       .single();
 
@@ -364,6 +855,13 @@ serve(async (req) => {
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+
+    // Parse domain_config if available
+    const domainConfig: DomainConfig | null = course.domain_config
+      ? (typeof course.domain_config === 'string'
+          ? JSON.parse(course.domain_config)
+          : course.domain_config)
+      : null;
 
     // ========================================================================
     // SECURITY: Verify course ownership
@@ -421,37 +919,71 @@ serve(async (req) => {
     console.log(`[Batch] Processing ${unitsToProcess.length} units (skipping ${units.length - unitsToProcess.length} existing)`);
 
     // ========================================================================
-    // 4. BUILD BATCH REQUESTS
+    // 4. FETCH SIBLING UNITS FOR SEQUENCE CONTEXT
     // ========================================================================
     //
-    // Create the batch request body for Google Batch API.
-    // Each request has a unique key for correlation.
+    // For v3 parity, we need to know the position of each unit within its
+    // learning objective sequence. This enables proper transitions and
+    // context in the slides.
     //
 
-    const batchRequests: BatchRequest[] = [];
-    const requestMapping: Record<string, string> = {}; // key -> teaching_unit_id
+    // Group units by learning_objective_id
+    const loIds = [...new Set(unitsToProcess.map(u => u.learning_objective_id))];
 
-    for (let i = 0; i < unitsToProcess.length; i++) {
-      const unit = unitsToProcess[i];
+    // Fetch all sibling units for these learning objectives
+    const { data: allSiblings } = await supabase
+      .from('teaching_units')
+      .select('id, title, what_to_teach, sequence_order, learning_objective_id')
+      .in('learning_objective_id', loIds)
+      .order('sequence_order', { ascending: true });
+
+    // Group siblings by learning_objective_id
+    const siblingsByLO: Record<string, typeof allSiblings> = {};
+    for (const sibling of allSiblings || []) {
+      const loId = sibling.learning_objective_id;
+      if (!siblingsByLO[loId]) siblingsByLO[loId] = [];
+      siblingsByLO[loId].push(sibling);
+    }
+
+    // ========================================================================
+    // 5. RUN RESEARCH AGENT IN PARALLEL (v3 parity)
+    // ========================================================================
+    //
+    // CRITICAL: Research grounding is essential for quality parity with v3.
+    // We run research for ALL units in parallel before building batch requests.
+    // This adds latency but ensures grounded, citation-backed content.
+    //
+
+    console.log(`[Batch] Running research agent for ${unitsToProcess.length} units in parallel...`);
+
+    // Build partial unit data for research (enough context for research agent)
+    const researchPromises = unitsToProcess.map(async (unit) => {
       const lo = unit.learning_objectives as any;
-      const module = lo?.modules;
+      const siblings = siblingsByLO[unit.learning_objective_id] || [];
+      const sequencePosition = siblings.findIndex(s => s.id === unit.id) + 1;
 
-      // Build enriched unit data
-      const unitData: TeachingUnitData = {
+      const partialUnitData: TeachingUnitData = {
         id: unit.id,
         title: unit.title,
         what_to_teach: unit.what_to_teach || '',
         why_this_matters: unit.why_this_matters || '',
         how_to_teach: unit.how_to_teach || '',
         target_duration_minutes: unit.target_duration_minutes || 8,
+        target_video_type: unit.target_video_type || 'lecture',
         prerequisites: unit.prerequisites || [],
+        enables: unit.enables || [],
         common_misconceptions: unit.common_misconceptions || [],
         required_concepts: unit.required_concepts || [],
+        avoid_terms: unit.avoid_terms || [],
+        search_queries: unit.search_queries || [],
+        domain: course.detected_domain || 'general',
+        syllabus_text: course.syllabus_text || undefined,
         learning_objective: {
           id: lo?.id || '',
           text: lo?.text || '',
           bloom_level: lo?.bloom_level || 'understand',
           core_concept: lo?.core_concept || '',
+          action_verb: lo?.action_verb || '',
         },
         course: {
           id: course.id,
@@ -460,16 +992,63 @@ serve(async (req) => {
           detected_domain: course.detected_domain || 'general',
         },
         module: {
-          title: module?.title || 'Module',
-          description: module?.description || '',
+          title: lo?.modules?.title || 'Module',
+          description: lo?.modules?.description || '',
+          sequence_order: lo?.modules?.sequence_order || 0,
         },
+        sibling_units: siblings.map(s => ({
+          id: s.id,
+          title: s.title,
+          what_to_teach: s.what_to_teach || '',
+          sequence_order: s.sequence_order,
+        })),
+        sequence_position: sequencePosition,
+        total_siblings: siblings.length,
       };
 
-      // Build prompt
-      const userPrompt = buildPromptForUnit(unitData);
+      // Run research agent for this unit
+      const research = await runResearchAgent(partialUnitData, domainConfig, googleApiKey);
+      return { unitId: unit.id, unitData: partialUnitData, research };
+    });
+
+    // Wait for all research to complete
+    const researchResults = await Promise.all(researchPromises);
+    console.log(`[Batch] Research complete for ${researchResults.length} units`);
+
+    // Create a map of research results by unit ID
+    const researchByUnit = new Map(
+      researchResults.map(r => [r.unitId, { unitData: r.unitData, research: r.research }])
+    );
+
+    // ========================================================================
+    // 6. BUILD BATCH REQUESTS WITH RESEARCH-GROUNDED PROMPTS
+    // ========================================================================
+    //
+    // Now build the actual batch requests using the enriched data with research.
+    //
+
+    const batchRequests: BatchRequest[] = [];
+    const requestMapping: Record<string, string> = {}; // key -> teaching_unit_id
+
+    for (let i = 0; i < unitsToProcess.length; i++) {
+      const unit = unitsToProcess[i];
+      const researchData = researchByUnit.get(unit.id);
+
+      if (!researchData) {
+        console.warn(`[Batch] No research data for unit ${unit.id}, skipping`);
+        continue;
+      }
+
+      // Enrich unit data with research context
+      const enrichedUnitData: TeachingUnitData = {
+        ...researchData.unitData,
+        research_context: researchData.research,
+      };
+
+      // Build prompt with research grounding
+      const userPrompt = buildPromptForUnit(enrichedUnitData);
 
       // Map by key (responses come back with metadata.key for correlation)
-      // Using slide_N format to match the metadata.key in the request
       const requestKey = `slide_${batchRequests.length}`;
       requestMapping[requestKey] = unit.id;
 
@@ -491,7 +1070,7 @@ serve(async (req) => {
       });
     }
 
-    console.log(`[Batch] Built ${batchRequests.length} batch requests`);
+    console.log(`[Batch] Built ${batchRequests.length} batch requests with research grounding`);
 
     // ========================================================================
     // 5. SUBMIT TO GOOGLE BATCH API (batchGenerateContent)
