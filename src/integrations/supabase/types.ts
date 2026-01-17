@@ -440,6 +440,71 @@ export type Database = {
           },
         ]
       }
+      batch_jobs: {
+        Row: {
+          completed_at: string | null
+          created_at: string | null
+          created_by: string | null
+          error_message: string | null
+          failed_count: number | null
+          failed_request_keys: Json | null
+          google_batch_id: string
+          id: string
+          instructor_course_id: string
+          job_type: string
+          output_uri: string | null
+          request_mapping: Json
+          status: string
+          succeeded_count: number | null
+          total_requests: number
+          updated_at: string | null
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          error_message?: string | null
+          failed_count?: number | null
+          failed_request_keys?: Json | null
+          google_batch_id: string
+          id?: string
+          instructor_course_id: string
+          job_type?: string
+          output_uri?: string | null
+          request_mapping?: Json
+          status?: string
+          succeeded_count?: number | null
+          total_requests: number
+          updated_at?: string | null
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          error_message?: string | null
+          failed_count?: number | null
+          failed_request_keys?: Json | null
+          google_batch_id?: string
+          id?: string
+          instructor_course_id?: string
+          job_type?: string
+          output_uri?: string | null
+          request_mapping?: Json
+          status?: string
+          succeeded_count?: number | null
+          total_requests?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "batch_jobs_instructor_course_id_fkey"
+            columns: ["instructor_course_id"]
+            isOneToOne: false
+            referencedRelation: "instructor_courses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       capabilities: {
         Row: {
           category: string | null
@@ -1703,6 +1768,7 @@ export type Database = {
       lecture_slides: {
         Row: {
           audio_status: string | null
+          batch_job_id: string | null
           citation_count: number | null
           created_at: string | null
           created_by: string | null
@@ -1728,6 +1794,7 @@ export type Database = {
         }
         Insert: {
           audio_status?: string | null
+          batch_job_id?: string | null
           citation_count?: number | null
           created_at?: string | null
           created_by?: string | null
@@ -1753,6 +1820,7 @@ export type Database = {
         }
         Update: {
           audio_status?: string | null
+          batch_job_id?: string | null
           citation_count?: number | null
           created_at?: string | null
           created_by?: string | null
@@ -1777,6 +1845,13 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "lecture_slides_batch_job_id_fkey"
+            columns: ["batch_job_id"]
+            isOneToOne: false
+            referencedRelation: "batch_jobs"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "lecture_slides_instructor_course_id_fkey"
             columns: ["instructor_course_id"]
