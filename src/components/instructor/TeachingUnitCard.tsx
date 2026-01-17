@@ -210,10 +210,10 @@ export const TeachingUnitCard = memo(function TeachingUnitCard({
                             className="gap-1 h-8 text-xs"
                           >
                             <Presentation className="h-3 w-3" />
-                            <span className="hidden xs:inline">
+                            <span className="hidden sm:inline">
                               {existingSlides.status === 'published' ? 'Slides ✓' : 'View'}
                             </span>
-                            <span className="xs:hidden">✓</span>
+                            <span className="sm:hidden">✓</span>
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent>
@@ -243,8 +243,8 @@ export const TeachingUnitCard = memo(function TeachingUnitCard({
                             ) : (
                               <Presentation className="h-3 w-3" />
                             )}
-                            <span className="hidden xs:inline">Create Lecture</span>
-                            <span className="xs:hidden">Lecture</span>
+                            <span className="hidden sm:inline">Create Lecture</span>
+                            <span className="sm:hidden">Lecture</span>
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent>

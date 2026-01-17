@@ -269,7 +269,7 @@ export default function InstructorCourseDetailPage() {
                 variant={course.is_published ? "outline" : "default"}
                 onClick={handlePublishToggle}
                 disabled={updateCourse.isPending}
-                className="min-h-11"
+                className="h-9"
               >
                 {updateCourse.isPending ? (
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
@@ -278,7 +278,7 @@ export default function InstructorCourseDetailPage() {
                 )}
                 {course.is_published ? 'Unpublish' : 'Publish'}
               </Button>
-              <Button variant="outline" size="icon" className="min-h-11 min-w-11">
+              <Button variant="outline" size="icon" className="h-9 w-9">
                 <Settings2 className="h-4 w-4" />
               </Button>
             </div>
@@ -413,7 +413,7 @@ export default function InstructorCourseDetailPage() {
                       {courseLOs.some(lo => !loContentStatus?.[lo.id]?.hasContent) && (
                         <Button 
                           variant="outline" 
-                          className="gap-2 min-h-11 flex-1 sm:flex-none"
+                          className="gap-2 h-9 flex-1 sm:flex-none"
                           onClick={handleFindAllContent}
                           disabled={bulkSearching}
                         >
@@ -437,7 +437,7 @@ export default function InstructorCourseDetailPage() {
                       {courseLOs.length > 0 && (
                         <Button
                           variant="outline"
-                          className="gap-2 min-h-11 flex-1 sm:flex-none"
+                          className="gap-2 h-9 flex-1 sm:flex-none"
                           onClick={async () => {
                             if (!id) return;
                             // Fetch all teaching units for this course
@@ -460,6 +460,7 @@ export default function InstructorCourseDetailPage() {
                             <>
                               <Loader2 className="h-4 w-4 animate-spin" />
                               <span className="hidden sm:inline">Submitting batch...</span>
+                              <span className="sm:hidden">...</span>
                             </>
                           ) : slideStatus?.active_batch ? (
                             <>
@@ -495,7 +496,7 @@ export default function InstructorCourseDetailPage() {
                       {slidesStats.ready > 0 && (
                         <Button 
                           variant="outline" 
-                          className="gap-2 min-h-11 flex-1 sm:flex-none"
+                          className="gap-2 h-9 flex-1 sm:flex-none"
                           onClick={() => id && bulkPublishSlides.mutate(id)}
                           disabled={bulkPublishSlides.isPending}
                         >
@@ -503,6 +504,7 @@ export default function InstructorCourseDetailPage() {
                             <>
                               <Loader2 className="h-4 w-4 animate-spin" />
                               <span className="hidden sm:inline">Publishing...</span>
+                              <span className="sm:hidden">...</span>
                             </>
                           ) : (
                           <>
@@ -518,7 +520,7 @@ export default function InstructorCourseDetailPage() {
                       {slidesStats.failed > 0 && (
                         <Button 
                           variant="outline" 
-                          className="gap-2 min-h-11 flex-1 sm:flex-none border-orange-300 text-orange-700 hover:bg-orange-50"
+                          className="gap-2 h-9 flex-1 sm:flex-none border-orange-300 text-orange-700 hover:bg-orange-50"
                           onClick={() => id && retryFailed.mutate(id)}
                           disabled={retryFailed.isPending}
                         >
@@ -526,6 +528,7 @@ export default function InstructorCourseDetailPage() {
                             <>
                               <Loader2 className="h-4 w-4 animate-spin" />
                               <span className="hidden sm:inline">Retrying...</span>
+                              <span className="sm:hidden">...</span>
                             </>
                           ) : (
                             <>
@@ -558,9 +561,10 @@ export default function InstructorCourseDetailPage() {
                       
                       <ResponsiveDialog open={isModuleDialogOpen} onOpenChange={setIsModuleDialogOpen}>
                         <ResponsiveDialogTrigger asChild>
-                          <Button className="gap-2 min-h-11">
+                          <Button className="gap-2 h-9">
                             <Plus className="h-4 w-4" />
-                            <span className="sr-only sm:not-sr-only">Add Module</span>
+                            <span className="hidden sm:inline">Add Module</span>
+                            <span className="sm:hidden">Add</span>
                           </Button>
                         </ResponsiveDialogTrigger>
                         <ResponsiveDialogContent>

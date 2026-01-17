@@ -167,11 +167,13 @@ export function UnifiedModuleCard({ module, learningObjectives }: UnifiedModuleC
                       <>
                         <Loader2 className="h-3 w-3 animate-spin" />
                         <span className="hidden sm:inline">Generating...</span>
+                        <span className="sm:hidden">...</span>
                       </>
                     ) : quizGenerated ? (
                       <>
                         <CheckCircle2 className="h-3 w-3 text-success" />
                         <span className="hidden sm:inline">Generated!</span>
+                        <span className="sm:hidden">Done</span>
                       </>
                     ) : (
                       <>
@@ -195,6 +197,7 @@ export function UnifiedModuleCard({ module, learningObjectives }: UnifiedModuleC
                       <>
                         <Loader2 className="h-3 w-3 animate-spin" />
                         <span className="hidden sm:inline">Finding...</span>
+                        <span className="sm:hidden">...</span>
                       </>
                     ) : (
                       <>
