@@ -140,3 +140,15 @@ verify_jwt = true
 
 [functions.process-lecture-queue]
 verify_jwt = true
+
+# NEW: Batch API functions for slide generation (50% cost savings)
+# These replace the queue-based system in process-lecture-queue
+
+[functions.submit-batch-slides]
+# Submit all teaching units to Google Batch API for bulk generation
+# verify_jwt = false to allow service role calls from queue migration
+verify_jwt = false
+
+[functions.poll-batch-status]
+# Poll batch job status and get course slide progress
+verify_jwt = true

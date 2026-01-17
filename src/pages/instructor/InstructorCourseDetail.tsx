@@ -24,7 +24,9 @@ import { useInstructorCourse, useModules, useCreateModule, useUpdateInstructorCo
 import { useLearningObjectives, useSearchYouTubeContent } from '@/hooks/useLearningObjectives';
 import { useContentStats } from '@/hooks/useContentStats';
 import { useLOContentStatus } from '@/hooks/useContentStats';
-import { useCourseLectureSlides, useBulkPublishSlides, useBulkQueueSlides, useQueueStatus, useCleanupStuckSlides, useRetryFailedSlides } from '@/hooks/useLectureSlides';
+import { useCourseLectureSlides, useBulkPublishSlides, useCleanupStuckSlides, useRetryFailedSlides } from '@/hooks/useLectureSlides';
+// NEW: Use batch API hooks for "Generate All" functionality (50% cost savings)
+import { useSubmitBatchSlides, useCourseSlideStatus } from '@/hooks/useBatchSlides';
 import { LoadingState } from '@/components/common/LoadingState';
 import { EmptyState } from '@/components/common/EmptyState';
 import { UnifiedModuleCard } from '@/components/instructor/UnifiedModuleCard';
@@ -60,16 +62,24 @@ export default function InstructorCourseDetailPage() {
   // Get lecture slides stats
   const { data: lectureSlides } = useCourseLectureSlides(id);
   const bulkPublishSlides = useBulkPublishSlides();
-  const bulkQueueSlides = useBulkQueueSlides();
-  const { data: queueStatus } = useQueueStatus(id);
+
+  // NEW: Use batch API instead of queue for "Generate All" (50% cost savings)
+  // - submitBatchSlides: Submits all slides to Google Batch API
+  // - slideStatus: Overall course slide status with active batch info
+  const submitBatchSlides = useSubmitBatchSlides();
+  const { data: slideStatus } = useCourseSlideStatus(id);
+
+  // Legacy hooks (kept for stuck item cleanup and failed retry)
   const cleanupStuck = useCleanupStuckSlides();
   const retryFailed = useRetryFailedSlides();
   
+  // Calculate slide stats from local data
+  // NOTE: Includes both legacy 'pending' and new 'batch_pending' statuses
   const slidesStats = {
     total: lectureSlides?.length || 0,
     ready: lectureSlides?.filter(s => s.status === 'ready').length || 0,
     published: lectureSlides?.filter(s => s.status === 'published').length || 0,
-    pending: lectureSlides?.filter(s => s.status === 'pending').length || 0,
+    pending: lectureSlides?.filter(s => s.status === 'pending' || s.status === 'batch_pending').length || 0,
     generating: lectureSlides?.filter(s => s.status === 'generating').length || 0,
     failed: lectureSlides?.filter(s => s.status === 'failed').length || 0,
   };
@@ -423,10 +433,10 @@ export default function InstructorCourseDetailPage() {
                         </Button>
                       )}
                       
-                      {/* Generate All Slides - queue-based */}
+                      {/* Generate All Slides - NEW: Uses Google Batch API (50% cost savings) */}
                       {courseLOs.length > 0 && (
-                        <Button 
-                          variant="outline" 
+                        <Button
+                          variant="outline"
                           className="gap-2 min-h-11 flex-1 sm:flex-none"
                           onClick={async () => {
                             if (!id) return;
@@ -435,29 +445,40 @@ export default function InstructorCourseDetailPage() {
                               .from('teaching_units')
                               .select('id, learning_objectives!inner(instructor_course_id)')
                               .eq('learning_objectives.instructor_course_id', id);
-                            
+
                             if (allUnits && allUnits.length > 0) {
-                              bulkQueueSlides.mutate({
+                              // NEW: Submit to batch API instead of queue
+                              submitBatchSlides.mutate({
                                 instructorCourseId: id,
                                 teachingUnitIds: allUnits.map(u => u.id),
                               });
                             }
                           }}
-                          disabled={bulkQueueSlides.isPending || (queueStatus?.generating || 0) > 0}
+                          disabled={submitBatchSlides.isPending || !!slideStatus?.active_batch}
                         >
-                          {bulkQueueSlides.isPending ? (
+                          {submitBatchSlides.isPending ? (
                             <>
                               <Loader2 className="h-4 w-4 animate-spin" />
-                              <span className="hidden sm:inline">Queueing...</span>
+                              <span className="hidden sm:inline">Submitting batch...</span>
                             </>
-                          ) : (queueStatus?.pending || 0) > 0 || (queueStatus?.generating || 0) > 0 ? (
+                          ) : slideStatus?.active_batch ? (
                             <>
                               <Loader2 className="h-4 w-4 animate-spin" />
                               <span className="hidden sm:inline">
-                                Generating ({queueStatus?.generating || 0} active, {queueStatus?.pending || 0} queued)
+                                Processing {slideStatus.active_batch.succeeded}/{slideStatus.active_batch.total} slides...
                               </span>
                               <span className="sm:hidden">
-                                {queueStatus?.generating || 0}/{queueStatus?.pending || 0}
+                                {slideStatus.active_batch.succeeded}/{slideStatus.active_batch.total}
+                              </span>
+                            </>
+                          ) : (slideStatus?.generating || 0) > 0 ? (
+                            <>
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              <span className="hidden sm:inline">
+                                Generating {slideStatus?.ready || 0} complete...
+                              </span>
+                              <span className="sm:hidden">
+                                {slideStatus?.ready || 0} done
                               </span>
                             </>
                           ) : (
