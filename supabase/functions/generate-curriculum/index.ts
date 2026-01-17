@@ -258,9 +258,10 @@ Return JSON in this exact format:
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
-      if (aiResponse.status === 402) {
-        return new Response(JSON.stringify({ error: 'AI credits exhausted, please add funds' }), {
-          status: 402,
+      if (aiResponse.status === 403) {
+        // Google Cloud returns 403 for billing/quota issues
+        return new Response(JSON.stringify({ error: 'API quota exceeded or billing issue. Please check your Google Cloud account.' }), {
+          status: 403,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }

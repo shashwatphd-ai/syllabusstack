@@ -499,8 +499,9 @@ RULES:
       if (structureResponse.status === 429) {
         throw new Error("Rate limit exceeded. Please try again in a moment.");
       }
-      if (structureResponse.status === 402) {
-        throw new Error("AI credits exhausted. Please add credits to continue.");
+      if (structureResponse.status === 403) {
+        // Google Cloud returns 403 for billing/quota issues
+        throw new Error("API quota exceeded or billing issue. Please check your Google Cloud account.");
       }
       const errorText = await structureResponse.text();
       console.error("Google Cloud API error:", structureResponse.status, errorText);
