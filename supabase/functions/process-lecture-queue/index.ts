@@ -314,8 +314,43 @@ serve(async (req) => {
       });
     }
 
+    // ACTION: retry-failed - Reset failed slides for a course to retry
+    if (action === 'retry-failed' && instructor_course_id) {
+      const { data: failedSlides, error } = await supabase
+        .from('lecture_slides')
+        .update({
+          status: 'pending',
+          error_message: null,
+          generation_phases: { 
+            retry_at: new Date().toISOString(),
+            previous_status: 'failed',
+          },
+        })
+        .eq('status', 'failed')
+        .eq('instructor_course_id', instructor_course_id)
+        .select('id, teaching_unit_id');
+
+      console.log(`[Retry] Reset ${failedSlides?.length || 0} failed slides for course ${instructor_course_id}`);
+
+      // Trigger queue processing if we reset any items
+      if (failedSlides && failedSlides.length > 0) {
+        EdgeRuntime.waitUntil(
+          processQueue(supabase, supabaseUrl, serviceRoleKey, null).catch(err => {
+            console.error('[Retry] Queue restart error:', serializeError(err));
+          })
+        );
+      }
+
+      return new Response(JSON.stringify({
+        success: true,
+        reset: failedSlides?.length || 0,
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     return new Response(JSON.stringify({ 
-      error: 'Invalid action. Use: queue-bulk, process-next, get-status, cleanup-stuck' 
+      error: 'Invalid action. Use: queue-bulk, process-next, get-status, cleanup-stuck, retry-failed' 
     }), {
       status: 400,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

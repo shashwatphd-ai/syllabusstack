@@ -854,3 +854,48 @@ export function useCleanupStuckSlides() {
     },
   });
 }
+
+/**
+ * Retry all failed slide generations for a course
+ */
+export function useRetryFailedSlides() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  
+  return useMutation({
+    mutationFn: async (instructorCourseId: string) => {
+      const { data, error } = await supabase.functions.invoke('process-lecture-queue', {
+        body: { 
+          action: 'retry-failed',
+          instructor_course_id: instructorCourseId,
+        }
+      });
+      
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data, instructorCourseId) => {
+      queryClient.invalidateQueries({ queryKey: ['course-lecture-slides', instructorCourseId] });
+      queryClient.invalidateQueries({ queryKey: ['lecture-queue-status', instructorCourseId] });
+      
+      if (data.reset > 0) {
+        toast({
+          title: 'Retrying Failed Slides',
+          description: `Reset ${data.reset} failed slides. They will regenerate automatically.`,
+        });
+      } else {
+        toast({
+          title: 'No Failed Slides',
+          description: 'All slides are in good state.',
+        });
+      }
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Retry Failed',
+        description: error.message,
+        variant: 'destructive',
+      });
+    },
+  });
+}
