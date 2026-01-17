@@ -345,10 +345,10 @@ serve(async (req) => {
       );
     }
 
-    // Fetch course data
+    // Fetch course data (including instructor_id for authorization)
     const { data: course, error: courseError } = await supabase
       .from('instructor_courses')
-      .select('id, title, code, detected_domain')
+      .select('id, title, code, detected_domain, instructor_id')
       .eq('id', instructor_course_id)
       .single();
 
@@ -357,6 +357,20 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({ success: false, error: 'Course not found' }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // ========================================================================
+    // SECURITY: Verify course ownership
+    // ========================================================================
+    // Users can only generate slides for courses they own.
+    // This prevents unauthorized batch generation for other users' courses.
+    //
+    if (userId && course.instructor_id && course.instructor_id !== userId) {
+      console.warn(`[Batch] Authorization failed. User ${userId} attempted to generate slides for course ${course.id} owned by ${course.instructor_id}.`);
+      return new Response(
+        JSON.stringify({ success: false, error: 'Not authorized to generate slides for this course' }),
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 

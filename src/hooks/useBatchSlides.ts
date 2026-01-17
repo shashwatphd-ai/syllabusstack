@@ -249,11 +249,11 @@ export function useCourseSlideStatus(instructorCourseId?: string) {
 
     enabled: !!instructorCourseId,
 
-    // Poll every 10 seconds if there's an active batch
+    // Poll every 30 seconds if there's an active batch (Google recommends conservative polling)
     refetchInterval: (query) => {
       const data = query.state.data;
       if (data?.active_batch) {
-        return 10000; // Poll more frequently during active batch
+        return 30000; // Poll during active batch - 30s aligns with Google's recommendations
       }
       return false; // Don't poll if no active batch
     },
@@ -315,7 +315,7 @@ export function useRetryFailedBatchSlides() {
 
       toast({
         title: 'Retrying Failed Slides',
-        description: data.message || `Retrying ${data.total || 0} failed slides`,
+        description: data.message || `Retrying ${data.total ?? data.count ?? 0} failed slides`,
       });
     },
 

@@ -476,10 +476,10 @@ export default function InstructorCourseDetailPage() {
                             <>
                               <Loader2 className="h-4 w-4 animate-spin" />
                               <span className="hidden sm:inline">
-                                Generating {slideStatus?.ready || 0} complete...
+                                Generating... ({slideStatus?.generating || 0} in progress)
                               </span>
                               <span className="sm:hidden">
-                                {slideStatus?.ready || 0} done
+                                Generating...
                               </span>
                             </>
                           ) : (
