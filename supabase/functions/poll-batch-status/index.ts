@@ -86,9 +86,11 @@ serve(async (req) => {
           console.log(`[Poll] Google batch status: ${googleStatus.state}`);
 
           // Update our record with Google's counts
-          const updatedStatus = googleStatus.state === 'SUCCEEDED' ? 'completed' :
-                               googleStatus.state === 'FAILED' ? 'failed' :
-                               googleStatus.state === 'RUNNING' ? 'processing' : 'submitted';
+          // Google returns JOB_STATE_* format (e.g., JOB_STATE_SUCCEEDED)
+          const updatedStatus =
+            googleStatus.state === 'JOB_STATE_SUCCEEDED' || googleStatus.state === 'SUCCEEDED' ? 'completed' :
+            googleStatus.state === 'JOB_STATE_FAILED' || googleStatus.state === 'FAILED' ? 'failed' :
+            googleStatus.state === 'JOB_STATE_RUNNING' || googleStatus.state === 'RUNNING' ? 'processing' : 'submitted';
 
           await supabase
             .from('batch_jobs')
@@ -103,7 +105,7 @@ serve(async (req) => {
             .eq('id', batch_job_id);
 
           // If batch is complete, process the results
-          if (googleStatus.state === 'SUCCEEDED') {
+          if (googleStatus.state === 'JOB_STATE_SUCCEEDED' || googleStatus.state === 'SUCCEEDED') {
             await processCompletedBatch(
               supabase,
               batchJob,
