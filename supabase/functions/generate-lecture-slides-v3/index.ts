@@ -148,8 +148,28 @@ interface TeachingUnitContext {
 }
 
 // ============================================================================
-// AI GATEWAY HELPER - Google Cloud API
+// AI GATEWAY HELPER - Google Cloud Generative Language API
 // ============================================================================
+//
+// MIGRATION NOTES: Lovable AI Gateway → Google Cloud API
+//
+// WHAT CHANGED:
+// - API endpoint: ai.gateway.lovable.dev → generativelanguage.googleapis.com
+// - Authentication: API key passed as URL parameter (?key=...)
+// - Request format: Google's native format with systemInstruction and contents
+// - Image generation: Uses gemini-3-pro-image-preview with responseModalities: ['TEXT', 'IMAGE']
+// - Google Search grounding: Uses tools: [{ googleSearch: {} }] parameter
+//
+// EXPECTED OUTCOMES:
+// - callGoogleAI(): Same text generation with Gemini models
+// - generateImage(): Native image generation using Gemini 3 Pro Image model
+// - runResearchAgent(): Google Search grounding for verified, cited content
+//
+// MODEL MAPPING:
+// - google/gemini-3-pro-preview → gemini-3-pro-preview (complex reasoning, lectures)
+// - gemini-2.5-flash → Used for research agent (fast, with search grounding)
+// - gemini-3-pro-image-preview → Used for diagram/illustration generation
+//
 
 const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 

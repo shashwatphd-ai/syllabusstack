@@ -2,8 +2,25 @@
  * AI Provider Abstraction
  *
  * Provides unified interface for AI calls with multiple providers:
- * 1. Gemini (via Lovable Gateway) - default for complex tasks
+ * 1. Gemini (via Google Cloud API) - default for complex tasks
  * 2. OpenLLM (via RapidAPI) - cheaper alternative for simpler tasks
+ *
+ * ============================================================================
+ * MIGRATION NOTES: Lovable AI Gateway → Google Cloud Generative Language API
+ * ============================================================================
+ *
+ * WHAT CHANGED:
+ * - callGemini() now uses Google Cloud API directly instead of Lovable gateway
+ * - API endpoint: generativelanguage.googleapis.com/v1beta/models/{model}:generateContent
+ * - Request format: Uses Google's native format (systemInstruction, contents, generationConfig)
+ * - Response parsing: candidates[0].content.parts[0].text
+ * - Environment variable: GOOGLE_CLOUD_API_KEY (was LOVABLE_API_KEY)
+ *
+ * EXPECTED OUTCOMES:
+ * - Same functionality with direct Google Cloud control
+ * - Fallback to Gemini still works when OpenLLM fails
+ * - Cost estimation updated for Google Cloud pricing
+ * - JSON response mode uses responseMimeType: 'application/json'
  *
  * NOTE: This abstraction is for simple text/JSON responses.
  * For structured output with tool calling, use direct API calls with

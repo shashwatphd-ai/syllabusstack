@@ -1,6 +1,13 @@
 /**
  * AI-Driven SSML Transformer
  * Converts plain speaker notes into expressive SSML for natural text-to-speech
+ *
+ * MIGRATION NOTES: Uses Google Cloud Generative Language API directly
+ * - API endpoint: generativelanguage.googleapis.com/v1beta
+ * - Model: gemini-3-flash-preview for fast, quality SSML generation
+ * - API key: GOOGLE_CLOUD_API_KEY environment variable
+ * - Request format: Google's native format with systemInstruction and contents
+ * - Temperature: 0.3 for consistent SSML structure
  */
 
 const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';

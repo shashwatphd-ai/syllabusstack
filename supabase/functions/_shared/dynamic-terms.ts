@@ -3,6 +3,12 @@
  *
  * Extracts domain-specific terms from instructor_courses and learns synonyms automatically.
  * No hardcoded concept lists - everything is derived from the syllabus content.
+ *
+ * MIGRATION NOTES: Uses Google Cloud Generative Language API directly
+ * - API endpoint: generativelanguage.googleapis.com/v1beta
+ * - Model: gemini-2.5-flash for fast synonym learning
+ * - API key: GOOGLE_CLOUD_API_KEY environment variable (standardized from GEMINI_API_KEY)
+ * - Request format: Google's native format with contents and generationConfig
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';

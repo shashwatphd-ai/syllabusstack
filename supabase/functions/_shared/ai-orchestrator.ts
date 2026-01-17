@@ -1,5 +1,26 @@
 // SyllabusStack AI Orchestrator
 // Centralized AI request handling with model selection, caching, fallback logic, and cost tracking
+//
+// ============================================================================
+// MIGRATION NOTES: Lovable AI Gateway → Google Cloud Generative Language API
+// ============================================================================
+//
+// WHAT CHANGED:
+// - Removed Lovable API fallback logic (was used as backup)
+// - Now uses Google Cloud API (generativelanguage.googleapis.com) directly
+// - Standardized on GOOGLE_CLOUD_API_KEY environment variable
+// - Updated model names to current Google Cloud model identifiers
+//
+// EXPECTED OUTCOMES:
+// - Direct API access without intermediary gateway
+// - Consistent model naming (gemini-2.5-flash, gemini-3-pro-preview, etc.)
+// - Accurate cost tracking based on Google Cloud pricing
+// - Fallback logic between primary/fallback models still works
+//
+// API ENDPOINT:
+// Before: https://ai.gateway.lovable.dev/v1/chat/completions (OpenAI format)
+// After:  https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent
+//
 // Uses Google Cloud Generative Language API directly
 
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";

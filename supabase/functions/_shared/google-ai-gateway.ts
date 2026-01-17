@@ -1,19 +1,42 @@
 /**
  * Google Cloud AI Gateway
  *
- * Direct replacement for Lovable AI Gateway.
- * Uses Google Cloud Generative Language API (generativelanguage.googleapis.com).
+ * ============================================================================
+ * MIGRATION NOTES: Lovable AI Gateway → Google Cloud Generative Language API
+ * ============================================================================
+ *
+ * WHAT CHANGED:
+ * - API Endpoint: ai.gateway.lovable.dev → generativelanguage.googleapis.com
+ * - Authentication: LOVABLE_API_KEY → GOOGLE_CLOUD_API_KEY
+ * - Request format: OpenAI-compatible → Google Gemini native format
+ * - Response format: OpenAI-compatible → Google Gemini native format (converted back)
+ *
+ * EXPECTED OUTCOMES:
+ * - Same functionality as before with direct Google Cloud API control
+ * - No dependency on third-party gateway services
+ * - Direct access to latest Gemini models including image generation
+ * - Google Search grounding support via tools parameter
+ *
+ * REQUEST FORMAT CONVERSION:
+ * Before (Lovable/OpenAI):
+ *   { messages: [{role: 'system', content: '...'}, {role: 'user', content: '...'}] }
+ * After (Google):
+ *   { systemInstruction: {parts: [{text: '...'}]}, contents: [{role: 'user', parts: [{text: '...'}]}] }
+ *
+ * RESPONSE FORMAT CONVERSION:
+ * Google Response: candidates[0].content.parts[0].text
+ * Converted to: choices[0].message.content (OpenAI-compatible for backward compatibility)
  *
  * Required env var: GOOGLE_CLOUD_API_KEY
  *
  * Model mapping:
- * - google/gemini-2.5-flash → gemini-2.5-flash
- * - google/gemini-2.5-flash-lite → gemini-2.5-flash-lite
- * - google/gemini-2.5-pro → gemini-2.5-pro
- * - google/gemini-3-flash-preview → gemini-3-flash-preview
- * - google/gemini-3-pro-preview → gemini-3-pro-preview
- * - google/gemini-3-pro-image-preview → gemini-3-pro-image-preview
- * - openai/gpt-5.2 → gemini-3-pro-preview
+ * - google/gemini-2.5-flash → gemini-2.5-flash (fast, cost-effective)
+ * - google/gemini-2.5-flash-lite → gemini-2.5-flash-lite (fastest, cheapest)
+ * - google/gemini-2.5-pro → gemini-2.5-pro (higher quality)
+ * - google/gemini-3-flash-preview → gemini-3-flash-preview (frontier speed)
+ * - google/gemini-3-pro-preview → gemini-3-pro-preview (complex reasoning)
+ * - google/gemini-3-pro-image-preview → gemini-3-pro-image-preview (image generation)
+ * - openai/gpt-5.2 → gemini-3-pro-preview (equivalent capability)
  * - openai/gpt-5 → gemini-3-pro-preview
  * - openai/gpt-5-mini → gemini-3-flash-preview
  * - openai/gpt-5-nano → gemini-2.5-flash-lite

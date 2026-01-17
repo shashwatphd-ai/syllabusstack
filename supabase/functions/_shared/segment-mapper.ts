@@ -1,6 +1,13 @@
 /**
  * AI-Driven Content-Audio Segment Mapper
  * Maps speaker notes to slide content blocks for synchronized highlighting
+ *
+ * MIGRATION NOTES: Uses Google Cloud Generative Language API directly
+ * - API endpoint: generativelanguage.googleapis.com/v1beta
+ * - Model: gemini-2.5-flash for fast segment mapping
+ * - API key: GOOGLE_CLOUD_API_KEY environment variable
+ * - Request format: Google's native format with systemInstruction and contents
+ * - Response parsing: candidates[0].content.parts[0].text
  */
 
 const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
