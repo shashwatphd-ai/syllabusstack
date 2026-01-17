@@ -57,6 +57,7 @@ interface ProfessorSlide {
     description: string;
     elements: string[];
     style: string;
+    educational_purpose?: string;
   };
   speaker_notes: string;
   estimated_seconds: number;
