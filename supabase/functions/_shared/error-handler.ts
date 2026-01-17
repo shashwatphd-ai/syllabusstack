@@ -118,11 +118,12 @@ export function handleAIGatewayError(
     );
   }
 
-  if (response.status === 402) {
+  if (response.status === 403) {
+    // Google Cloud returns 403 for billing/quota issues
     return createErrorResponse(
       'PAYMENT_REQUIRED',
       corsHeaders,
-      'AI credits exhausted. Please add credits to continue.'
+      'API quota exceeded or billing issue. Please check your Google Cloud account.'
     );
   }
 

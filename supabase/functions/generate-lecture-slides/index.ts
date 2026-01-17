@@ -207,11 +207,12 @@ async function callAI(systemPrompt: string, userPrompt: string): Promise<{
     if (response.status === 429) {
       throw new Error('Rate limit exceeded. Please try again later.');
     }
-    if (response.status === 402) {
-      throw new Error('AI credits exhausted. Please add funds to your workspace.');
+    if (response.status === 403) {
+      // Google Cloud returns 403 for billing/quota issues
+      throw new Error('API quota exceeded or billing issue. Please check your Google Cloud account.');
     }
 
-    throw new Error(`AI Gateway error: ${response.status}`);
+    throw new Error(`Google Cloud API error: ${response.status}`);
   }
 
   const responseText = await response.text();

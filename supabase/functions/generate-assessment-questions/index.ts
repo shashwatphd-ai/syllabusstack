@@ -226,13 +226,14 @@ For short answer questions, include keywords that indicate correct understanding
           { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
-      if (response.status === 402) {
+      if (response.status === 403) {
+        // Google Cloud returns 403 for billing/quota issues
         return new Response(
-          JSON.stringify({ error: "AI credits exhausted. Please add credits." }),
-          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          JSON.stringify({ error: "API quota exceeded or billing issue. Please check your Google Cloud account." }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
-      throw new Error(`AI gateway error: ${response.status}`);
+      throw new Error(`Google Cloud API error: ${response.status} - ${errorText}`);
     }
 
     const data = await response.json();
