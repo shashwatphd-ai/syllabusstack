@@ -47,6 +47,7 @@ export interface EnhancedSlide {
     alt_text: string;
     source?: string;
     fallback_description: string;
+    educational_purpose?: string;
   };
   speaker_notes: string;
   speaker_notes_duration_seconds?: number;
@@ -121,6 +122,7 @@ export interface ProfessorSlide {
     fallback_description: string;
     elements?: string[];
     style?: string;
+    educational_purpose?: string;
   };
   speaker_notes: string;
   speaker_notes_duration_seconds?: number;
