@@ -52,6 +52,30 @@ export const MODEL_CONFIG = {
   GEMINI_IMAGE: 'gemini-3-pro-image-preview',
 };
 
+// Vertex AI model paths for batch prediction
+// Format: publishers/google/models/{model_id}
+// Used by Vertex AI batchPredictionJobs API
+export const VERTEX_AI_MODELS = {
+  GEMINI_FLASH: 'publishers/google/models/gemini-2.5-flash',
+  GEMINI_FLASH_LITE: 'publishers/google/models/gemini-2.5-flash-lite',
+  GEMINI_PRO: 'publishers/google/models/gemini-3-pro-preview',
+  GEMINI_3_FLASH: 'publishers/google/models/gemini-3-flash-preview',
+  GEMINI_IMAGE: 'publishers/google/models/gemini-3-pro-image-preview',
+};
+
+/**
+ * Get the Vertex AI model path for a given model ID
+ * @param modelId Model ID from MODEL_CONFIG (e.g., "gemini-3-pro-preview")
+ * @returns Full Vertex AI model path (e.g., "publishers/google/models/gemini-3-pro-preview")
+ */
+export function getVertexAIModelPath(modelId: string): string {
+  // If already a full path, return as-is
+  if (modelId.startsWith('publishers/') || modelId.startsWith('projects/')) {
+    return modelId;
+  }
+  return `publishers/google/models/${modelId}`;
+}
+
 // Task to model mapping with primary and fallback
 export const TASK_MODEL_MAP: Record<AITaskType, { primary: string; fallback: string }> = {
   syllabus_extraction: { 

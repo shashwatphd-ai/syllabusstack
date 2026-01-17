@@ -1,18 +1,22 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { MODEL_CONFIG } from '../_shared/ai-orchestrator.ts';
+import { MODEL_CONFIG, getVertexAIModelPath } from '../_shared/ai-orchestrator.ts';
+import { createVertexAIAuth } from '../_shared/vertex-ai-auth.ts';
+import { createGCSClient, GCSClient } from '../_shared/gcs-client.ts';
+import { createVertexAIBatchClient, VertexAIBatchClient } from '../_shared/vertex-ai-batch.ts';
 
 // ============================================================================
-// SUBMIT BATCH SLIDES - Google Batch API Integration
+// SUBMIT BATCH SLIDES - Vertex AI Batch Prediction Integration
 // ============================================================================
 //
-// PURPOSE: Submit all teaching units for a course to Google Batch API
+// PURPOSE: Submit all teaching units for a course to Vertex AI Batch Prediction
 //
 // WHY THIS APPROACH:
-//   - 50% cost savings vs real-time API (requires async batch endpoint)
+//   - 50% cost savings via Vertex AI batch prediction discount
 //   - Higher throughput (no MAX_CONCURRENT limit)
 //   - Simpler code (no queue management)
 //   - Better UX (single job to track)
+//   - Enterprise-grade reliability with Cloud Storage
 //
 // REPLACES: process-lecture-queue's 'queue-bulk' action
 //
@@ -20,20 +24,29 @@ import { MODEL_CONFIG } from '../_shared/ai-orchestrator.ts';
 //   1. Receive instructor_course_id and teaching_unit_ids[]
 //   2. Fetch all teaching unit context data
 //   3. Build prompts using same logic as generate-lecture-slides-v3
-//   4. Create inline batch request (for <1000 items)
-//   5. Submit to Google Batch API (async endpoint for 50% discount)
-//   6. Store batch job ID in database
-//   7. Create lecture_slides records with status='batch_pending'
-//   8. Return immediately - processing happens async on Google's side
+//   4. Run research agent for grounded content
+//   5. Upload JSONL requests to Cloud Storage
+//   6. Create Vertex AI batch prediction job
+//   7. Store batch job ID in database
+//   8. Create lecture_slides records with status='batch_pending'
+//   9. Return immediately - processing happens async on Vertex AI
 //
-// IMPORTANT: This uses the ASYNC Batch API endpoint which:
+// IMPORTANT: This uses Vertex AI Batch Prediction which:
 //   - Returns immediately with a job ID
 //   - Processes asynchronously (usually <1 hour for ~100 requests)
 //   - Provides 50% cost discount
 //   - Requires polling via poll-batch-status for completion
+//   - Uses Cloud Storage for input/output
 //
 // NOTE: Keep generate-lecture-slides-v3 for single slide generation
 //       This function is ONLY for bulk "Generate All" operations
+//
+// ENVIRONMENT VARIABLES REQUIRED:
+//   - GCP_SERVICE_ACCOUNT_KEY: Base64 encoded service account JSON key
+//   - GCP_PROJECT_ID: Google Cloud project ID (optional, from service account)
+//   - GCP_REGION: Vertex AI region (default: us-central1)
+//   - GCS_BUCKET: Cloud Storage bucket for batch input/output
+//   - GOOGLE_CLOUD_API_KEY: For research agent (Google Search grounding)
 //
 // ============================================================================
 
@@ -42,14 +55,12 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Google Batch API endpoint - uses batchGenerateContent for 50% discount
-// See: https://ai.google.dev/gemini-api/docs/batch-api
-// Format: POST models/{model}:batchGenerateContent (async, returns job ID)
+// Google API base for research agent (still uses Gemini API for search grounding)
 const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 // Model configuration - use orchestrator's MODEL_CONFIG for consistency
 // CRITICAL: Batch MUST use the same model as v3 for quality parity.
-// Cost savings come from Google's 50% batch API discount, NOT from
+// Cost savings come from Vertex AI's 50% batch discount, NOT from
 // degrading model quality. Both v3 and batch use GEMINI_PRO.
 const BATCH_MODEL = MODEL_CONFIG.GEMINI_PRO;
 
@@ -1073,123 +1084,145 @@ serve(async (req) => {
     console.log(`[Batch] Built ${batchRequests.length} batch requests with research grounding`);
 
     // ========================================================================
-    // 5. SUBMIT TO GOOGLE BATCH API (batchGenerateContent)
+    // 5. UPLOAD REQUESTS TO CLOUD STORAGE
     // ========================================================================
     //
-    // Submit the batch to Google's batchGenerateContent endpoint.
-    // This is the REST endpoint that provides 50% cost discount.
+    // Vertex AI batch prediction requires input in Cloud Storage.
+    // We upload a JSONL file where each line is a GenerateContentRequest.
     //
-    // Endpoint: POST /v1beta/models/{model}:batchGenerateContent
-    // Auth: x-goog-api-key header
+    // JSONL Format (one request per line):
+    //   {"request":{"contents":[...],"systemInstruction":{...},"generationConfig":{...}}}
     //
-    // Request format (REST API):
-    //   {
-    //     "batch": {
-    //       "display_name": "...",
-    //       "input_config": {
-    //         "requests": {
-    //           "requests": [{ "request": {...}, "metadata": {"key": "..."} }, ...]
-    //         }
-    //       }
-    //     }
-    //   }
-    //
-    // - Returns immediately with a job ID (BatchJob object)
-    // - Processes asynchronously (usually <1 hour for ~100 requests)
-    // - Poll via poll-batch-status for completion
-    //
-    // API Documentation: https://ai.google.dev/gemini-api/docs/batch-api
+    // Cloud Storage Path: gs://{bucket}/inputs/{batchId}/requests.jsonl
     //
 
-    // Build batch requests in the correct REST API format
-    // Each request needs: { request: {contents, systemInstruction, generationConfig}, metadata: {key} }
-    const formattedRequests = batchRequests.map((req, idx) => ({
+    // Initialize Vertex AI clients
+    let auth, gcsClient, batchClient;
+    try {
+      auth = createVertexAIAuth();
+      gcsClient = createGCSClient(auth);
+      batchClient = createVertexAIBatchClient(auth);
+    } catch (error) {
+      console.error('[Batch] Failed to initialize Vertex AI clients:', error);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: `Vertex AI configuration error: ${error instanceof Error ? error.message : 'Unknown error'}. Please ensure GCP_SERVICE_ACCOUNT_KEY and GCS_BUCKET are configured.`,
+        }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Generate unique batch ID for this submission
+    const batchId = crypto.randomUUID();
+    const inputPath = `inputs/${batchId}/requests.jsonl`;
+    const outputPrefix = `gs://${gcsClient.bucketName}/outputs/${batchId}/`;
+
+    // Build JSONL content - one request per line
+    // Vertex AI expects: {"request": {contents, systemInstruction, generationConfig}}
+    const jsonlLines = batchRequests.map((req) => ({
       request: {
         contents: req.contents,
         systemInstruction: req.systemInstruction,
         generationConfig: req.generationConfig,
       },
-      metadata: {
-        key: `slide_${idx}`, // Key for correlating responses
-      },
     }));
 
-    const batchEndpoint = `${GOOGLE_API_BASE}/models/${BATCH_MODEL}:batchGenerateContent`;
-    console.log(`[Batch] Submitting to: ${batchEndpoint}`);
+    console.log(`[Batch] Uploading ${jsonlLines.length} requests to Cloud Storage...`);
 
-    const batchResponse = await fetch(
-      batchEndpoint,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': googleApiKey,
-        },
-        body: JSON.stringify({
-          // Google Batch API REST format (not SDK format)
-          batch: {
-            display_name: `slides-${instructor_course_id}-${Date.now()}`,
-            input_config: {
-              requests: {
-                requests: formattedRequests,
-              },
-            },
-          },
+    let inputUri: string;
+    try {
+      inputUri = await gcsClient.uploadJsonl(inputPath, jsonlLines);
+      console.log(`[Batch] Uploaded to: ${inputUri}`);
+    } catch (uploadError) {
+      console.error('[Batch] Failed to upload to Cloud Storage:', uploadError);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: `Cloud Storage upload failed: ${uploadError instanceof Error ? uploadError.message : 'Unknown error'}`,
         }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // ========================================================================
+    // 6. CREATE VERTEX AI BATCH PREDICTION JOB
+    // ========================================================================
+    //
+    // Submit the batch to Vertex AI batchPredictionJobs endpoint.
+    // This provides the 50% cost discount for batch processing.
+    //
+    // Endpoint: POST /v1/projects/{project}/locations/{region}/batchPredictionJobs
+    // Auth: OAuth 2.0 access token (from service account)
+    //
+    // Request format:
+    //   {
+    //     "displayName": "...",
+    //     "model": "publishers/google/models/gemini-3-pro-preview",
+    //     "inputConfig": { "instancesFormat": "jsonl", "gcsSource": { "uris": [...] } },
+    //     "outputConfig": { "predictionsFormat": "jsonl", "gcsDestination": { "outputUriPrefix": "..." } }
+    //   }
+    //
+    // - Returns immediately with a job resource name
+    // - Processes asynchronously (usually <1 hour for ~100 requests)
+    // - Poll via poll-batch-status for completion
+    //
+    // API Documentation: https://cloud.google.com/vertex-ai/docs/reference/rest/v1/projects.locations.batchPredictionJobs
+    //
+
+    const displayName = `slides-${instructor_course_id}-${Date.now()}`;
+    const modelPath = getVertexAIModelPath(BATCH_MODEL);
+
+    console.log(`[Batch] Creating Vertex AI batch job: ${displayName}`);
+    console.log(`[Batch] Model: ${modelPath}`);
+    console.log(`[Batch] Input: ${inputUri}`);
+    console.log(`[Batch] Output: ${outputPrefix}`);
+
+    let vertexJob;
+    try {
+      vertexJob = await batchClient.createBatchJob({
+        displayName,
+        model: modelPath,
+        inputUri,
+        outputUriPrefix: outputPrefix,
+      });
+    } catch (createError) {
+      console.error('[Batch] Failed to create Vertex AI job:', createError);
+
+      // Try to clean up the uploaded file
+      try {
+        await gcsClient.deleteFile(inputPath);
+      } catch (cleanupError) {
+        console.warn('[Batch] Failed to clean up uploaded file:', cleanupError);
       }
-    );
 
-    if (!batchResponse.ok) {
-      const errorText = await batchResponse.text();
-      console.error('[Batch] Google API error:', batchResponse.status, errorText);
-
-      // Handle specific error codes
-      if (batchResponse.status === 429) {
+      // Map common errors to user-friendly messages
+      const errorMessage = createError instanceof Error ? createError.message : 'Unknown error';
+      if (errorMessage.includes('429') || errorMessage.includes('RESOURCE_EXHAUSTED')) {
         return new Response(
           JSON.stringify({ success: false, error: 'Rate limit exceeded. Please try again later.' }),
           { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
-      if (batchResponse.status === 403) {
+      if (errorMessage.includes('403') || errorMessage.includes('PERMISSION_DENIED')) {
         return new Response(
-          JSON.stringify({ success: false, error: 'API quota exceeded or billing issue. Check Google Cloud account.' }),
+          JSON.stringify({ success: false, error: 'Permission denied. Check service account permissions for Vertex AI and Cloud Storage.' }),
           { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
       return new Response(
-        JSON.stringify({ success: false, error: `Batch API error: ${batchResponse.status}` }),
+        JSON.stringify({ success: false, error: `Vertex AI batch job creation failed: ${errorMessage}` }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    const batchData = await batchResponse.json();
-    console.log('[Batch] Google API response:', JSON.stringify(batchData, null, 2));
+    // Vertex AI returns full resource name: projects/.../locations/.../batchPredictionJobs/123
+    const googleBatchId = vertexJob.name;
+    const batchState = vertexJob.state || 'JOB_STATE_PENDING';
 
-    // ========================================================================
-    // 6. ASYNC BATCH API RETURNS JOB INFO (not immediate results)
-    // ========================================================================
-    //
-    // The async batch API returns:
-    // { name: "batches/abc123", state: "JOB_STATE_PENDING", ... }
-    //
-    // Processing happens asynchronously on Google's side.
-    // Use poll-batch-status to check completion and retrieve results.
-    //
-
-    // Extract job info from response
-    const googleBatchId = batchData.name; // e.g., "batches/abc123"
-    const batchState = batchData.state || 'JOB_STATE_PENDING';
-
-    if (!googleBatchId) {
-      console.error('[Batch] No batch name in response:', batchData);
-      return new Response(
-        JSON.stringify({ success: false, error: 'Google API did not return a batch ID' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    console.log(`[Batch] Job created: ${googleBatchId}, state: ${batchState}`);
+    console.log(`[Batch] Vertex AI job created: ${googleBatchId}`);
+    console.log(`[Batch] Initial state: ${batchState}`);
 
     // ========================================================================
     // 7. STORE BATCH JOB IN DATABASE FOR POLLING

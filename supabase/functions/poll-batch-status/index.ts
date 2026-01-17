@@ -1,24 +1,40 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { MODEL_CONFIG } from '../_shared/ai-orchestrator.ts';
+import { createVertexAIAuth } from '../_shared/vertex-ai-auth.ts';
+import { createGCSClient, GCSClient } from '../_shared/gcs-client.ts';
+import { createVertexAIBatchClient, VertexAIBatchClient, BatchJobState } from '../_shared/vertex-ai-batch.ts';
 
 // ============================================================================
-// POLL BATCH STATUS - Check and process batch job results
+// POLL BATCH STATUS - Check and process Vertex AI batch job results
 // ============================================================================
 //
-// PURPOSE: Poll Google Batch API for job status and process results
+// PURPOSE: Poll Vertex AI Batch Prediction API for job status and process results
 //
 // WHY THIS EXISTS:
-//   - Google Batch API is async - need to poll for completion
-//   - When batch completes, process results and update lecture_slides
+//   - Vertex AI batch prediction is async - need to poll for completion
+//   - When batch completes, download results from Cloud Storage
+//   - Process results and update lecture_slides records
 //   - Frontend polls this every 30 seconds
 //
 // FLOW:
 //   1. Receive batch_job_id or instructor_course_id
-//   2. If batch_job_id: Poll Google API for status
-//   3. If SUCCEEDED: Fetch results and update lecture_slides
-//   4. Update batch_jobs record with status/counts
-//   5. Return current status to frontend
+//   2. If batch_job_id: Poll Vertex AI API for job status
+//   3. If SUCCEEDED: Download results from Cloud Storage
+//   4. Parse JSONL output and update lecture_slides
+//   5. Update batch_jobs record with status/counts
+//   6. Return current status to frontend
+//
+// VERTEX AI RESPONSE FORMAT:
+//   - Job status from: GET /v1/projects/.../batchPredictionJobs/{id}
+//   - Results in Cloud Storage: gs://bucket/outputs/{batchId}/predictions.jsonl
+//   - Each line is: {"request": {...}, "response": {...}}
+//
+// ENVIRONMENT VARIABLES:
+//   - GCP_SERVICE_ACCOUNT_KEY: Base64 encoded service account JSON key
+//   - GCP_PROJECT_ID: Google Cloud project ID (optional, from service account)
+//   - GCP_REGION: Vertex AI region (default: us-central1)
+//   - GCS_BUCKET: Cloud Storage bucket for batch input/output
 //
 // ============================================================================
 
@@ -26,8 +42,6 @@ const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
-
-const GOOGLE_BATCH_API = 'https://generativelanguage.googleapis.com/v1beta';
 
 serve(async (req) => {
   // Handle CORS preflight
@@ -38,10 +52,21 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const googleApiKey = Deno.env.get('GOOGLE_CLOUD_API_KEY');
     const supabase = createClient(supabaseUrl, serviceRoleKey);
 
     const { batch_job_id, instructor_course_id } = await req.json();
+
+    // Initialize Vertex AI clients (needed for polling)
+    let auth, gcsClient, batchClient;
+    try {
+      auth = createVertexAIAuth();
+      gcsClient = createGCSClient(auth);
+      batchClient = createVertexAIBatchClient(auth);
+    } catch (error) {
+      // If Vertex AI is not configured, return error for batch operations
+      console.warn('[Poll] Vertex AI not configured:', error);
+      // Fall through - will return status from database if clients unavailable
+    }
 
     // ========================================================================
     // OPTION 1: Poll specific batch job
@@ -75,54 +100,43 @@ serve(async (req) => {
         );
       }
 
-      // Poll Google API for current status
-      if (googleApiKey && batchJob.google_batch_id) {
-        const pollResponse = await fetch(
-          `${GOOGLE_BATCH_API}/${batchJob.google_batch_id}`,
-          {
-            method: 'GET',
-            headers: {
-              'x-goog-api-key': googleApiKey,
-            },
-          }
-        );
+      // Poll Vertex AI for current status
+      if (batchClient && batchJob.google_batch_id) {
+        try {
+          const vertexStatus = await batchClient.getBatchJob(batchJob.google_batch_id);
+          console.log(`[Poll] Vertex AI batch state: ${vertexStatus.state}`);
 
-        if (pollResponse.ok) {
-          const googleStatus = await pollResponse.json();
-          console.log(`[Poll] Google batch status: ${googleStatus.state}`);
+          // Map Vertex AI state to our internal status
+          const updatedStatus = VertexAIBatchClient.mapJobStateToStatus(vertexStatus.state);
 
-          // Update our record with Google's counts
-          // Google returns JOB_STATE_* format (e.g., JOB_STATE_SUCCEEDED)
-          const updatedStatus =
-            googleStatus.state === 'JOB_STATE_SUCCEEDED' || googleStatus.state === 'SUCCEEDED' ? 'completed' :
-            googleStatus.state === 'JOB_STATE_FAILED' || googleStatus.state === 'FAILED' ? 'failed' :
-            googleStatus.state === 'JOB_STATE_RUNNING' || googleStatus.state === 'RUNNING' ? 'processing' : 'submitted';
+          // Extract completion counts from Vertex AI response
+          const counts = VertexAIBatchClient.extractCounts(vertexStatus.completionStats);
 
           await supabase
             .from('batch_jobs')
             .update({
               status: updatedStatus,
-              succeeded_count: googleStatus.succeededCount || 0,
-              failed_count: googleStatus.failedCount || 0,
-              ...(updatedStatus === 'completed' || updatedStatus === 'failed' ? {
+              succeeded_count: counts.succeeded,
+              failed_count: counts.failed,
+              ...(VertexAIBatchClient.isTerminalState(vertexStatus.state) ? {
                 completed_at: new Date().toISOString(),
               } : {}),
             })
             .eq('id', batch_job_id);
 
-          // If batch is complete, process the results
-          if (googleStatus.state === 'JOB_STATE_SUCCEEDED' || googleStatus.state === 'SUCCEEDED') {
+          // If batch succeeded, process the results from Cloud Storage
+          if (VertexAIBatchClient.isSuccessState(vertexStatus.state)) {
             await processCompletedBatch(
               supabase,
               batchJob,
-              googleStatus,
-              googleApiKey
+              vertexStatus,
+              gcsClient!
             );
           }
 
           // Calculate progress
           const total = batchJob.total_requests || 1;
-          const done = (googleStatus.succeededCount || 0) + (googleStatus.failedCount || 0);
+          const done = counts.succeeded + counts.failed;
           const progressPercent = Math.round((done / total) * 100);
 
           return new Response(
@@ -131,17 +145,18 @@ serve(async (req) => {
               batch_job: {
                 ...batchJob,
                 status: updatedStatus,
-                succeeded_count: googleStatus.succeededCount || 0,
-                failed_count: googleStatus.failedCount || 0,
+                succeeded_count: counts.succeeded,
+                failed_count: counts.failed,
               },
-              google_status: googleStatus.state,
-              is_complete: ['SUCCEEDED', 'FAILED'].includes(googleStatus.state),
+              vertex_state: vertexStatus.state,
+              is_complete: VertexAIBatchClient.isTerminalState(vertexStatus.state),
               progress_percent: progressPercent,
             }),
             { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
-        } else {
-          console.error('[Poll] Google API error:', pollResponse.status);
+        } catch (pollError) {
+          console.error('[Poll] Vertex AI poll error:', pollError);
+          // Fall through to return database status
         }
       }
 
@@ -193,40 +208,29 @@ serve(async (req) => {
 
       // Find active batch job (if any)
       const activeBatch = batchJobs?.find(j =>
-        j.status === 'submitted' || j.status === 'processing'
+        j.status === 'submitted' || j.status === 'processing' || j.status === 'pending'
       );
 
-      // If there's an active batch, poll it
-      if (activeBatch && googleApiKey && activeBatch.google_batch_id) {
-        const pollResponse = await fetch(
-          `${GOOGLE_BATCH_API}/${activeBatch.google_batch_id}`,
-          {
-            method: 'GET',
-            headers: {
-              'x-goog-api-key': googleApiKey,
-            },
-          }
-        );
+      // If there's an active batch and Vertex AI is configured, poll it
+      if (activeBatch && batchClient && activeBatch.google_batch_id) {
+        try {
+          const vertexStatus = await batchClient.getBatchJob(activeBatch.google_batch_id);
 
-        if (pollResponse.ok) {
-          const googleStatus = await pollResponse.json();
-
-          // Update batch job status
-          const updatedStatus = googleStatus.state === 'SUCCEEDED' ? 'completed' :
-                               googleStatus.state === 'FAILED' ? 'failed' :
-                               googleStatus.state === 'RUNNING' ? 'processing' : 'submitted';
+          // Map Vertex AI state to our internal status
+          const updatedStatus = VertexAIBatchClient.mapJobStateToStatus(vertexStatus.state);
+          const counts = VertexAIBatchClient.extractCounts(vertexStatus.completionStats);
 
           await supabase
             .from('batch_jobs')
             .update({
               status: updatedStatus,
-              succeeded_count: googleStatus.succeededCount || 0,
-              failed_count: googleStatus.failedCount || 0,
+              succeeded_count: counts.succeeded,
+              failed_count: counts.failed,
             })
             .eq('id', activeBatch.id);
 
           // Process results if complete
-          if (googleStatus.state === 'SUCCEEDED') {
+          if (VertexAIBatchClient.isSuccessState(vertexStatus.state)) {
             // Fetch full batch job for processing
             const { data: fullBatchJob } = await supabase
               .from('batch_jobs')
@@ -234,14 +238,16 @@ serve(async (req) => {
               .eq('id', activeBatch.id)
               .single();
 
-            if (fullBatchJob) {
-              await processCompletedBatch(supabase, fullBatchJob, googleStatus, googleApiKey);
+            if (fullBatchJob && gcsClient) {
+              await processCompletedBatch(supabase, fullBatchJob, vertexStatus, gcsClient);
             }
           }
 
           activeBatch.status = updatedStatus;
-          activeBatch.succeeded_count = googleStatus.succeededCount || 0;
-          activeBatch.failed_count = googleStatus.failedCount || 0;
+          activeBatch.succeeded_count = counts.succeeded;
+          activeBatch.failed_count = counts.failed;
+        } catch (pollError) {
+          console.error('[Poll] Error polling active batch:', pollError);
         }
       }
 
@@ -283,38 +289,64 @@ serve(async (req) => {
 // PROCESS COMPLETED BATCH
 // ============================================================================
 //
-// When a batch job completes, fetch the results and update lecture_slides.
+// When a Vertex AI batch job completes, download results from Cloud Storage
+// and update lecture_slides records.
+//
+// Vertex AI Batch Output Format:
+//   - Results are written to Cloud Storage as JSONL
+//   - Output path: {outputUriPrefix}/predictions-*.jsonl
+//   - Each line: {"request": {...}, "response": {...}}
 //
 
 async function processCompletedBatch(
   supabase: any,
   batchJob: any,
-  googleStatus: any,
-  googleApiKey: string
+  vertexStatus: any,
+  gcsClient: GCSClient
 ) {
   console.log(`[Poll] Processing completed batch: ${batchJob.google_batch_id}`);
 
-  // Fetch the full batch results
-  // For inline batches, results are in googleStatus.inlined_responses (REST API)
-  // or googleStatus.responses (SDK format)
-  // For file-based batches, need to download from output URI
-  // Note: Response location may vary by API version, check dest.* as fallback
-  const responses =
-    googleStatus.inlined_responses ||
-    googleStatus.dest?.inlined_responses ||
-    googleStatus.responses ||
-    googleStatus.dest?.responses ||
-    [];
-
-  // Debug logging for response structure
-  console.log('[Poll] Google response keys:', JSON.stringify(Object.keys(googleStatus)));
-  if (googleStatus.dest) {
-    console.log('[Poll] dest keys:', JSON.stringify(Object.keys(googleStatus.dest)));
+  // Get output directory from Vertex AI job status
+  const outputDir = vertexStatus.outputInfo?.gcsOutputDirectory;
+  if (!outputDir) {
+    console.error('[Poll] No output directory found in job status');
+    return;
   }
-  console.log(`[Poll] Found ${responses.length} responses`);
+
+  console.log(`[Poll] Output directory: ${outputDir}`);
+
+  // List all output files (Vertex AI creates predictions-*.jsonl files)
+  let outputFiles: string[];
+  try {
+    outputFiles = await gcsClient.listFiles(outputDir);
+    outputFiles = outputFiles.filter(f => f.endsWith('.jsonl'));
+    console.log(`[Poll] Found ${outputFiles.length} output files`);
+  } catch (listError) {
+    console.error('[Poll] Failed to list output files:', listError);
+    return;
+  }
+
+  if (outputFiles.length === 0) {
+    console.warn('[Poll] No output files found');
+    return;
+  }
+
+  // Download and parse all output files
+  const responses: any[] = [];
+  for (const file of outputFiles) {
+    try {
+      const lines = await gcsClient.downloadJsonl(`gs://${gcsClient.bucketName}/${file}`);
+      responses.push(...lines);
+      console.log(`[Poll] Downloaded ${lines.length} responses from ${file}`);
+    } catch (downloadError) {
+      console.error(`[Poll] Failed to download ${file}:`, downloadError);
+    }
+  }
+
+  console.log(`[Poll] Total responses to process: ${responses.length}`);
 
   if (responses.length === 0) {
-    console.log('[Poll] No inline responses, batch may use file output');
+    console.log('[Poll] No responses found in output files');
     return;
   }
 
@@ -322,14 +354,18 @@ async function processCompletedBatch(
   let succeededCount = 0;
   let failedCount = 0;
 
-  // Process responses - they include metadata.key for correlation
+  // Process responses - Vertex AI format: { request: {...}, response: {...} }
+  // Responses are in the same order as requests in the input JSONL
   for (let i = 0; i < responses.length; i++) {
-    const responseWrapper = responses[i];
-    // REST API wraps response in { response: {...}, metadata: {key: "slide_N"} }
-    const response = responseWrapper.response || responseWrapper;
-    const responseKey = responseWrapper.metadata?.key || `slide_${i}`;
+    const responseWrapper = responses[i] as any;
 
-    // Support both key-based (new) and index-based (legacy) mapping
+    // Vertex AI batch response format:
+    // { "request": {...}, "response": { "candidates": [...] }, "status": "..." }
+    const response = responseWrapper.response || responseWrapper;
+    const status = responseWrapper.status;
+
+    // Use index-based mapping (responses match input order)
+    const responseKey = `slide_${i}`;
     const teachingUnitId = requestMapping[responseKey] || requestMapping[i] || requestMapping[`slide_${i}`];
 
     if (!teachingUnitId) {
@@ -338,9 +374,25 @@ async function processCompletedBatch(
     }
 
     try {
-      // Handle error in response
+      // Handle error in response (Vertex AI uses status field)
+      if (status && status !== 'SUCCESS' && status !== '') {
+        console.error(`[Poll] Error for index ${i}:`, status);
+        failedCount++;
+
+        await supabase
+          .from('lecture_slides')
+          .update({
+            status: 'failed',
+            error_message: `Batch generation failed: ${status}`,
+          })
+          .eq('teaching_unit_id', teachingUnitId);
+
+        continue;
+      }
+
+      // Also check for error object in response
       if (response.error) {
-        console.error(`[Poll] Error for index ${i}:`, response.error);
+        console.error(`[Poll] Error object for index ${i}:`, response.error);
         failedCount++;
 
         await supabase
@@ -354,9 +406,9 @@ async function processCompletedBatch(
         continue;
       }
 
-      // Extract content from response (support both formats)
-      const content = response.candidates?.[0]?.content?.parts?.[0]?.text ||
-                      response.response?.candidates?.[0]?.content?.parts?.[0]?.text;
+      // Extract content from Vertex AI response format
+      // Format: { candidates: [{ content: { parts: [{ text: "..." }] } }] }
+      const content = response.candidates?.[0]?.content?.parts?.[0]?.text;
 
       if (!content) {
         console.warn(`[Poll] No content for index ${i}`);
@@ -429,7 +481,7 @@ async function processCompletedBatch(
           generation_model: MODEL_CONFIG.GEMINI_PRO, // v3 parity: batch now uses PRO
           estimated_duration_minutes: Math.round(formattedSlides.length * 1.5),
           generation_phases: {
-            method: 'batch_api',
+            method: 'vertex_ai_batch',
             research_included: true, // v3 parity: research is now included
             completed_at: new Date().toISOString(),
           },
