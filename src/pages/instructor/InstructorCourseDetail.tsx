@@ -75,11 +75,12 @@ export default function InstructorCourseDetailPage() {
   
   // Calculate slide stats from local data
   // NOTE: Includes both legacy 'pending' and new 'batch_pending' statuses
+  // Cast to string for comparison since auto-generated types may not include 'batch_pending' yet
   const slidesStats = {
     total: lectureSlides?.length || 0,
     ready: lectureSlides?.filter(s => s.status === 'ready').length || 0,
     published: lectureSlides?.filter(s => s.status === 'published').length || 0,
-    pending: lectureSlides?.filter(s => s.status === 'pending' || s.status === 'batch_pending').length || 0,
+    pending: lectureSlides?.filter(s => (s.status as string) === 'pending' || (s.status as string) === 'batch_pending').length || 0,
     generating: lectureSlides?.filter(s => s.status === 'generating').length || 0,
     failed: lectureSlides?.filter(s => s.status === 'failed').length || 0,
   };
