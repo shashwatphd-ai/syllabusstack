@@ -1,6 +1,6 @@
 // SyllabusStack AI Orchestrator
 // Centralized AI request handling with model selection, caching, fallback logic, and cost tracking
-// Updated to use Google Cloud API directly for cost savings
+// Uses Google Cloud Generative Language API directly
 
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
 import { getCachedResponse, setCachedResponse, CACHE_TTL, trackAIUsage } from "./ai-cache.ts";
@@ -17,16 +17,18 @@ export type AITaskType =
   | 'answer_evaluation'
   | 'content_search';
 
-// Google Gemini models (direct API)
+// Google Gemini models (direct API via generativelanguage.googleapis.com)
 export const MODEL_CONFIG = {
   // Fast, cost-effective (default)
-  GEMINI_FLASH: 'gemini-2.0-flash',
+  GEMINI_FLASH: 'gemini-2.5-flash',
   // Fastest, cheapest
-  GEMINI_FLASH_LITE: 'gemini-2.0-flash-lite',
-  // Complex reasoning
-  GEMINI_PRO: 'gemini-2.5-pro-preview-06-05',
-  // Balanced
-  GEMINI_FLASH_THINKING: 'gemini-2.0-flash-thinking-exp',
+  GEMINI_FLASH_LITE: 'gemini-2.5-flash-lite',
+  // Complex reasoning (Gemini 3)
+  GEMINI_PRO: 'gemini-3-pro-preview',
+  // Frontier speed (Gemini 3)
+  GEMINI_3_FLASH: 'gemini-3-flash-preview',
+  // Image generation (Gemini 3)
+  GEMINI_IMAGE: 'gemini-3-pro-image-preview',
 };
 
 // Task to model mapping with primary and fallback
@@ -69,14 +71,13 @@ export const TASK_MODEL_MAP: Record<AITaskType, { primary: string; fallback: str
   }
 };
 
-// Cost per 1M tokens for each model (USD)
-// Lovable AI Gateway is CHEAPER for Gemini Flash ($0.075 vs $0.10 input, $0.30 vs $0.40 output)
+// Cost per 1M tokens for each model (USD) - Google Cloud API pricing
 export const MODEL_COSTS: Record<string, { input: number; output: number }> = {
-  // Lovable Gateway pricing (cheaper for Flash)
-  'gemini-2.0-flash': { input: 0.075, output: 0.30 },
-  'gemini-2.0-flash-lite': { input: 0.075, output: 0.30 },
-  'gemini-2.5-pro-preview-06-05': { input: 1.25, output: 5.00 },
-  'gemini-2.0-flash-thinking-exp': { input: 0.075, output: 0.30 },
+  'gemini-2.5-flash': { input: 0.15, output: 0.60 },
+  'gemini-2.5-flash-lite': { input: 0.10, output: 0.40 },
+  'gemini-3-pro-preview': { input: 2.00, output: 12.00 },
+  'gemini-3-flash-preview': { input: 0.50, output: 3.00 },
+  'gemini-3-pro-image-preview': { input: 0.50, output: 3.00 },
 };
 
 export interface AIRequest {
@@ -104,7 +105,7 @@ export interface AIResponse {
  * Calculate cost from token counts for a specific model
  */
 export function calculateCost(model: string, inputTokens: number, outputTokens: number): number {
-  const costs = MODEL_COSTS[model] || MODEL_COSTS['gemini-2.0-flash'];
+  const costs = MODEL_COSTS[model] || MODEL_COSTS['gemini-2.5-flash'];
   return (inputTokens / 1_000_000) * costs.input + (outputTokens / 1_000_000) * costs.output;
 }
 
@@ -117,23 +118,15 @@ function estimateTokens(text: string): number {
 }
 
 /**
- * Get API key - PREFERS LOVABLE_API_KEY (cheaper for Gemini Flash)
- * Falls back to GOOGLE_CLOUD_API_KEY for specialized APIs or if Lovable is unavailable
+ * Get Google Cloud API key
  */
-function getAPIConfig(): { key: string; useGoogleDirect: boolean } {
-  // Prefer Lovable AI Gateway (cheaper for Gemini Flash: $0.075 vs $0.10 input)
-  const lovableKey = Deno.env.get("LOVABLE_API_KEY");
-  if (lovableKey) {
-    return { key: lovableKey, useGoogleDirect: false };
-  }
-  
-  // Fallback to Google Cloud (useful if Lovable is rate-limited)
+function getAPIKey(): string {
   const googleKey = Deno.env.get("GOOGLE_CLOUD_API_KEY");
   if (googleKey) {
-    return { key: googleKey, useGoogleDirect: true };
+    return googleKey;
   }
-  
-  throw new Error("No API key configured. Set LOVABLE_API_KEY or GOOGLE_CLOUD_API_KEY.");
+
+  throw new Error("GOOGLE_CLOUD_API_KEY is not configured.");
 }
 
 /**
@@ -222,101 +215,14 @@ async function makeGeminiCall(
 }
 
 /**
- * Make a single AI call using Lovable AI Gateway (fallback)
- */
-async function makeLovableCall(
-  request: AIRequest,
-  model: string,
-  apiKey: string
-): Promise<{ content: any; usage: { prompt_tokens: number; completion_tokens: number } }> {
-  // Map Gemini model names to Lovable gateway format
-  const lovableModel = model.includes('pro') 
-    ? 'google/gemini-2.5-pro' 
-    : model.includes('lite')
-      ? 'google/gemini-2.5-flash-lite'
-      : 'google/gemini-2.5-flash';
-
-  const body: any = {
-    model: lovableModel,
-    messages: [
-      { role: "system", content: request.systemPrompt },
-      { role: "user", content: request.userPrompt }
-    ],
-  };
-
-  // Add function calling for structured output
-  if (request.schema && request.functionName) {
-    body.tools = [
-      {
-        type: "function",
-        function: {
-          name: request.functionName,
-          description: `Extract structured data for ${request.task}`,
-          parameters: request.schema,
-        }
-      }
-    ];
-    body.tool_choice = { type: "function", function: { name: request.functionName } };
-  }
-
-  console.log(`Lovable Gateway Request: task=${request.task}, model=${lovableModel}`);
-
-  const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error(`Lovable Gateway error: ${response.status}`, errorText);
-    
-    if (response.status === 429) {
-      throw new Error("RATE_LIMIT: Rate limit exceeded. Please try again later.");
-    }
-    if (response.status === 402) {
-      throw new Error("CREDITS_EXHAUSTED: AI credits exhausted. Please add credits to continue.");
-    }
-    throw new Error(`AI_ERROR: AI request failed with status ${response.status}`);
-  }
-
-  const data = await response.json();
-  
-  // Extract content
-  let content: any;
-  if (request.schema && data.choices?.[0]?.message?.tool_calls?.[0]) {
-    const toolCall = data.choices[0].message.tool_calls[0];
-    content = JSON.parse(toolCall.function.arguments);
-  } else {
-    content = data.choices?.[0]?.message?.content || '';
-  }
-
-  return {
-    content,
-    usage: {
-      prompt_tokens: data.usage?.prompt_tokens || estimateTokens(request.systemPrompt + request.userPrompt),
-      completion_tokens: data.usage?.completion_tokens || estimateTokens(JSON.stringify(content))
-    }
-  };
-}
-
-/**
- * Make a single AI call with specified model - routes to appropriate API
+ * Make a single AI call with specified model
  */
 async function makeAICall(
   request: AIRequest,
   model: string
 ): Promise<{ content: any; usage: { prompt_tokens: number; completion_tokens: number } }> {
-  const { key, useGoogleDirect } = getAPIConfig();
-  
-  if (useGoogleDirect) {
-    return makeGeminiCall(request, model, key);
-  } else {
-    return makeLovableCall(request, model, key);
-  }
+  const apiKey = getAPIKey();
+  return makeGeminiCall(request, model, apiKey);
 }
 
 /**
@@ -414,8 +320,7 @@ export async function callAI(
     );
   }
 
-  const { useGoogleDirect } = getAPIConfig();
-  console.log(`AI Response: model=${modelUsed}, api=${useGoogleDirect ? 'Google Direct' : 'Lovable Gateway'}, tokens=${result.usage.prompt_tokens}/${result.usage.completion_tokens}, cost=$${costUsd.toFixed(6)}, fallback=${fallbackUsed}`);
+  console.log(`AI Response: model=${modelUsed}, api=Google Cloud, tokens=${result.usage.prompt_tokens}/${result.usage.completion_tokens}, cost=$${costUsd.toFixed(6)}, fallback=${fallbackUsed}`);
 
   return {
     content: result.content,

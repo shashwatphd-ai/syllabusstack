@@ -6,6 +6,9 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Google Cloud API configuration
+const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -40,9 +43,9 @@ serve(async (req) => {
     // Use service client for database operations
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
     
-    const lovableApiKey = Deno.env.get('LOVABLE_API_KEY');
-    if (!lovableApiKey) {
-      throw new Error('LOVABLE_API_KEY is not configured');
+    const googleApiKey = Deno.env.get('GOOGLE_CLOUD_API_KEY');
+    if (!googleApiKey) {
+      throw new Error('GOOGLE_CLOUD_API_KEY is not configured');
     }
 
     const { learning_objective_id, message, conversation_history = [] } = await req.json();
@@ -140,35 +143,45 @@ User: "Show me university content"
 
     console.log(`Content assistant chat for LO: ${learning_objective_id}`);
 
-    const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    // Build contents array from conversation history for Google API
+    const contents = messages.slice(1).map((m: any) => ({
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: m.content }]
+    }));
+
+    const url = `${GOOGLE_API_BASE}/models/gemini-2.5-flash:generateContent?key=${googleApiKey}`;
+    const aiResponse = await fetch(url, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${lovableApiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
-        messages,
-        temperature: 0.7,
+        contents,
+        systemInstruction: {
+          parts: [{ text: messages[0].content }]
+        },
+        generationConfig: {
+          temperature: 0.7,
+        },
       }),
     });
 
     if (!aiResponse.ok) {
       const errorText = await aiResponse.text();
       console.error('AI API error:', aiResponse.status, errorText);
-      
+
       if (aiResponse.status === 429) {
         return new Response(JSON.stringify({ error: 'Rate limit exceeded, please try again later' }), {
           status: 429,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
-      
+
       throw new Error(`AI API error: ${aiResponse.status}`);
     }
 
     const aiData = await aiResponse.json();
-    const assistantMessage = aiData.choices?.[0]?.message?.content;
+    const assistantMessage = aiData.candidates?.[0]?.content?.parts?.[0]?.text;
 
     if (!assistantMessage) {
       throw new Error('No response from AI');

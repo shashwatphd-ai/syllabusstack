@@ -5,6 +5,9 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Google Cloud API configuration
+const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+
 /**
  * AGENTIC SEARCH CONTEXT GENERATOR
  * 
@@ -51,9 +54,9 @@ serve(async (req) => {
   }
 
   try {
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY is not configured");
+    const GOOGLE_CLOUD_API_KEY = Deno.env.get("GOOGLE_CLOUD_API_KEY");
+    if (!GOOGLE_CLOUD_API_KEY) {
+      throw new Error("GOOGLE_CLOUD_API_KEY is not configured");
     }
 
     const { learning_objective, module, course } = await req.json() as SearchContextRequest;
@@ -99,57 +102,61 @@ ${learning_objective.expected_duration_minutes ? `EXPECTED DURATION: ${learning_
 
 Generate search queries that will find the most relevant educational videos for teaching this specific learning objective within the context of this course and module. Focus on the DOMAIN context - a strategic management course needs business strategy content, not general education videos.`;
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const searchContextSchema = {
+      name: "generate_search_context",
+      description: "Generate targeted search queries for educational content",
+      parameters: {
+        type: "object",
+        properties: {
+          queries: {
+            type: "array",
+            items: { type: "string" },
+            description: "4-6 specific search queries ordered by expected quality"
+          },
+          domain_context: {
+            type: "string",
+            description: "One sentence describing the academic/professional domain"
+          },
+          key_concepts: {
+            type: "array",
+            items: { type: "string" },
+            description: "3-5 core concepts students must understand"
+          },
+          search_strategy: {
+            type: "string",
+            description: "Brief description of what type of videos to prioritize"
+          },
+          reasoning: {
+            type: "string",
+            description: "Explanation of query generation logic"
+          }
+        },
+        required: ["queries", "domain_context", "key_concepts", "search_strategy", "reasoning"]
+      }
+    };
+
+    const url = `${GOOGLE_API_BASE}/models/gemini-3-flash-preview:generateContent?key=${GOOGLE_CLOUD_API_KEY}`;
+    const response = await fetch(url, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${LOVABLE_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt }
+        contents: [
+          { role: "user", parts: [{ text: userPrompt + "\n\nReturn your response using the generate_search_context function." }] }
         ],
-        tools: [
-          {
-            type: "function",
-            function: {
-              name: "generate_search_context",
-              description: "Generate targeted search queries for educational content",
-              parameters: {
-                type: "object",
-                properties: {
-                  queries: {
-                    type: "array",
-                    items: { type: "string" },
-                    description: "4-6 specific search queries ordered by expected quality"
-                  },
-                  domain_context: {
-                    type: "string",
-                    description: "One sentence describing the academic/professional domain"
-                  },
-                  key_concepts: {
-                    type: "array",
-                    items: { type: "string" },
-                    description: "3-5 core concepts students must understand"
-                  },
-                  search_strategy: {
-                    type: "string",
-                    description: "Brief description of what type of videos to prioritize"
-                  },
-                  reasoning: {
-                    type: "string",
-                    description: "Explanation of query generation logic"
-                  }
-                },
-                required: ["queries", "domain_context", "key_concepts", "search_strategy", "reasoning"],
-                additionalProperties: false
-              }
-            }
+        systemInstruction: {
+          parts: [{ text: systemPrompt }]
+        },
+        tools: [{
+          functionDeclarations: [searchContextSchema]
+        }],
+        toolConfig: {
+          functionCallingConfig: {
+            mode: "ANY",
+            allowedFunctionNames: ["generate_search_context"]
           }
-        ],
-        tool_choice: { type: "function", function: { name: "generate_search_context" } }
+        }
       }),
     });
 
@@ -173,14 +180,14 @@ Generate search queries that will find the most relevant educational videos for 
     }
 
     const data = await response.json();
-    
-    // Extract tool call result
-    const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
-    if (!toolCall?.function?.arguments) {
-      throw new Error("No tool call response from AI");
+
+    // Extract function call result
+    const functionCall = data.candidates?.[0]?.content?.parts?.[0]?.functionCall;
+    if (!functionCall?.args) {
+      throw new Error("No function call response from AI");
     }
 
-    const result: SearchContextResponse = JSON.parse(toolCall.function.arguments);
+    const result: SearchContextResponse = functionCall.args;
 
     console.log(`[SEARCH CONTEXT] Generated ${result.queries.length} queries:`);
     result.queries.forEach((q, i) => console.log(`  ${i + 1}. ${q}`));

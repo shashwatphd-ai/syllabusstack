@@ -6,6 +6,9 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Google Cloud API configuration
+const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+
 // Bloom's Taxonomy descriptions for AI context
 const BLOOM_DESCRIPTIONS: Record<string, { action: string; videoTypes: string; focus: string }> = {
   remember: {
@@ -58,9 +61,9 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
     
-    const lovableApiKey = Deno.env.get('LOVABLE_API_KEY');
-    if (!lovableApiKey) {
-      throw new Error('LOVABLE_API_KEY is not configured');
+    const googleApiKey = Deno.env.get('GOOGLE_CLOUD_API_KEY');
+    if (!googleApiKey) {
+      throw new Error('GOOGLE_CLOUD_API_KEY is not configured');
     }
 
     const { learning_objective } = await req.json();
@@ -162,19 +165,22 @@ Return ONLY valid JSON in this exact format:
 
     console.log('Calling AI for content strategy generation...');
 
-    const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    const url = `${GOOGLE_API_BASE}/models/gemini-2.5-flash:generateContent?key=${googleApiKey}`;
+    const aiResponse = await fetch(url, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${lovableApiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
+        contents: [
+          { role: 'user', parts: [{ text: userPrompt }] }
         ],
-        temperature: 0.7,
+        systemInstruction: {
+          parts: [{ text: systemPrompt }]
+        },
+        generationConfig: {
+          temperature: 0.7,
+        },
       }),
     });
 
@@ -185,7 +191,7 @@ Return ONLY valid JSON in this exact format:
     }
 
     const aiData = await aiResponse.json();
-    const content = aiData.choices?.[0]?.message?.content;
+    const content = aiData.candidates?.[0]?.content?.parts?.[0]?.text;
 
     if (!content) {
       throw new Error('No content in AI response');

@@ -3,7 +3,7 @@
  * Generates natural lecture narration when speaker_notes are missing or insufficient
  */
 
-const LOVABLE_API_URL = 'https://ai.gateway.lovable.dev/v1/chat/completions';
+const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 export interface SlideForNarration {
   order?: number;
@@ -133,22 +133,27 @@ ${isLastSlide ? '6. This is the LAST slide - conclude with a summary and encoura
 Return ONLY the narration text, no explanations or metadata.`;
 
   try {
-    const response = await fetch(LOVABLE_API_URL, {
+    const model = 'gemini-2.5-flash';
+    const url = `${GOOGLE_API_BASE}/models/${model}:generateContent?key=${apiKey}`;
+
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
-        messages: [
+        contents: [
           {
-            role: 'system',
-            content: 'You are an expert university professor who gives engaging, clear lectures. You speak naturally and conversationally while maintaining academic authority.'
+            role: 'user',
+            parts: [{ text: prompt }],
           },
-          { role: 'user', content: prompt }
         ],
-        max_tokens: 800,
+        systemInstruction: {
+          parts: [{ text: 'You are an expert university professor who gives engaging, clear lectures. You speak naturally and conversationally while maintaining academic authority.' }],
+        },
+        generationConfig: {
+          maxOutputTokens: 800,
+        },
       }),
     });
 
@@ -157,7 +162,7 @@ Return ONLY the narration text, no explanations or metadata.`;
     }
 
     const data = await response.json();
-    const narration = data.choices?.[0]?.message?.content?.trim();
+    const narration = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
 
     if (!narration || narration.length < 50) {
       throw new Error('Generated narration too short');

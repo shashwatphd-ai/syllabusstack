@@ -9,6 +9,9 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Google Cloud API configuration
+const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -87,9 +90,9 @@ serve(async (req) => {
 
     console.log(`Generating recommendations for ${dreamJob.title}`);
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY is not configured");
+    const GOOGLE_CLOUD_API_KEY = Deno.env.get("GOOGLE_CLOUD_API_KEY");
+    if (!GOOGLE_CLOUD_API_KEY) {
+      throw new Error("GOOGLE_CLOUD_API_KEY is not configured");
     }
 
     // Format gaps - prefer from gap analysis if available
@@ -113,22 +116,7 @@ ${RECOMMENDATIONS_PROMPT}
 
 ${ANTI_RECOMMENDATIONS_PROMPT}`;
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          {
-            role: "system",
-            content: systemPrompt
-          },
-          {
-            role: "user",
-            content: `Generate SPECIFIC, ACTIONABLE recommendations for this student:
+    const userContent = `Generate SPECIFIC, ACTIONABLE recommendations for this student:
 
 DREAM JOB: ${dreamJob.title}
 ${dreamJob.company_type ? `Company Type: ${dreamJob.company_type}` : ""}
@@ -169,18 +157,39 @@ PRIORITIZE:
 - Critical gaps first
 - Free or low-cost options
 - Evidence-creating activities
-- Quick wins alongside longer investments`
-          }
+- Quick wins alongside longer investments
+
+Return your response using the generate_recommendations function.`;
+
+    const url = `${GOOGLE_API_BASE}/models/gemini-2.5-flash:generateContent?key=${GOOGLE_CLOUD_API_KEY}`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        contents: [
+          { role: "user", parts: [{ text: userContent }] }
         ],
-        tools: [createToolDefinition(RECOMMENDATIONS_SCHEMA)],
-        tool_choice: createToolChoice(RECOMMENDATIONS_SCHEMA)
+        systemInstruction: {
+          parts: [{ text: systemPrompt }]
+        },
+        tools: [{
+          functionDeclarations: [RECOMMENDATIONS_SCHEMA]
+        }],
+        toolConfig: {
+          functionCallingConfig: {
+            mode: "ANY",
+            allowedFunctionNames: [RECOMMENDATIONS_SCHEMA.name]
+          }
+        }
       }),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("AI gateway error:", response.status, errorText);
-      
+      console.error("Google Cloud API error:", response.status, errorText);
+
       if (response.status === 429) {
         return new Response(
           JSON.stringify({ error: "Rate limit exceeded. Please try again later." }),
@@ -197,12 +206,12 @@ PRIORITIZE:
     }
 
     const data = await response.json();
-    const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
-    if (!toolCall?.function?.arguments) {
+    const functionCall = data.candidates?.[0]?.content?.parts?.[0]?.functionCall;
+    if (!functionCall?.args) {
       throw new Error("Invalid AI response format");
     }
 
-    const parsed = JSON.parse(toolCall.function.arguments);
+    const parsed = functionCall.args;
     const recommendations = parsed.recommendations || [];
     const antiRecommendations = parsed.anti_recommendations || [];
     const learningPathSummary = parsed.learning_path_summary;

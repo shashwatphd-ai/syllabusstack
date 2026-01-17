@@ -3,7 +3,7 @@
  * Converts plain speaker notes into expressive SSML for natural text-to-speech
  */
 
-const LOVABLE_API_URL = 'https://ai.gateway.lovable.dev/v1/chat/completions';
+const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 export interface SSMLContext {
   slideType: string;
@@ -83,22 +83,27 @@ CRITICAL: DO NOT slow down speech excessively. The base TTS already speaks at no
 Return ONLY the SSML markup, no explanation. The output must be valid SSML.`;
 
   try {
-    const response = await fetch(LOVABLE_API_URL, {
+    const model = 'gemini-3-flash-preview';
+    const url = `${GOOGLE_API_BASE}/models/${model}:generateContent?key=${apiKey}`;
+
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-3-flash-preview',
-        messages: [
-          { 
-            role: 'system', 
-            content: 'You are an expert speech synthesis engineer who transforms text into expressive SSML. You understand the nuances of natural speech patterns, pauses, emphasis, and prosody. Your SSML output produces lifelike, engaging audio narration.' 
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text: prompt }],
           },
-          { role: 'user', content: prompt }
         ],
-        temperature: 0.3, // Lower temperature for more consistent SSML structure
+        systemInstruction: {
+          parts: [{ text: 'You are an expert speech synthesis engineer who transforms text into expressive SSML. You understand the nuances of natural speech patterns, pauses, emphasis, and prosody. Your SSML output produces lifelike, engaging audio narration.' }],
+        },
+        generationConfig: {
+          temperature: 0.3, // Lower temperature for more consistent SSML structure
+        },
       }),
     });
 
@@ -109,7 +114,7 @@ Return ONLY the SSML markup, no explanation. The output must be valid SSML.`;
     }
 
     const data = await response.json();
-    let ssml = data.choices?.[0]?.message?.content?.trim();
+    let ssml = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
 
     if (!ssml) {
       return wrapBasicSSML(speakerNotes);

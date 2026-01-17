@@ -10,7 +10,7 @@
  * tools/tool_choice parameters (see analyze-dream-job as example).
  *
  * Required env vars:
- * - LOVABLE_API_KEY: Required for Gemini calls
+ * - GOOGLE_CLOUD_API_KEY: Required for Gemini calls
  * - RAPIDAPI_KEY: Optional, enables OpenLLM for cost savings
  *
  * Usage:
@@ -145,35 +145,45 @@ async function callOpenLLM(request: AIRequest, apiKey: string): Promise<AIRespon
 }
 
 /**
- * Call Gemini via Lovable Gateway
+ * Call Gemini via Google Cloud API
  */
 async function callGemini(request: AIRequest): Promise<AIResponse> {
-  const LOVABLE_API_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
-  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-  const model = "google/gemini-2.5-flash";
+  const GOOGLE_API_KEY = Deno.env.get("GOOGLE_CLOUD_API_KEY");
+  const model = "gemini-2.5-flash";
 
-  if (!LOVABLE_API_KEY) {
-    throw new Error("LOVABLE_API_KEY is not configured");
+  if (!GOOGLE_API_KEY) {
+    throw new Error("GOOGLE_CLOUD_API_KEY is not configured");
   }
 
-  const response = await fetch(LOVABLE_API_URL, {
+  // Build Google API request format
+  const body: Record<string, unknown> = {
+    contents: [
+      {
+        role: "user",
+        parts: [{ text: request.userPrompt }],
+      },
+    ],
+    systemInstruction: {
+      parts: [{ text: request.systemPrompt }],
+    },
+    generationConfig: {
+      temperature: request.temperature ?? 0.7,
+      maxOutputTokens: request.maxTokens ?? 4096,
+    },
+  };
+
+  if (request.responseFormat === 'json') {
+    (body.generationConfig as Record<string, unknown>).responseMimeType = 'application/json';
+  }
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GOOGLE_API_KEY}`;
+
+  const response = await fetch(url, {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${LOVABLE_API_KEY}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: "system", content: request.systemPrompt },
-        { role: "user", content: request.userPrompt },
-      ],
-      temperature: request.temperature ?? 0.7,
-      max_tokens: request.maxTokens ?? 4096,
-      ...(request.responseFormat === 'json' && {
-        response_format: { type: "json_object" },
-      }),
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
@@ -182,19 +192,22 @@ async function callGemini(request: AIRequest): Promise<AIResponse> {
   }
 
   const data = await response.json();
-  const choice = data.choices?.[0];
+  const candidate = data.candidates?.[0];
+  const content = candidate?.content?.parts?.[0]?.text;
 
-  if (!choice?.message?.content) {
+  if (!content) {
     throw new Error("Gemini returned empty response");
   }
 
+  const usage = data.usageMetadata || {};
+
   return {
-    content: choice.message.content,
+    content,
     provider: 'gemini',
     model,
-    inputTokens: data.usage?.prompt_tokens,
-    outputTokens: data.usage?.completion_tokens,
-    costUsd: estimateGeminiCost(data.usage),
+    inputTokens: usage.promptTokenCount,
+    outputTokens: usage.candidatesTokenCount,
+    costUsd: estimateGeminiCost({ prompt_tokens: usage.promptTokenCount, completion_tokens: usage.candidatesTokenCount }),
   };
 }
 

@@ -13,6 +13,9 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Google Cloud API configuration
+const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -62,8 +65,8 @@ serve(async (req) => {
       }
     }
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
+    const GOOGLE_CLOUD_API_KEY = Deno.env.get("GOOGLE_CLOUD_API_KEY");
+    if (!GOOGLE_CLOUD_API_KEY) {
       return createErrorResponse('SERVICE_UNAVAILABLE', corsHeaders, 'AI service not configured');
     }
 
@@ -81,22 +84,7 @@ serve(async (req) => {
 
 ${SYLLABUS_EXTRACTION_PROMPT}`;
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          {
-            role: "system",
-            content: systemPrompt
-          },
-          {
-            role: "user",
-            content: `Analyze this course syllabus and extract course information and marketable capabilities.
+    const userContent = `Analyze this course syllabus and extract course information and marketable capabilities.
 
 SYLLABUS CONTENT:
 ${syllabusText}
@@ -104,7 +92,7 @@ ${syllabusText}
 EXTRACTION REQUIREMENTS:
 
 1. COURSE METADATA (extract these FIRST):
-   - course_title: The OFFICIAL course name (e.g., "Introduction to Machine Learning", "Strategic Management"). 
+   - course_title: The OFFICIAL course name (e.g., "Introduction to Machine Learning", "Strategic Management").
      NOT random sentences, instructions, or book text.
    - course_code: Academic code in format like "CS 101", "MGT 471", "ENT 315" (2-4 letters + 3-4 digits).
      NOT ISBN numbers, book codes, or phone numbers.
@@ -125,11 +113,32 @@ For each capability, provide:
 
 IMPORTANT:
 - course_title should be the OFFICIAL name, not random text from the document
-- If you can't find a clear title, use the course code + main topic`
-          }
+- If you can't find a clear title, use the course code + main topic
+
+Return your response using the extract_syllabus_data function.`;
+
+    const url = `${GOOGLE_API_BASE}/models/gemini-2.5-flash:generateContent?key=${GOOGLE_CLOUD_API_KEY}`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        contents: [
+          { role: "user", parts: [{ text: userContent }] }
         ],
-        tools: [createToolDefinition(SYLLABUS_EXTRACTION_SCHEMA)],
-        tool_choice: createToolChoice(SYLLABUS_EXTRACTION_SCHEMA)
+        systemInstruction: {
+          parts: [{ text: systemPrompt }]
+        },
+        tools: [{
+          functionDeclarations: [SYLLABUS_EXTRACTION_SCHEMA]
+        }],
+        toolConfig: {
+          functionCallingConfig: {
+            mode: "ANY",
+            allowedFunctionNames: [SYLLABUS_EXTRACTION_SCHEMA.name]
+          }
+        }
       }),
     });
 
@@ -141,15 +150,15 @@ IMPORTANT:
     }
 
     const data = await response.json();
-    logInfo('analyze-syllabus', 'ai_response_received', { hasToolCall: !!data.choices?.[0]?.message?.tool_calls });
+    logInfo('analyze-syllabus', 'ai_response_received', { hasFunctionCall: !!data.candidates?.[0]?.content?.parts?.[0]?.functionCall });
 
-    // Extract capabilities from tool call response
-    const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
-    if (!toolCall?.function?.arguments) {
+    // Extract capabilities from function call response
+    const functionCall = data.candidates?.[0]?.content?.parts?.[0]?.functionCall;
+    if (!functionCall?.args) {
       return createErrorResponse('AI_GATEWAY_ERROR', corsHeaders, 'Invalid AI response format');
     }
 
-    const parsed = JSON.parse(toolCall.function.arguments);
+    const parsed = functionCall.args;
     const capabilities = parsed.capabilities || [];
     const courseThemes = parsed.course_themes || [];
     const toolsLearned = parsed.tools_learned || [];

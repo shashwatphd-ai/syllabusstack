@@ -3,7 +3,7 @@
  * Maps speaker notes to slide content blocks for synchronized highlighting
  */
 
-const LOVABLE_API_URL = 'https://ai.gateway.lovable.dev/v1/chat/completions';
+const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 export interface ContentBlock {
   id: string;
@@ -184,22 +184,27 @@ Return ONLY the JSON array, no explanation:
 [{"target_block": "...", "start_percent": 0, "end_percent": X, "narration_excerpt": "..."}, ...]`;
 
   try {
-    const response = await fetch(LOVABLE_API_URL, {
+    const model = 'gemini-2.5-flash';
+    const url = `${GOOGLE_API_BASE}/models/${model}:generateContent?key=${apiKey}`;
+
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
-        messages: [
+        contents: [
           {
-            role: 'system',
-            content: 'You are an expert at analyzing educational content structure. Output valid JSON only.'
+            role: 'user',
+            parts: [{ text: prompt }],
           },
-          { role: 'user', content: prompt }
         ],
-        max_tokens: 1000,
+        systemInstruction: {
+          parts: [{ text: 'You are an expert at analyzing educational content structure. Output valid JSON only.' }],
+        },
+        generationConfig: {
+          maxOutputTokens: 1000,
+        },
       }),
     });
 
@@ -209,7 +214,7 @@ Return ONLY the JSON array, no explanation:
     }
 
     const data = await response.json();
-    let content = data.choices?.[0]?.message?.content?.trim() || '';
+    let content = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
 
     // Extract JSON from markdown code blocks if present
     const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
