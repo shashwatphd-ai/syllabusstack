@@ -41,11 +41,11 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Google Batch API endpoint - uses batchGenerateContent for 50% discount
+// Google Batch API endpoint - uses async batch for 50% discount
 // See: https://ai.google.dev/gemini-api/docs/batch-api
-// Format: POST /v1beta/models/{model}:batchGenerateContent
+// Format: POST /v1beta/batches (async, returns job ID)
 const GEMINI_MODEL = 'gemini-2.5-flash';
-const GOOGLE_BATCH_API = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:batchGenerateContent`;
+const GOOGLE_BATCH_API = 'https://generativelanguage.googleapis.com/v1beta/batches';
 
 // ============================================================================
 // PROFESSOR SYSTEM PROMPT (Same as v3 - for consistency)
@@ -507,10 +507,22 @@ serve(async (req) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          // batchGenerateContent expects an array of requests
-          // Model is specified in the URL path, not the body
-          // Each request has a unique key for correlation
-          requests: batchRequests,
+          // Google Async Batch API requires nested structure:
+          // batch.input_config.requests.requests[]
+          // Each request wrapped in { request: ... }
+          batch: {
+            display_name: `slides-${instructor_course_id}-${Date.now()}`,
+            input_config: {
+              requests: {
+                requests: batchRequests.map((req, idx) => ({
+                  request: {
+                    model: `models/${GEMINI_MODEL}`,
+                    ...req,
+                  },
+                })),
+              },
+            },
+          },
         }),
       }
     );
@@ -540,27 +552,37 @@ serve(async (req) => {
     }
 
     const batchData = await batchResponse.json();
-
-    // batchGenerateContent returns responses SYNCHRONOUSLY
-    // { responses: [{ candidates: [...], ...}, ...] }
-    // Responses are in the SAME ORDER as requests
-    const responses = batchData.responses || [];
-    const googleBatchId = `sync_batch_${Date.now()}_${batchRequests.length}`;
-
-    console.log(`[Batch] Received ${responses.length} responses synchronously`);
+    console.log('[Batch] Google API response:', JSON.stringify(batchData, null, 2));
 
     // ========================================================================
-    // 6. PROCESS RESPONSES IMMEDIATELY (batchGenerateContent is synchronous)
+    // 6. ASYNC BATCH API RETURNS JOB INFO (not immediate results)
     // ========================================================================
     //
-    // Unlike async batch API, batchGenerateContent returns all results immediately.
-    // We process them here and update lecture_slides directly.
+    // The async batch API returns:
+    // { name: "batches/abc123", state: "JOB_STATE_PENDING", ... }
+    //
+    // Processing happens asynchronously on Google's side.
+    // Use poll-batch-status to check completion and retrieve results.
     //
 
-    let succeededCount = 0;
-    let failedCount = 0;
+    // Extract job info from response
+    const googleBatchId = batchData.name; // e.g., "batches/abc123"
+    const batchState = batchData.state || 'JOB_STATE_PENDING';
 
-    // Create batch job record first for tracking
+    if (!googleBatchId) {
+      console.error('[Batch] No batch name in response:', batchData);
+      return new Response(
+        JSON.stringify({ success: false, error: 'Google API did not return a batch ID' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    console.log(`[Batch] Job created: ${googleBatchId}, state: ${batchState}`);
+
+    // ========================================================================
+    // 7. STORE BATCH JOB IN DATABASE FOR POLLING
+    // ========================================================================
+
     const { data: batchJob, error: batchJobError } = await supabase
       .from('batch_jobs')
       .insert({
@@ -568,7 +590,7 @@ serve(async (req) => {
         instructor_course_id,
         job_type: 'slides',
         total_requests: batchRequests.length,
-        status: 'processing',
+        status: 'pending', // Will be updated by poll-batch-status
         request_mapping: requestMapping,
         created_by: userId,
       })
@@ -584,167 +606,41 @@ serve(async (req) => {
     }
 
     const batchJobId = batchJob.id;
-    console.log(`[Batch] Processing ${responses.length} responses`);
-
-    // Process each response by index (same order as requests)
-    for (let i = 0; i < responses.length; i++) {
-      const response = responses[i];
-      const teachingUnitId = requestMapping[i];
-      const unit = unitsToProcess.find(u => u.id === teachingUnitId);
-
-      if (!teachingUnitId || !unit) {
-        console.warn(`[Batch] No mapping for index ${i}`);
-        failedCount++;
-        continue;
-      }
-
-      try {
-        // Check for error in response
-        if (response.error) {
-          console.error(`[Batch] Error for index ${i}:`, response.error);
-          failedCount++;
-
-          await supabase
-            .from('lecture_slides')
-            .upsert({
-              teaching_unit_id: teachingUnitId,
-              learning_objective_id: unit.learning_objective_id,
-              instructor_course_id,
-              title: unit.title,
-              status: 'failed',
-              error_message: response.error.message || 'Batch generation failed',
-              batch_job_id: batchJobId,
-              created_by: userId,
-            }, { onConflict: 'teaching_unit_id' });
-
-          continue;
-        }
-
-        // Extract content from response
-        const content = response.candidates?.[0]?.content?.parts?.[0]?.text;
-
-        if (!content) {
-          console.warn(`[Batch] No content for index ${i}`);
-          failedCount++;
-
-          await supabase
-            .from('lecture_slides')
-            .upsert({
-              teaching_unit_id: teachingUnitId,
-              learning_objective_id: unit.learning_objective_id,
-              instructor_course_id,
-              title: unit.title,
-              status: 'failed',
-              error_message: 'No content in AI response',
-              batch_job_id: batchJobId,
-              created_by: userId,
-            }, { onConflict: 'teaching_unit_id' });
-
-          continue;
-        }
-
-        // Parse JSON from response (handle markdown code blocks)
-        let slides;
-        try {
-          const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
-          const jsonStr = jsonMatch ? jsonMatch[1].trim() : content.trim();
-          const parsed = JSON.parse(jsonStr);
-          slides = parsed.slides || parsed;
-        } catch (parseError) {
-          console.error(`[Batch] JSON parse error for index ${i}:`, parseError);
-          failedCount++;
-
-          await supabase
-            .from('lecture_slides')
-            .upsert({
-              teaching_unit_id: teachingUnitId,
-              learning_objective_id: unit.learning_objective_id,
-              instructor_course_id,
-              title: unit.title,
-              status: 'failed',
-              error_message: 'Failed to parse AI response as JSON',
-              batch_job_id: batchJobId,
-              created_by: userId,
-            }, { onConflict: 'teaching_unit_id' });
-
-          continue;
-        }
-
-        // Format slides for storage
-        const formattedSlides = slides.map((slide: any) => ({
-          order: slide.order,
-          type: slide.type,
-          title: slide.title,
-          content: {
-            main_text: slide.content?.main_text || '',
-            key_points: slide.content?.key_points || [],
-            definition: slide.content?.definition,
-            example: slide.content?.example,
-            misconception: slide.content?.misconception,
-            steps: slide.content?.steps,
-          },
-          visual: {
-            type: slide.visual_directive?.type || 'none',
-            url: null,
-            alt_text: slide.visual_directive?.description || '',
-            fallback_description: slide.visual_directive?.description || '',
-            elements: slide.visual_directive?.elements || [],
-            style: slide.visual_directive?.style || '',
-          },
-          speaker_notes: slide.speaker_notes || '',
-          speaker_notes_duration_seconds: slide.estimated_seconds || 60,
-          pedagogy: slide.pedagogy || {},
-        }));
-
-        // Save to lecture_slides
-        await supabase
-          .from('lecture_slides')
-          .upsert({
-            teaching_unit_id: teachingUnitId,
-            learning_objective_id: unit.learning_objective_id,
-            instructor_course_id,
-            title: unit.title,
-            slides: formattedSlides,
-            total_slides: formattedSlides.length,
-            status: 'ready',
-            slide_style: 'standard',
-            generation_model: 'gemini-2.5-flash',
-            estimated_duration_minutes: Math.round(formattedSlides.length * 1.5),
-            batch_job_id: batchJobId,
-            created_by: userId,
-            generation_phases: {
-              method: 'batch_api',
-              completed_at: new Date().toISOString(),
-            },
-          }, { onConflict: 'teaching_unit_id' });
-
-        succeededCount++;
-        console.log(`[Batch] Saved ${formattedSlides.length} slides for unit ${teachingUnitId}`);
-
-      } catch (err) {
-        console.error(`[Batch] Error processing index ${i}:`, err);
-        failedCount++;
-      }
-    }
-
-    // Update batch job with final status
-    const finalStatus = failedCount === 0 ? 'completed' :
-                        succeededCount === 0 ? 'failed' : 'partial';
-
-    await supabase
-      .from('batch_jobs')
-      .update({
-        status: finalStatus,
-        succeeded_count: succeededCount,
-        failed_count: failedCount,
-        completed_at: new Date().toISOString(),
-      })
-      .eq('id', batchJobId);
-
-    console.log(`[Batch] Complete: ${succeededCount} succeeded, ${failedCount} failed`);
+    console.log(`[Batch] Created batch job record: ${batchJobId}`);
 
     // ========================================================================
-    // 7. RETURN SUCCESS
+    // 8. CREATE PENDING LECTURE_SLIDES RECORDS
+    // ========================================================================
+    //
+    // Create records with status='batch_pending' so the UI can show progress.
+    // poll-batch-status will update these when results are ready.
+    //
+
+    const pendingSlides = unitsToProcess.map((unit) => ({
+      teaching_unit_id: unit.id,
+      learning_objective_id: unit.learning_objective_id,
+      instructor_course_id,
+      title: unit.title,
+      slides: [],
+      total_slides: 0,
+      status: 'batch_pending',
+      batch_job_id: batchJobId,
+      created_by: userId,
+    }));
+
+    const { error: slidesError } = await supabase
+      .from('lecture_slides')
+      .upsert(pendingSlides, { onConflict: 'teaching_unit_id' });
+
+    if (slidesError) {
+      console.warn('[Batch] Error creating pending slide records:', slidesError);
+      // Don't fail - the batch job is already submitted
+    }
+
+    console.log(`[Batch] Created ${pendingSlides.length} pending slide records`);
+
+    // ========================================================================
+    // 9. RETURN SUCCESS
     // ========================================================================
 
     return new Response(
@@ -754,10 +650,8 @@ serve(async (req) => {
         google_batch_id: googleBatchId,
         total: batchRequests.length,
         skipped: units.length - unitsToProcess.length,
-        succeeded: succeededCount,
-        failed: failedCount,
-        status: finalStatus,
-        message: `Processed ${succeededCount}/${batchRequests.length} slides successfully.`,
+        status: 'pending',
+        message: `Submitted ${batchRequests.length} slides for batch processing. Use poll-batch-status to check completion.`,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
