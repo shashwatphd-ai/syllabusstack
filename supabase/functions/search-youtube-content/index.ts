@@ -369,30 +369,57 @@ serve(async (req) => {
       teachingUnits = existingUnits;
       console.log(`[TEACHING UNITS] Found ${teachingUnits.length} existing teaching units`);
     } else {
-      // No teaching units exist - trigger curriculum reasoning agent to decompose
-      console.log('[TEACHING UNITS] No units found, triggering curriculum decomposition...');
-      
-      try {
-        const decomposeResponse = await fetch(`${supabaseUrl}/functions/v1/curriculum-reasoning-agent`, {
-          method: 'POST',
-          headers: {
-            'Authorization': authHeader,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ learning_objective_id }),
-        });
-        
-        if (decomposeResponse.ok) {
-          const decomposeData = await decomposeResponse.json();
-          if (decomposeData.success && decomposeData.teaching_units) {
-            teachingUnits = decomposeData.teaching_units;
-            console.log(`[TEACHING UNITS] Decomposition created ${teachingUnits.length} units`);
+      // No teaching units exist - check if batch job is processing
+      const { data: loData } = await supabaseClient
+        .from('learning_objectives')
+        .select('decomposition_status, curriculum_batch_job_id')
+        .eq('id', learning_objective_id)
+        .single();
+
+      if (loData?.decomposition_status === 'in_progress' && loData?.curriculum_batch_job_id) {
+        // Batch job is processing - inform caller to retry later
+        console.log(`[TEACHING UNITS] Batch decomposition in progress for LO ${learning_objective_id}`);
+        return new Response(
+          JSON.stringify({
+            success: false,
+            retry_later: true,
+            batch_job_id: loData.curriculum_batch_job_id,
+            message: 'Teaching unit decomposition in progress, please retry in 30 seconds'
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 202 }
+        );
+      }
+
+      // No batch job or batch failed - use sync fallback
+      const enableSyncFallback = Deno.env.get('ENABLE_SYNC_CURRICULUM_FALLBACK') !== 'false';
+
+      if (enableSyncFallback) {
+        console.log('[TEACHING UNITS] No units found, triggering sync curriculum decomposition...');
+
+        try {
+          const decomposeResponse = await fetch(`${supabaseUrl}/functions/v1/curriculum-reasoning-agent`, {
+            method: 'POST',
+            headers: {
+              'Authorization': authHeader,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ learning_objective_id }),
+          });
+
+          if (decomposeResponse.ok) {
+            const decomposeData = await decomposeResponse.json();
+            if (decomposeData.success && decomposeData.teaching_units) {
+              teachingUnits = decomposeData.teaching_units;
+              console.log(`[TEACHING UNITS] Sync decomposition created ${teachingUnits.length} units`);
+            }
+          } else {
+            console.log('[TEACHING UNITS] Sync decomposition failed, falling back to LO-level search');
           }
-        } else {
-          console.log('[TEACHING UNITS] Decomposition failed, falling back to LO-level search');
+        } catch (decomposeError) {
+          console.error('[TEACHING UNITS] Sync decomposition error:', decomposeError);
         }
-      } catch (decomposeError) {
-        console.error('[TEACHING UNITS] Decomposition error:', decomposeError);
+      } else {
+        console.log('[TEACHING UNITS] Sync fallback disabled, proceeding with LO-level search');
       }
     }
 

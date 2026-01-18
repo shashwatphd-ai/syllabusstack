@@ -641,6 +641,40 @@ RULES:
 
     console.log(`Created ${savedModules?.length || 0} modules and ${savedLOs?.length || 0} learning objectives`);
 
+    // ========================================================================
+    // NEW: Trigger batch curriculum decomposition (async, fire-and-forget)
+    // ========================================================================
+    const enableBatchCurriculum = Deno.env.get('ENABLE_BATCH_CURRICULUM') !== 'false';
+
+    if (enableBatchCurriculum && savedLOs && savedLOs.length >= 3) {
+      console.log(`[PROCESS-SYLLABUS] Triggering batch curriculum decomposition for ${savedLOs.length} LOs`);
+
+      // Fire and forget - don't block syllabus processing
+      const supabaseUrl = Deno.env.get('SUPABASE_URL');
+      fetch(`${supabaseUrl}/functions/v1/submit-batch-curriculum`, {
+        method: 'POST',
+        headers: {
+          'Authorization': req.headers.get('Authorization') || '',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          instructor_course_id: instructor_course_id,
+          learning_objective_ids: savedLOs.map((lo: any) => lo.id)
+        })
+      }).then(res => {
+        if (res.ok) {
+          console.log('[PROCESS-SYLLABUS] Batch curriculum job submitted successfully');
+        } else {
+          console.warn('[PROCESS-SYLLABUS] Batch curriculum submission failed, will use sync fallback');
+        }
+      }).catch(err => {
+        console.warn('[PROCESS-SYLLABUS] Batch curriculum submission error:', err);
+        // Non-blocking - content search will use sync fallback
+      });
+    } else {
+      console.log(`[PROCESS-SYLLABUS] Skipping batch curriculum: enabled=${enableBatchCurriculum}, LO count=${savedLOs?.length || 0}`);
+    }
+
     return new Response(
       JSON.stringify({
         success: true,
