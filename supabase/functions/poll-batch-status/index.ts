@@ -416,11 +416,11 @@ async function processCompletedBatch(
         continue;
       }
 
-      // Parse JSON from response (robust markdown stripping)
+      // Parse JSON from response (robust markdown stripping with multiple fallback patterns)
       let slides;
       try {
         let jsonStr = content.trim();
-        
+
         // Pattern 1: Standard markdown code blocks with 's' flag for multiline
         const codeBlockMatch = content.match(/```(?:json|JSON)?\s*\n?([\s\S]*?)\n?```/s);
         if (codeBlockMatch && codeBlockMatch[1]) {
@@ -430,10 +430,11 @@ async function processCompletedBatch(
           jsonStr = jsonStr.replace(/^```(?:json|JSON)?\s*\n?/, '');
           jsonStr = jsonStr.replace(/\n?```\s*$/, '');
         }
-        
+
         // Pattern 3: Final cleanup of any stray backticks
         jsonStr = jsonStr.replace(/^`+/, '').replace(/`+$/, '');
-        
+
+        // Parse the cleaned JSON
         const parsed = JSON.parse(jsonStr);
         slides = parsed.slides || parsed;
         
