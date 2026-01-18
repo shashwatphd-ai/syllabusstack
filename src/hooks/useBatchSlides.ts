@@ -93,7 +93,7 @@ export interface CourseSlideStatusResponse {
 // useSubmitBatchSlides
 // ============================================================================
 //
-// Submit all teaching units for a course to Google Batch API.
+// Submit all teaching units for a course to Vertex AI Batch Prediction API.
 // Replaces useBulkQueueSlides() which used the old queue system.
 //
 // USAGE:
