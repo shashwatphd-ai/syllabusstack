@@ -957,18 +957,28 @@ serve(async (req) => {
     }
 
     // ========================================================================
-    // 5. RUN RESEARCH AGENT IN PARALLEL (v3 parity)
+    // 5. RUN RESEARCH AGENT WITH CONCURRENCY CONTROL (v3 parity)
     // ========================================================================
     //
     // CRITICAL: Research grounding is essential for quality parity with v3.
-    // We run research for ALL units in parallel before building batch requests.
+    // We process research in batches of CONCURRENCY_LIMIT to avoid timeouts.
     // This adds latency but ensures grounded, citation-backed content.
     //
 
-    console.log(`[Batch] Running research agent for ${unitsToProcess.length} units in parallel...`);
+    const CONCURRENCY_LIMIT = 12; // Process 12 units at a time to stay under timeout
+    console.log(`[Batch] Running research agent for ${unitsToProcess.length} units (${CONCURRENCY_LIMIT} concurrent)...`);
 
-    // Build partial unit data for research (enough context for research agent)
-    const researchPromises = unitsToProcess.map(async (unit) => {
+    // Helper to chunk array
+    function chunkArray<T>(arr: T[], size: number): T[][] {
+      const chunks: T[][] = [];
+      for (let i = 0; i < arr.length; i += size) {
+        chunks.push(arr.slice(i, i + size));
+      }
+      return chunks;
+    }
+
+    // Prepare all unit data first
+    const unitDataList = unitsToProcess.map((unit) => {
       const lo = unit.learning_objectives as any;
       const siblings = siblingsByLO[unit.learning_objective_id] || [];
       const sequencePosition = siblings.findIndex(s => s.id === unit.id) + 1;
@@ -1017,13 +1027,26 @@ serve(async (req) => {
         total_siblings: siblings.length,
       };
 
-      // Run research agent for this unit
-      const research = await runResearchAgent(partialUnitData, domainConfig, googleApiKey);
-      return { unitId: unit.id, unitData: partialUnitData, research };
+      return { unitId: unit.id, unitData: partialUnitData };
     });
 
-    // Wait for all research to complete
-    const researchResults = await Promise.all(researchPromises);
+    // Process in chunks to avoid timeout
+    const chunks = chunkArray(unitDataList, CONCURRENCY_LIMIT);
+    const researchResults: { unitId: string; unitData: TeachingUnitData; research: ResearchContext }[] = [];
+
+    for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+      const chunk = chunks[chunkIndex];
+      console.log(`[Batch] Processing research chunk ${chunkIndex + 1}/${chunks.length} (${chunk.length} units)...`);
+
+      const chunkPromises = chunk.map(async ({ unitId, unitData }) => {
+        const research = await runResearchAgent(unitData, domainConfig, googleApiKey);
+        return { unitId, unitData, research };
+      });
+
+      const chunkResults = await Promise.all(chunkPromises);
+      researchResults.push(...chunkResults);
+    }
+
     console.log(`[Batch] Research complete for ${researchResults.length} units`);
 
     // Create a map of research results by unit ID
