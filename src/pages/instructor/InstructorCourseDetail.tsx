@@ -467,10 +467,13 @@ export default function InstructorCourseDetailPage() {
                             <>
                               <Loader2 className="h-4 w-4 animate-spin" />
                               <span className="hidden sm:inline">
-                                Processing {slideStatus.active_batch.succeeded}/{slideStatus.active_batch.total} slides...
+                                {slideStatus.vertex_state?.replace('JOB_STATE_', '') || 'Processing'}{' '}
+                                {slideStatus.active_batch.succeeded}/{slideStatus.active_batch.total} slides
+                                {slideStatus.progress_percent !== undefined && ` (${slideStatus.progress_percent}%)`}
                               </span>
                               <span className="sm:hidden">
                                 {slideStatus.active_batch.succeeded}/{slideStatus.active_batch.total}
+                                {slideStatus.progress_percent !== undefined && ` ${slideStatus.progress_percent}%`}
                               </span>
                             </>
                           ) : (slideStatus?.generating || 0) > 0 ? (

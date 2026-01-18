@@ -1,9 +1,9 @@
 /**
  * ============================================================================
- * BATCH SLIDES HOOKS - Google Batch API Integration
+ * BATCH SLIDES HOOKS - Vertex AI Batch Prediction Integration
  * ============================================================================
  *
- * PURPOSE: Replace queue-based slide generation with Google Batch API
+ * PURPOSE: Replace queue-based slide generation with Vertex AI Batch Prediction API
  *
  * WHY THIS EXISTS:
  *   - 50% cost savings via Batch API discount
@@ -53,6 +53,10 @@ export interface BatchStatusResponse {
   };
   progress_percent?: number;
   is_complete?: boolean;
+  // Vertex AI fields for enterprise status display
+  vertex_state?: string;  // "JOB_STATE_RUNNING", "JOB_STATE_SUCCEEDED", etc.
+  input_uri?: string;     // GCS input path for debugging
+  output_uri?: string;    // GCS output path for debugging
 }
 
 export interface CourseSlideStatusResponse {
@@ -80,6 +84,9 @@ export interface CourseSlideStatusResponse {
     failed: number;
     created_at: string;
   }>;
+  // Vertex AI fields for enterprise status display
+  vertex_state?: string;    // "JOB_STATE_RUNNING", "JOB_STATE_SUCCEEDED", etc.
+  progress_percent?: number; // 0-100 completion percentage
 }
 
 // ============================================================================
@@ -150,11 +157,40 @@ export function useSubmitBatchSlides() {
 
     onError: (error: Error) => {
       console.error('[Batch] Submit failed:', error);
-      toast({
-        title: 'Batch Generation Failed',
-        description: error.message,
-        variant: 'destructive',
-      });
+      const errorMessage = error.message;
+      
+      // Enterprise error codes with specific user guidance
+      if (errorMessage.includes('GCP_SERVICE_ACCOUNT_KEY')) {
+        toast({
+          title: 'Batch Processing Not Configured',
+          description: 'Service account not configured. Contact administrator.',
+          variant: 'destructive',
+        });
+      } else if (errorMessage.includes('GCS_BUCKET')) {
+        toast({
+          title: 'Cloud Storage Not Configured',
+          description: 'Storage bucket not configured. Contact administrator.',
+          variant: 'destructive',
+        });
+      } else if (errorMessage.includes('403') || errorMessage.includes('Permission')) {
+        toast({
+          title: 'Permission Denied',
+          description: 'Service account lacks required permissions. Check IAM roles.',
+          variant: 'destructive',
+        });
+      } else if (errorMessage.includes('429')) {
+        toast({
+          title: 'Rate Limited',
+          description: 'Please try again in a few minutes.',
+          variant: 'destructive',
+        });
+      } else {
+        toast({
+          title: 'Batch Generation Failed',
+          description: errorMessage,
+          variant: 'destructive',
+        });
+      }
     },
   });
 }
