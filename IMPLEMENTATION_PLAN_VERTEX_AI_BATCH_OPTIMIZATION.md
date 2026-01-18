@@ -104,8 +104,11 @@ STAGE 6: Course Publishing
 
 ### 2.3 Current Database Schema (Relevant Tables)
 
+> **Note**: This section shows the CURRENT schema BEFORE any optimization changes.
+> New columns added by this plan are documented in Section 3.4.
+
 ```sql
--- instructor_courses
+-- instructor_courses (CURRENT - no changes needed)
 CREATE TABLE instructor_courses (
   id UUID PRIMARY KEY,
   instructor_id UUID REFERENCES auth.users,
@@ -121,7 +124,7 @@ CREATE TABLE instructor_courses (
   updated_at TIMESTAMPTZ DEFAULT now()
 );
 
--- learning_objectives
+-- learning_objectives (CURRENT - will add curriculum_batch_job_id in Phase 1)
 CREATE TABLE learning_objectives (
   id UUID PRIMARY KEY,
   user_id UUID REFERENCES auth.users,
@@ -140,9 +143,10 @@ CREATE TABLE learning_objectives (
     CHECK (decomposition_status IN ('not_started','in_progress','completed','failed')),
   sequence_order INTEGER,
   created_at TIMESTAMPTZ DEFAULT now()
+  -- NOTE: curriculum_batch_job_id will be added in Phase 1 migration
 );
 
--- teaching_units
+-- teaching_units (CURRENT - no changes needed)
 CREATE TABLE teaching_units (
   id UUID PRIMARY KEY,
   learning_objective_id UUID REFERENCES learning_objectives,
@@ -164,12 +168,12 @@ CREATE TABLE teaching_units (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
--- batch_jobs
+-- batch_jobs (CURRENT - job_type constraint will be updated in Phase 1)
 CREATE TABLE batch_jobs (
   id UUID PRIMARY KEY,
   instructor_course_id UUID REFERENCES instructor_courses,
   google_batch_id TEXT,
-  job_type TEXT CHECK (job_type IN ('slides','curriculum','evaluation')),
+  job_type TEXT CHECK (job_type IN ('slides')),  -- Currently only 'slides'
   total_requests INTEGER,
   succeeded_count INTEGER DEFAULT 0,
   failed_count INTEGER DEFAULT 0,
@@ -178,9 +182,10 @@ CREATE TABLE batch_jobs (
   created_by UUID REFERENCES auth.users,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
+  -- NOTE: job_type constraint will be expanded to include 'curriculum','evaluation' in Phase 1
 );
 
--- content_matches
+-- content_matches (CURRENT - will add evaluation_batch_job_id in Phase 2)
 CREATE TABLE content_matches (
   id UUID PRIMARY KEY,
   learning_objective_id UUID REFERENCES learning_objectives,
@@ -193,8 +198,8 @@ CREATE TABLE content_matches (
   ai_quality_score DECIMAL,
   ai_recommendation TEXT,
   status TEXT CHECK (status IN ('pending','approved','auto_approved','rejected')),
-  batch_evaluation_job_id UUID REFERENCES batch_jobs,
   created_at TIMESTAMPTZ DEFAULT now()
+  -- NOTE: evaluation_batch_job_id will be added in Phase 2 migration
 );
 ```
 
@@ -484,7 +489,7 @@ interface SubmitBatchCurriculumRequest {
 ```typescript
 interface SubmitBatchCurriculumResponse {
   success: boolean;
-  batch_job_id: string;
+  batch_job_id: string | null;  // null when no LOs need decomposition
   total_requests: number;
   message: string;
   error?: string;
@@ -818,7 +823,8 @@ serve(async (req) => {
     console.log(`${functionName} Building batch request...`);
 
     const batchRequests: string[] = [];
-    const loMapping: Record<number, string> = {}; // index → LO ID
+    // Note: We use metadata.learning_objective_id in each request for result mapping
+    // instead of a separate mapping array, which is more reliable for batch processing
 
     for (let i = 0; i < learningObjectives.length; i++) {
       const lo = learningObjectives[i];
@@ -850,7 +856,6 @@ serve(async (req) => {
       };
 
       batchRequests.push(JSON.stringify(request));
-      loMapping[i] = lo.id;
     }
 
     const jsonlContent = batchRequests.join('\n');
