@@ -152,3 +152,8 @@ verify_jwt = false
 [functions.poll-batch-status]
 # Poll batch job status and get course slide progress
 verify_jwt = true
+
+[functions.process-batch-research]
+# Process research and submit to Vertex AI for batch prediction
+# Called by frontend after submit-batch-slides returns
+verify_jwt = false
