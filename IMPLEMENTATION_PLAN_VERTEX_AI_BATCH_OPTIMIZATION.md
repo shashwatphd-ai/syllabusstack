@@ -557,19 +557,233 @@ const BATCH_CONFIG = {
 };
 
 // ============================================================================
-// SYSTEM PROMPT (Identical to curriculum-reasoning-agent for consistency)
+// DYNAMIC INPUT HANDLING - Adaptive Syllabus Context Management
+// ============================================================================
+//
+// PROBLEM: Syllabi vary dramatically in length (2 pages to 50+ pages).
+// Hardcoding character limits (e.g., 3000 chars) loses critical context.
+//
+// SOLUTION: Intelligent context extraction that adapts to content.
+//
 // ============================================================================
 
-const CURRICULUM_SYSTEM_PROMPT = `You are an expert curriculum designer with deep expertise in pedagogical sequencing, instructional design, and Bloom's Taxonomy. Your task is to decompose high-level learning objectives into teachable micro-concepts that can be taught through individual videos.
+const INPUT_CONFIG = {
+  // Gemini 3 Pro has 1M token context, but we target efficient usage
+  MAX_TOTAL_TOKENS: 32000,  // Leave room for output
+  SYLLABUS_TOKEN_BUDGET: 8000,  // Generous allocation for syllabus
+  MIN_SYLLABUS_CHARS: 500,  // Minimum to include
+  CHARS_PER_TOKEN_ESTIMATE: 4,  // Rough conversion
+};
 
-CRITICAL RULES:
-1. Each teaching unit should represent ONE focused concept that can be taught in a single 5-15 minute video
-2. Units must be ordered by prerequisite dependencies - foundational concepts FIRST
-3. Search queries must be HIGHLY SPECIFIC to find the exact teaching content needed
-4. Think about what a student ACTUALLY needs to learn to achieve the learning objective
-5. Generate 3-8 teaching units per learning objective based on complexity
+/**
+ * Extracts the most relevant portions of a syllabus for curriculum design.
+ * Uses intelligent section detection rather than arbitrary truncation.
+ */
+function extractRelevantSyllabusContext(
+  fullSyllabus: string,
+  targetLO: string,
+  domain: string | null
+): string {
+  if (!fullSyllabus || fullSyllabus.length < INPUT_CONFIG.MIN_SYLLABUS_CHARS) {
+    return fullSyllabus || '';
+  }
 
-OUTPUT FORMAT: Return valid JSON only, no markdown code blocks or explanations outside the JSON.`;
+  // Calculate available budget
+  const maxChars = INPUT_CONFIG.SYLLABUS_TOKEN_BUDGET * INPUT_CONFIG.CHARS_PER_TOKEN_ESTIMATE;
+
+  // If syllabus fits within budget, use it all
+  if (fullSyllabus.length <= maxChars) {
+    return fullSyllabus;
+  }
+
+  // Otherwise, extract the most relevant sections intelligently
+  const sections: string[] = [];
+  let remainingBudget = maxChars;
+
+  // Priority 1: Course overview/description (usually at start)
+  const overviewMatch = fullSyllabus.match(
+    /(?:course\s*(?:overview|description|summary)|about\s*this\s*course|introduction)[\s\S]{0,3000}?(?=\n\n|\n(?=[A-Z][A-Z])|$)/i
+  );
+  if (overviewMatch && remainingBudget > 0) {
+    sections.push(`COURSE OVERVIEW:\n${overviewMatch[0].trim()}`);
+    remainingBudget -= overviewMatch[0].length;
+  }
+
+  // Priority 2: Learning outcomes/objectives section
+  const outcomesMatch = fullSyllabus.match(
+    /(?:learning\s*(?:outcomes?|objectives?)|course\s*(?:goals?|objectives?)|by\s*the\s*end\s*of\s*this\s*course)[\s\S]{0,4000}?(?=\n\n(?=[A-Z])|$)/i
+  );
+  if (outcomesMatch && remainingBudget > 0) {
+    sections.push(`LEARNING OUTCOMES:\n${outcomesMatch[0].trim()}`);
+    remainingBudget -= outcomesMatch[0].length;
+  }
+
+  // Priority 3: Course schedule/topics (for sequence understanding)
+  const scheduleMatch = fullSyllabus.match(
+    /(?:course\s*(?:schedule|outline|topics?|content)|weekly?\s*(?:schedule|topics?)|class\s*schedule)[\s\S]{0,5000}?(?=\n\n(?=assessment|grading|policy)|$)/i
+  );
+  if (scheduleMatch && remainingBudget > 0) {
+    sections.push(`COURSE STRUCTURE:\n${scheduleMatch[0].trim()}`);
+    remainingBudget -= scheduleMatch[0].length;
+  }
+
+  // Priority 4: Any section containing the target LO keywords
+  const loKeywords = targetLO.toLowerCase().split(/\s+/).filter(w => w.length > 4);
+  for (const keyword of loKeywords.slice(0, 3)) {
+    const contextMatch = fullSyllabus.match(
+      new RegExp(`[^.]*${keyword}[^.]*\\.(?:[^.]*\\.){0,3}`, 'gi')
+    );
+    if (contextMatch && remainingBudget > 0) {
+      const relevant = contextMatch.join(' ').substring(0, remainingBudget);
+      sections.push(`RELEVANT CONTEXT:\n${relevant}`);
+      remainingBudget -= relevant.length;
+      break;
+    }
+  }
+
+  // Priority 5: Textbook/resources (for academic level calibration)
+  const resourcesMatch = fullSyllabus.match(
+    /(?:required\s*(?:text|reading)|textbook|course\s*materials?)[\s\S]{0,1000}?(?=\n\n|$)/i
+  );
+  if (resourcesMatch && remainingBudget > 0) {
+    sections.push(`RESOURCES:\n${resourcesMatch[0].trim()}`);
+  }
+
+  return sections.join('\n\n---\n\n');
+}
+
+// ============================================================================
+// COMPREHENSIVE CURRICULUM SYSTEM PROMPT
+// ============================================================================
+//
+// This prompt embodies research-backed instructional design principles,
+// adapts dynamically to any domain, and produces consistently high-quality
+// curriculum decompositions.
+//
+// ============================================================================
+
+const CURRICULUM_SYSTEM_PROMPT = `You are a world-class curriculum architect with 25+ years of experience designing university courses, corporate training programs, and online learning experiences across every academic discipline and professional field. Your expertise spans instructional design theory, cognitive science, and practical pedagogy.
+
+YOUR FOUNDATIONAL EXPERTISE:
+
+1. UNDERSTANDING BY DESIGN (UbD) FRAMEWORK (Wiggins & McTighe)
+   You always begin with the end in mind. Before decomposing any learning objective, you first clarify:
+   - What should students be able to DO after mastering this content? (Performance)
+   - What EVIDENCE would demonstrate this mastery? (Assessment thinking)
+   - What KNOWLEDGE and SKILLS are genuinely required to achieve this? (Working backward)
+
+   This prevents the common mistake of creating teaching units that cover content without purpose. Every unit you create has a clear connection to demonstrable learning outcomes.
+
+2. BLOOM'S TAXONOMY MASTERY
+   You understand that learning objectives exist at different cognitive levels, and that the decomposition strategy must match the level:
+
+   REMEMBER (Knowledge retrieval): Students need clear, memorable presentations of facts, definitions, and concepts. Teaching units should focus on what something IS, with memorable examples and mnemonics. Video type: explainers, summaries.
+
+   UNDERSTAND (Comprehension): Students need to grasp meaning, not just recall words. Teaching units should explain WHY things work, use analogies, show cause-effect relationships, and connect new ideas to prior knowledge. Video type: visual explainers, animated concepts.
+
+   APPLY (Use knowledge): Students need to see procedures in action and practice them. Teaching units should demonstrate step-by-step processes with multiple examples, showing how to adapt the procedure to different situations. Video type: tutorials, demonstrations, worked examples.
+
+   ANALYZE (Break down complexity): Students need to see how parts relate to wholes, compare and contrast, and identify patterns. Teaching units should deconstruct complex systems, show relationships between components, and teach analytical frameworks. Video type: case studies, deep-dives.
+
+   EVALUATE (Make judgments): Students need criteria for assessment and practice making reasoned judgments. Teaching units should present evaluation frameworks, show examples of good/bad quality, and model the reasoning process. Video type: critiques, debates, reviews.
+
+   CREATE (Synthesize new): Students need to combine elements into original work. Teaching units should demonstrate the creative process, show iteration and refinement, and provide scaffolding for open-ended tasks. Video type: project walkthroughs, design processes.
+
+3. COGNITIVE LOAD THEORY (Sweller)
+   You design with the brain's limitations in mind:
+   - Working memory can only hold 4-7 chunks of new information at once
+   - Each teaching unit must focus on ONE coherent concept
+   - Complex ideas must be broken into digestible pieces with explicit connections
+   - Prerequisites must be truly mastered before building upon them
+
+   This is why you never create teaching units that try to cover too much. A unit titled "Understanding X and Y and their relationship to Z" is a red flag—that's likely 3 separate units.
+
+4. ZONE OF PROXIMAL DEVELOPMENT (Vygotsky)
+   You sequence content to build bridges from what students already know to what they need to learn:
+   - Each unit should feel challenging but achievable
+   - Explicit connections to prerequisites activate prior knowledge
+   - Scaffolding is gradually removed as competence builds
+
+   Your sequencing always starts with the most foundational concepts and builds systematically toward complexity.
+
+5. MICROLEARNING PRINCIPLES
+   Modern learners, especially in video-based education, require content designed for focused attention:
+   - Each teaching unit = ONE complete idea (3-15 minute video)
+   - Clear beginning (what will you learn), middle (the learning), end (what you learned)
+   - No digressions or tangential content
+   - Standalone value—a student can watch one unit and learn something complete
+
+YOUR DECOMPOSITION PROCESS:
+
+When given a learning objective to decompose, you follow this rigorous mental process:
+
+STEP 1: CLARIFY THE DESTINATION
+"What does mastery of this learning objective actually look like? If I were to test a student who achieved this objective, what would they be able to demonstrate?"
+
+STEP 2: IDENTIFY THE COGNITIVE LEVEL
+"What level of Bloom's Taxonomy does this objective target? Is the student expected to recall, understand, apply, analyze, evaluate, or create?"
+
+STEP 3: MAP PREREQUISITES BACKWARD
+"What must a student already know or be able to do BEFORE they can tackle this objective? What foundational concepts are assumed?"
+
+STEP 4: IDENTIFY KNOWLEDGE GAPS
+"Between the prerequisites and the final objective, what discrete pieces of knowledge or skill must be acquired? Each of these is a potential teaching unit."
+
+STEP 5: SEQUENCE FOR DEPENDENCY
+"In what order must these pieces be learned? Which concepts depend on others? The sequence must respect these dependencies absolutely."
+
+STEP 6: CALIBRATE GRANULARITY
+"Is each teaching unit focused enough for a single 5-15 minute video? If a unit tries to cover too much, split it. If units are too trivial, combine them."
+
+STEP 7: SPECIFY SEARCHABLE CONTENT
+"For each unit, what specific YouTube search queries would find appropriate teaching content? Generic queries like 'introduction to X' are useless. Specific queries like 'how to calculate confidence interval step by step statistics' find actual videos."
+
+YOUR OUTPUT STANDARDS:
+
+TEACHING UNIT TITLES must be:
+- Specific, not vague ("Calculating Standard Deviation by Hand" not "Statistics Basics")
+- Action-oriented when appropriate ("How to Apply the Quadratic Formula" not "The Quadratic Formula")
+- Clear about scope (what IS and ISN'T covered)
+
+SEARCH QUERIES must be:
+- Specific enough to find actual YouTube videos (test them mentally)
+- Include domain/field context when the topic could be ambiguous
+- Target the appropriate video type (tutorial, explanation, demonstration)
+- Include synonyms or alternative phrasings that video creators might use
+- Avoid single generic words; use 4-8 word specific phrases
+
+COMMON MISCONCEPTIONS must be:
+- Actual beliefs students commonly hold (not made up)
+- Specific to this content (not generic learning difficulties)
+- Worded as the student would think them ("The bigger the sample, the less important sample size is")
+
+PREREQUISITES must be:
+- Truly necessary (not just nice-to-have)
+- Specific concepts, not vague categories
+- Things a student could verify they understand
+
+ENABLES must be:
+- Concepts that this unit makes possible to learn
+- Specific and traceable to other learning objectives
+- Help students see the learning progression
+
+DOMAIN ADAPTATION:
+
+You seamlessly adapt your approach to ANY academic discipline or professional field:
+- STEM fields: Emphasize procedural knowledge, mathematical rigor, experimental thinking
+- Humanities: Emphasize interpretation, perspective-taking, contextual understanding
+- Professional fields: Emphasize practical application, real-world scenarios, industry standards
+- Creative fields: Emphasize process, iteration, aesthetic judgment
+
+You detect the domain from context clues in the syllabus, learning objectives, and course description, then calibrate your vocabulary, examples, and video type recommendations accordingly.
+
+OUTPUT FORMAT REQUIREMENTS:
+
+Return ONLY valid JSON. No markdown code blocks. No explanatory text outside the JSON structure.
+
+The JSON must be parseable by standard JSON parsers. Use proper escaping for special characters.
+
+Every field in the teaching_units array must be populated—no null values for required fields.`;
 
 // ============================================================================
 // TYPES
@@ -597,6 +811,7 @@ interface CourseContext {
   description: string | null;
   syllabus_text: string | null;
   detected_domain: string | null;
+  domain_config: any | null;
 }
 
 interface BatchRequest {
@@ -622,56 +837,249 @@ interface BatchRequest {
 }
 
 // ============================================================================
-// PROMPT BUILDER
+// COMPREHENSIVE USER PROMPT BUILDER
+// ============================================================================
+//
+// This function constructs a rich, contextualized prompt that provides
+// the AI with everything it needs to make informed curriculum decisions.
+// It uses dynamic syllabus extraction to include relevant context without
+// arbitrary truncation.
+//
 // ============================================================================
 
 function buildUserPrompt(
   lo: LearningObjective,
   module: ModuleContext | null,
-  course: CourseContext
+  course: CourseContext,
+  siblingLOs: LearningObjective[] = []  // Other LOs in same module for context
 ): string {
-  return `TASK: Decompose this learning objective into 3-8 teachable micro-concepts.
+  // Extract relevant syllabus content dynamically
+  const syllabusContext = extractRelevantSyllabusContext(
+    course.syllabus_text || '',
+    lo.text,
+    course.detected_domain
+  );
 
-LEARNING OBJECTIVE:
+  // Build domain context from domain_config if available
+  const domainContext = course.domain_config ? `
+DOMAIN CONFIGURATION (use this to calibrate your approach):
+- Primary Field: ${course.domain_config.domain || course.detected_domain || 'General'}
+- Academic Level: ${course.domain_config.academic_level || 'University'}
+- Terminology Style: ${course.domain_config.terminology_preferences?.join(', ') || 'Standard academic'}
+` : '';
+
+  // Build sibling LO context for better sequencing
+  const siblingContext = siblingLOs.length > 0 ? `
+RELATED LEARNING OBJECTIVES IN THIS MODULE:
+${siblingLOs.map((sib, i) => `${i + 1}. ${sib.text}${sib.bloom_level ? ` [${sib.bloom_level}]` : ''}`).join('\n')}
+
+Use this context to:
+- Avoid duplicating content that belongs to other learning objectives
+- Identify natural prerequisite and enables relationships
+- Ensure your teaching units contribute to the module's coherent learning progression
+` : '';
+
+  // Bloom's level specific guidance
+  const bloomGuidance = getBloomLevelGuidance(lo.bloom_level);
+
+  return `YOUR TASK:
+Decompose the following learning objective into a sequence of teachable micro-concepts, each suitable for a single 5-15 minute educational video.
+
+═══════════════════════════════════════════════════════════════════════════════
+LEARNING OBJECTIVE TO DECOMPOSE:
+═══════════════════════════════════════════════════════════════════════════════
+
 "${lo.text}"
-${lo.core_concept ? `Core Concept: ${lo.core_concept}` : ''}
-${lo.bloom_level ? `Bloom's Level: ${lo.bloom_level}` : ''}
-${lo.expected_duration_minutes ? `Expected Duration: ${lo.expected_duration_minutes} minutes` : ''}
 
-CONTEXT:
-Course: ${course.title}
-${course.description ? `Course Description: ${course.description}` : ''}
-${course.detected_domain ? `Domain: ${course.detected_domain}` : ''}
-${module ? `Module: ${module.title}` : ''}
-${module?.description ? `Module Description: ${module.description}` : ''}
-${course.syllabus_text ? `Syllabus Context (first 3000 chars): ${course.syllabus_text.substring(0, 3000)}` : ''}
+${lo.core_concept ? `
+IDENTIFIED CORE CONCEPT: ${lo.core_concept}
+This is the central idea that all teaching units should ultimately support.
+` : ''}
 
-REQUIRED OUTPUT FORMAT (JSON):
+${lo.bloom_level ? `
+COGNITIVE LEVEL: ${lo.bloom_level.toUpperCase()}
+${bloomGuidance}
+` : ''}
+
+${lo.expected_duration_minutes ? `
+TARGET TOTAL DURATION: ${lo.expected_duration_minutes} minutes
+Calibrate the number and depth of teaching units to fit this time budget.
+A typical teaching unit is 5-12 minutes.
+` : ''}
+
+═══════════════════════════════════════════════════════════════════════════════
+COURSE CONTEXT:
+═══════════════════════════════════════════════════════════════════════════════
+
+COURSE TITLE: ${course.title}
+
+${course.description ? `COURSE DESCRIPTION:
+${course.description}
+` : ''}
+
+${module ? `MODULE: ${module.title}
+${module.description ? `MODULE DESCRIPTION: ${module.description}` : ''}
+` : ''}
+
+${domainContext}
+
+${siblingContext}
+
+${syllabusContext ? `
+═══════════════════════════════════════════════════════════════════════════════
+SYLLABUS CONTEXT (extracted relevant sections):
+═══════════════════════════════════════════════════════════════════════════════
+
+${syllabusContext}
+
+Use this syllabus context to:
+- Understand the course's overall scope and goals
+- Identify how this learning objective fits into the larger curriculum
+- Detect the appropriate academic level and vocabulary
+- Find clues about prerequisites students are expected to have
+- Align your teaching units with the course's stated outcomes
+` : ''}
+
+═══════════════════════════════════════════════════════════════════════════════
+REQUIRED OUTPUT FORMAT:
+═══════════════════════════════════════════════════════════════════════════════
+
+Return a JSON object with EXACTLY this structure. No markdown, no explanation outside the JSON.
+
 {
-  "reasoning_chain": "Step-by-step explanation of how you decomposed this objective",
-  "domain_context": "The specific academic/professional field this belongs to",
-  "total_estimated_time_minutes": <number>,
+  "reasoning_chain": "A detailed explanation of your thought process. How did you identify the component concepts? How did you determine the sequence? What pedagogical considerations shaped your decisions? This helps verify the quality of the decomposition.",
+
+  "domain_context": "The specific academic discipline, professional field, or interdisciplinary area this content belongs to. Be specific (e.g., 'Applied Behavioral Economics' not just 'Economics').",
+
+  "total_estimated_time_minutes": <total minutes across all units>,
+
   "teaching_units": [
     {
       "sequence_order": 1,
-      "title": "Clear, specific title for this micro-concept",
-      "description": "2-3 sentence description of what this unit covers",
-      "what_to_teach": "Specific knowledge or skill to convey",
-      "why_this_matters": "Connection to the overall learning objective",
-      "how_to_teach": "Recommended pedagogical approach",
-      "common_misconceptions": ["misconception 1", "misconception 2"],
-      "prerequisites": ["concept A", "concept B"],
-      "enables": ["concept X", "concept Y"],
-      "target_video_type": "explainer|tutorial|case_study|worked_example|lecture|demonstration",
-      "target_duration_minutes": <5-15>,
-      "search_queries": ["specific query 1", "specific query 2", "specific query 3", "specific query 4", "specific query 5"],
-      "required_concepts": ["key term 1", "key term 2"],
-      "avoid_terms": ["ambiguous term", "outdated term"]
+      "title": "A clear, specific title that tells students exactly what they'll learn. Avoid vague titles. Good: 'Calculating Sample Standard Deviation Step-by-Step'. Bad: 'Understanding Variability'.",
+
+      "description": "2-4 sentences explaining what this unit covers and why it matters. Write as if explaining to a student why they should watch this video.",
+
+      "what_to_teach": "The specific concepts, facts, procedures, or skills this unit must convey. Be concrete and comprehensive. List everything the student should know or be able to do after completing this unit.",
+
+      "why_this_matters": "How this unit connects to the overall learning objective. Why is this piece necessary? What does it enable the student to do that they couldn't do before?",
+
+      "how_to_teach": "The pedagogical approach best suited for this content. Should the video use visual demonstrations? Worked examples? Analogies? Case studies? Hands-on walkthroughs? Explain why this approach fits.",
+
+      "common_misconceptions": [
+        "A specific wrong belief students commonly have about this topic, worded as the student would think it",
+        "Another common misunderstanding that videos should address",
+        "Misconceptions should be genuine and specific, not generic"
+      ],
+
+      "prerequisites": [
+        "Specific concept or skill students must already understand",
+        "Another prerequisite - be specific, not vague",
+        "These should be verifiable - a student should be able to confirm they know these"
+      ],
+
+      "enables": [
+        "What learning this unit makes possible",
+        "Other concepts that build on this one",
+        "This helps students see the progression"
+      ],
+
+      "target_video_type": "explainer|tutorial|case_study|worked_example|lecture|demonstration - choose based on cognitive level and content type",
+
+      "target_duration_minutes": <5-15, based on content complexity and depth>,
+
+      "search_queries": [
+        "A specific 4-8 word query that would find relevant YouTube videos",
+        "Include domain context when the topic could be ambiguous",
+        "Try synonyms and alternative phrasings that video creators might use",
+        "Avoid single generic words - be specific enough to find actual videos",
+        "Include 5 diverse queries to maximize chances of finding good content"
+      ],
+
+      "required_concepts": [
+        "Key term or concept that MUST be explained in a suitable video",
+        "Another required element - videos missing these should be rejected"
+      ],
+
+      "avoid_terms": [
+        "Term that indicates the video is wrong level or focus",
+        "Outdated terminology that suggests old/wrong content"
+      ]
     }
   ]
 }
 
-Generate the teaching units now:`;
+═══════════════════════════════════════════════════════════════════════════════
+BEGIN YOUR DECOMPOSITION:
+═══════════════════════════════════════════════════════════════════════════════
+
+Analyze the learning objective carefully. Apply your expertise in instructional design, Bloom's Taxonomy, and cognitive load theory. Generate a sequence of teaching units that, when completed in order, would enable a student to achieve the learning objective.
+
+Respond with the JSON object now:`;
+}
+
+/**
+ * Provides specific guidance based on Bloom's taxonomy level
+ */
+function getBloomLevelGuidance(bloomLevel: string | null): string {
+  if (!bloomLevel) return '';
+
+  const guidance: Record<string, string> = {
+    remember: `This is a REMEMBER-level objective. Students need to acquire and retain factual knowledge.
+Your teaching units should focus on:
+- Clear definitions and explanations of key terms
+- Memorable presentations of facts, concepts, and categories
+- Effective use of examples to anchor abstract ideas
+Video types to prioritize: explainers, summaries, visual overviews
+Avoid: complex analysis, application without foundation, assumed prior knowledge`,
+
+    understand: `This is an UNDERSTAND-level objective. Students need to construct meaning and grasp concepts deeply.
+Your teaching units should focus on:
+- Explaining WHY things work the way they do
+- Using analogies and comparisons to familiar concepts
+- Showing cause-effect relationships and interconnections
+- Multiple representations of the same idea (visual, verbal, numerical)
+Video types to prioritize: animated explainers, concept visualizations, analogy-based explanations
+Avoid: rote memorization focus, procedures without understanding, abstract-only explanations`,
+
+    apply: `This is an APPLY-level objective. Students need to execute procedures and use knowledge in practice.
+Your teaching units should focus on:
+- Step-by-step demonstrations of procedures
+- Worked examples with clear reasoning at each step
+- Multiple practice scenarios showing variation
+- Common pitfalls and how to avoid them
+Video types to prioritize: tutorials, worked examples, demonstrations, walkthroughs
+Avoid: theory-only explanations, single examples, assuming transfer without scaffolding`,
+
+    analyze: `This is an ANALYZE-level objective. Students need to break down complex ideas and find patterns.
+Your teaching units should focus on:
+- Decomposing systems into their components
+- Compare-and-contrast frameworks
+- Pattern recognition and categorization
+- Identifying assumptions and implications
+Video types to prioritize: case studies, deep-dives, comparative analyses
+Avoid: surface-level overviews, memorization focus, missing the 'how' and 'why' of analysis`,
+
+    evaluate: `This is an EVALUATE-level objective. Students need to make reasoned judgments based on criteria.
+Your teaching units should focus on:
+- Establishing clear evaluation criteria
+- Showing examples of high, medium, and low quality
+- Modeling the reasoning process for judgments
+- Practicing critique with justification
+Video types to prioritize: critiques, debates, reviews, quality comparisons
+Avoid: opinion without criteria, binary good/bad thinking, missing justification for judgments`,
+
+    create: `This is a CREATE-level objective. Students need to synthesize elements into something new.
+Your teaching units should focus on:
+- Demonstrating the creative/design process, including iteration
+- Showing how components combine into coherent wholes
+- Scaffolding open-ended problem solving
+- Providing frameworks that support originality
+Video types to prioritize: project walkthroughs, design processes, creative workflows, synthesis examples
+Avoid: only showing final products, rigid templates that prevent creativity, missing the process`
+  };
+
+  return guidance[bloomLevel.toLowerCase()] || '';
 }
 
 // ============================================================================
@@ -1731,25 +2139,1782 @@ if (teaching_unit_id) {
 
 ## 7. PHASE 2: BATCH VIDEO EVALUATION
 
-*[Similar detailed structure for Phase 2 - submit-batch-evaluation and poll-batch-evaluation]*
+### 7.1 Overview
 
-**Summary of Changes**:
-1. Create `submit-batch-evaluation/index.ts`
-2. Create `poll-batch-evaluation/index.ts`
-3. Modify `search-youtube-content/index.ts` to skip AI evaluation and mark for batch
-4. Modify `QuickCourseSetup.tsx` to add evaluation step
+**Goal**: Replace per-LO video evaluation calls with a single batch job that evaluates ALL videos across ALL LOs.
+
+**Current Flow**:
+```
+For each LO:
+  search-youtube-content finds 15 videos
+  → Call evaluate-content-batch (sync, gemini-2.5-flash)
+  → Wait for response
+  → Insert scored content_matches
+  → Continue to next LO
+
+Total calls: 20 LOs × 1 call = 20 sync API calls
+Cost: 20 × $0.006 = $0.12
+```
+
+**New Flow**:
+```
+For each LO:
+  search-youtube-content finds 15 videos
+  → Insert content_matches with status='pending_evaluation'
+  → Skip AI evaluation (mark for batch)
+
+After ALL content discovery completes:
+  → UI triggers submit-batch-evaluation
+  → Batch ALL 300 videos into single Vertex AI job
+  → poll-batch-evaluation updates scores
+
+Total calls: 1 batch job
+Cost: $0.06 (50% batch discount)
+Savings: $0.06 per syllabus (50%)
+```
+
+### 7.2 Task 2.1: Database Migration
+
+**File**: `supabase/migrations/YYYYMMDDHHMMSS_batch_evaluation_support.sql`
+
+**Content**:
+```sql
+-- Migration: Add batch evaluation support
+-- Description: Adds columns to track video evaluation batch jobs
+-- Rollback: See rollback section at bottom
+
+-- Step 1: Add evaluation_batch_job_id to content_matches
+ALTER TABLE public.content_matches
+ADD COLUMN IF NOT EXISTS evaluation_batch_job_id UUID REFERENCES public.batch_jobs(id);
+
+-- Step 2: Create index for efficient lookup
+CREATE INDEX IF NOT EXISTS idx_content_matches_evaluation_batch
+ON public.content_matches(evaluation_batch_job_id)
+WHERE evaluation_batch_job_id IS NOT NULL;
+
+-- Step 3: Add 'pending_evaluation' status for batch tracking
+ALTER TABLE public.content_matches
+DROP CONSTRAINT IF EXISTS content_matches_status_check;
+
+ALTER TABLE public.content_matches
+ADD CONSTRAINT content_matches_status_check
+CHECK (status IN ('pending', 'pending_evaluation', 'approved', 'auto_approved', 'rejected'));
+
+-- Step 4: Add helpful comment
+COMMENT ON COLUMN public.content_matches.evaluation_batch_job_id IS
+'References the batch job that scored this content match';
+
+-- ROLLBACK SECTION (run manually if needed):
+-- ALTER TABLE public.content_matches DROP COLUMN IF EXISTS evaluation_batch_job_id;
+-- DROP INDEX IF EXISTS idx_content_matches_evaluation_batch;
+```
+
+**Verification Checklist**:
+- [ ] Migration file created with correct timestamp format
+- [ ] Run `supabase db diff` to verify changes
+- [ ] Test migration on local database
+- [ ] Test rollback on local database
+- [ ] Commit migration file
+
+---
+
+### 7.3 Task 2.2: Create submit-batch-evaluation Function
+
+**File**: `supabase/functions/submit-batch-evaluation/index.ts`
+
+**Purpose**: Creates a Vertex AI batch job to evaluate all pending videos for a course.
+
+**Input**:
+```typescript
+interface SubmitBatchEvaluationRequest {
+  instructor_course_id: string;
+  content_match_ids?: string[]; // Optional: specific matches, defaults to all pending
+}
+```
+
+**Output**:
+```typescript
+interface SubmitBatchEvaluationResponse {
+  success: boolean;
+  batch_job_id: string | null;  // null when no videos need evaluation
+  total_requests: number;
+  message: string;
+  error?: string;
+}
+```
+
+**Complete Implementation**:
+
+```typescript
+// supabase/functions/submit-batch-evaluation/index.ts
+// ============================================================================
+// SUBMIT BATCH EVALUATION - Batch Video Evaluation via Vertex AI
+// ============================================================================
+//
+// PURPOSE: Submit all pending video evaluations for a course to Vertex AI
+// batch prediction for scoring and ranking.
+//
+// TRIGGER: Called by QuickCourseSetup after content discovery completes
+//
+// FLOW:
+//   1. Validate input and permissions
+//   2. Fetch all content_matches with status='pending_evaluation'
+//   3. Group by LO/teaching unit for context
+//   4. Build JSONL batch request
+//   5. Upload to GCS
+//   6. Create Vertex AI batch job
+//   7. Update content_matches with batch job reference
+//   8. Return batch job ID
+//
+// FALLBACK: If this fails, videos can be evaluated individually
+//
+// ============================================================================
+
+import "https://deno.land/x/xhr@0.1.0/mod.ts";
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.89.0';
+import { VertexAIBatchClient } from '../_shared/vertex-ai-batch.ts';
+import { GCSClient } from '../_shared/gcs-client.ts';
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
+// ============================================================================
+// CONFIGURATION
+// ============================================================================
+
+const MODEL_CONFIG = {
+  // Use gemini-2.5-flash for evaluation (consistent with current evaluate-content-batch)
+  EVALUATION_MODEL: 'gemini-2.5-flash',
+  VERTEX_MODEL_PATH: 'publishers/google/models/gemini-2.5-flash',
+};
+
+const BATCH_CONFIG = {
+  // Minimum videos to justify batch (below this, use sync)
+  MIN_BATCH_SIZE: 10,
+  // Maximum videos per batch
+  MAX_BATCH_SIZE: 2000,
+  // GCS path prefix
+  GCS_PREFIX: 'evaluation-batch',
+  // Maximum videos per request (to manage token limits)
+  MAX_VIDEOS_PER_REQUEST: 15,
+};
+
+// ============================================================================
+// COMPREHENSIVE BLOOM'S TAXONOMY EVALUATION FRAMEWORK
+// ============================================================================
+//
+// This framework provides deep, actionable evaluation criteria for each
+// cognitive level. It guides the AI to assess videos with nuance and
+// pedagogical sophistication rather than simple keyword matching.
+//
+// ============================================================================
+
+interface BloomLevelConfig {
+  description: string;
+  idealVideoTypes: string[];
+  evaluationFocus: string[];
+  redFlags: string[];
+  scoringEmphasis: {
+    relevance: number;
+    pedagogy: number;
+    quality: number;
+  };
+}
+
+const BLOOM_EVALUATION_FRAMEWORK: Record<string, BloomLevelConfig> = {
+  remember: {
+    description: "Students need to acquire and retain factual knowledge - the foundation for higher-order thinking.",
+    idealVideoTypes: ['explainer', 'summary', 'overview', 'introduction', 'definitions'],
+    evaluationFocus: [
+      "Does the video present information clearly and memorably?",
+      "Are key terms defined explicitly and precisely?",
+      "Does it use repetition, mnemonics, or memorable examples?",
+      "Is the pacing appropriate for note-taking and retention?",
+      "Are facts presented in a structured, organized manner?"
+    ],
+    redFlags: [
+      "Jumps to complex application without building foundation",
+      "Assumes prior knowledge that students don't have",
+      "Uses jargon without defining it",
+      "Too fast-paced for absorption of new information",
+      "Covers too many concepts without depth on any"
+    ],
+    scoringEmphasis: { relevance: 0.50, pedagogy: 0.30, quality: 0.20 }
+  },
+
+  understand: {
+    description: "Students need to construct meaning, grasp relationships, and explain concepts in their own words.",
+    idealVideoTypes: ['animated explainer', 'visual concept', 'analogy-based', 'comparative', 'cause-effect'],
+    evaluationFocus: [
+      "Does the video explain WHY things work, not just WHAT they are?",
+      "Are effective analogies used to connect new ideas to familiar ones?",
+      "Does it show relationships, connections, and cause-effect patterns?",
+      "Are abstract concepts grounded in concrete examples?",
+      "Does the presenter check for understanding and address confusion?"
+    ],
+    redFlags: [
+      "Only presents facts without explaining their significance",
+      "Uses purely abstract explanations without concrete grounding",
+      "Moves to procedures before conceptual understanding",
+      "Presents isolated facts without connecting them",
+      "Assumes understanding without building it"
+    ],
+    scoringEmphasis: { relevance: 0.40, pedagogy: 0.40, quality: 0.20 }
+  },
+
+  apply: {
+    description: "Students need to execute procedures and use knowledge to solve problems in new situations.",
+    idealVideoTypes: ['tutorial', 'step-by-step', 'worked example', 'demonstration', 'walkthrough', 'how-to'],
+    evaluationFocus: [
+      "Does the video show complete step-by-step procedures?",
+      "Are worked examples thorough with reasoning explained at each step?",
+      "Does it demonstrate how to adapt procedures to different situations?",
+      "Are common mistakes identified and addressed?",
+      "Is there opportunity for the viewer to mentally practice?"
+    ],
+    redFlags: [
+      "Theory-only without practical demonstration",
+      "Skips steps or assumes viewer can fill in gaps",
+      "Only one example with no variation shown",
+      "Too fast to follow along or replicate",
+      "Uses outdated tools, methods, or versions"
+    ],
+    scoringEmphasis: { relevance: 0.35, pedagogy: 0.45, quality: 0.20 }
+  },
+
+  analyze: {
+    description: "Students need to break down complex ideas, identify patterns, and understand how parts relate to wholes.",
+    idealVideoTypes: ['case study', 'deep dive', 'breakdown', 'comparison', 'critical analysis', 'deconstruction'],
+    evaluationFocus: [
+      "Does the video decompose complex topics into component parts?",
+      "Are compare-and-contrast frameworks used effectively?",
+      "Does it help viewers identify patterns and relationships?",
+      "Are underlying assumptions and implications explored?",
+      "Does it model analytical thinking processes?"
+    ],
+    redFlags: [
+      "Surface-level overview without depth",
+      "Presents conclusions without showing the analysis process",
+      "Misses important components or relationships",
+      "Oversimplifies complex relationships",
+      "Opinion presented as analysis without evidence"
+    ],
+    scoringEmphasis: { relevance: 0.40, pedagogy: 0.40, quality: 0.20 }
+  },
+
+  evaluate: {
+    description: "Students need to make reasoned judgments based on criteria and defend their positions.",
+    idealVideoTypes: ['critique', 'review', 'debate', 'pros-cons', 'quality assessment', 'comparison review'],
+    evaluationFocus: [
+      "Does the video establish clear evaluation criteria?",
+      "Are examples of different quality levels shown and explained?",
+      "Does it model the reasoning process behind judgments?",
+      "Are multiple perspectives or positions considered fairly?",
+      "Does it distinguish between objective criteria and subjective opinion?"
+    ],
+    redFlags: [
+      "One-sided presentation without acknowledging alternatives",
+      "Opinion without stated criteria or justification",
+      "Emotional arguments without logical support",
+      "Missing nuance - everything is either perfect or terrible",
+      "Fails to model the evaluation process itself"
+    ],
+    scoringEmphasis: { relevance: 0.40, pedagogy: 0.35, quality: 0.25 }
+  },
+
+  create: {
+    description: "Students need to synthesize elements into coherent wholes and produce original work.",
+    idealVideoTypes: ['project walkthrough', 'design process', 'creative workflow', 'build series', 'synthesis', 'from scratch'],
+    evaluationFocus: [
+      "Does the video show the creative/design process, not just the final product?",
+      "Is iteration and refinement demonstrated?",
+      "Does it show how to combine components into coherent wholes?",
+      "Are scaffolding techniques provided for open-ended work?",
+      "Does it inspire creativity while providing structure?"
+    ],
+    redFlags: [
+      "Only shows final result without the process",
+      "Provides rigid templates that prevent creative adaptation",
+      "Skips the messy, iterative parts of creation",
+      "Doesn't explain the reasoning behind creative choices",
+      "Too prescriptive for genuinely creative tasks"
+    ],
+    scoringEmphasis: { relevance: 0.35, pedagogy: 0.45, quality: 0.20 }
+  }
+};
+
+// ============================================================================
+// COMPREHENSIVE VIDEO EVALUATION SYSTEM PROMPT
+// ============================================================================
+//
+// This prompt creates a sophisticated evaluator that assesses videos with
+// the nuance of an experienced instructional designer, not just a keyword
+// matcher. It applies educational research to practical video assessment.
+//
+// ============================================================================
+
+const EVALUATION_SYSTEM_PROMPT = `You are a senior instructional designer and educational content evaluator with 20+ years of experience curating video content for university courses, corporate training programs, and online learning platforms. Your expertise combines deep knowledge of learning science with practical experience of what actually works in video-based education.
+
+YOUR EVALUATION PHILOSOPHY:
+
+1. PEDAGOGICAL FIT OVER PRODUCTION VALUE
+   A well-explained concept in a simple screencast beats a flashy but superficial overview. You prioritize genuine teaching effectiveness over polish. However, production quality matters when it interferes with learning (poor audio, confusing visuals, distracting elements).
+
+2. COGNITIVE LEVEL MATCHING
+   The most common mistake in video curation is selecting content at the wrong cognitive level. A brilliant "understand" video is useless for an "apply" learning objective. You rigorously assess whether the video's approach matches what students need to DO with the knowledge.
+
+3. HONEST, CALIBRATED SCORING
+   You resist grade inflation. Your scores have meaning:
+   - 90-100: Exceptional - would use as primary resource, nearly perfect fit
+   - 80-89: Excellent - strong recommendation, minor gaps if any
+   - 70-79: Good - solid choice, addresses core needs with some limitations
+   - 60-69: Acceptable - usable if nothing better available, notable gaps
+   - 50-59: Marginal - significant issues but might fill a gap
+   - Below 50: Not recommended - wrong level, off-topic, or quality issues
+
+   Most videos in a good search will score 55-75. Scores above 85 are rare. This calibration makes your recommendations meaningful.
+
+4. RED FLAG DETECTION
+   You actively identify problems that would harm learning:
+   - Factual errors or outdated information (especially dangerous in rapidly-evolving fields)
+   - Missing prerequisites that leave students confused
+   - Conceptual misrepresentations that create or reinforce misconceptions
+   - Scope mismatches (too broad/narrow, too advanced/basic)
+   - Pedagogical anti-patterns (information dumps, death by bullet point, etc.)
+
+5. CONTEXT-AWARE ASSESSMENT
+   You evaluate videos in context. A video that's perfect for an introduction would be poor for advanced students, and vice versa. You use all available context (learning objective, Bloom's level, teaching unit specifics) to make nuanced judgments.
+
+YOUR EVALUATION PROCESS:
+
+For each video, you systematically assess three dimensions:
+
+RELEVANCE (Does it cover the right content?):
+- Topic alignment: Is this actually about what we need to teach?
+- Scope match: Right level of breadth and depth?
+- Concept coverage: Does it address the specific concepts, not just the general area?
+- Currency: Is the information up-to-date? (Critical for tech, science, current events)
+- Context fit: Appropriate for the academic level and domain?
+
+PEDAGOGY (Does it teach effectively for THIS cognitive level?):
+- Approach match: Does the teaching method fit what students need to DO with this knowledge?
+- Clarity: Is the explanation clear and followable?
+- Structure: Is content organized in a learnable sequence?
+- Engagement: Does it maintain attention and motivation?
+- Scaffolding: Does it build from known to unknown appropriately?
+
+QUALITY (Is it watchable and credible?):
+- Audio/visual: Can students see and hear everything clearly?
+- Pacing: Appropriate speed for learning (not too fast, not tedious)?
+- Credibility: Does the presenter demonstrate expertise?
+- Professionalism: Free from distracting errors, tangents, or issues?
+- Production: Do visuals enhance rather than distract from learning?
+
+OUTPUT REQUIREMENTS:
+Return ONLY valid JSON. No markdown code blocks. No explanatory text outside the JSON structure.
+Ensure all scores are integers from 0-100.
+Provide substantive reasoning that explains your judgment.`;
+
+// ============================================================================
+// TYPES
+// ============================================================================
+
+interface ContentMatchWithContext {
+  id: string;
+  learning_objective_id: string;
+  teaching_unit_id: string | null;
+  content_id: string;
+  // Joined data
+  video_id: string;
+  video_title: string;
+  video_description: string;
+  video_duration_seconds: number;
+  channel_name: string;
+  // LO context
+  lo_text: string;
+  lo_bloom_level: string;
+  lo_core_concept: string | null;
+  // Teaching unit context (if available)
+  tu_title: string | null;
+  tu_what_to_teach: string | null;
+  tu_target_video_type: string | null;
+  tu_target_duration_minutes: number | null;
+  tu_required_concepts: string[] | null;
+}
+
+interface BatchRequest {
+  request: {
+    contents: Array<{
+      role: string;
+      parts: Array<{ text: string }>;
+    }>;
+    systemInstruction?: {
+      parts: Array<{ text: string }>;
+    };
+    generationConfig: {
+      temperature: number;
+      maxOutputTokens: number;
+      responseMimeType: string;
+    };
+  };
+  metadata: {
+    content_match_ids: string[];  // May contain multiple IDs per request
+    learning_objective_id: string;
+    teaching_unit_id: string | null;
+    request_index: number;
+  };
+}
+
+// ============================================================================
+// COMPREHENSIVE EVALUATION PROMPT BUILDER
+// ============================================================================
+//
+// This function builds rich, contextualized evaluation prompts that leverage
+// the Bloom's framework and provide the AI with all necessary context to
+// make nuanced pedagogical judgments.
+//
+// ============================================================================
+
+function buildEvaluationPrompt(
+  loText: string,
+  bloomLevel: string,
+  teachingUnit: {
+    title: string | null;
+    what_to_teach: string | null;
+    target_video_type: string | null;
+    target_duration_minutes: number | null;
+    required_concepts: string[] | null;
+    avoid_terms: string[] | null;
+    common_misconceptions: string[] | null;
+  } | null,
+  videos: Array<{
+    video_id: string;
+    title: string;
+    description: string;
+    duration_minutes: number;
+    channel_name: string;
+  }>,
+  domainContext: string | null = null
+): string {
+  // Get the appropriate Bloom's level configuration
+  const bloomConfig = BLOOM_EVALUATION_FRAMEWORK[bloomLevel.toLowerCase()] ||
+                      BLOOM_EVALUATION_FRAMEWORK.understand;
+
+  // Build comprehensive video list with all available metadata
+  const videoListText = videos.map((v, i) =>
+    `═══ VIDEO ${i + 1} ═══
+VIDEO_ID: ${v.video_id}
+TITLE: ${v.title}
+CHANNEL: ${v.channel_name}
+DURATION: ${v.duration_minutes} minutes
+DESCRIPTION:
+${v.description || 'No description available'}
+═══════════════════`
+  ).join('\n\n');
+
+  // Calculate dynamic scoring weights from Bloom's config
+  const { relevance, pedagogy, quality } = bloomConfig.scoringEmphasis;
+
+  // Build the evaluation focus questions for this Bloom's level
+  const evaluationQuestions = bloomConfig.evaluationFocus
+    .map((q, i) => `   ${i + 1}. ${q}`)
+    .join('\n');
+
+  // Build red flags specific to this cognitive level
+  const redFlagsText = bloomConfig.redFlags
+    .map((rf, i) => `   - ${rf}`)
+    .join('\n');
+
+  // Construct the full prompt
+  if (teachingUnit?.title) {
+    // DETAILED PROMPT: Teaching unit context available for micro-concept evaluation
+    return `YOUR EVALUATION TASK:
+You are evaluating YouTube videos for a SPECIFIC teaching unit within a larger learning objective. This precision matters - we need videos that teach THIS particular micro-concept, not just the general topic.
+
+═══════════════════════════════════════════════════════════════════════════════
+TARGET TEACHING UNIT:
+═══════════════════════════════════════════════════════════════════════════════
+
+TITLE: "${teachingUnit.title}"
+
+WHAT THIS UNIT MUST TEACH:
+${teachingUnit.what_to_teach || 'The specific concept indicated by the title'}
+
+${teachingUnit.target_video_type ? `IDEAL VIDEO FORMAT: ${teachingUnit.target_video_type}
+A "${teachingUnit.target_video_type}" style video would be optimal for this content.` : ''}
+
+${teachingUnit.target_duration_minutes ? `TARGET DURATION: ~${teachingUnit.target_duration_minutes} minutes
+Videos significantly shorter may lack depth; significantly longer may include unnecessary content.` : ''}
+
+${teachingUnit.required_concepts?.length ? `REQUIRED CONCEPTS (must be covered):
+${teachingUnit.required_concepts.map(c => `   ✓ ${c}`).join('\n')}
+Videos that skip these concepts should receive lower relevance scores.` : ''}
+
+${teachingUnit.avoid_terms?.length ? `TERMS TO AVOID (indicate wrong focus or outdated content):
+${teachingUnit.avoid_terms.map(t => `   ✗ ${t}`).join('\n')}
+Videos emphasizing these may be off-topic or outdated.` : ''}
+
+${teachingUnit.common_misconceptions?.length ? `COMMON MISCONCEPTIONS TO ADDRESS:
+${teachingUnit.common_misconceptions.map(m => `   ⚠ ${m}`).join('\n')}
+Bonus points for videos that explicitly address these.` : ''}
+
+═══════════════════════════════════════════════════════════════════════════════
+LEARNING CONTEXT:
+═══════════════════════════════════════════════════════════════════════════════
+
+OVERALL LEARNING OBJECTIVE: "${loText}"
+This teaching unit is one component of achieving this larger goal.
+
+COGNITIVE LEVEL: ${bloomLevel.toUpperCase()}
+${bloomConfig.description}
+
+EVALUATION FOCUS FOR THIS LEVEL:
+${evaluationQuestions}
+
+RED FLAGS TO WATCH FOR:
+${redFlagsText}
+
+${domainContext ? `DOMAIN CONTEXT: ${domainContext}
+Evaluate appropriateness for this specific field/discipline.` : ''}
+
+═══════════════════════════════════════════════════════════════════════════════
+VIDEOS TO EVALUATE:
+═══════════════════════════════════════════════════════════════════════════════
+
+${videoListText}
+
+═══════════════════════════════════════════════════════════════════════════════
+SCORING INSTRUCTIONS:
+═══════════════════════════════════════════════════════════════════════════════
+
+For each video, provide scores on three dimensions:
+
+1. RELEVANCE (0-100) - Weight: ${(relevance * 100).toFixed(0)}%
+   Does this video specifically teach "${teachingUnit.title}"?
+   - 90-100: Directly and thoroughly addresses this exact micro-concept
+   - 70-89: Covers the topic well with some scope mismatch
+   - 50-69: Related to the general area but not this specific concept
+   - Below 50: Off-topic, wrong focus, or tangentially related
+
+2. PEDAGOGY (0-100) - Weight: ${(pedagogy * 100).toFixed(0)}%
+   Does the teaching approach match the ${bloomLevel.toUpperCase()} cognitive level?
+   - 90-100: Perfect pedagogical fit for this learning need
+   - 70-89: Good teaching approach with minor mismatches
+   - 50-69: Acceptable but wrong emphasis or approach
+   - Below 50: Wrong teaching style for this cognitive level
+
+3. QUALITY (0-100) - Weight: ${(quality * 100).toFixed(0)}%
+   Is this a well-produced, watchable, credible video?
+   - 90-100: Professional quality, excellent presenter, engaging
+   - 70-89: Good quality, clear and watchable
+   - 50-69: Acceptable quality, some issues but usable
+   - Below 50: Quality issues that interfere with learning
+
+TOTAL SCORE FORMULA:
+total = (relevance × ${relevance}) + (pedagogy × ${pedagogy}) + (quality × ${quality})
+
+RECOMMENDATION THRESHOLDS:
+- highly_recommended: total >= 80 (use as primary resource)
+- recommended: total >= 65 (solid choice)
+- acceptable: total >= 50 (usable if needed)
+- not_recommended: total < 50 (skip this video)
+
+═══════════════════════════════════════════════════════════════════════════════
+REQUIRED OUTPUT FORMAT:
+═══════════════════════════════════════════════════════════════════════════════
+
+Return ONLY this JSON structure. No markdown, no explanation outside JSON.
+
+{
+  "evaluations": [
+    {
+      "video_id": "exact VIDEO_ID from above",
+      "relevance_score": <0-100>,
+      "pedagogy_score": <0-100>,
+      "quality_score": <0-100>,
+      "total_score": <calculated weighted average>,
+      "reasoning": "3-4 sentences explaining: (1) how well it covers the specific micro-concept, (2) whether the teaching approach fits the cognitive level, (3) any notable strengths or concerns",
+      "recommendation": "highly_recommended|recommended|acceptable|not_recommended",
+      "red_flags": ["any concerning issues"] or null,
+      "strengths": ["notable positives"] or null
+    }
+  ]
+}
+
+Begin your evaluation:`;
+  } else {
+    // GENERAL PROMPT: Learning objective level evaluation (no teaching unit context)
+    return `YOUR EVALUATION TASK:
+You are evaluating YouTube videos for alignment with a learning objective. Assess how well each video would help students achieve this educational goal.
+
+═══════════════════════════════════════════════════════════════════════════════
+TARGET LEARNING OBJECTIVE:
+═══════════════════════════════════════════════════════════════════════════════
+
+"${loText}"
+
+COGNITIVE LEVEL: ${bloomLevel.toUpperCase()}
+${bloomConfig.description}
+
+IDEAL VIDEO TYPES FOR THIS LEVEL:
+${bloomConfig.idealVideoTypes.map(t => `   • ${t}`).join('\n')}
+
+EVALUATION FOCUS QUESTIONS:
+${evaluationQuestions}
+
+RED FLAGS TO WATCH FOR:
+${redFlagsText}
+
+${domainContext ? `DOMAIN CONTEXT: ${domainContext}` : ''}
+
+═══════════════════════════════════════════════════════════════════════════════
+VIDEOS TO EVALUATE:
+═══════════════════════════════════════════════════════════════════════════════
+
+${videoListText}
+
+═══════════════════════════════════════════════════════════════════════════════
+SCORING INSTRUCTIONS:
+═══════════════════════════════════════════════════════════════════════════════
+
+For each video, provide scores on three dimensions:
+
+1. RELEVANCE (0-100) - Weight: ${(relevance * 100).toFixed(0)}%
+   Does this video address the learning objective?
+   - 90-100: Directly and thoroughly addresses the objective
+   - 70-89: Good coverage with minor scope issues
+   - 50-69: Partially relevant, may miss key aspects
+   - Below 50: Wrong topic or significant scope mismatch
+
+2. PEDAGOGY (0-100) - Weight: ${(pedagogy * 100).toFixed(0)}%
+   Does the teaching approach match the ${bloomLevel.toUpperCase()} cognitive level?
+   - 90-100: Perfect approach for this type of learning
+   - 70-89: Good teaching with minor approach issues
+   - 50-69: Acceptable but could better serve the cognitive level
+   - Below 50: Wrong pedagogical approach
+
+3. QUALITY (0-100) - Weight: ${(quality * 100).toFixed(0)}%
+   Is this a well-produced, watchable video?
+   - 90-100: Excellent production and presentation
+   - 70-89: Good quality, clear and professional
+   - 50-69: Acceptable, watchable despite some issues
+   - Below 50: Quality issues that harm learning
+
+TOTAL SCORE: total = (relevance × ${relevance}) + (pedagogy × ${pedagogy}) + (quality × ${quality})
+
+RECOMMENDATIONS:
+- highly_recommended: total >= 80
+- recommended: total >= 65
+- acceptable: total >= 50
+- not_recommended: total < 50
+
+═══════════════════════════════════════════════════════════════════════════════
+REQUIRED OUTPUT FORMAT:
+═══════════════════════════════════════════════════════════════════════════════
+
+{
+  "evaluations": [
+    {
+      "video_id": "exact VIDEO_ID from above",
+      "relevance_score": <0-100>,
+      "pedagogy_score": <0-100>,
+      "quality_score": <0-100>,
+      "total_score": <calculated>,
+      "reasoning": "3-4 sentences of substantive analysis",
+      "recommendation": "highly_recommended|recommended|acceptable|not_recommended",
+      "red_flags": ["any issues"] or null,
+      "strengths": ["positives"] or null
+    }
+  ]
+}
+
+Begin your evaluation:`;
+  }
+}
+
+// ============================================================================
+// MAIN HANDLER
+// ============================================================================
+
+serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  const functionName = '[submit-batch-evaluation]';
+  console.log(`${functionName} Starting...`);
+
+  try {
+    // ========================================================================
+    // STEP 0: Check feature flag
+    // ========================================================================
+    const enableBatchEvaluation = Deno.env.get('ENABLE_BATCH_EVALUATION') !== 'false';
+    if (!enableBatchEvaluation) {
+      console.log(`${functionName} Feature disabled, returning`);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'Batch evaluation is disabled',
+          fallback: 'Videos will be evaluated individually during content search'
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
+      );
+    }
+
+    // ========================================================================
+    // STEP 1: Parse request and authenticate
+    // ========================================================================
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      throw new Error('Missing authorization header');
+    }
+
+    const { instructor_course_id, content_match_ids } = await req.json();
+
+    if (!instructor_course_id) {
+      throw new Error('instructor_course_id is required');
+    }
+
+    console.log(`${functionName} Processing course: ${instructor_course_id}`);
+
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // Get user from auth header
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) {
+      throw new Error('Invalid authorization');
+    }
+
+    // ========================================================================
+    // STEP 2: Verify course ownership
+    // ========================================================================
+    const { data: course, error: courseError } = await supabase
+      .from('instructor_courses')
+      .select('id, title, instructor_id')
+      .eq('id', instructor_course_id)
+      .single();
+
+    if (courseError || !course) {
+      throw new Error(`Course not found: ${instructor_course_id}`);
+    }
+
+    if (course.instructor_id !== user.id) {
+      throw new Error('Not authorized to modify this course');
+    }
+
+    // ========================================================================
+    // STEP 3: Fetch content_matches with full context
+    // ========================================================================
+    // Build query for content matches that need evaluation
+    let query = supabase
+      .from('content_matches')
+      .select(`
+        id,
+        learning_objective_id,
+        teaching_unit_id,
+        content_id,
+        content:content_id (
+          source_id,
+          title,
+          description,
+          duration_seconds,
+          channel_name
+        ),
+        learning_objectives:learning_objective_id (
+          text,
+          bloom_level,
+          core_concept
+        ),
+        teaching_units:teaching_unit_id (
+          title,
+          what_to_teach,
+          target_video_type,
+          target_duration_minutes,
+          required_concepts
+        )
+      `)
+      .eq('status', 'pending_evaluation');
+
+    // Filter to specific content_match_ids if provided
+    if (content_match_ids && content_match_ids.length > 0) {
+      query = query.in('id', content_match_ids);
+    } else {
+      // Filter by course via learning_objectives
+      query = query.in('learning_objective_id',
+        supabase
+          .from('learning_objectives')
+          .select('id')
+          .eq('instructor_course_id', instructor_course_id)
+      );
+    }
+
+    const { data: pendingMatches, error: matchError } = await query;
+
+    if (matchError) {
+      throw new Error(`Failed to fetch content matches: ${matchError.message}`);
+    }
+
+    if (!pendingMatches || pendingMatches.length === 0) {
+      console.log(`${functionName} No content matches need evaluation`);
+      return new Response(
+        JSON.stringify({
+          success: true,
+          batch_job_id: null,
+          total_requests: 0,
+          message: 'No videos need evaluation'
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    console.log(`${functionName} Found ${pendingMatches.length} videos to evaluate`);
+
+    // Check minimum batch size
+    if (pendingMatches.length < BATCH_CONFIG.MIN_BATCH_SIZE) {
+      console.log(`${functionName} Below minimum batch size, use sync evaluation`);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: `Only ${pendingMatches.length} videos, below minimum ${BATCH_CONFIG.MIN_BATCH_SIZE}`,
+          fallback: 'Use evaluate-content-batch directly for small batches'
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
+      );
+    }
+
+    // ========================================================================
+    // STEP 4: Group by LO/teaching unit and build batch requests
+    // ========================================================================
+    console.log(`${functionName} Building batch requests...`);
+
+    // Group matches by LO + teaching unit for efficient prompting
+    const groupedMatches = new Map<string, ContentMatchWithContext[]>();
+
+    for (const match of pendingMatches) {
+      const key = `${match.learning_objective_id}:${match.teaching_unit_id || 'none'}`;
+      if (!groupedMatches.has(key)) {
+        groupedMatches.set(key, []);
+      }
+
+      groupedMatches.get(key)!.push({
+        id: match.id,
+        learning_objective_id: match.learning_objective_id,
+        teaching_unit_id: match.teaching_unit_id,
+        content_id: match.content_id,
+        video_id: (match as any).content?.source_id || '',
+        video_title: (match as any).content?.title || '',
+        video_description: (match as any).content?.description || '',
+        video_duration_seconds: (match as any).content?.duration_seconds || 0,
+        channel_name: (match as any).content?.channel_name || '',
+        lo_text: (match as any).learning_objectives?.text || '',
+        lo_bloom_level: (match as any).learning_objectives?.bloom_level || 'understand',
+        lo_core_concept: (match as any).learning_objectives?.core_concept,
+        tu_title: (match as any).teaching_units?.title,
+        tu_what_to_teach: (match as any).teaching_units?.what_to_teach,
+        tu_target_video_type: (match as any).teaching_units?.target_video_type,
+        tu_target_duration_minutes: (match as any).teaching_units?.target_duration_minutes,
+        tu_required_concepts: (match as any).teaching_units?.required_concepts,
+      });
+    }
+
+    // Build batch requests (max 15 videos per request to match current behavior)
+    const batchRequests: string[] = [];
+    let requestIndex = 0;
+
+    for (const [key, matches] of groupedMatches) {
+      // Split large groups into chunks
+      for (let i = 0; i < matches.length; i += BATCH_CONFIG.MAX_VIDEOS_PER_REQUEST) {
+        const chunk = matches.slice(i, i + BATCH_CONFIG.MAX_VIDEOS_PER_REQUEST);
+        const firstMatch = chunk[0];
+
+        const videos = chunk.map(m => ({
+          video_id: m.video_id,
+          title: m.video_title,
+          description: m.video_description,
+          duration_minutes: Math.round(m.video_duration_seconds / 60),
+          channel_name: m.channel_name,
+        }));
+
+        const teachingUnit = firstMatch.tu_title ? {
+          title: firstMatch.tu_title,
+          what_to_teach: firstMatch.tu_what_to_teach,
+          target_video_type: firstMatch.tu_target_video_type,
+          required_concepts: firstMatch.tu_required_concepts,
+        } : null;
+
+        const userPrompt = buildEvaluationPrompt(
+          firstMatch.lo_text,
+          firstMatch.lo_bloom_level,
+          teachingUnit,
+          videos
+        );
+
+        const request: BatchRequest = {
+          request: {
+            contents: [
+              {
+                role: 'user',
+                parts: [{ text: userPrompt }]
+              }
+            ],
+            systemInstruction: {
+              parts: [{ text: EVALUATION_SYSTEM_PROMPT }]
+            },
+            generationConfig: {
+              temperature: 0.3,
+              maxOutputTokens: 4096,
+              responseMimeType: 'application/json'
+            }
+          },
+          metadata: {
+            content_match_ids: chunk.map(m => m.id),
+            learning_objective_id: firstMatch.learning_objective_id,
+            teaching_unit_id: firstMatch.teaching_unit_id,
+            request_index: requestIndex
+          }
+        };
+
+        batchRequests.push(JSON.stringify(request));
+        requestIndex++;
+      }
+    }
+
+    const jsonlContent = batchRequests.join('\n');
+    console.log(`${functionName} Built ${batchRequests.length} requests for ${pendingMatches.length} videos`);
+
+    // ========================================================================
+    // STEP 5: Create batch_jobs record
+    // ========================================================================
+    const batchJobId = crypto.randomUUID();
+
+    const { error: insertJobError } = await supabase
+      .from('batch_jobs')
+      .insert({
+        id: batchJobId,
+        instructor_course_id,
+        job_type: 'evaluation',
+        total_requests: batchRequests.length,
+        status: 'preparing',
+        created_by: user.id
+      });
+
+    if (insertJobError) {
+      throw new Error(`Failed to create batch job record: ${insertJobError.message}`);
+    }
+
+    // ========================================================================
+    // STEP 6: Upload JSONL to GCS
+    // ========================================================================
+    const gcsClient = new GCSClient();
+    const inputPath = `${BATCH_CONFIG.GCS_PREFIX}/${batchJobId}/input.jsonl`;
+
+    try {
+      await gcsClient.uploadFile(inputPath, jsonlContent, 'application/jsonl');
+      console.log(`${functionName} Uploaded to GCS: ${inputPath}`);
+    } catch (gcsError) {
+      await supabase
+        .from('batch_jobs')
+        .update({ status: 'failed', error_message: `GCS upload failed: ${gcsError}` })
+        .eq('id', batchJobId);
+      throw gcsError;
+    }
+
+    // ========================================================================
+    // STEP 7: Create Vertex AI batch job
+    // ========================================================================
+    const vertexClient = new VertexAIBatchClient();
+    const bucketName = Deno.env.get('GCS_BUCKET_NAME')!;
+
+    try {
+      const batchJob = await vertexClient.createBatchJob({
+        displayName: `evaluation-${instructor_course_id.substring(0, 8)}-${Date.now()}`,
+        model: MODEL_CONFIG.VERTEX_MODEL_PATH,
+        inputUri: `gs://${bucketName}/${inputPath}`,
+        outputUriPrefix: `gs://${bucketName}/${BATCH_CONFIG.GCS_PREFIX}/${batchJobId}/output/`
+      });
+
+      console.log(`${functionName} Created Vertex AI job: ${batchJob.name}`);
+
+      await supabase
+        .from('batch_jobs')
+        .update({
+          google_batch_id: batchJob.name,
+          status: 'submitted'
+        })
+        .eq('id', batchJobId);
+
+    } catch (vertexError) {
+      await gcsClient.deleteFile(inputPath);
+      await supabase
+        .from('batch_jobs')
+        .update({
+          status: 'failed',
+          error_message: `Vertex AI job creation failed: ${vertexError}`
+        })
+        .eq('id', batchJobId);
+      throw vertexError;
+    }
+
+    // ========================================================================
+    // STEP 8: Update content_matches with batch job reference
+    // ========================================================================
+    const matchIds = pendingMatches.map(m => m.id);
+
+    await supabase
+      .from('content_matches')
+      .update({ evaluation_batch_job_id: batchJobId })
+      .in('id', matchIds);
+
+    console.log(`${functionName} Updated ${matchIds.length} content matches`);
+
+    // ========================================================================
+    // STEP 9: Return success
+    // ========================================================================
+    return new Response(
+      JSON.stringify({
+        success: true,
+        batch_job_id: batchJobId,
+        total_requests: batchRequests.length,
+        total_videos: pendingMatches.length,
+        message: `Batch evaluation job submitted. Call poll-batch-evaluation to check status.`
+      }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+
+  } catch (error) {
+    console.error(`${functionName} Error:`, error);
+
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
+    );
+  }
+});
+```
+
+**Verification Checklist for Task 2.2**:
+- [ ] File created at correct path
+- [ ] All imports resolve (test with `deno check`)
+- [ ] CORS headers present
+- [ ] Feature flag check at start
+- [ ] Authorization validation
+- [ ] Course ownership verification
+- [ ] Minimum batch size check
+- [ ] Videos grouped by LO/teaching unit
+- [ ] Max 15 videos per request (token management)
+- [ ] JSONL format correct
+- [ ] GCS upload error handling with cleanup
+- [ ] Vertex AI error handling with cleanup
+- [ ] batch_jobs record created before external calls
+- [ ] content_matches updated with batch job reference
+- [ ] Comprehensive logging
+
+---
+
+### 7.4 Task 2.3: Create poll-batch-evaluation Function
+
+**File**: `supabase/functions/poll-batch-evaluation/index.ts`
+
+**Purpose**: Poll Vertex AI batch job, download results, parse scores, and update content_matches.
+
+**Complete Implementation** (abbreviated for context - follows same pattern as poll-batch-curriculum):
+
+```typescript
+// supabase/functions/poll-batch-evaluation/index.ts
+// Similar structure to poll-batch-curriculum, but:
+// 1. Updates content_matches instead of teaching_units
+// 2. Parses evaluation scores (relevance, pedagogy, quality)
+// 3. Sets recommendation field
+// 4. Changes status from 'pending_evaluation' to 'pending' (evaluated but not approved)
+
+serve(async (req) => {
+  // ... CORS and setup similar to poll-batch-curriculum
+
+  const functionName = '[poll-batch-evaluation]';
+
+  // ... fetch batch_jobs record
+  // ... check Vertex AI status
+  // ... if complete, download GCS output
+
+  // For each result in JSONL:
+  for (const result of allResults) {
+    const matchIds = result.metadata?.content_match_ids;
+
+    // Parse evaluations from AI response
+    const content = result.response?.candidates?.[0]?.content?.parts?.[0]?.text;
+    const evaluations = JSON.parse(stripMarkdown(content)).evaluations;
+
+    // Update each content_match with its scores
+    for (const evaluation of evaluations) {
+      const matchId = findMatchIdByVideoId(matchIds, evaluation.video_id);
+
+      await supabase
+        .from('content_matches')
+        .update({
+          ai_relevance_score: evaluation.relevance_score / 100,
+          ai_pedagogy_score: evaluation.pedagogy_score / 100,
+          ai_quality_score: evaluation.quality_score / 100,
+          match_score: evaluation.total_score / 100,
+          ai_reasoning: evaluation.reasoning,
+          ai_recommendation: evaluation.recommendation,
+          status: evaluation.recommendation === 'highly_recommended' ? 'auto_approved' : 'pending'
+        })
+        .eq('id', matchId);
+    }
+  }
+
+  // Update batch_jobs with final counts
+  // Return result summary
+});
+```
+
+**Key Differences from poll-batch-curriculum**:
+1. Updates `content_matches` table, not `teaching_units`
+2. Parses evaluation scores (4 numeric fields + reasoning)
+3. Auto-approves highly recommended videos
+4. Maps video_id back to content_match_id
+
+---
+
+### 7.5 Task 2.4: Modify search-youtube-content Function
+
+**File**: `supabase/functions/search-youtube-content/index.ts`
+
+**Change**: Skip inline AI evaluation when batch mode is enabled; mark videos for batch.
+
+**Location**: Around line 750-760 (after video discovery, before evaluation call)
+
+**Replace the evaluation section with**:
+
+```typescript
+// ========================================================================
+// STEP: Evaluate videos (BATCH or SYNC)
+// ========================================================================
+const enableBatchEvaluation = Deno.env.get('ENABLE_BATCH_EVALUATION') === 'true';
+
+if (enableBatchEvaluation) {
+  // BATCH MODE: Skip inline evaluation, mark for batch processing
+  console.log(`[BATCH MODE] Skipping inline evaluation for ${discoveredVideos.length} videos`);
+
+  // Insert content_matches with pending_evaluation status
+  const contentMatchInserts = discoveredVideos.map((video: any, index: number) => ({
+    learning_objective_id: learning_objective_id,
+    teaching_unit_id: teaching_unit_id || null,
+    content_id: video.content_id,
+    status: 'pending_evaluation',
+    match_score: null,  // Will be set by batch evaluation
+    ai_relevance_score: null,
+    ai_pedagogy_score: null,
+    ai_quality_score: null,
+    ai_reasoning: null,
+    ai_recommendation: null,
+  }));
+
+  const { data: insertedMatches, error: insertError } = await supabaseClient
+    .from('content_matches')
+    .insert(contentMatchInserts)
+    .select('id');
+
+  if (insertError) {
+    console.error('[BATCH MODE] Failed to insert content_matches:', insertError);
+    // Fall through to sync evaluation as fallback
+  } else {
+    console.log(`[BATCH MODE] Created ${insertedMatches?.length} pending evaluations`);
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        batch_evaluation_pending: true,
+        videos_discovered: discoveredVideos.length,
+        message: 'Videos discovered and queued for batch evaluation'
+      }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+}
+
+// SYNC MODE (fallback or feature flag disabled): Original inline evaluation
+console.log(`[SYNC MODE] Evaluating ${discoveredVideos.length} videos inline`);
+const evalResponse = await fetch(`${supabaseUrl}/functions/v1/evaluate-content-batch`, {
+  // ... existing evaluation call
+});
+```
+
+**Verification Checklist for Task 2.4**:
+- [ ] Feature flag check added
+- [ ] New 'pending_evaluation' status used
+- [ ] Graceful fallback to sync on error
+- [ ] Response indicates batch mode
+- [ ] No breaking changes to existing behavior when flag is false
+
+---
+
+### 7.6 Task 2.5: Modify QuickCourseSetup.tsx
+
+**File**: `src/pages/instructor/QuickCourseSetup.tsx`
+
+**Change**: Add evaluation step between content discovery and slide generation.
+
+**Add new UI state and step**:
+
+```tsx
+// Add new state
+const [evaluationStatus, setEvaluationStatus] = useState<'idle' | 'processing' | 'completed' | 'failed'>('idle');
+const [evaluationProgress, setEvaluationProgress] = useState({ succeeded: 0, total: 0 });
+
+// Add evaluation step after content discovery completes
+const handleStartEvaluation = async () => {
+  setEvaluationStatus('processing');
+
+  try {
+    const { data, error } = await supabase.functions.invoke('submit-batch-evaluation', {
+      body: { instructor_course_id: courseId }
+    });
+
+    if (error || !data.success) {
+      throw new Error(error?.message || data.error);
+    }
+
+    if (!data.batch_job_id) {
+      // No videos need evaluation
+      setEvaluationStatus('completed');
+      return;
+    }
+
+    // Start polling
+    pollEvaluationStatus(data.batch_job_id);
+  } catch (err) {
+    setEvaluationStatus('failed');
+    toast.error('Failed to start video evaluation');
+  }
+};
+
+const pollEvaluationStatus = async (batchJobId: string) => {
+  const poll = async () => {
+    const { data, error } = await supabase.functions.invoke('poll-batch-evaluation', {
+      body: { batch_job_id: batchJobId }
+    });
+
+    if (data?.status === 'completed' || data?.status === 'partial') {
+      setEvaluationStatus('completed');
+      setEvaluationProgress({
+        succeeded: data.succeeded_count,
+        total: data.succeeded_count + data.failed_count
+      });
+    } else if (data?.status === 'failed') {
+      setEvaluationStatus('failed');
+    } else {
+      // Still processing, poll again
+      setTimeout(poll, 5000);
+    }
+  };
+
+  poll();
+};
+
+// Render evaluation step in UI
+{contentDiscoveryComplete && evaluationStatus === 'idle' && (
+  <Card>
+    <CardHeader>
+      <CardTitle>Step 3: Evaluate Content</CardTitle>
+      <CardDescription>
+        AI will score and rank all discovered videos for pedagogical fit
+      </CardDescription>
+    </CardHeader>
+    <CardContent>
+      <Button onClick={handleStartEvaluation}>
+        <Sparkles className="mr-2 h-4 w-4" />
+        Evaluate {pendingVideosCount} Videos
+      </Button>
+    </CardContent>
+  </Card>
+)}
+
+{evaluationStatus === 'processing' && (
+  <Card>
+    <CardContent className="flex items-center gap-3 py-6">
+      <Loader2 className="h-5 w-5 animate-spin text-blue-500" />
+      <span>Evaluating videos with AI...</span>
+    </CardContent>
+  </Card>
+)}
+```
+
+---
+
+### 7.7 Task 2.6: Unit Tests
+
+**Test Cases for submit-batch-evaluation**:
+```typescript
+// Test 1: Feature flag disabled → returns 400
+// Test 2: No pending_evaluation videos → returns success with total_requests: 0
+// Test 3: Below minimum batch size → returns fallback message
+// Test 4: Successful batch submission → returns batch_job_id
+// Test 5: Videos grouped correctly by LO/teaching unit
+// Test 6: Max 15 videos per request enforced
+```
+
+**Test Cases for poll-batch-evaluation**:
+```typescript
+// Test 1: Scores parsed correctly from AI response
+// Test 2: Highly recommended videos auto-approved
+// Test 3: Video IDs mapped back to content_match IDs correctly
+// Test 4: Partial success handled (some videos scored, some failed)
+```
 
 ---
 
 ## 8. PHASE 3: ENHANCED PROMPTS
 
-*[Detailed prompt improvements for curriculum-reasoning-agent and evaluate-content-batch]*
+### 8.1 Overview
+
+**Goal**: Improve output quality without changing architecture by enhancing prompts with:
+- Domain-specific expertise context
+- Understanding by Design (UbD) framework for curriculum
+- Mayer's multimedia learning principles for evaluation
+- Bloom's taxonomy-weighted scoring
+
+**Risk Level**: LOW - Changes are prompt-only, easy to A/B test and rollback.
+
+### 8.2 Task 3.1: Enhanced Curriculum Decomposition Prompt
+
+**File**: `supabase/functions/curriculum-reasoning-agent/index.ts`
+
+**Current Prompt Issues**:
+- Generic "curriculum designer" persona
+- No grounding in current educational research
+- May generate outdated content structures
+
+**Enhanced System Prompt**:
+
+```typescript
+const ENHANCED_CURRICULUM_SYSTEM_PROMPT = `You are an expert curriculum designer with 20+ years of experience in instructional design, specializing in backward design (Understanding by Design framework by Wiggins & McTighe).
+
+EXPERTISE:
+- Deep knowledge of Bloom's Taxonomy cognitive levels and how to scaffold learning
+- Expert in microlearning principles (5-15 minute focused learning chunks)
+- Familiar with 2024-2025 industry best practices for online education
+- Skilled at identifying prerequisite dependencies between concepts
+
+YOUR APPROACH:
+1. Start with the END GOAL - what should the learner be able to DO after this?
+2. Work BACKWARD to identify the essential knowledge and skills needed
+3. Sequence from simple → complex, concrete → abstract
+4. Ensure each micro-unit can stand alone as a 5-15 minute learning experience
+
+CRITICAL RULES:
+1. Each teaching unit = ONE focused concept (microlearning principle)
+2. Units MUST be ordered by prerequisite dependencies
+3. Search queries must be HIGHLY SPECIFIC (not generic terms)
+4. Generate 3-8 units based on complexity, not a fixed number
+5. Consider common misconceptions and address them proactively
+
+OUTPUT: Return valid JSON only. No markdown, no code blocks.`;
+```
+
+**Enhanced User Prompt Additions**:
+
+```typescript
+// Add to user prompt
+const enhancedContext = `
+PEDAGOGICAL CONTEXT:
+- This is for a university-level course
+- Students will watch videos asynchronously
+- Each unit should be completable in one sitting (5-15 min video)
+- Consider mobile learners with limited attention spans
+
+BACKWARD DESIGN QUESTIONS TO CONSIDER:
+1. What evidence would show the student achieved this learning objective?
+2. What knowledge/skills are prerequisites?
+3. What common misconceptions might students have?
+4. What real-world applications make this relevant?
+
+QUALITY MARKERS FOR GOOD UNITS:
+✓ Clear, specific title (not generic)
+✓ Search queries that would find actual YouTube videos
+✓ Realistic duration estimates
+✓ Explicit prerequisite and enables relationships
+✓ Specific misconceptions to address
+`;
+```
+
+**Verification Checklist for Task 3.1**:
+- [ ] System prompt updated with UbD framework
+- [ ] User prompt includes backward design questions
+- [ ] No functional changes, only prompt text
+- [ ] Test with 5 sample LOs and compare quality
+- [ ] Document quality metrics for A/B comparison
+
+---
+
+### 8.3 Task 3.2: Enhanced Video Evaluation Prompt
+
+**File**: `supabase/functions/evaluate-content-batch/index.ts`
+
+**Current Prompt Issues**:
+- Scoring dimensions not weighted by Bloom's level
+- No consideration of Mayer's multimedia principles
+- No red flag detection (outdated info, incorrect info)
+
+**Enhanced Evaluation Criteria by Bloom's Level**:
+
+```typescript
+const ENHANCED_BLOOM_CRITERIA: Record<string, {
+  weights: { relevance: number; pedagogy: number; quality: number };
+  idealVideoTypes: string[];
+  redFlags: string[];
+}> = {
+  remember: {
+    weights: { relevance: 0.5, pedagogy: 0.3, quality: 0.2 },
+    idealVideoTypes: ['explainer', 'lecture', 'summary'],
+    redFlags: ['outdated terminology', 'factual errors', 'too complex for introduction']
+  },
+  understand: {
+    weights: { relevance: 0.4, pedagogy: 0.4, quality: 0.2 },
+    idealVideoTypes: ['explainer', 'animated', 'analogy-based'],
+    redFlags: ['no examples', 'abstract without concrete', 'jargon-heavy']
+  },
+  apply: {
+    weights: { relevance: 0.3, pedagogy: 0.5, quality: 0.2 },
+    idealVideoTypes: ['tutorial', 'worked-example', 'demonstration'],
+    redFlags: ['theory only', 'no hands-on', 'outdated tools/methods']
+  },
+  analyze: {
+    weights: { relevance: 0.4, pedagogy: 0.4, quality: 0.2 },
+    idealVideoTypes: ['case-study', 'comparison', 'deep-dive'],
+    redFlags: ['surface level', 'no breakdown', 'opinion without evidence']
+  },
+  evaluate: {
+    weights: { relevance: 0.4, pedagogy: 0.35, quality: 0.25 },
+    idealVideoTypes: ['debate', 'critique', 'pros-cons'],
+    redFlags: ['one-sided', 'no criteria stated', 'emotional without logic']
+  },
+  create: {
+    weights: { relevance: 0.35, pedagogy: 0.45, quality: 0.2 },
+    idealVideoTypes: ['project-walkthrough', 'design-process', 'synthesis'],
+    redFlags: ['no creative process shown', 'final result only', 'no iteration']
+  }
+};
+```
+
+**Enhanced System Prompt**:
+
+```typescript
+const ENHANCED_EVALUATION_SYSTEM_PROMPT = `You are an expert educational content evaluator with deep knowledge of:
+
+1. BLOOM'S TAXONOMY - You understand the cognitive demands at each level
+2. MAYER'S MULTIMEDIA PRINCIPLES - You recognize effective video teaching:
+   - Coherence: Exclude extraneous material
+   - Signaling: Highlight essential material
+   - Segmenting: Present in learner-paced segments
+   - Modality: Use narration with graphics, not text
+   - Personalization: Conversational style is more engaging
+
+3. RED FLAG DETECTION - You identify problematic content:
+   - Outdated information (especially in tech/science)
+   - Factual inaccuracies
+   - Missing prerequisites assumed without explanation
+   - Clickbait titles that don't deliver
+
+SCORING CALIBRATION:
+- 90-100: Exceptional - would use as primary resource
+- 80-89: Excellent - strong recommendation
+- 70-79: Good - solid choice with minor gaps
+- 60-69: Acceptable - usable but not ideal
+- 50-59: Marginal - only if nothing better available
+- Below 50: Not recommended - significant issues
+
+Be honest and critical. A 70 is a good score. Reserve 90+ for truly exceptional content.`;
+```
+
+---
+
+### 8.4 Task 3.3: A/B Testing Setup
+
+**Create Feature Flag for Prompt Versions**:
+
+```bash
+# Environment variable for prompt version
+PROMPT_VERSION=v1  # or v2 for enhanced prompts
+```
+
+**Logging for Quality Comparison**:
+
+```typescript
+// Log prompt version with each request for analysis
+console.log(`[curriculum-reasoning-agent] Using prompt version: ${promptVersion}`);
+console.log(`[curriculum-reasoning-agent] Generated ${units.length} teaching units for LO ${loId}`);
+
+// Track in ai_usage table
+await supabase.from('ai_usage').insert({
+  function_name: 'curriculum-reasoning-agent',
+  prompt_version: promptVersion,
+  input_tokens: inputTokens,
+  output_tokens: outputTokens,
+  lo_id: loId,
+  units_generated: units.length
+});
+```
+
+**Quality Metrics to Track**:
+1. Average teaching units per LO (should be 3-8)
+2. Search query specificity (average word count)
+3. Prerequisite chain depth
+4. User approval rate (if tracked)
 
 ---
 
 ## 9. PHASE 4: RESEARCH CACHING
 
-*[Detailed caching implementation]*
+### 9.1 Overview
+
+**Goal**: Cache research results from Google Search grounding to avoid redundant API calls for similar topics.
+
+**Current Problem**:
+- Each teaching unit triggers a research call (~$0.003)
+- Similar units (same topic, different angles) get duplicate searches
+- No reuse across courses for common topics
+
+**Solution**:
+- Cache research by topic hash
+- 7-day TTL for freshness
+- ~20-30% reduction in research calls
+
+### 9.2 Task 4.1: Create research_cache Table
+
+**File**: `supabase/migrations/YYYYMMDDHHMMSS_research_cache.sql`
+
+```sql
+-- Migration: Add research caching table
+-- Description: Cache Google Search grounding results for reuse
+-- TTL: 7 days (research needs to stay fresh)
+
+CREATE TABLE IF NOT EXISTS public.research_cache (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  -- Cache key: hash of normalized search topic
+  topic_hash TEXT NOT NULL UNIQUE,
+
+  -- Original search terms (for debugging)
+  search_terms TEXT NOT NULL,
+
+  -- Domain context affects search relevance
+  domain TEXT,
+
+  -- Cached research content (JSON with sources)
+  research_content JSONB NOT NULL,
+
+  -- Token counts for cost tracking
+  input_tokens INTEGER,
+  output_tokens INTEGER,
+
+  -- Timestamps
+  created_at TIMESTAMPTZ DEFAULT now(),
+  expires_at TIMESTAMPTZ NOT NULL,
+
+  -- How many times this cache entry was used
+  hit_count INTEGER DEFAULT 0
+);
+
+-- Index for fast cache lookups
+CREATE INDEX idx_research_cache_topic ON public.research_cache(topic_hash);
+
+-- Index for cache cleanup (expired entries)
+CREATE INDEX idx_research_cache_expiry ON public.research_cache(expires_at);
+
+-- Scheduled cleanup function
+CREATE OR REPLACE FUNCTION cleanup_expired_research_cache()
+RETURNS void AS $$
+BEGIN
+  DELETE FROM public.research_cache
+  WHERE expires_at < now();
+END;
+$$ LANGUAGE plpgsql;
+
+-- Comment for documentation
+COMMENT ON TABLE public.research_cache IS 'Caches Google Search grounding results. 7-day TTL. Reduces redundant API calls.';
+```
+
+---
+
+### 9.3 Task 4.2: Modify process-batch-research Function
+
+**File**: `supabase/functions/process-batch-research/index.ts`
+
+**Add cache check before research call**:
+
+```typescript
+// ============================================================================
+// RESEARCH CACHING LOGIC
+// ============================================================================
+
+const CACHE_TTL_DAYS = 7;
+const enableResearchCache = Deno.env.get('ENABLE_RESEARCH_CACHE') !== 'false';
+
+async function getCachedResearch(
+  supabase: SupabaseClient,
+  searchTerms: string,
+  domain: string | null
+): Promise<{ cached: boolean; content: any | null }> {
+  if (!enableResearchCache) {
+    return { cached: false, content: null };
+  }
+
+  // Normalize and hash the search terms
+  const normalized = searchTerms.toLowerCase().trim().replace(/\s+/g, ' ');
+  const topicHash = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(`${normalized}:${domain || 'general'}`)
+  ).then(buf =>
+    Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('')
+  );
+
+  // Check cache
+  const { data: cached, error } = await supabase
+    .from('research_cache')
+    .select('research_content')
+    .eq('topic_hash', topicHash)
+    .gt('expires_at', new Date().toISOString())
+    .single();
+
+  if (cached && !error) {
+    // Update hit count (async, don't await)
+    supabase
+      .from('research_cache')
+      .update({ hit_count: supabase.raw('hit_count + 1') })
+      .eq('topic_hash', topicHash);
+
+    console.log(`[CACHE HIT] Research for: ${searchTerms.substring(0, 50)}...`);
+    return { cached: true, content: cached.research_content };
+  }
+
+  return { cached: false, content: null };
+}
+
+async function cacheResearch(
+  supabase: SupabaseClient,
+  searchTerms: string,
+  domain: string | null,
+  content: any,
+  inputTokens: number,
+  outputTokens: number
+): Promise<void> {
+  if (!enableResearchCache) return;
+
+  const normalized = searchTerms.toLowerCase().trim().replace(/\s+/g, ' ');
+  const topicHash = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(`${normalized}:${domain || 'general'}`)
+  ).then(buf =>
+    Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('')
+  );
+
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + CACHE_TTL_DAYS);
+
+  await supabase
+    .from('research_cache')
+    .upsert({
+      topic_hash: topicHash,
+      search_terms: searchTerms,
+      domain,
+      research_content: content,
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+      expires_at: expiresAt.toISOString()
+    }, { onConflict: 'topic_hash' });
+
+  console.log(`[CACHE SET] Research for: ${searchTerms.substring(0, 50)}...`);
+}
+
+// ============================================================================
+// INTEGRATION POINT: In runResearchAgent function
+// ============================================================================
+
+async function runResearchAgent(briefData: any, domainConfig: any): Promise<any> {
+  const searchTerms = briefData.title + ' ' + (briefData.key_concepts || []).join(' ');
+  const domain = domainConfig?.detected_domain;
+
+  // Check cache first
+  const { cached, content } = await getCachedResearch(supabase, searchTerms, domain);
+  if (cached) {
+    return content;
+  }
+
+  // Cache miss - call research API
+  const researchResult = await callGoogleSearchGrounding(searchTerms, domainConfig);
+
+  // Cache the result (async, don't block)
+  cacheResearch(
+    supabase,
+    searchTerms,
+    domain,
+    researchResult,
+    researchResult.inputTokens,
+    researchResult.outputTokens
+  ).catch(err => console.warn('[CACHE] Failed to cache research:', err));
+
+  return researchResult;
+}
+```
+
+---
+
+### 9.4 Task 4.3: Cache Invalidation Logic
+
+**Invalidation Triggers**:
+1. Manual: Admin can clear cache for a domain
+2. TTL: Automatic 7-day expiry
+3. Domain config change: Clear domain-specific cache when config updates
+
+**Add to domain config update handler**:
+
+```typescript
+// When domain_config is updated, invalidate related cache
+async function onDomainConfigUpdate(courseId: string, newDomainConfig: any) {
+  const domain = newDomainConfig?.detected_domain;
+  if (domain) {
+    await supabase
+      .from('research_cache')
+      .delete()
+      .eq('domain', domain);
+
+    console.log(`[CACHE] Invalidated cache for domain: ${domain}`);
+  }
+}
+```
+
+---
+
+### 9.5 Task 4.4: Cache Performance Metrics
+
+**Dashboard Query**:
+
+```sql
+-- Cache hit rate (last 7 days)
+SELECT
+  COUNT(*) FILTER (WHERE hit_count > 0) as entries_with_hits,
+  SUM(hit_count) as total_hits,
+  COUNT(*) as total_entries,
+  ROUND(SUM(hit_count)::numeric / NULLIF(COUNT(*), 0), 2) as avg_hits_per_entry
+FROM research_cache
+WHERE created_at > now() - interval '7 days';
+
+-- Estimated cost savings
+SELECT
+  SUM(hit_count) * 0.003 as estimated_savings_usd
+FROM research_cache
+WHERE created_at > now() - interval '7 days';
+```
 
 ---
 
