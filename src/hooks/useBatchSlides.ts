@@ -94,7 +94,9 @@ export interface CourseSlideStatusResponse {
 // ============================================================================
 //
 // Submit all teaching units for a course to Vertex AI Batch Prediction API.
-// Replaces useBulkQueueSlides() which used the old queue system.
+// Uses TWO-FUNCTION PATTERN to avoid 150s edge function timeout:
+//   1. submit-batch-slides → Creates placeholders (fast)
+//   2. process-batch-research → Runs research + Vertex AI submission (slow)
 //
 // USAGE:
 //   const submitBatch = useSubmitBatchSlides();
@@ -115,30 +117,53 @@ export function useSubmitBatchSlides() {
     }) => {
       console.log(`[Batch] Submitting ${teachingUnitIds.length} units for batch generation`);
 
-      const { data, error } = await supabase.functions.invoke('submit-batch-slides', {
+      // STEP 1: Create placeholder records (fast)
+      const { data: submitData, error: submitError } = await supabase.functions.invoke('submit-batch-slides', {
         body: {
           instructor_course_id: instructorCourseId,
           teaching_unit_ids: teachingUnitIds,
         },
       });
 
-      if (error) {
-        console.error('[Batch] Submit error:', error);
-        throw error;
+      if (submitError) {
+        console.error('[Batch] Submit error:', submitError);
+        throw submitError;
       }
 
-      if (!data?.success) {
-        throw new Error(data?.error || 'Batch submission failed');
+      if (!submitData?.success) {
+        throw new Error(submitData?.error || 'Batch submission failed');
       }
 
-      return data as {
+      console.log(`[Batch] Placeholders created, batch_job_id: ${submitData.batch_job_id}`);
+
+      // STEP 2: Start research and Vertex AI submission (slow, runs in background)
+      // This call may take 2-5 minutes for large batches
+      if (submitData.batch_job_id && submitData.total > 0) {
+        console.log(`[Batch] Starting research for ${submitData.total} units...`);
+
+        // Fire and don't wait - let it run in background
+        // The poll-batch-status will track progress
+        supabase.functions.invoke('process-batch-research', {
+          body: { batch_job_id: submitData.batch_job_id },
+        }).then(({ data: researchData, error: researchError }) => {
+          if (researchError) {
+            console.error('[Batch] Research error:', researchError);
+          } else {
+            console.log('[Batch] Research started:', researchData);
+          }
+        }).catch((err) => {
+          console.error('[Batch] Research invocation failed:', err);
+        });
+      }
+
+      return submitData as {
         success: boolean;
         batch_job_id: string | null;
         total: number;
-        succeeded: number;
-        failed: number;
         skipped: number;
+        status: string;
         message: string;
+        next_step?: string;
       };
     },
 
@@ -148,10 +173,10 @@ export function useSubmitBatchSlides() {
       queryClient.invalidateQueries({ queryKey: ['course-slide-status', variables.instructorCourseId] });
       queryClient.invalidateQueries({ queryKey: ['lecture-queue-status', variables.instructorCourseId] });
 
-      // Show success toast with details
+      // Show progress toast - research is running in background
       toast({
-        title: '🎓 Slides Generated',
-        description: data.message,
+        title: '🔬 Research Started',
+        description: `Processing ${data.total} slides. This may take a few minutes.`,
       });
     },
 
