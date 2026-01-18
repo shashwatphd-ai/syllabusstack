@@ -342,6 +342,7 @@ serve(async (req) => {
       .from('batch_jobs')
       .insert({
         id: batchJobId,
+        google_batch_id: `pending-${batchJobId}`, // Placeholder, will be updated with Vertex AI job ID
         instructor_course_id,
         job_type: 'curriculum',
         total_requests: learningObjectives.length,
