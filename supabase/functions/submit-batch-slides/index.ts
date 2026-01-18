@@ -184,7 +184,9 @@ When a "RESEARCH GROUNDING" section is provided in the brief:
    - Mark such content with lower confidence and add "(illustrative)" to examples
    - Include a note in speaker_notes that this is based on general knowledge
 
-OUTPUT FORMAT: JSON with exact structure shown below.`;
+OUTPUT FORMAT: Return ONLY the raw JSON object with exact structure shown below.
+CRITICAL: Do NOT wrap your response in markdown code blocks (no triple backticks).
+Start your response directly with { and end with }.`;
 
 // ============================================================================
 // TYPES - Matching generate-lecture-slides-v3 exactly
@@ -527,7 +529,9 @@ OUTPUT (JSON array of slides):
 }
 
 CRITICAL: Every slide MUST have speaker_notes with 200-300 words. Never leave speaker_notes empty or short.
-Generate all ${targetSlides} slides now with RICH, EDUCATIONAL content and LAYOUT HINTS for every key_point.`;
+Generate all ${targetSlides} slides now with RICH, EDUCATIONAL content and LAYOUT HINTS for every key_point.
+
+IMPORTANT: Return ONLY raw JSON. Do NOT use markdown code blocks or triple backticks.`;
 }
 
 // ============================================================================

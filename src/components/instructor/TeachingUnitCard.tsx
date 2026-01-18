@@ -146,11 +146,19 @@ export const TeachingUnitCard = memo(function TeachingUnitCard({
               {/* Lecture status/button */}
               {onCreateLecture && (
                 <>
-                  {/* Pending/Queued status - handle all intermediate states */}
-                  {(['pending', 'queued', 'preparing', 'batch_pending'].includes(existingSlides?.status as string)) && (
+                  {/* Pending status - slide record exists but waiting to be processed */}
+                  {existingSlides?.status === 'pending' && (
                     <Badge variant="outline" className="text-xs py-0.5 border-blue-500 text-blue-600">
                       <Clock className="h-3 w-3 mr-1" />
-                      {(existingSlides?.status as string) === 'preparing' ? 'Preparing...' : 'Queued'}
+                      Queued
+                    </Badge>
+                  )}
+
+                  {/* Preparing/Batch pending status - batch is being set up or processing */}
+                  {(existingSlides?.status === 'preparing' || existingSlides?.status === 'batch_pending') && (
+                    <Badge variant="outline" className="text-xs py-0.5 border-amber-500 text-amber-600">
+                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                      {existingSlides?.status === 'preparing' ? 'Preparing...' : 'Batch Processing...'}
                     </Badge>
                   )}
 
