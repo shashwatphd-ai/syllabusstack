@@ -701,18 +701,22 @@ serve(async (req) => {
       gcsClient = createGCSClient(auth);
       batchClient = createVertexAIBatchClient(auth);
     } catch (error) {
-      console.error('[Research] Vertex AI config error:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[Research] Vertex AI config error:', errorMessage);
+
+      const truncatedError = `Vertex AI configuration error: ${errorMessage}`.substring(0, 500);
+
       await supabase
         .from('batch_jobs')
-        .update({ status: 'failed', error_message: 'Vertex AI not configured' })
+        .update({ status: 'failed', error_message: truncatedError })
         .eq('id', batch_job_id);
       await supabase
         .from('lecture_slides')
-        .update({ status: 'failed', error_message: 'Vertex AI not configured' })
+        .update({ status: 'failed', error_message: truncatedError })
         .eq('batch_job_id', batch_job_id);
 
       return new Response(
-        JSON.stringify({ success: false, error: 'Vertex AI not configured' }),
+        JSON.stringify({ success: false, error: truncatedError }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -736,18 +740,22 @@ serve(async (req) => {
       inputUri = await gcsClient.uploadJsonl(inputPath, jsonlLines);
       console.log(`[Research] Uploaded to: ${inputUri}`);
     } catch (uploadError) {
-      console.error('[Research] GCS upload failed:', uploadError);
+      const errorMessage = uploadError instanceof Error ? uploadError.message : String(uploadError);
+      console.error('[Research] GCS upload failed:', errorMessage);
+
+      const truncatedError = `Cloud Storage upload failed: ${errorMessage}`.substring(0, 500);
+
       await supabase
         .from('batch_jobs')
-        .update({ status: 'failed', error_message: 'Cloud Storage upload failed' })
+        .update({ status: 'failed', error_message: truncatedError })
         .eq('id', batch_job_id);
       await supabase
         .from('lecture_slides')
-        .update({ status: 'failed', error_message: 'Cloud Storage upload failed' })
+        .update({ status: 'failed', error_message: truncatedError })
         .eq('batch_job_id', batch_job_id);
 
       return new Response(
-        JSON.stringify({ success: false, error: 'Cloud Storage upload failed' }),
+        JSON.stringify({ success: false, error: truncatedError }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -770,22 +778,39 @@ serve(async (req) => {
         outputUriPrefix: outputPrefix,
       });
     } catch (createError) {
-      console.error('[Research] Vertex AI job creation failed:', createError);
+      // Extract the actual error message for debugging
+      const errorMessage = createError instanceof Error ? createError.message : String(createError);
+      console.error('[Research] Vertex AI job creation failed:', errorMessage);
+
+      // Log additional context for debugging
+      console.error('[Research] Job details:', {
+        displayName,
+        model: modelPath,
+        inputUri,
+        outputUriPrefix: outputPrefix,
+        projectId: auth.projectId,
+      });
+
       try {
         await gcsClient.deleteFile(inputPath);
       } catch {}
 
+      // Store the actual error message (truncated if too long)
+      const truncatedError = errorMessage.length > 500
+        ? errorMessage.substring(0, 500) + '...'
+        : errorMessage;
+
       await supabase
         .from('batch_jobs')
-        .update({ status: 'failed', error_message: 'Vertex AI job creation failed' })
+        .update({ status: 'failed', error_message: truncatedError })
         .eq('id', batch_job_id);
       await supabase
         .from('lecture_slides')
-        .update({ status: 'failed', error_message: 'Vertex AI job creation failed' })
+        .update({ status: 'failed', error_message: truncatedError })
         .eq('batch_job_id', batch_job_id);
 
       return new Response(
-        JSON.stringify({ success: false, error: 'Vertex AI job creation failed' }),
+        JSON.stringify({ success: false, error: truncatedError }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }

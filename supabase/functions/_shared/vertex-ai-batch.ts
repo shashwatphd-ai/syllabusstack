@@ -102,6 +102,22 @@ export interface BatchJobStatus {
 }
 
 /**
+ * Check if a model requires the global endpoint
+ * Gemini 3 preview models are only available via the global endpoint
+ * @param modelPath Model path (e.g., "publishers/google/models/gemini-3-pro-preview")
+ * @returns true if the model requires the global endpoint
+ */
+function requiresGlobalEndpoint(modelPath: string): boolean {
+  // Extract model ID from path
+  const modelId = modelPath.includes('/')
+    ? modelPath.split('/').pop() || ''
+    : modelPath;
+
+  // Gemini 3 preview models require global endpoint
+  return modelId.includes('gemini-3') && modelId.includes('preview');
+}
+
+/**
  * Vertex AI Batch Prediction client
  */
 export class VertexAIBatchClient {
@@ -119,10 +135,30 @@ export class VertexAIBatchClient {
   }
 
   /**
-   * Get the base URL for Vertex AI API
+   * Get the base URL for Vertex AI API (regional endpoint)
    */
   private get baseUrl(): string {
     return `https://${this.region}-aiplatform.googleapis.com/v1/projects/${this.auth.projectId}/locations/${this.region}`;
+  }
+
+  /**
+   * Get the base URL for Vertex AI API using the global endpoint
+   * Required for Gemini 3 preview models
+   */
+  private get globalBaseUrl(): string {
+    return `https://aiplatform.googleapis.com/v1/projects/${this.auth.projectId}/locations/global`;
+  }
+
+  /**
+   * Get the appropriate base URL for a given model
+   * Uses global endpoint for Gemini 3 preview models, regional for others
+   */
+  private getBaseUrlForModel(modelPath: string): string {
+    if (requiresGlobalEndpoint(modelPath)) {
+      console.log(`[VertexAI Batch] Using global endpoint for model: ${modelPath}`);
+      return this.globalBaseUrl;
+    }
+    return this.baseUrl;
   }
 
   /**
@@ -151,12 +187,16 @@ export class VertexAIBatchClient {
       },
     };
 
+    // Determine the appropriate endpoint (global for Gemini 3 preview models)
+    const endpointBaseUrl = this.getBaseUrlForModel(config.model);
+
     console.log(`[VertexAI Batch] Creating job: ${config.displayName}`);
     console.log(`[VertexAI Batch] Model: ${config.model}`);
     console.log(`[VertexAI Batch] Input: ${config.inputUri}`);
     console.log(`[VertexAI Batch] Output: ${config.outputUriPrefix}`);
+    console.log(`[VertexAI Batch] Endpoint: ${endpointBaseUrl}/batchPredictionJobs`);
 
-    const response = await fetch(`${this.baseUrl}/batchPredictionJobs`, {
+    const response = await fetch(`${endpointBaseUrl}/batchPredictionJobs`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -190,12 +230,23 @@ export class VertexAIBatchClient {
     // Handle both formats: full name or just job ID
     let url: string;
     if (jobName.startsWith('projects/')) {
-      // Full resource name
-      url = `https://${this.region}-aiplatform.googleapis.com/v1/${jobName}`;
+      // Full resource name - determine if it's a global or regional endpoint
+      // Job name format: projects/{project}/locations/{location}/batchPredictionJobs/{job_id}
+      if (jobName.includes('/locations/global/')) {
+        // Global endpoint job
+        url = `https://aiplatform.googleapis.com/v1/${jobName}`;
+      } else {
+        // Regional endpoint job - extract region from job name or use configured region
+        const locationMatch = jobName.match(/locations\/([^/]+)/);
+        const jobRegion = locationMatch ? locationMatch[1] : this.region;
+        url = `https://${jobRegion}-aiplatform.googleapis.com/v1/${jobName}`;
+      }
     } else {
-      // Just the job ID
+      // Just the job ID - use configured region
       url = `${this.baseUrl}/batchPredictionJobs/${jobName}`;
     }
+
+    console.log(`[VertexAI Batch] Getting job status from: ${url}`);
 
     const response = await fetch(url, {
       headers: {
@@ -225,7 +276,14 @@ export class VertexAIBatchClient {
 
     let url: string;
     if (jobName.startsWith('projects/')) {
-      url = `https://${this.region}-aiplatform.googleapis.com/v1/${jobName}:cancel`;
+      // Full resource name - determine if it's a global or regional endpoint
+      if (jobName.includes('/locations/global/')) {
+        url = `https://aiplatform.googleapis.com/v1/${jobName}:cancel`;
+      } else {
+        const locationMatch = jobName.match(/locations\/([^/]+)/);
+        const jobRegion = locationMatch ? locationMatch[1] : this.region;
+        url = `https://${jobRegion}-aiplatform.googleapis.com/v1/${jobName}:cancel`;
+      }
     } else {
       url = `${this.baseUrl}/batchPredictionJobs/${jobName}:cancel`;
     }
