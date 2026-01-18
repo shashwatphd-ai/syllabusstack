@@ -5,6 +5,9 @@ import { createVertexAIAuth } from '../_shared/vertex-ai-auth.ts';
 import { createGCSClient } from '../_shared/gcs-client.ts';
 import { createVertexAIBatchClient } from '../_shared/vertex-ai-batch.ts';
 
+// Declare EdgeRuntime for Deno edge functions (background tasks)
+declare const EdgeRuntime: { waitUntil: (promise: Promise<void>) => void };
+
 // ============================================================================
 // SUBMIT BATCH SLIDES - Vertex AI Batch Prediction Integration
 // ============================================================================
@@ -930,360 +933,39 @@ serve(async (req) => {
     console.log(`[Batch] Processing ${unitsToProcess.length} units (skipping ${units.length - unitsToProcess.length} existing)`);
 
     // ========================================================================
-    // 4. FETCH SIBLING UNITS FOR SEQUENCE CONTEXT
+    // 4. CREATE PLACEHOLDER RECORDS AND RETURN IMMEDIATELY
     // ========================================================================
     //
-    // For v3 parity, we need to know the position of each unit within its
-    // learning objective sequence. This enables proper transitions and
-    // context in the slides.
+    // CRITICAL: Edge functions have a 150s timeout. Research for 78+ units
+    // takes longer. We create placeholder records and return immediately,
+    // then continue processing in the background using EdgeRuntime.waitUntil().
     //
 
-    // Group units by learning_objective_id
-    const loIds = [...new Set(unitsToProcess.map(u => u.learning_objective_id))];
-
-    // Fetch all sibling units for these learning objectives
-    const { data: allSiblings } = await supabase
-      .from('teaching_units')
-      .select('id, title, what_to_teach, sequence_order, learning_objective_id')
-      .in('learning_objective_id', loIds)
-      .order('sequence_order', { ascending: true });
-
-    // Group siblings by learning_objective_id
-    const siblingsByLO: Record<string, typeof allSiblings> = {};
-    for (const sibling of allSiblings || []) {
-      const loId = sibling.learning_objective_id;
-      if (!siblingsByLO[loId]) siblingsByLO[loId] = [];
-      siblingsByLO[loId].push(sibling);
-    }
-
-    // ========================================================================
-    // 5. RUN RESEARCH AGENT WITH CONCURRENCY CONTROL (v3 parity)
-    // ========================================================================
-    //
-    // CRITICAL: Research grounding is essential for quality parity with v3.
-    // We process research in batches of CONCURRENCY_LIMIT to avoid timeouts.
-    // This adds latency but ensures grounded, citation-backed content.
-    //
-
-    const CONCURRENCY_LIMIT = 12; // Process 12 units at a time to stay under timeout
-    console.log(`[Batch] Running research agent for ${unitsToProcess.length} units (${CONCURRENCY_LIMIT} concurrent)...`);
-
-    // Helper to chunk array
-    function chunkArray<T>(arr: T[], size: number): T[][] {
-      const chunks: T[][] = [];
-      for (let i = 0; i < arr.length; i += size) {
-        chunks.push(arr.slice(i, i + size));
-      }
-      return chunks;
-    }
-
-    // Prepare all unit data first
-    const unitDataList = unitsToProcess.map((unit) => {
-      const lo = unit.learning_objectives as any;
-      const siblings = siblingsByLO[unit.learning_objective_id] || [];
-      const sequencePosition = siblings.findIndex(s => s.id === unit.id) + 1;
-
-      const partialUnitData: TeachingUnitData = {
-        id: unit.id,
-        title: unit.title,
-        what_to_teach: unit.what_to_teach || '',
-        why_this_matters: unit.why_this_matters || '',
-        how_to_teach: unit.how_to_teach || '',
-        target_duration_minutes: unit.target_duration_minutes || 8,
-        target_video_type: unit.target_video_type || 'lecture',
-        prerequisites: unit.prerequisites || [],
-        enables: unit.enables || [],
-        common_misconceptions: unit.common_misconceptions || [],
-        required_concepts: unit.required_concepts || [],
-        avoid_terms: unit.avoid_terms || [],
-        search_queries: unit.search_queries || [],
-        domain: course.detected_domain || 'general',
-        syllabus_text: course.syllabus_text || undefined,
-        learning_objective: {
-          id: lo?.id || '',
-          text: lo?.text || '',
-          bloom_level: lo?.bloom_level || 'understand',
-          core_concept: lo?.core_concept || '',
-          action_verb: lo?.action_verb || '',
-        },
-        course: {
-          id: course.id,
-          title: course.title,
-          code: course.code || '',
-          detected_domain: course.detected_domain || 'general',
-        },
-        module: {
-          title: lo?.modules?.title || 'Module',
-          description: lo?.modules?.description || '',
-          sequence_order: lo?.modules?.sequence_order || 0,
-        },
-        sibling_units: siblings.map(s => ({
-          id: s.id,
-          title: s.title,
-          what_to_teach: s.what_to_teach || '',
-          sequence_order: s.sequence_order,
-        })),
-        sequence_position: sequencePosition,
-        total_siblings: siblings.length,
-      };
-
-      return { unitId: unit.id, unitData: partialUnitData };
-    });
-
-    // Process in chunks to avoid timeout
-    const chunks = chunkArray(unitDataList, CONCURRENCY_LIMIT);
-    const researchResults: { unitId: string; unitData: TeachingUnitData; research: ResearchContext }[] = [];
-
-    for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
-      const chunk = chunks[chunkIndex];
-      console.log(`[Batch] Processing research chunk ${chunkIndex + 1}/${chunks.length} (${chunk.length} units)...`);
-
-      const chunkPromises = chunk.map(async ({ unitId, unitData }) => {
-        const research = await runResearchAgent(unitData, domainConfig, googleApiKey);
-        return { unitId, unitData, research };
-      });
-
-      const chunkResults = await Promise.all(chunkPromises);
-      researchResults.push(...chunkResults);
-    }
-
-    console.log(`[Batch] Research complete for ${researchResults.length} units`);
-
-    // Create a map of research results by unit ID
-    const researchByUnit = new Map(
-      researchResults.map(r => [r.unitId, { unitData: r.unitData, research: r.research }])
-    );
-
-    // ========================================================================
-    // 6. BUILD BATCH REQUESTS WITH RESEARCH-GROUNDED PROMPTS
-    // ========================================================================
-    //
-    // Now build the actual batch requests using the enriched data with research.
-    //
-
-    const batchRequests: BatchRequest[] = [];
-    const requestMapping: Record<string, string> = {}; // key -> teaching_unit_id
-
-    for (let i = 0; i < unitsToProcess.length; i++) {
-      const unit = unitsToProcess[i];
-      const researchData = researchByUnit.get(unit.id);
-
-      if (!researchData) {
-        console.warn(`[Batch] No research data for unit ${unit.id}, skipping`);
-        continue;
-      }
-
-      // Enrich unit data with research context
-      const enrichedUnitData: TeachingUnitData = {
-        ...researchData.unitData,
-        research_context: researchData.research,
-      };
-
-      // Build prompt with research grounding
-      const userPrompt = buildPromptForUnit(enrichedUnitData);
-
-      // Map by key (responses come back with metadata.key for correlation)
-      const requestKey = `slide_${batchRequests.length}`;
-      requestMapping[requestKey] = unit.id;
-
-      // Add to batch request
-      batchRequests.push({
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: userPrompt }],
-          },
-        ],
-        systemInstruction: {
-          parts: [{ text: PROFESSOR_SYSTEM_PROMPT }],
-        },
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 8192,
-        },
-      });
-    }
-
-    console.log(`[Batch] Built ${batchRequests.length} batch requests with research grounding`);
-
-    // ========================================================================
-    // 5. UPLOAD REQUESTS TO CLOUD STORAGE
-    // ========================================================================
-    //
-    // Vertex AI batch prediction requires input in Cloud Storage.
-    // We upload a JSONL file where each line is a GenerateContentRequest.
-    //
-    // JSONL Format (one request per line):
-    //   {"request":{"contents":[...],"systemInstruction":{...},"generationConfig":{...}}}
-    //
-    // Cloud Storage Path: gs://{bucket}/inputs/{batchId}/requests.jsonl
-    //
-
-    // Initialize Vertex AI clients
-    let auth, gcsClient, batchClient;
-    try {
-      auth = createVertexAIAuth();
-      gcsClient = createGCSClient(auth);
-      batchClient = createVertexAIBatchClient(auth);
-    } catch (error) {
-      console.error('[Batch] Failed to initialize Vertex AI clients:', error);
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: `Vertex AI configuration error: ${error instanceof Error ? error.message : 'Unknown error'}. Please ensure GCP_SERVICE_ACCOUNT_KEY and GCS_BUCKET are configured.`,
-        }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // Generate unique batch ID for this submission
-    const batchId = crypto.randomUUID();
-    const inputPath = `inputs/${batchId}/requests.jsonl`;
-    const outputPrefix = `gs://${gcsClient.bucketName}/outputs/${batchId}/`;
-
-    // Build JSONL content - one request per line
-    // Vertex AI expects: {"request": {contents, systemInstruction, generationConfig}}
-    const jsonlLines = batchRequests.map((req) => ({
-      request: {
-        contents: req.contents,
-        systemInstruction: req.systemInstruction,
-        generationConfig: req.generationConfig,
-      },
-    }));
-
-    console.log(`[Batch] Uploading ${jsonlLines.length} requests to Cloud Storage...`);
-
-    let inputUri: string;
-    try {
-      inputUri = await gcsClient.uploadJsonl(inputPath, jsonlLines);
-      console.log(`[Batch] Uploaded to: ${inputUri}`);
-    } catch (uploadError) {
-      console.error('[Batch] Failed to upload to Cloud Storage:', uploadError);
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: `Cloud Storage upload failed: ${uploadError instanceof Error ? uploadError.message : 'Unknown error'}`,
-        }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // ========================================================================
-    // 6. CREATE VERTEX AI BATCH PREDICTION JOB
-    // ========================================================================
-    //
-    // Submit the batch to Vertex AI batchPredictionJobs endpoint.
-    // This provides the 50% cost discount for batch processing.
-    //
-    // Endpoint: POST /v1/projects/{project}/locations/{region}/batchPredictionJobs
-    // Auth: OAuth 2.0 access token (from service account)
-    //
-    // Request format:
-    //   {
-    //     "displayName": "...",
-    //     "model": "publishers/google/models/gemini-3-pro-preview",
-    //     "inputConfig": { "instancesFormat": "jsonl", "gcsSource": { "uris": [...] } },
-    //     "outputConfig": { "predictionsFormat": "jsonl", "gcsDestination": { "outputUriPrefix": "..." } }
-    //   }
-    //
-    // - Returns immediately with a job resource name
-    // - Processes asynchronously (usually <1 hour for ~100 requests)
-    // - Poll via poll-batch-status for completion
-    //
-    // API Documentation: https://cloud.google.com/vertex-ai/docs/reference/rest/v1/projects.locations.batchPredictionJobs
-    //
-
-    const displayName = `slides-${instructor_course_id}-${Date.now()}`;
-    const modelPath = getVertexAIModelPath(BATCH_MODEL);
-
-    console.log(`[Batch] Creating Vertex AI batch job: ${displayName}`);
-    console.log(`[Batch] Model: ${modelPath}`);
-    console.log(`[Batch] Input: ${inputUri}`);
-    console.log(`[Batch] Output: ${outputPrefix}`);
-
-    let vertexJob;
-    try {
-      vertexJob = await batchClient.createBatchJob({
-        displayName,
-        model: modelPath,
-        inputUri,
-        outputUriPrefix: outputPrefix,
-      });
-    } catch (createError) {
-      console.error('[Batch] Failed to create Vertex AI job:', createError);
-
-      // Try to clean up the uploaded file
-      try {
-        await gcsClient.deleteFile(inputPath);
-      } catch (cleanupError) {
-        console.warn('[Batch] Failed to clean up uploaded file:', cleanupError);
-      }
-
-      // Map common errors to user-friendly messages
-      const errorMessage = createError instanceof Error ? createError.message : 'Unknown error';
-      if (errorMessage.includes('429') || errorMessage.includes('RESOURCE_EXHAUSTED')) {
-        return new Response(
-          JSON.stringify({ success: false, error: 'Rate limit exceeded. Please try again later.' }),
-          { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-      if (errorMessage.includes('403') || errorMessage.includes('PERMISSION_DENIED')) {
-        return new Response(
-          JSON.stringify({ success: false, error: 'Permission denied. Check service account permissions for Vertex AI and Cloud Storage.' }),
-          { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-
-      return new Response(
-        JSON.stringify({ success: false, error: `Vertex AI batch job creation failed: ${errorMessage}` }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // Vertex AI returns full resource name: projects/.../locations/.../batchPredictionJobs/123
-    const googleBatchId = vertexJob.name;
-    const batchState = vertexJob.state || 'JOB_STATE_PENDING';
-
-    console.log(`[Batch] Vertex AI job created: ${googleBatchId}`);
-    console.log(`[Batch] Initial state: ${batchState}`);
-
-    // ========================================================================
-    // 7. STORE BATCH JOB IN DATABASE FOR POLLING
-    // ========================================================================
-
-    const { data: batchJob, error: batchJobError } = await supabase
+    // Create a preliminary batch job record to track background work
+    const preliminaryBatchJobId = crypto.randomUUID();
+    
+    const { error: prelimJobError } = await supabase
       .from('batch_jobs')
       .insert({
-        google_batch_id: googleBatchId,
+        id: preliminaryBatchJobId,
+        google_batch_id: `pending-${preliminaryBatchJobId}`, // Will be updated when Vertex job is created
         instructor_course_id,
         job_type: 'slides',
-        total_requests: batchRequests.length,
-        status: 'pending', // Will be updated by poll-batch-status
-        request_mapping: requestMapping,
+        total_requests: unitsToProcess.length,
+        status: 'preparing', // New status for research phase
+        request_mapping: {},
         created_by: userId,
-      })
-      .select('id')
-      .single();
+      });
 
-    if (batchJobError) {
-      console.error('[Batch] Error creating batch job record:', batchJobError);
+    if (prelimJobError) {
+      console.error('[Batch] Error creating preliminary batch job:', prelimJobError);
       return new Response(
         JSON.stringify({ success: false, error: 'Failed to create batch job record' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    const batchJobId = batchJob.id;
-    console.log(`[Batch] Created batch job record: ${batchJobId}`);
-
-    // ========================================================================
-    // 8. CREATE PENDING LECTURE_SLIDES RECORDS
-    // ========================================================================
-    //
-    // Create records with status='batch_pending' so the UI can show progress.
-    // poll-batch-status will update these when results are ready.
-    //
-
+    // Create pending slide records for UI progress tracking
     const pendingSlides = unitsToProcess.map((unit) => ({
       teaching_unit_id: unit.id,
       learning_objective_id: unit.learning_objective_id,
@@ -1291,8 +973,8 @@ serve(async (req) => {
       title: unit.title,
       slides: [],
       total_slides: 0,
-      status: 'batch_pending',
-      batch_job_id: batchJobId,
+      status: 'preparing', // Will change to batch_pending when submitted
+      batch_job_id: preliminaryBatchJobId,
       created_by: userId,
     }));
 
@@ -1302,24 +984,312 @@ serve(async (req) => {
 
     if (slidesError) {
       console.warn('[Batch] Error creating pending slide records:', slidesError);
-      // Don't fail - the batch job is already submitted
     }
 
-    console.log(`[Batch] Created ${pendingSlides.length} pending slide records`);
+    console.log(`[Batch] Created ${pendingSlides.length} preparing slide records, returning immediately`);
 
     // ========================================================================
-    // 9. RETURN SUCCESS
+    // 5. BACKGROUND PROCESSING WITH EdgeRuntime.waitUntil()
     // ========================================================================
+    //
+    // Use Deno's EdgeRuntime.waitUntil() to continue processing after response.
+    // This allows the function to return immediately while research continues.
+    //
+
+    // Start background processing
+    const backgroundTask = async () => {
+      try {
+        console.log(`[Background] Starting research for ${unitsToProcess.length} units...`);
+
+        // ========================================================================
+        // FETCH SIBLING UNITS FOR SEQUENCE CONTEXT
+        // ========================================================================
+        const loIds = [...new Set(unitsToProcess.map(u => u.learning_objective_id))];
+
+        const { data: allSiblings } = await supabase
+          .from('teaching_units')
+          .select('id, title, what_to_teach, sequence_order, learning_objective_id')
+          .in('learning_objective_id', loIds)
+          .order('sequence_order', { ascending: true });
+
+        const siblingsByLO: Record<string, typeof allSiblings> = {};
+        for (const sibling of allSiblings || []) {
+          const loId = sibling.learning_objective_id;
+          if (!siblingsByLO[loId]) siblingsByLO[loId] = [];
+          siblingsByLO[loId].push(sibling);
+        }
+
+        // ========================================================================
+        // RUN RESEARCH AGENT WITH CONCURRENCY CONTROL
+        // ========================================================================
+        const CONCURRENCY_LIMIT = 12;
+        console.log(`[Background] Running research agent (${CONCURRENCY_LIMIT} concurrent)...`);
+
+        function chunkArray<T>(arr: T[], size: number): T[][] {
+          const chunks: T[][] = [];
+          for (let i = 0; i < arr.length; i += size) {
+            chunks.push(arr.slice(i, i + size));
+          }
+          return chunks;
+        }
+
+        // Prepare all unit data
+        const unitDataList = unitsToProcess.map((unit) => {
+          const lo = unit.learning_objectives as any;
+          const siblings = siblingsByLO[unit.learning_objective_id] || [];
+          const sequencePosition = siblings.findIndex(s => s.id === unit.id) + 1;
+
+          const partialUnitData: TeachingUnitData = {
+            id: unit.id,
+            title: unit.title,
+            what_to_teach: unit.what_to_teach || '',
+            why_this_matters: unit.why_this_matters || '',
+            how_to_teach: unit.how_to_teach || '',
+            target_duration_minutes: unit.target_duration_minutes || 8,
+            target_video_type: unit.target_video_type || 'lecture',
+            prerequisites: unit.prerequisites || [],
+            enables: unit.enables || [],
+            common_misconceptions: unit.common_misconceptions || [],
+            required_concepts: unit.required_concepts || [],
+            avoid_terms: unit.avoid_terms || [],
+            search_queries: unit.search_queries || [],
+            domain: course.detected_domain || 'general',
+            syllabus_text: course.syllabus_text || undefined,
+            learning_objective: {
+              id: lo?.id || '',
+              text: lo?.text || '',
+              bloom_level: lo?.bloom_level || 'understand',
+              core_concept: lo?.core_concept || '',
+              action_verb: lo?.action_verb || '',
+            },
+            course: {
+              id: course.id,
+              title: course.title,
+              code: course.code || '',
+              detected_domain: course.detected_domain || 'general',
+            },
+            module: {
+              title: lo?.modules?.title || 'Module',
+              description: lo?.modules?.description || '',
+              sequence_order: lo?.modules?.sequence_order || 0,
+            },
+            sibling_units: siblings.map(s => ({
+              id: s.id,
+              title: s.title,
+              what_to_teach: s.what_to_teach || '',
+              sequence_order: s.sequence_order,
+            })),
+            sequence_position: sequencePosition,
+            total_siblings: siblings.length,
+          };
+
+          return { unitId: unit.id, unitData: partialUnitData };
+        });
+
+        // Process research in chunks
+        const chunks = chunkArray(unitDataList, CONCURRENCY_LIMIT);
+        const researchResults: { unitId: string; unitData: TeachingUnitData; research: ResearchContext }[] = [];
+
+        for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+          const chunk = chunks[chunkIndex];
+          console.log(`[Background] Processing research chunk ${chunkIndex + 1}/${chunks.length} (${chunk.length} units)...`);
+
+          const chunkPromises = chunk.map(async ({ unitId, unitData }) => {
+            const research = await runResearchAgent(unitData, domainConfig, googleApiKey);
+            return { unitId, unitData, research };
+          });
+
+          const chunkResults = await Promise.all(chunkPromises);
+          researchResults.push(...chunkResults);
+        }
+
+        console.log(`[Background] Research complete for ${researchResults.length} units`);
+
+        // Create research map
+        const researchByUnit = new Map(
+          researchResults.map(r => [r.unitId, { unitData: r.unitData, research: r.research }])
+        );
+
+        // ========================================================================
+        // BUILD BATCH REQUESTS WITH RESEARCH-GROUNDED PROMPTS
+        // ========================================================================
+        const batchRequests: BatchRequest[] = [];
+        const requestMapping: Record<string, string> = {};
+
+        for (let i = 0; i < unitsToProcess.length; i++) {
+          const unit = unitsToProcess[i];
+          const researchData = researchByUnit.get(unit.id);
+
+          if (!researchData) {
+            console.warn(`[Background] No research data for unit ${unit.id}, skipping`);
+            continue;
+          }
+
+          const enrichedUnitData: TeachingUnitData = {
+            ...researchData.unitData,
+            research_context: researchData.research,
+          };
+
+          const userPrompt = buildPromptForUnit(enrichedUnitData);
+          const requestKey = `slide_${batchRequests.length}`;
+          requestMapping[requestKey] = unit.id;
+
+          batchRequests.push({
+            contents: [
+              {
+                role: 'user',
+                parts: [{ text: userPrompt }],
+              },
+            ],
+            systemInstruction: {
+              parts: [{ text: PROFESSOR_SYSTEM_PROMPT }],
+            },
+            generationConfig: {
+              temperature: 0.7,
+              maxOutputTokens: 8192,
+            },
+          });
+        }
+
+        console.log(`[Background] Built ${batchRequests.length} batch requests with research grounding`);
+
+        // ========================================================================
+        // UPLOAD REQUESTS TO CLOUD STORAGE
+        // ========================================================================
+        let auth, gcsClient, batchClient;
+        try {
+          auth = createVertexAIAuth();
+          gcsClient = createGCSClient(auth);
+          batchClient = createVertexAIBatchClient(auth);
+        } catch (error) {
+          console.error('[Background] Failed to initialize Vertex AI clients:', error);
+          // Mark slides as failed
+          await supabase
+            .from('lecture_slides')
+            .update({ status: 'failed', error_message: 'Vertex AI configuration error' })
+            .eq('batch_job_id', preliminaryBatchJobId);
+          await supabase
+            .from('batch_jobs')
+            .update({ status: 'failed', error_message: 'Vertex AI configuration error' })
+            .eq('id', preliminaryBatchJobId);
+          return;
+        }
+
+        const batchId = crypto.randomUUID();
+        const inputPath = `inputs/${batchId}/requests.jsonl`;
+        const outputPrefix = `gs://${gcsClient.bucketName}/outputs/${batchId}/`;
+
+        const jsonlLines = batchRequests.map((req) => ({
+          request: {
+            contents: req.contents,
+            systemInstruction: req.systemInstruction,
+            generationConfig: req.generationConfig,
+          },
+        }));
+
+        console.log(`[Background] Uploading ${jsonlLines.length} requests to Cloud Storage...`);
+
+        let inputUri: string;
+        try {
+          inputUri = await gcsClient.uploadJsonl(inputPath, jsonlLines);
+          console.log(`[Background] Uploaded to: ${inputUri}`);
+        } catch (uploadError) {
+          console.error('[Background] Failed to upload to Cloud Storage:', uploadError);
+          await supabase
+            .from('lecture_slides')
+            .update({ status: 'failed', error_message: 'Cloud Storage upload failed' })
+            .eq('batch_job_id', preliminaryBatchJobId);
+          await supabase
+            .from('batch_jobs')
+            .update({ status: 'failed', error_message: 'Cloud Storage upload failed' })
+            .eq('id', preliminaryBatchJobId);
+          return;
+        }
+
+        // ========================================================================
+        // CREATE VERTEX AI BATCH PREDICTION JOB
+        // ========================================================================
+        const displayName = `slides-${instructor_course_id}-${Date.now()}`;
+        const modelPath = getVertexAIModelPath(BATCH_MODEL);
+
+        console.log(`[Background] Creating Vertex AI batch job: ${displayName}`);
+
+        let vertexJob;
+        try {
+          vertexJob = await batchClient.createBatchJob({
+            displayName,
+            model: modelPath,
+            inputUri,
+            outputUriPrefix: outputPrefix,
+          });
+        } catch (createError) {
+          console.error('[Background] Failed to create Vertex AI job:', createError);
+          try {
+            await gcsClient.deleteFile(inputPath);
+          } catch (cleanupError) {
+            console.warn('[Background] Failed to clean up uploaded file:', cleanupError);
+          }
+          await supabase
+            .from('lecture_slides')
+            .update({ status: 'failed', error_message: 'Vertex AI batch job creation failed' })
+            .eq('batch_job_id', preliminaryBatchJobId);
+          await supabase
+            .from('batch_jobs')
+            .update({ status: 'failed', error_message: 'Vertex AI batch job creation failed' })
+            .eq('id', preliminaryBatchJobId);
+          return;
+        }
+
+        const googleBatchId = vertexJob.name;
+        console.log(`[Background] Vertex AI job created: ${googleBatchId}`);
+
+        // ========================================================================
+        // UPDATE BATCH JOB RECORD WITH REAL VERTEX JOB INFO
+        // ========================================================================
+        await supabase
+          .from('batch_jobs')
+          .update({
+            google_batch_id: googleBatchId,
+            status: 'pending',
+            request_mapping: requestMapping,
+            output_uri: outputPrefix,
+          })
+          .eq('id', preliminaryBatchJobId);
+
+        // Update slide records to batch_pending
+        await supabase
+          .from('lecture_slides')
+          .update({ status: 'batch_pending' })
+          .eq('batch_job_id', preliminaryBatchJobId);
+
+        console.log(`[Background] Batch job ${preliminaryBatchJobId} submitted successfully with ${batchRequests.length} slides`);
+
+      } catch (error) {
+        console.error('[Background] Fatal error in background task:', error);
+        // Mark everything as failed
+        await supabase
+          .from('lecture_slides')
+          .update({ status: 'failed', error_message: error instanceof Error ? error.message : 'Unknown error' })
+          .eq('batch_job_id', preliminaryBatchJobId);
+        await supabase
+          .from('batch_jobs')
+          .update({ status: 'failed', error_message: error instanceof Error ? error.message : 'Unknown error' })
+          .eq('id', preliminaryBatchJobId);
+      }
+    };
+
+    // Start background task and return immediately
+    EdgeRuntime.waitUntil(backgroundTask());
 
     return new Response(
       JSON.stringify({
         success: true,
-        batch_job_id: batchJobId,
-        google_batch_id: googleBatchId,
-        total: batchRequests.length,
+        batch_job_id: preliminaryBatchJobId,
+        google_batch_id: null, // Will be populated by background task
+        total: unitsToProcess.length,
         skipped: units.length - unitsToProcess.length,
-        status: 'pending',
-        message: `Submitted ${batchRequests.length} slides for batch processing. Use poll-batch-status to check completion.`,
+        status: 'preparing',
+        message: `Started batch processing for ${unitsToProcess.length} slides. Research is running in background.`,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
