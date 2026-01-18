@@ -416,13 +416,45 @@ async function processCompletedBatch(
         continue;
       }
 
-      // Parse JSON from response (handle markdown code blocks)
+      // Parse JSON from response (robust markdown stripping)
       let slides;
       try {
-        const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
-        const jsonStr = jsonMatch ? jsonMatch[1].trim() : content.trim();
+        let jsonStr = content.trim();
+        
+        // Pattern 1: Standard markdown code blocks with 's' flag for multiline
+        const codeBlockMatch = content.match(/```(?:json|JSON)?\s*\n?([\s\S]*?)\n?```/s);
+        if (codeBlockMatch && codeBlockMatch[1]) {
+          jsonStr = codeBlockMatch[1].trim();
+        } else {
+          // Pattern 2: Remove leading/trailing backticks more aggressively
+          jsonStr = jsonStr.replace(/^```(?:json|JSON)?\s*\n?/, '');
+          jsonStr = jsonStr.replace(/\n?```\s*$/, '');
+        }
+        
+        // Pattern 3: Final cleanup of any stray backticks
+        jsonStr = jsonStr.replace(/^`+/, '').replace(/`+$/, '');
+        
         const parsed = JSON.parse(jsonStr);
         slides = parsed.slides || parsed;
+        
+        // Validate slides have actual content (not just empty structure)
+        const hasContent = Array.isArray(slides) && slides.some((slide: any) => 
+          (slide.content?.main_text?.length > 10) || 
+          (Array.isArray(slide.content?.key_points) && slide.content.key_points.length > 0)
+        );
+
+        if (!hasContent) {
+          console.error(`[Poll] Slides parsed but content is empty for index ${i}`);
+          failedCount++;
+          await supabase
+            .from('lecture_slides')
+            .update({
+              status: 'failed',
+              error_message: 'AI returned empty or incomplete content',
+            })
+            .eq('teaching_unit_id', teachingUnitId);
+          continue;
+        }
       } catch (parseError) {
         console.error(`[Poll] JSON parse error for index ${i}:`, parseError);
         failedCount++;
@@ -478,6 +510,7 @@ async function processCompletedBatch(
           slides: formattedSlides,
           total_slides: formattedSlides.length,
           status: 'ready', // Will change to 'images_pending' when image queue is added
+          error_message: null, // Clear any previous error from failed attempts
           generation_model: MODEL_CONFIG.GEMINI_PRO, // v3 parity: batch now uses PRO
           estimated_duration_minutes: Math.round(formattedSlides.length * 1.5),
           generation_phases: {

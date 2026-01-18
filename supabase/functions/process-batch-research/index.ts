@@ -135,7 +135,14 @@ Return a JSON object with a "slides" array. Each slide must have:
     "prior_knowledge": ["..."],
     "common_struggles": ["..."]
   }
-}`;
+}
+
+CRITICAL OUTPUT RULE:
+- Return ONLY the raw JSON object
+- Do NOT wrap in markdown code blocks (no triple backticks)
+- Do NOT use \`\`\`json or \`\`\` markers
+- Start your response directly with { and end with }
+- No explanatory text before or after the JSON`;
 
 // ============================================================================
 // TYPES

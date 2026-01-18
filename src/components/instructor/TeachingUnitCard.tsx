@@ -146,11 +146,11 @@ export const TeachingUnitCard = memo(function TeachingUnitCard({
               {/* Lecture status/button */}
               {onCreateLecture && (
                 <>
-                  {/* Pending/Queued status */}
-                  {existingSlides?.status === 'pending' && (
+                  {/* Pending/Queued status - handle all intermediate states */}
+                  {(['pending', 'queued', 'preparing', 'batch_pending'].includes(existingSlides?.status as string)) && (
                     <Badge variant="outline" className="text-xs py-0.5 border-blue-500 text-blue-600">
                       <Clock className="h-3 w-3 mr-1" />
-                      Queued
+                      {(existingSlides?.status as string) === 'preparing' ? 'Preparing...' : 'Queued'}
                     </Badge>
                   )}
 
