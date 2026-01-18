@@ -154,7 +154,13 @@ export const TeachingUnitCard = memo(function TeachingUnitCard({
                     </Badge>
                   )}
 
-                  {/* Generating status */}
+                  {/* Preparing/Batch pending status - batch is being set up or processing */}
+                  {(existingSlides?.status === 'preparing' || existingSlides?.status === 'batch_pending') && (
+                    <Badge variant="outline" className="text-xs py-0.5 border-amber-500 text-amber-600">
+                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                      {existingSlides?.status === 'preparing' ? 'Preparing...' : 'Batch Processing...'}
+                    </Badge>
+                  )}
 
                   {/* Generating status */}
                   {existingSlides?.status === 'generating' && (
