@@ -2,8 +2,8 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { MODEL_CONFIG, getVertexAIModelPath } from '../_shared/ai-orchestrator.ts';
 import { createVertexAIAuth } from '../_shared/vertex-ai-auth.ts';
-import { createGCSClient, GCSClient } from '../_shared/gcs-client.ts';
-import { createVertexAIBatchClient, VertexAIBatchClient } from '../_shared/vertex-ai-batch.ts';
+import { createGCSClient } from '../_shared/gcs-client.ts';
+import { createVertexAIBatchClient } from '../_shared/vertex-ai-batch.ts';
 
 // ============================================================================
 // SUBMIT BATCH SLIDES - Vertex AI Batch Prediction Integration
