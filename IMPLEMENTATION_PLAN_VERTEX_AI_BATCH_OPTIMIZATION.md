@@ -173,7 +173,7 @@ CREATE TABLE batch_jobs (
   id UUID PRIMARY KEY,
   instructor_course_id UUID REFERENCES instructor_courses,
   google_batch_id TEXT,
-  job_type TEXT CHECK (job_type IN ('slides')),  -- Currently only 'slides'
+  job_type TEXT CHECK (job_type IN ('slides', 'audio', 'assessment')),  -- Current types
   total_requests INTEGER,
   succeeded_count INTEGER DEFAULT 0,
   failed_count INTEGER DEFAULT 0,
@@ -284,13 +284,14 @@ ADD COLUMN curriculum_batch_job_id UUID REFERENCES batch_jobs(id);
 ALTER TABLE content_matches
 ADD COLUMN evaluation_batch_job_id UUID REFERENCES batch_jobs(id);
 
--- Migration: Update batch_jobs job_type constraint
+-- Migration: Update batch_jobs job_type constraint to include new types
+-- IMPORTANT: Preserve existing types ('slides', 'audio', 'assessment')
 ALTER TABLE batch_jobs
 DROP CONSTRAINT IF EXISTS batch_jobs_job_type_check;
 
 ALTER TABLE batch_jobs
 ADD CONSTRAINT batch_jobs_job_type_check
-CHECK (job_type IN ('slides', 'curriculum', 'evaluation'));
+CHECK (job_type IN ('slides', 'audio', 'assessment', 'curriculum', 'evaluation'));
 ```
 
 ---
@@ -435,13 +436,14 @@ CREATE INDEX IF NOT EXISTS idx_learning_objectives_curriculum_batch
 ON public.learning_objectives(curriculum_batch_job_id)
 WHERE curriculum_batch_job_id IS NOT NULL;
 
--- Step 3: Update batch_jobs constraint to include 'curriculum'
+-- Step 3: Update batch_jobs constraint to include 'curriculum' and 'evaluation'
+-- IMPORTANT: Preserve existing types ('slides', 'audio', 'assessment')
 ALTER TABLE public.batch_jobs
 DROP CONSTRAINT IF EXISTS batch_jobs_job_type_check;
 
 ALTER TABLE public.batch_jobs
 ADD CONSTRAINT batch_jobs_job_type_check
-CHECK (job_type IN ('slides', 'curriculum', 'evaluation'));
+CHECK (job_type IN ('slides', 'audio', 'assessment', 'curriculum', 'evaluation'));
 
 -- Step 4: Add status for curriculum-specific tracking
 COMMENT ON COLUMN public.learning_objectives.curriculum_batch_job_id IS
