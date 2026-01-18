@@ -1731,25 +1731,1414 @@ if (teaching_unit_id) {
 
 ## 7. PHASE 2: BATCH VIDEO EVALUATION
 
-*[Similar detailed structure for Phase 2 - submit-batch-evaluation and poll-batch-evaluation]*
+### 7.1 Overview
 
-**Summary of Changes**:
-1. Create `submit-batch-evaluation/index.ts`
-2. Create `poll-batch-evaluation/index.ts`
-3. Modify `search-youtube-content/index.ts` to skip AI evaluation and mark for batch
-4. Modify `QuickCourseSetup.tsx` to add evaluation step
+**Goal**: Replace per-LO video evaluation calls with a single batch job that evaluates ALL videos across ALL LOs.
+
+**Current Flow**:
+```
+For each LO:
+  search-youtube-content finds 15 videos
+  → Call evaluate-content-batch (sync, gemini-2.5-flash)
+  → Wait for response
+  → Insert scored content_matches
+  → Continue to next LO
+
+Total calls: 20 LOs × 1 call = 20 sync API calls
+Cost: 20 × $0.006 = $0.12
+```
+
+**New Flow**:
+```
+For each LO:
+  search-youtube-content finds 15 videos
+  → Insert content_matches with status='pending_evaluation'
+  → Skip AI evaluation (mark for batch)
+
+After ALL content discovery completes:
+  → UI triggers submit-batch-evaluation
+  → Batch ALL 300 videos into single Vertex AI job
+  → poll-batch-evaluation updates scores
+
+Total calls: 1 batch job
+Cost: $0.06 (50% batch discount)
+Savings: $0.06 per syllabus (50%)
+```
+
+### 7.2 Task 2.1: Database Migration
+
+**File**: `supabase/migrations/YYYYMMDDHHMMSS_batch_evaluation_support.sql`
+
+**Content**:
+```sql
+-- Migration: Add batch evaluation support
+-- Description: Adds columns to track video evaluation batch jobs
+-- Rollback: See rollback section at bottom
+
+-- Step 1: Add evaluation_batch_job_id to content_matches
+ALTER TABLE public.content_matches
+ADD COLUMN IF NOT EXISTS evaluation_batch_job_id UUID REFERENCES public.batch_jobs(id);
+
+-- Step 2: Create index for efficient lookup
+CREATE INDEX IF NOT EXISTS idx_content_matches_evaluation_batch
+ON public.content_matches(evaluation_batch_job_id)
+WHERE evaluation_batch_job_id IS NOT NULL;
+
+-- Step 3: Add 'pending_evaluation' status for batch tracking
+ALTER TABLE public.content_matches
+DROP CONSTRAINT IF EXISTS content_matches_status_check;
+
+ALTER TABLE public.content_matches
+ADD CONSTRAINT content_matches_status_check
+CHECK (status IN ('pending', 'pending_evaluation', 'approved', 'auto_approved', 'rejected'));
+
+-- Step 4: Add helpful comment
+COMMENT ON COLUMN public.content_matches.evaluation_batch_job_id IS
+'References the batch job that scored this content match';
+
+-- ROLLBACK SECTION (run manually if needed):
+-- ALTER TABLE public.content_matches DROP COLUMN IF EXISTS evaluation_batch_job_id;
+-- DROP INDEX IF EXISTS idx_content_matches_evaluation_batch;
+```
+
+**Verification Checklist**:
+- [ ] Migration file created with correct timestamp format
+- [ ] Run `supabase db diff` to verify changes
+- [ ] Test migration on local database
+- [ ] Test rollback on local database
+- [ ] Commit migration file
+
+---
+
+### 7.3 Task 2.2: Create submit-batch-evaluation Function
+
+**File**: `supabase/functions/submit-batch-evaluation/index.ts`
+
+**Purpose**: Creates a Vertex AI batch job to evaluate all pending videos for a course.
+
+**Input**:
+```typescript
+interface SubmitBatchEvaluationRequest {
+  instructor_course_id: string;
+  content_match_ids?: string[]; // Optional: specific matches, defaults to all pending
+}
+```
+
+**Output**:
+```typescript
+interface SubmitBatchEvaluationResponse {
+  success: boolean;
+  batch_job_id: string | null;  // null when no videos need evaluation
+  total_requests: number;
+  message: string;
+  error?: string;
+}
+```
+
+**Complete Implementation**:
+
+```typescript
+// supabase/functions/submit-batch-evaluation/index.ts
+// ============================================================================
+// SUBMIT BATCH EVALUATION - Batch Video Evaluation via Vertex AI
+// ============================================================================
+//
+// PURPOSE: Submit all pending video evaluations for a course to Vertex AI
+// batch prediction for scoring and ranking.
+//
+// TRIGGER: Called by QuickCourseSetup after content discovery completes
+//
+// FLOW:
+//   1. Validate input and permissions
+//   2. Fetch all content_matches with status='pending_evaluation'
+//   3. Group by LO/teaching unit for context
+//   4. Build JSONL batch request
+//   5. Upload to GCS
+//   6. Create Vertex AI batch job
+//   7. Update content_matches with batch job reference
+//   8. Return batch job ID
+//
+// FALLBACK: If this fails, videos can be evaluated individually
+//
+// ============================================================================
+
+import "https://deno.land/x/xhr@0.1.0/mod.ts";
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.89.0';
+import { VertexAIBatchClient } from '../_shared/vertex-ai-batch.ts';
+import { GCSClient } from '../_shared/gcs-client.ts';
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
+// ============================================================================
+// CONFIGURATION
+// ============================================================================
+
+const MODEL_CONFIG = {
+  // Use gemini-2.5-flash for evaluation (consistent with current evaluate-content-batch)
+  EVALUATION_MODEL: 'gemini-2.5-flash',
+  VERTEX_MODEL_PATH: 'publishers/google/models/gemini-2.5-flash',
+};
+
+const BATCH_CONFIG = {
+  // Minimum videos to justify batch (below this, use sync)
+  MIN_BATCH_SIZE: 10,
+  // Maximum videos per batch
+  MAX_BATCH_SIZE: 2000,
+  // GCS path prefix
+  GCS_PREFIX: 'evaluation-batch',
+  // Maximum videos per request (to manage token limits)
+  MAX_VIDEOS_PER_REQUEST: 15,
+};
+
+// ============================================================================
+// BLOOM'S TAXONOMY CRITERIA (from evaluate-content-batch)
+// ============================================================================
+
+const BLOOM_EVALUATION_CRITERIA: Record<string, string> = {
+  remember: "Does this video clearly introduce and explain key facts, definitions, and concepts?",
+  understand: "Does this video help explain WHY things work the way they do?",
+  apply: "Does this video show HOW to do something step-by-step?",
+  analyze: "Does this video break down complex topics into components?",
+  evaluate: "Does this video help learners make judgments or decisions?",
+  create: "Does this video show how to build or design something new?"
+};
+
+// ============================================================================
+// SYSTEM PROMPT (identical to evaluate-content-batch)
+// ============================================================================
+
+const EVALUATION_SYSTEM_PROMPT = `You are an expert educational content evaluator. Your job is to assess YouTube videos for their pedagogical fit with specific learning objectives. You understand Bloom's Taxonomy deeply and can identify whether a video's teaching approach matches the required cognitive level.
+
+Be honest and critical - not all videos are good matches. A great video for "understanding" might be poor for "applying" the same concept.
+
+Return ONLY valid JSON. No markdown, no code blocks, no explanations.`;
+
+// ============================================================================
+// TYPES
+// ============================================================================
+
+interface ContentMatchWithContext {
+  id: string;
+  learning_objective_id: string;
+  teaching_unit_id: string | null;
+  content_id: string;
+  // Joined data
+  video_id: string;
+  video_title: string;
+  video_description: string;
+  video_duration_seconds: number;
+  channel_name: string;
+  // LO context
+  lo_text: string;
+  lo_bloom_level: string;
+  lo_core_concept: string | null;
+  // Teaching unit context (if available)
+  tu_title: string | null;
+  tu_what_to_teach: string | null;
+  tu_target_video_type: string | null;
+  tu_target_duration_minutes: number | null;
+  tu_required_concepts: string[] | null;
+}
+
+interface BatchRequest {
+  request: {
+    contents: Array<{
+      role: string;
+      parts: Array<{ text: string }>;
+    }>;
+    systemInstruction?: {
+      parts: Array<{ text: string }>;
+    };
+    generationConfig: {
+      temperature: number;
+      maxOutputTokens: number;
+      responseMimeType: string;
+    };
+  };
+  metadata: {
+    content_match_ids: string[];  // May contain multiple IDs per request
+    learning_objective_id: string;
+    teaching_unit_id: string | null;
+    request_index: number;
+  };
+}
+
+// ============================================================================
+// PROMPT BUILDER
+// ============================================================================
+
+function buildEvaluationPrompt(
+  loText: string,
+  bloomLevel: string,
+  teachingUnit: {
+    title: string | null;
+    what_to_teach: string | null;
+    target_video_type: string | null;
+    required_concepts: string[] | null;
+  } | null,
+  videos: Array<{
+    video_id: string;
+    title: string;
+    description: string;
+    duration_minutes: number;
+    channel_name: string;
+  }>
+): string {
+  const bloomCriteria = BLOOM_EVALUATION_CRITERIA[bloomLevel] || BLOOM_EVALUATION_CRITERIA.understand;
+
+  const videoListText = videos.map((v, i) =>
+    `${i + 1}. VIDEO_ID: ${v.video_id}
+   Title: ${v.title}
+   Channel: ${v.channel_name}
+   Duration: ${v.duration_minutes} minutes
+   Description: ${v.description.substring(0, 300)}...`
+  ).join('\n\n');
+
+  if (teachingUnit?.title) {
+    // Enhanced prompt with teaching unit context
+    return `Evaluate these YouTube videos for THIS SPECIFIC micro-concept:
+
+TEACHING UNIT: "${teachingUnit.title}"
+WHAT TO TEACH: ${teachingUnit.what_to_teach || 'the specific concept'}
+IDEAL VIDEO TYPE: ${teachingUnit.target_video_type || 'explainer'}
+${teachingUnit.required_concepts?.length ? `REQUIRED CONCEPTS: ${teachingUnit.required_concepts.join(', ')}` : ''}
+
+OVERALL LEARNING OBJECTIVE: ${loText}
+BLOOM'S LEVEL: ${bloomLevel.toUpperCase()}
+
+VIDEOS TO EVALUATE:
+${videoListText}
+
+For each video, return JSON with scores 0-100:
+{
+  "evaluations": [
+    {
+      "video_id": "VIDEO_ID",
+      "relevance_score": 85,
+      "pedagogy_score": 72,
+      "quality_score": 80,
+      "total_score": 79,
+      "reasoning": "2-3 sentences on how well it teaches ${teachingUnit.title}",
+      "recommendation": "highly_recommended|recommended|acceptable|not_recommended"
+    }
+  ]
+}
+
+Scoring: total = (relevance*0.4) + (pedagogy*0.35) + (quality*0.25)`;
+  } else {
+    // Standard LO-level prompt
+    return `Evaluate these YouTube videos for this learning objective:
+
+LEARNING OBJECTIVE: "${loText}"
+BLOOM'S LEVEL: ${bloomLevel.toUpperCase()}
+EVALUATION CRITERIA: ${bloomCriteria}
+
+VIDEOS TO EVALUATE:
+${videoListText}
+
+For each video, return JSON with scores 0-100:
+{
+  "evaluations": [
+    {
+      "video_id": "VIDEO_ID",
+      "relevance_score": 85,
+      "pedagogy_score": 72,
+      "quality_score": 80,
+      "total_score": 79,
+      "reasoning": "2-3 sentences explaining the scores",
+      "recommendation": "highly_recommended|recommended|acceptable|not_recommended"
+    }
+  ]
+}
+
+Scoring: total = (relevance*0.4) + (pedagogy*0.35) + (quality*0.25)`;
+  }
+}
+
+// ============================================================================
+// MAIN HANDLER
+// ============================================================================
+
+serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  const functionName = '[submit-batch-evaluation]';
+  console.log(`${functionName} Starting...`);
+
+  try {
+    // ========================================================================
+    // STEP 0: Check feature flag
+    // ========================================================================
+    const enableBatchEvaluation = Deno.env.get('ENABLE_BATCH_EVALUATION') !== 'false';
+    if (!enableBatchEvaluation) {
+      console.log(`${functionName} Feature disabled, returning`);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'Batch evaluation is disabled',
+          fallback: 'Videos will be evaluated individually during content search'
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
+      );
+    }
+
+    // ========================================================================
+    // STEP 1: Parse request and authenticate
+    // ========================================================================
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      throw new Error('Missing authorization header');
+    }
+
+    const { instructor_course_id, content_match_ids } = await req.json();
+
+    if (!instructor_course_id) {
+      throw new Error('instructor_course_id is required');
+    }
+
+    console.log(`${functionName} Processing course: ${instructor_course_id}`);
+
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // Get user from auth header
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) {
+      throw new Error('Invalid authorization');
+    }
+
+    // ========================================================================
+    // STEP 2: Verify course ownership
+    // ========================================================================
+    const { data: course, error: courseError } = await supabase
+      .from('instructor_courses')
+      .select('id, title, instructor_id')
+      .eq('id', instructor_course_id)
+      .single();
+
+    if (courseError || !course) {
+      throw new Error(`Course not found: ${instructor_course_id}`);
+    }
+
+    if (course.instructor_id !== user.id) {
+      throw new Error('Not authorized to modify this course');
+    }
+
+    // ========================================================================
+    // STEP 3: Fetch content_matches with full context
+    // ========================================================================
+    // Build query for content matches that need evaluation
+    let query = supabase
+      .from('content_matches')
+      .select(`
+        id,
+        learning_objective_id,
+        teaching_unit_id,
+        content_id,
+        content:content_id (
+          source_id,
+          title,
+          description,
+          duration_seconds,
+          channel_name
+        ),
+        learning_objectives:learning_objective_id (
+          text,
+          bloom_level,
+          core_concept
+        ),
+        teaching_units:teaching_unit_id (
+          title,
+          what_to_teach,
+          target_video_type,
+          target_duration_minutes,
+          required_concepts
+        )
+      `)
+      .eq('status', 'pending_evaluation');
+
+    // Filter to specific content_match_ids if provided
+    if (content_match_ids && content_match_ids.length > 0) {
+      query = query.in('id', content_match_ids);
+    } else {
+      // Filter by course via learning_objectives
+      query = query.in('learning_objective_id',
+        supabase
+          .from('learning_objectives')
+          .select('id')
+          .eq('instructor_course_id', instructor_course_id)
+      );
+    }
+
+    const { data: pendingMatches, error: matchError } = await query;
+
+    if (matchError) {
+      throw new Error(`Failed to fetch content matches: ${matchError.message}`);
+    }
+
+    if (!pendingMatches || pendingMatches.length === 0) {
+      console.log(`${functionName} No content matches need evaluation`);
+      return new Response(
+        JSON.stringify({
+          success: true,
+          batch_job_id: null,
+          total_requests: 0,
+          message: 'No videos need evaluation'
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    console.log(`${functionName} Found ${pendingMatches.length} videos to evaluate`);
+
+    // Check minimum batch size
+    if (pendingMatches.length < BATCH_CONFIG.MIN_BATCH_SIZE) {
+      console.log(`${functionName} Below minimum batch size, use sync evaluation`);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: `Only ${pendingMatches.length} videos, below minimum ${BATCH_CONFIG.MIN_BATCH_SIZE}`,
+          fallback: 'Use evaluate-content-batch directly for small batches'
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
+      );
+    }
+
+    // ========================================================================
+    // STEP 4: Group by LO/teaching unit and build batch requests
+    // ========================================================================
+    console.log(`${functionName} Building batch requests...`);
+
+    // Group matches by LO + teaching unit for efficient prompting
+    const groupedMatches = new Map<string, ContentMatchWithContext[]>();
+
+    for (const match of pendingMatches) {
+      const key = `${match.learning_objective_id}:${match.teaching_unit_id || 'none'}`;
+      if (!groupedMatches.has(key)) {
+        groupedMatches.set(key, []);
+      }
+
+      groupedMatches.get(key)!.push({
+        id: match.id,
+        learning_objective_id: match.learning_objective_id,
+        teaching_unit_id: match.teaching_unit_id,
+        content_id: match.content_id,
+        video_id: (match as any).content?.source_id || '',
+        video_title: (match as any).content?.title || '',
+        video_description: (match as any).content?.description || '',
+        video_duration_seconds: (match as any).content?.duration_seconds || 0,
+        channel_name: (match as any).content?.channel_name || '',
+        lo_text: (match as any).learning_objectives?.text || '',
+        lo_bloom_level: (match as any).learning_objectives?.bloom_level || 'understand',
+        lo_core_concept: (match as any).learning_objectives?.core_concept,
+        tu_title: (match as any).teaching_units?.title,
+        tu_what_to_teach: (match as any).teaching_units?.what_to_teach,
+        tu_target_video_type: (match as any).teaching_units?.target_video_type,
+        tu_target_duration_minutes: (match as any).teaching_units?.target_duration_minutes,
+        tu_required_concepts: (match as any).teaching_units?.required_concepts,
+      });
+    }
+
+    // Build batch requests (max 15 videos per request to match current behavior)
+    const batchRequests: string[] = [];
+    let requestIndex = 0;
+
+    for (const [key, matches] of groupedMatches) {
+      // Split large groups into chunks
+      for (let i = 0; i < matches.length; i += BATCH_CONFIG.MAX_VIDEOS_PER_REQUEST) {
+        const chunk = matches.slice(i, i + BATCH_CONFIG.MAX_VIDEOS_PER_REQUEST);
+        const firstMatch = chunk[0];
+
+        const videos = chunk.map(m => ({
+          video_id: m.video_id,
+          title: m.video_title,
+          description: m.video_description,
+          duration_minutes: Math.round(m.video_duration_seconds / 60),
+          channel_name: m.channel_name,
+        }));
+
+        const teachingUnit = firstMatch.tu_title ? {
+          title: firstMatch.tu_title,
+          what_to_teach: firstMatch.tu_what_to_teach,
+          target_video_type: firstMatch.tu_target_video_type,
+          required_concepts: firstMatch.tu_required_concepts,
+        } : null;
+
+        const userPrompt = buildEvaluationPrompt(
+          firstMatch.lo_text,
+          firstMatch.lo_bloom_level,
+          teachingUnit,
+          videos
+        );
+
+        const request: BatchRequest = {
+          request: {
+            contents: [
+              {
+                role: 'user',
+                parts: [{ text: userPrompt }]
+              }
+            ],
+            systemInstruction: {
+              parts: [{ text: EVALUATION_SYSTEM_PROMPT }]
+            },
+            generationConfig: {
+              temperature: 0.3,
+              maxOutputTokens: 4096,
+              responseMimeType: 'application/json'
+            }
+          },
+          metadata: {
+            content_match_ids: chunk.map(m => m.id),
+            learning_objective_id: firstMatch.learning_objective_id,
+            teaching_unit_id: firstMatch.teaching_unit_id,
+            request_index: requestIndex
+          }
+        };
+
+        batchRequests.push(JSON.stringify(request));
+        requestIndex++;
+      }
+    }
+
+    const jsonlContent = batchRequests.join('\n');
+    console.log(`${functionName} Built ${batchRequests.length} requests for ${pendingMatches.length} videos`);
+
+    // ========================================================================
+    // STEP 5: Create batch_jobs record
+    // ========================================================================
+    const batchJobId = crypto.randomUUID();
+
+    const { error: insertJobError } = await supabase
+      .from('batch_jobs')
+      .insert({
+        id: batchJobId,
+        instructor_course_id,
+        job_type: 'evaluation',
+        total_requests: batchRequests.length,
+        status: 'preparing',
+        created_by: user.id
+      });
+
+    if (insertJobError) {
+      throw new Error(`Failed to create batch job record: ${insertJobError.message}`);
+    }
+
+    // ========================================================================
+    // STEP 6: Upload JSONL to GCS
+    // ========================================================================
+    const gcsClient = new GCSClient();
+    const inputPath = `${BATCH_CONFIG.GCS_PREFIX}/${batchJobId}/input.jsonl`;
+
+    try {
+      await gcsClient.uploadFile(inputPath, jsonlContent, 'application/jsonl');
+      console.log(`${functionName} Uploaded to GCS: ${inputPath}`);
+    } catch (gcsError) {
+      await supabase
+        .from('batch_jobs')
+        .update({ status: 'failed', error_message: `GCS upload failed: ${gcsError}` })
+        .eq('id', batchJobId);
+      throw gcsError;
+    }
+
+    // ========================================================================
+    // STEP 7: Create Vertex AI batch job
+    // ========================================================================
+    const vertexClient = new VertexAIBatchClient();
+    const bucketName = Deno.env.get('GCS_BUCKET_NAME')!;
+
+    try {
+      const batchJob = await vertexClient.createBatchJob({
+        displayName: `evaluation-${instructor_course_id.substring(0, 8)}-${Date.now()}`,
+        model: MODEL_CONFIG.VERTEX_MODEL_PATH,
+        inputUri: `gs://${bucketName}/${inputPath}`,
+        outputUriPrefix: `gs://${bucketName}/${BATCH_CONFIG.GCS_PREFIX}/${batchJobId}/output/`
+      });
+
+      console.log(`${functionName} Created Vertex AI job: ${batchJob.name}`);
+
+      await supabase
+        .from('batch_jobs')
+        .update({
+          google_batch_id: batchJob.name,
+          status: 'submitted'
+        })
+        .eq('id', batchJobId);
+
+    } catch (vertexError) {
+      await gcsClient.deleteFile(inputPath);
+      await supabase
+        .from('batch_jobs')
+        .update({
+          status: 'failed',
+          error_message: `Vertex AI job creation failed: ${vertexError}`
+        })
+        .eq('id', batchJobId);
+      throw vertexError;
+    }
+
+    // ========================================================================
+    // STEP 8: Update content_matches with batch job reference
+    // ========================================================================
+    const matchIds = pendingMatches.map(m => m.id);
+
+    await supabase
+      .from('content_matches')
+      .update({ evaluation_batch_job_id: batchJobId })
+      .in('id', matchIds);
+
+    console.log(`${functionName} Updated ${matchIds.length} content matches`);
+
+    // ========================================================================
+    // STEP 9: Return success
+    // ========================================================================
+    return new Response(
+      JSON.stringify({
+        success: true,
+        batch_job_id: batchJobId,
+        total_requests: batchRequests.length,
+        total_videos: pendingMatches.length,
+        message: `Batch evaluation job submitted. Call poll-batch-evaluation to check status.`
+      }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+
+  } catch (error) {
+    console.error(`${functionName} Error:`, error);
+
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
+    );
+  }
+});
+```
+
+**Verification Checklist for Task 2.2**:
+- [ ] File created at correct path
+- [ ] All imports resolve (test with `deno check`)
+- [ ] CORS headers present
+- [ ] Feature flag check at start
+- [ ] Authorization validation
+- [ ] Course ownership verification
+- [ ] Minimum batch size check
+- [ ] Videos grouped by LO/teaching unit
+- [ ] Max 15 videos per request (token management)
+- [ ] JSONL format correct
+- [ ] GCS upload error handling with cleanup
+- [ ] Vertex AI error handling with cleanup
+- [ ] batch_jobs record created before external calls
+- [ ] content_matches updated with batch job reference
+- [ ] Comprehensive logging
+
+---
+
+### 7.4 Task 2.3: Create poll-batch-evaluation Function
+
+**File**: `supabase/functions/poll-batch-evaluation/index.ts`
+
+**Purpose**: Poll Vertex AI batch job, download results, parse scores, and update content_matches.
+
+**Complete Implementation** (abbreviated for context - follows same pattern as poll-batch-curriculum):
+
+```typescript
+// supabase/functions/poll-batch-evaluation/index.ts
+// Similar structure to poll-batch-curriculum, but:
+// 1. Updates content_matches instead of teaching_units
+// 2. Parses evaluation scores (relevance, pedagogy, quality)
+// 3. Sets recommendation field
+// 4. Changes status from 'pending_evaluation' to 'pending' (evaluated but not approved)
+
+serve(async (req) => {
+  // ... CORS and setup similar to poll-batch-curriculum
+
+  const functionName = '[poll-batch-evaluation]';
+
+  // ... fetch batch_jobs record
+  // ... check Vertex AI status
+  // ... if complete, download GCS output
+
+  // For each result in JSONL:
+  for (const result of allResults) {
+    const matchIds = result.metadata?.content_match_ids;
+
+    // Parse evaluations from AI response
+    const content = result.response?.candidates?.[0]?.content?.parts?.[0]?.text;
+    const evaluations = JSON.parse(stripMarkdown(content)).evaluations;
+
+    // Update each content_match with its scores
+    for (const evaluation of evaluations) {
+      const matchId = findMatchIdByVideoId(matchIds, evaluation.video_id);
+
+      await supabase
+        .from('content_matches')
+        .update({
+          ai_relevance_score: evaluation.relevance_score / 100,
+          ai_pedagogy_score: evaluation.pedagogy_score / 100,
+          ai_quality_score: evaluation.quality_score / 100,
+          match_score: evaluation.total_score / 100,
+          ai_reasoning: evaluation.reasoning,
+          ai_recommendation: evaluation.recommendation,
+          status: evaluation.recommendation === 'highly_recommended' ? 'auto_approved' : 'pending'
+        })
+        .eq('id', matchId);
+    }
+  }
+
+  // Update batch_jobs with final counts
+  // Return result summary
+});
+```
+
+**Key Differences from poll-batch-curriculum**:
+1. Updates `content_matches` table, not `teaching_units`
+2. Parses evaluation scores (4 numeric fields + reasoning)
+3. Auto-approves highly recommended videos
+4. Maps video_id back to content_match_id
+
+---
+
+### 7.5 Task 2.4: Modify search-youtube-content Function
+
+**File**: `supabase/functions/search-youtube-content/index.ts`
+
+**Change**: Skip inline AI evaluation when batch mode is enabled; mark videos for batch.
+
+**Location**: Around line 750-760 (after video discovery, before evaluation call)
+
+**Replace the evaluation section with**:
+
+```typescript
+// ========================================================================
+// STEP: Evaluate videos (BATCH or SYNC)
+// ========================================================================
+const enableBatchEvaluation = Deno.env.get('ENABLE_BATCH_EVALUATION') === 'true';
+
+if (enableBatchEvaluation) {
+  // BATCH MODE: Skip inline evaluation, mark for batch processing
+  console.log(`[BATCH MODE] Skipping inline evaluation for ${discoveredVideos.length} videos`);
+
+  // Insert content_matches with pending_evaluation status
+  const contentMatchInserts = discoveredVideos.map((video: any, index: number) => ({
+    learning_objective_id: learning_objective_id,
+    teaching_unit_id: teaching_unit_id || null,
+    content_id: video.content_id,
+    status: 'pending_evaluation',
+    match_score: null,  // Will be set by batch evaluation
+    ai_relevance_score: null,
+    ai_pedagogy_score: null,
+    ai_quality_score: null,
+    ai_reasoning: null,
+    ai_recommendation: null,
+  }));
+
+  const { data: insertedMatches, error: insertError } = await supabaseClient
+    .from('content_matches')
+    .insert(contentMatchInserts)
+    .select('id');
+
+  if (insertError) {
+    console.error('[BATCH MODE] Failed to insert content_matches:', insertError);
+    // Fall through to sync evaluation as fallback
+  } else {
+    console.log(`[BATCH MODE] Created ${insertedMatches?.length} pending evaluations`);
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        batch_evaluation_pending: true,
+        videos_discovered: discoveredVideos.length,
+        message: 'Videos discovered and queued for batch evaluation'
+      }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+}
+
+// SYNC MODE (fallback or feature flag disabled): Original inline evaluation
+console.log(`[SYNC MODE] Evaluating ${discoveredVideos.length} videos inline`);
+const evalResponse = await fetch(`${supabaseUrl}/functions/v1/evaluate-content-batch`, {
+  // ... existing evaluation call
+});
+```
+
+**Verification Checklist for Task 2.4**:
+- [ ] Feature flag check added
+- [ ] New 'pending_evaluation' status used
+- [ ] Graceful fallback to sync on error
+- [ ] Response indicates batch mode
+- [ ] No breaking changes to existing behavior when flag is false
+
+---
+
+### 7.6 Task 2.5: Modify QuickCourseSetup.tsx
+
+**File**: `src/pages/instructor/QuickCourseSetup.tsx`
+
+**Change**: Add evaluation step between content discovery and slide generation.
+
+**Add new UI state and step**:
+
+```tsx
+// Add new state
+const [evaluationStatus, setEvaluationStatus] = useState<'idle' | 'processing' | 'completed' | 'failed'>('idle');
+const [evaluationProgress, setEvaluationProgress] = useState({ succeeded: 0, total: 0 });
+
+// Add evaluation step after content discovery completes
+const handleStartEvaluation = async () => {
+  setEvaluationStatus('processing');
+
+  try {
+    const { data, error } = await supabase.functions.invoke('submit-batch-evaluation', {
+      body: { instructor_course_id: courseId }
+    });
+
+    if (error || !data.success) {
+      throw new Error(error?.message || data.error);
+    }
+
+    if (!data.batch_job_id) {
+      // No videos need evaluation
+      setEvaluationStatus('completed');
+      return;
+    }
+
+    // Start polling
+    pollEvaluationStatus(data.batch_job_id);
+  } catch (err) {
+    setEvaluationStatus('failed');
+    toast.error('Failed to start video evaluation');
+  }
+};
+
+const pollEvaluationStatus = async (batchJobId: string) => {
+  const poll = async () => {
+    const { data, error } = await supabase.functions.invoke('poll-batch-evaluation', {
+      body: { batch_job_id: batchJobId }
+    });
+
+    if (data?.status === 'completed' || data?.status === 'partial') {
+      setEvaluationStatus('completed');
+      setEvaluationProgress({
+        succeeded: data.succeeded_count,
+        total: data.succeeded_count + data.failed_count
+      });
+    } else if (data?.status === 'failed') {
+      setEvaluationStatus('failed');
+    } else {
+      // Still processing, poll again
+      setTimeout(poll, 5000);
+    }
+  };
+
+  poll();
+};
+
+// Render evaluation step in UI
+{contentDiscoveryComplete && evaluationStatus === 'idle' && (
+  <Card>
+    <CardHeader>
+      <CardTitle>Step 3: Evaluate Content</CardTitle>
+      <CardDescription>
+        AI will score and rank all discovered videos for pedagogical fit
+      </CardDescription>
+    </CardHeader>
+    <CardContent>
+      <Button onClick={handleStartEvaluation}>
+        <Sparkles className="mr-2 h-4 w-4" />
+        Evaluate {pendingVideosCount} Videos
+      </Button>
+    </CardContent>
+  </Card>
+)}
+
+{evaluationStatus === 'processing' && (
+  <Card>
+    <CardContent className="flex items-center gap-3 py-6">
+      <Loader2 className="h-5 w-5 animate-spin text-blue-500" />
+      <span>Evaluating videos with AI...</span>
+    </CardContent>
+  </Card>
+)}
+```
+
+---
+
+### 7.7 Task 2.6: Unit Tests
+
+**Test Cases for submit-batch-evaluation**:
+```typescript
+// Test 1: Feature flag disabled → returns 400
+// Test 2: No pending_evaluation videos → returns success with total_requests: 0
+// Test 3: Below minimum batch size → returns fallback message
+// Test 4: Successful batch submission → returns batch_job_id
+// Test 5: Videos grouped correctly by LO/teaching unit
+// Test 6: Max 15 videos per request enforced
+```
+
+**Test Cases for poll-batch-evaluation**:
+```typescript
+// Test 1: Scores parsed correctly from AI response
+// Test 2: Highly recommended videos auto-approved
+// Test 3: Video IDs mapped back to content_match IDs correctly
+// Test 4: Partial success handled (some videos scored, some failed)
+```
 
 ---
 
 ## 8. PHASE 3: ENHANCED PROMPTS
 
-*[Detailed prompt improvements for curriculum-reasoning-agent and evaluate-content-batch]*
+### 8.1 Overview
+
+**Goal**: Improve output quality without changing architecture by enhancing prompts with:
+- Domain-specific expertise context
+- Understanding by Design (UbD) framework for curriculum
+- Mayer's multimedia learning principles for evaluation
+- Bloom's taxonomy-weighted scoring
+
+**Risk Level**: LOW - Changes are prompt-only, easy to A/B test and rollback.
+
+### 8.2 Task 3.1: Enhanced Curriculum Decomposition Prompt
+
+**File**: `supabase/functions/curriculum-reasoning-agent/index.ts`
+
+**Current Prompt Issues**:
+- Generic "curriculum designer" persona
+- No grounding in current educational research
+- May generate outdated content structures
+
+**Enhanced System Prompt**:
+
+```typescript
+const ENHANCED_CURRICULUM_SYSTEM_PROMPT = `You are an expert curriculum designer with 20+ years of experience in instructional design, specializing in backward design (Understanding by Design framework by Wiggins & McTighe).
+
+EXPERTISE:
+- Deep knowledge of Bloom's Taxonomy cognitive levels and how to scaffold learning
+- Expert in microlearning principles (5-15 minute focused learning chunks)
+- Familiar with 2024-2025 industry best practices for online education
+- Skilled at identifying prerequisite dependencies between concepts
+
+YOUR APPROACH:
+1. Start with the END GOAL - what should the learner be able to DO after this?
+2. Work BACKWARD to identify the essential knowledge and skills needed
+3. Sequence from simple → complex, concrete → abstract
+4. Ensure each micro-unit can stand alone as a 5-15 minute learning experience
+
+CRITICAL RULES:
+1. Each teaching unit = ONE focused concept (microlearning principle)
+2. Units MUST be ordered by prerequisite dependencies
+3. Search queries must be HIGHLY SPECIFIC (not generic terms)
+4. Generate 3-8 units based on complexity, not a fixed number
+5. Consider common misconceptions and address them proactively
+
+OUTPUT: Return valid JSON only. No markdown, no code blocks.`;
+```
+
+**Enhanced User Prompt Additions**:
+
+```typescript
+// Add to user prompt
+const enhancedContext = `
+PEDAGOGICAL CONTEXT:
+- This is for a university-level course
+- Students will watch videos asynchronously
+- Each unit should be completable in one sitting (5-15 min video)
+- Consider mobile learners with limited attention spans
+
+BACKWARD DESIGN QUESTIONS TO CONSIDER:
+1. What evidence would show the student achieved this learning objective?
+2. What knowledge/skills are prerequisites?
+3. What common misconceptions might students have?
+4. What real-world applications make this relevant?
+
+QUALITY MARKERS FOR GOOD UNITS:
+✓ Clear, specific title (not generic)
+✓ Search queries that would find actual YouTube videos
+✓ Realistic duration estimates
+✓ Explicit prerequisite and enables relationships
+✓ Specific misconceptions to address
+`;
+```
+
+**Verification Checklist for Task 3.1**:
+- [ ] System prompt updated with UbD framework
+- [ ] User prompt includes backward design questions
+- [ ] No functional changes, only prompt text
+- [ ] Test with 5 sample LOs and compare quality
+- [ ] Document quality metrics for A/B comparison
+
+---
+
+### 8.3 Task 3.2: Enhanced Video Evaluation Prompt
+
+**File**: `supabase/functions/evaluate-content-batch/index.ts`
+
+**Current Prompt Issues**:
+- Scoring dimensions not weighted by Bloom's level
+- No consideration of Mayer's multimedia principles
+- No red flag detection (outdated info, incorrect info)
+
+**Enhanced Evaluation Criteria by Bloom's Level**:
+
+```typescript
+const ENHANCED_BLOOM_CRITERIA: Record<string, {
+  weights: { relevance: number; pedagogy: number; quality: number };
+  idealVideoTypes: string[];
+  redFlags: string[];
+}> = {
+  remember: {
+    weights: { relevance: 0.5, pedagogy: 0.3, quality: 0.2 },
+    idealVideoTypes: ['explainer', 'lecture', 'summary'],
+    redFlags: ['outdated terminology', 'factual errors', 'too complex for introduction']
+  },
+  understand: {
+    weights: { relevance: 0.4, pedagogy: 0.4, quality: 0.2 },
+    idealVideoTypes: ['explainer', 'animated', 'analogy-based'],
+    redFlags: ['no examples', 'abstract without concrete', 'jargon-heavy']
+  },
+  apply: {
+    weights: { relevance: 0.3, pedagogy: 0.5, quality: 0.2 },
+    idealVideoTypes: ['tutorial', 'worked-example', 'demonstration'],
+    redFlags: ['theory only', 'no hands-on', 'outdated tools/methods']
+  },
+  analyze: {
+    weights: { relevance: 0.4, pedagogy: 0.4, quality: 0.2 },
+    idealVideoTypes: ['case-study', 'comparison', 'deep-dive'],
+    redFlags: ['surface level', 'no breakdown', 'opinion without evidence']
+  },
+  evaluate: {
+    weights: { relevance: 0.4, pedagogy: 0.35, quality: 0.25 },
+    idealVideoTypes: ['debate', 'critique', 'pros-cons'],
+    redFlags: ['one-sided', 'no criteria stated', 'emotional without logic']
+  },
+  create: {
+    weights: { relevance: 0.35, pedagogy: 0.45, quality: 0.2 },
+    idealVideoTypes: ['project-walkthrough', 'design-process', 'synthesis'],
+    redFlags: ['no creative process shown', 'final result only', 'no iteration']
+  }
+};
+```
+
+**Enhanced System Prompt**:
+
+```typescript
+const ENHANCED_EVALUATION_SYSTEM_PROMPT = `You are an expert educational content evaluator with deep knowledge of:
+
+1. BLOOM'S TAXONOMY - You understand the cognitive demands at each level
+2. MAYER'S MULTIMEDIA PRINCIPLES - You recognize effective video teaching:
+   - Coherence: Exclude extraneous material
+   - Signaling: Highlight essential material
+   - Segmenting: Present in learner-paced segments
+   - Modality: Use narration with graphics, not text
+   - Personalization: Conversational style is more engaging
+
+3. RED FLAG DETECTION - You identify problematic content:
+   - Outdated information (especially in tech/science)
+   - Factual inaccuracies
+   - Missing prerequisites assumed without explanation
+   - Clickbait titles that don't deliver
+
+SCORING CALIBRATION:
+- 90-100: Exceptional - would use as primary resource
+- 80-89: Excellent - strong recommendation
+- 70-79: Good - solid choice with minor gaps
+- 60-69: Acceptable - usable but not ideal
+- 50-59: Marginal - only if nothing better available
+- Below 50: Not recommended - significant issues
+
+Be honest and critical. A 70 is a good score. Reserve 90+ for truly exceptional content.`;
+```
+
+---
+
+### 8.4 Task 3.3: A/B Testing Setup
+
+**Create Feature Flag for Prompt Versions**:
+
+```bash
+# Environment variable for prompt version
+PROMPT_VERSION=v1  # or v2 for enhanced prompts
+```
+
+**Logging for Quality Comparison**:
+
+```typescript
+// Log prompt version with each request for analysis
+console.log(`[curriculum-reasoning-agent] Using prompt version: ${promptVersion}`);
+console.log(`[curriculum-reasoning-agent] Generated ${units.length} teaching units for LO ${loId}`);
+
+// Track in ai_usage table
+await supabase.from('ai_usage').insert({
+  function_name: 'curriculum-reasoning-agent',
+  prompt_version: promptVersion,
+  input_tokens: inputTokens,
+  output_tokens: outputTokens,
+  lo_id: loId,
+  units_generated: units.length
+});
+```
+
+**Quality Metrics to Track**:
+1. Average teaching units per LO (should be 3-8)
+2. Search query specificity (average word count)
+3. Prerequisite chain depth
+4. User approval rate (if tracked)
 
 ---
 
 ## 9. PHASE 4: RESEARCH CACHING
 
-*[Detailed caching implementation]*
+### 9.1 Overview
+
+**Goal**: Cache research results from Google Search grounding to avoid redundant API calls for similar topics.
+
+**Current Problem**:
+- Each teaching unit triggers a research call (~$0.003)
+- Similar units (same topic, different angles) get duplicate searches
+- No reuse across courses for common topics
+
+**Solution**:
+- Cache research by topic hash
+- 7-day TTL for freshness
+- ~20-30% reduction in research calls
+
+### 9.2 Task 4.1: Create research_cache Table
+
+**File**: `supabase/migrations/YYYYMMDDHHMMSS_research_cache.sql`
+
+```sql
+-- Migration: Add research caching table
+-- Description: Cache Google Search grounding results for reuse
+-- TTL: 7 days (research needs to stay fresh)
+
+CREATE TABLE IF NOT EXISTS public.research_cache (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  -- Cache key: hash of normalized search topic
+  topic_hash TEXT NOT NULL UNIQUE,
+
+  -- Original search terms (for debugging)
+  search_terms TEXT NOT NULL,
+
+  -- Domain context affects search relevance
+  domain TEXT,
+
+  -- Cached research content (JSON with sources)
+  research_content JSONB NOT NULL,
+
+  -- Token counts for cost tracking
+  input_tokens INTEGER,
+  output_tokens INTEGER,
+
+  -- Timestamps
+  created_at TIMESTAMPTZ DEFAULT now(),
+  expires_at TIMESTAMPTZ NOT NULL,
+
+  -- How many times this cache entry was used
+  hit_count INTEGER DEFAULT 0
+);
+
+-- Index for fast cache lookups
+CREATE INDEX idx_research_cache_topic ON public.research_cache(topic_hash);
+
+-- Index for cache cleanup (expired entries)
+CREATE INDEX idx_research_cache_expiry ON public.research_cache(expires_at);
+
+-- Scheduled cleanup function
+CREATE OR REPLACE FUNCTION cleanup_expired_research_cache()
+RETURNS void AS $$
+BEGIN
+  DELETE FROM public.research_cache
+  WHERE expires_at < now();
+END;
+$$ LANGUAGE plpgsql;
+
+-- Comment for documentation
+COMMENT ON TABLE public.research_cache IS 'Caches Google Search grounding results. 7-day TTL. Reduces redundant API calls.';
+```
+
+---
+
+### 9.3 Task 4.2: Modify process-batch-research Function
+
+**File**: `supabase/functions/process-batch-research/index.ts`
+
+**Add cache check before research call**:
+
+```typescript
+// ============================================================================
+// RESEARCH CACHING LOGIC
+// ============================================================================
+
+const CACHE_TTL_DAYS = 7;
+const enableResearchCache = Deno.env.get('ENABLE_RESEARCH_CACHE') !== 'false';
+
+async function getCachedResearch(
+  supabase: SupabaseClient,
+  searchTerms: string,
+  domain: string | null
+): Promise<{ cached: boolean; content: any | null }> {
+  if (!enableResearchCache) {
+    return { cached: false, content: null };
+  }
+
+  // Normalize and hash the search terms
+  const normalized = searchTerms.toLowerCase().trim().replace(/\s+/g, ' ');
+  const topicHash = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(`${normalized}:${domain || 'general'}`)
+  ).then(buf =>
+    Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('')
+  );
+
+  // Check cache
+  const { data: cached, error } = await supabase
+    .from('research_cache')
+    .select('research_content')
+    .eq('topic_hash', topicHash)
+    .gt('expires_at', new Date().toISOString())
+    .single();
+
+  if (cached && !error) {
+    // Update hit count (async, don't await)
+    supabase
+      .from('research_cache')
+      .update({ hit_count: supabase.raw('hit_count + 1') })
+      .eq('topic_hash', topicHash);
+
+    console.log(`[CACHE HIT] Research for: ${searchTerms.substring(0, 50)}...`);
+    return { cached: true, content: cached.research_content };
+  }
+
+  return { cached: false, content: null };
+}
+
+async function cacheResearch(
+  supabase: SupabaseClient,
+  searchTerms: string,
+  domain: string | null,
+  content: any,
+  inputTokens: number,
+  outputTokens: number
+): Promise<void> {
+  if (!enableResearchCache) return;
+
+  const normalized = searchTerms.toLowerCase().trim().replace(/\s+/g, ' ');
+  const topicHash = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(`${normalized}:${domain || 'general'}`)
+  ).then(buf =>
+    Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('')
+  );
+
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + CACHE_TTL_DAYS);
+
+  await supabase
+    .from('research_cache')
+    .upsert({
+      topic_hash: topicHash,
+      search_terms: searchTerms,
+      domain,
+      research_content: content,
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+      expires_at: expiresAt.toISOString()
+    }, { onConflict: 'topic_hash' });
+
+  console.log(`[CACHE SET] Research for: ${searchTerms.substring(0, 50)}...`);
+}
+
+// ============================================================================
+// INTEGRATION POINT: In runResearchAgent function
+// ============================================================================
+
+async function runResearchAgent(briefData: any, domainConfig: any): Promise<any> {
+  const searchTerms = briefData.title + ' ' + (briefData.key_concepts || []).join(' ');
+  const domain = domainConfig?.detected_domain;
+
+  // Check cache first
+  const { cached, content } = await getCachedResearch(supabase, searchTerms, domain);
+  if (cached) {
+    return content;
+  }
+
+  // Cache miss - call research API
+  const researchResult = await callGoogleSearchGrounding(searchTerms, domainConfig);
+
+  // Cache the result (async, don't block)
+  cacheResearch(
+    supabase,
+    searchTerms,
+    domain,
+    researchResult,
+    researchResult.inputTokens,
+    researchResult.outputTokens
+  ).catch(err => console.warn('[CACHE] Failed to cache research:', err));
+
+  return researchResult;
+}
+```
+
+---
+
+### 9.4 Task 4.3: Cache Invalidation Logic
+
+**Invalidation Triggers**:
+1. Manual: Admin can clear cache for a domain
+2. TTL: Automatic 7-day expiry
+3. Domain config change: Clear domain-specific cache when config updates
+
+**Add to domain config update handler**:
+
+```typescript
+// When domain_config is updated, invalidate related cache
+async function onDomainConfigUpdate(courseId: string, newDomainConfig: any) {
+  const domain = newDomainConfig?.detected_domain;
+  if (domain) {
+    await supabase
+      .from('research_cache')
+      .delete()
+      .eq('domain', domain);
+
+    console.log(`[CACHE] Invalidated cache for domain: ${domain}`);
+  }
+}
+```
+
+---
+
+### 9.5 Task 4.4: Cache Performance Metrics
+
+**Dashboard Query**:
+
+```sql
+-- Cache hit rate (last 7 days)
+SELECT
+  COUNT(*) FILTER (WHERE hit_count > 0) as entries_with_hits,
+  SUM(hit_count) as total_hits,
+  COUNT(*) as total_entries,
+  ROUND(SUM(hit_count)::numeric / NULLIF(COUNT(*), 0), 2) as avg_hits_per_entry
+FROM research_cache
+WHERE created_at > now() - interval '7 days';
+
+-- Estimated cost savings
+SELECT
+  SUM(hit_count) * 0.003 as estimated_savings_usd
+FROM research_cache
+WHERE created_at > now() - interval '7 days';
+```
 
 ---
 
