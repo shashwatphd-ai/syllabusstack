@@ -1,55 +1,35 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { MODEL_CONFIG, getVertexAIModelPath } from '../_shared/ai-orchestrator.ts';
-import { createVertexAIAuth } from '../_shared/vertex-ai-auth.ts';
-import { createGCSClient } from '../_shared/gcs-client.ts';
-import { createVertexAIBatchClient } from '../_shared/vertex-ai-batch.ts';
-
-// Declare EdgeRuntime for Deno edge functions (background tasks)
-declare const EdgeRuntime: { waitUntil: (promise: Promise<void>) => void };
+import { MODEL_CONFIG } from '../_shared/ai-orchestrator.ts';
 
 // ============================================================================
-// SUBMIT BATCH SLIDES - Vertex AI Batch Prediction Integration
+// SUBMIT BATCH SLIDES - Fast Placeholder Creation
 // ============================================================================
 //
-// PURPOSE: Submit all teaching units for a course to Vertex AI Batch Prediction
+// PURPOSE: Create placeholder records for batch slide generation
 //
 // WHY THIS APPROACH:
-//   - 50% cost savings via Vertex AI batch prediction discount
-//   - Higher throughput (no MAX_CONCURRENT limit)
-//   - Simpler code (no queue management)
-//   - Better UX (single job to track)
-//   - Enterprise-grade reliability with Cloud Storage
-//
-// REPLACES: process-lecture-queue's 'queue-bulk' action
+//   - Edge functions have 150s timeout
+//   - Research for 78+ units takes 5+ minutes
+//   - This function returns FAST (creates placeholders only)
+//   - Frontend calls process-batch-research AFTER this returns
 //
 // FLOW:
 //   1. Receive instructor_course_id and teaching_unit_ids[]
-//   2. Fetch all teaching unit context data
-//   3. Build prompts using same logic as generate-lecture-slides-v3
-//   4. Run research agent for grounded content
-//   5. Upload JSONL requests to Cloud Storage
-//   6. Create Vertex AI batch prediction job
-//   7. Store batch job ID in database
-//   8. Create lecture_slides records with status='batch_pending'
-//   9. Return immediately - processing happens async on Vertex AI
+//   2. Validate input and check existing slides
+//   3. Create batch_jobs record with status='preparing'
+//   4. Create lecture_slides records with status='preparing'
+//   5. Return immediately with batch_job_id
+//   6. Frontend then calls process-batch-research to do the heavy work
 //
-// IMPORTANT: This uses Vertex AI Batch Prediction which:
-//   - Returns immediately with a job ID
-//   - Processes asynchronously (usually <1 hour for ~100 requests)
-//   - Provides 50% cost discount
-//   - Requires polling via poll-batch-status for completion
-//   - Uses Cloud Storage for input/output
+// TWO-FUNCTION PATTERN:
+//   submit-batch-slides (this function) → Fast, creates placeholders
+//   process-batch-research → Slow, does research + Vertex AI submission
 //
-// NOTE: Keep generate-lecture-slides-v3 for single slide generation
-//       This function is ONLY for bulk "Generate All" operations
-//
-// ENVIRONMENT VARIABLES REQUIRED:
-//   - GCP_SERVICE_ACCOUNT_KEY: Base64 encoded service account JSON key
-//   - GCP_PROJECT_ID: Google Cloud project ID (optional, from service account)
-//   - GCP_REGION: Vertex AI region (default: us-central1)
-//   - GCS_BUCKET: Cloud Storage bucket for batch input/output
-//   - GOOGLE_CLOUD_API_KEY: For research agent (Google Search grounding)
+// WHY SPLIT?
+//   - EdgeRuntime.waitUntil() is NOT supported in Supabase Edge Functions
+//   - Supabase uses Deno Deploy, not Cloudflare Workers
+//   - Must split work across function calls instead
 //
 // ============================================================================
 
@@ -986,310 +966,30 @@ serve(async (req) => {
       console.warn('[Batch] Error creating pending slide records:', slidesError);
     }
 
-    console.log(`[Batch] Created ${pendingSlides.length} preparing slide records, returning immediately`);
+    console.log(`[Batch] Created ${pendingSlides.length} preparing slide records`);
 
     // ========================================================================
-    // 5. BACKGROUND PROCESSING WITH EdgeRuntime.waitUntil()
+    // 5. RETURN IMMEDIATELY - Frontend will call process-batch-research
     // ========================================================================
     //
-    // Use Deno's EdgeRuntime.waitUntil() to continue processing after response.
-    // This allows the function to return immediately while research continues.
+    // NOTE: We do NOT do research or Vertex AI submission here.
+    // The frontend must call process-batch-research with the batch_job_id
+    // to trigger the actual research and submission.
     //
-
-    // Start background processing
-    const backgroundTask = async () => {
-      try {
-        console.log(`[Background] Starting research for ${unitsToProcess.length} units...`);
-
-        // ========================================================================
-        // FETCH SIBLING UNITS FOR SEQUENCE CONTEXT
-        // ========================================================================
-        const loIds = [...new Set(unitsToProcess.map(u => u.learning_objective_id))];
-
-        const { data: allSiblings } = await supabase
-          .from('teaching_units')
-          .select('id, title, what_to_teach, sequence_order, learning_objective_id')
-          .in('learning_objective_id', loIds)
-          .order('sequence_order', { ascending: true });
-
-        const siblingsByLO: Record<string, typeof allSiblings> = {};
-        for (const sibling of allSiblings || []) {
-          const loId = sibling.learning_objective_id;
-          if (!siblingsByLO[loId]) siblingsByLO[loId] = [];
-          siblingsByLO[loId].push(sibling);
-        }
-
-        // ========================================================================
-        // RUN RESEARCH AGENT WITH CONCURRENCY CONTROL
-        // ========================================================================
-        const CONCURRENCY_LIMIT = 12;
-        console.log(`[Background] Running research agent (${CONCURRENCY_LIMIT} concurrent)...`);
-
-        function chunkArray<T>(arr: T[], size: number): T[][] {
-          const chunks: T[][] = [];
-          for (let i = 0; i < arr.length; i += size) {
-            chunks.push(arr.slice(i, i + size));
-          }
-          return chunks;
-        }
-
-        // Prepare all unit data
-        const unitDataList = unitsToProcess.map((unit) => {
-          const lo = unit.learning_objectives as any;
-          const siblings = siblingsByLO[unit.learning_objective_id] || [];
-          const sequencePosition = siblings.findIndex(s => s.id === unit.id) + 1;
-
-          const partialUnitData: TeachingUnitData = {
-            id: unit.id,
-            title: unit.title,
-            what_to_teach: unit.what_to_teach || '',
-            why_this_matters: unit.why_this_matters || '',
-            how_to_teach: unit.how_to_teach || '',
-            target_duration_minutes: unit.target_duration_minutes || 8,
-            target_video_type: unit.target_video_type || 'lecture',
-            prerequisites: unit.prerequisites || [],
-            enables: unit.enables || [],
-            common_misconceptions: unit.common_misconceptions || [],
-            required_concepts: unit.required_concepts || [],
-            avoid_terms: unit.avoid_terms || [],
-            search_queries: unit.search_queries || [],
-            domain: course.detected_domain || 'general',
-            syllabus_text: course.syllabus_text || undefined,
-            learning_objective: {
-              id: lo?.id || '',
-              text: lo?.text || '',
-              bloom_level: lo?.bloom_level || 'understand',
-              core_concept: lo?.core_concept || '',
-              action_verb: lo?.action_verb || '',
-            },
-            course: {
-              id: course.id,
-              title: course.title,
-              code: course.code || '',
-              detected_domain: course.detected_domain || 'general',
-            },
-            module: {
-              title: lo?.modules?.title || 'Module',
-              description: lo?.modules?.description || '',
-              sequence_order: lo?.modules?.sequence_order || 0,
-            },
-            sibling_units: siblings.map(s => ({
-              id: s.id,
-              title: s.title,
-              what_to_teach: s.what_to_teach || '',
-              sequence_order: s.sequence_order,
-            })),
-            sequence_position: sequencePosition,
-            total_siblings: siblings.length,
-          };
-
-          return { unitId: unit.id, unitData: partialUnitData };
-        });
-
-        // Process research in chunks
-        const chunks = chunkArray(unitDataList, CONCURRENCY_LIMIT);
-        const researchResults: { unitId: string; unitData: TeachingUnitData; research: ResearchContext }[] = [];
-
-        for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
-          const chunk = chunks[chunkIndex];
-          console.log(`[Background] Processing research chunk ${chunkIndex + 1}/${chunks.length} (${chunk.length} units)...`);
-
-          const chunkPromises = chunk.map(async ({ unitId, unitData }) => {
-            const research = await runResearchAgent(unitData, domainConfig, googleApiKey);
-            return { unitId, unitData, research };
-          });
-
-          const chunkResults = await Promise.all(chunkPromises);
-          researchResults.push(...chunkResults);
-        }
-
-        console.log(`[Background] Research complete for ${researchResults.length} units`);
-
-        // Create research map
-        const researchByUnit = new Map(
-          researchResults.map(r => [r.unitId, { unitData: r.unitData, research: r.research }])
-        );
-
-        // ========================================================================
-        // BUILD BATCH REQUESTS WITH RESEARCH-GROUNDED PROMPTS
-        // ========================================================================
-        const batchRequests: BatchRequest[] = [];
-        const requestMapping: Record<string, string> = {};
-
-        for (let i = 0; i < unitsToProcess.length; i++) {
-          const unit = unitsToProcess[i];
-          const researchData = researchByUnit.get(unit.id);
-
-          if (!researchData) {
-            console.warn(`[Background] No research data for unit ${unit.id}, skipping`);
-            continue;
-          }
-
-          const enrichedUnitData: TeachingUnitData = {
-            ...researchData.unitData,
-            research_context: researchData.research,
-          };
-
-          const userPrompt = buildPromptForUnit(enrichedUnitData);
-          const requestKey = `slide_${batchRequests.length}`;
-          requestMapping[requestKey] = unit.id;
-
-          batchRequests.push({
-            contents: [
-              {
-                role: 'user',
-                parts: [{ text: userPrompt }],
-              },
-            ],
-            systemInstruction: {
-              parts: [{ text: PROFESSOR_SYSTEM_PROMPT }],
-            },
-            generationConfig: {
-              temperature: 0.7,
-              maxOutputTokens: 8192,
-            },
-          });
-        }
-
-        console.log(`[Background] Built ${batchRequests.length} batch requests with research grounding`);
-
-        // ========================================================================
-        // UPLOAD REQUESTS TO CLOUD STORAGE
-        // ========================================================================
-        let auth, gcsClient, batchClient;
-        try {
-          auth = createVertexAIAuth();
-          gcsClient = createGCSClient(auth);
-          batchClient = createVertexAIBatchClient(auth);
-        } catch (error) {
-          console.error('[Background] Failed to initialize Vertex AI clients:', error);
-          // Mark slides as failed
-          await supabase
-            .from('lecture_slides')
-            .update({ status: 'failed', error_message: 'Vertex AI configuration error' })
-            .eq('batch_job_id', preliminaryBatchJobId);
-          await supabase
-            .from('batch_jobs')
-            .update({ status: 'failed', error_message: 'Vertex AI configuration error' })
-            .eq('id', preliminaryBatchJobId);
-          return;
-        }
-
-        const batchId = crypto.randomUUID();
-        const inputPath = `inputs/${batchId}/requests.jsonl`;
-        const outputPrefix = `gs://${gcsClient.bucketName}/outputs/${batchId}/`;
-
-        const jsonlLines = batchRequests.map((req) => ({
-          request: {
-            contents: req.contents,
-            systemInstruction: req.systemInstruction,
-            generationConfig: req.generationConfig,
-          },
-        }));
-
-        console.log(`[Background] Uploading ${jsonlLines.length} requests to Cloud Storage...`);
-
-        let inputUri: string;
-        try {
-          inputUri = await gcsClient.uploadJsonl(inputPath, jsonlLines);
-          console.log(`[Background] Uploaded to: ${inputUri}`);
-        } catch (uploadError) {
-          console.error('[Background] Failed to upload to Cloud Storage:', uploadError);
-          await supabase
-            .from('lecture_slides')
-            .update({ status: 'failed', error_message: 'Cloud Storage upload failed' })
-            .eq('batch_job_id', preliminaryBatchJobId);
-          await supabase
-            .from('batch_jobs')
-            .update({ status: 'failed', error_message: 'Cloud Storage upload failed' })
-            .eq('id', preliminaryBatchJobId);
-          return;
-        }
-
-        // ========================================================================
-        // CREATE VERTEX AI BATCH PREDICTION JOB
-        // ========================================================================
-        const displayName = `slides-${instructor_course_id}-${Date.now()}`;
-        const modelPath = getVertexAIModelPath(BATCH_MODEL);
-
-        console.log(`[Background] Creating Vertex AI batch job: ${displayName}`);
-
-        let vertexJob;
-        try {
-          vertexJob = await batchClient.createBatchJob({
-            displayName,
-            model: modelPath,
-            inputUri,
-            outputUriPrefix: outputPrefix,
-          });
-        } catch (createError) {
-          console.error('[Background] Failed to create Vertex AI job:', createError);
-          try {
-            await gcsClient.deleteFile(inputPath);
-          } catch (cleanupError) {
-            console.warn('[Background] Failed to clean up uploaded file:', cleanupError);
-          }
-          await supabase
-            .from('lecture_slides')
-            .update({ status: 'failed', error_message: 'Vertex AI batch job creation failed' })
-            .eq('batch_job_id', preliminaryBatchJobId);
-          await supabase
-            .from('batch_jobs')
-            .update({ status: 'failed', error_message: 'Vertex AI batch job creation failed' })
-            .eq('id', preliminaryBatchJobId);
-          return;
-        }
-
-        const googleBatchId = vertexJob.name;
-        console.log(`[Background] Vertex AI job created: ${googleBatchId}`);
-
-        // ========================================================================
-        // UPDATE BATCH JOB RECORD WITH REAL VERTEX JOB INFO
-        // ========================================================================
-        await supabase
-          .from('batch_jobs')
-          .update({
-            google_batch_id: googleBatchId,
-            status: 'pending',
-            request_mapping: requestMapping,
-            output_uri: outputPrefix,
-          })
-          .eq('id', preliminaryBatchJobId);
-
-        // Update slide records to batch_pending
-        await supabase
-          .from('lecture_slides')
-          .update({ status: 'batch_pending' })
-          .eq('batch_job_id', preliminaryBatchJobId);
-
-        console.log(`[Background] Batch job ${preliminaryBatchJobId} submitted successfully with ${batchRequests.length} slides`);
-
-      } catch (error) {
-        console.error('[Background] Fatal error in background task:', error);
-        // Mark everything as failed
-        await supabase
-          .from('lecture_slides')
-          .update({ status: 'failed', error_message: error instanceof Error ? error.message : 'Unknown error' })
-          .eq('batch_job_id', preliminaryBatchJobId);
-        await supabase
-          .from('batch_jobs')
-          .update({ status: 'failed', error_message: error instanceof Error ? error.message : 'Unknown error' })
-          .eq('id', preliminaryBatchJobId);
-      }
-    };
-
-    // Start background task and return immediately
-    EdgeRuntime.waitUntil(backgroundTask());
+    // WHY: EdgeRuntime.waitUntil() is NOT supported in Supabase Edge Functions.
+    // Supabase runs on Deno Deploy, not Cloudflare Workers.
+    //
 
     return new Response(
       JSON.stringify({
         success: true,
         batch_job_id: preliminaryBatchJobId,
-        google_batch_id: null, // Will be populated by background task
+        google_batch_id: null, // Will be set by process-batch-research
         total: unitsToProcess.length,
         skipped: units.length - unitsToProcess.length,
         status: 'preparing',
-        message: `Started batch processing for ${unitsToProcess.length} slides. Research is running in background.`,
+        message: `Created ${unitsToProcess.length} slide placeholders. Call process-batch-research to start.`,
+        next_step: 'process-batch-research', // Hint for frontend
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
