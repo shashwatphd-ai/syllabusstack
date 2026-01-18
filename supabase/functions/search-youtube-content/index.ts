@@ -771,12 +771,107 @@ serve(async (req) => {
     const topCandidatesForAI = scoredVideos.slice(0, 15);
 
     // =========================================================================
-    // STEP 5: AI Batch Evaluation
+    // STEP 5: AI Batch Evaluation (BATCH or SYNC mode)
     // =========================================================================
+    const enableBatchEvaluation = Deno.env.get('ENABLE_BATCH_EVALUATION') === 'true';
+
+    if (enableBatchEvaluation && topCandidatesForAI.length > 0) {
+      // BATCH MODE: Skip inline evaluation, save videos for batch processing
+      console.log(`[BATCH MODE] Skipping inline evaluation for ${topCandidatesForAI.length} videos`);
+
+      // Save content and create content_matches with pending_evaluation status
+      const batchSavedMatches = [];
+      for (const candidate of topCandidatesForAI) {
+        // Upsert content record
+        const { data: existingContent } = await supabaseClient
+          .from("content")
+          .select("id")
+          .eq("source_id", candidate.video.id)
+          .eq("source_type", "youtube")
+          .maybeSingle();
+
+        let contentId: string;
+        if (existingContent) {
+          contentId = existingContent.id;
+        } else {
+          const { data: newContent, error: contentError } = await supabaseClient
+            .from("content")
+            .insert({
+              source_type: "youtube",
+              source_id: candidate.video.id,
+              source_url: `https://www.youtube.com/watch?v=${candidate.video.id}`,
+              title: candidate.video.title,
+              description: candidate.video.description,
+              duration_seconds: candidate.video.duration,
+              thumbnail_url: candidate.video.thumbnailUrl,
+              channel_name: candidate.video.channelTitle,
+              channel_id: candidate.video.channelId,
+              view_count: candidate.video.viewCount,
+              like_count: candidate.video.likeCount,
+              quality_score: candidate.scores.total,
+              is_available: true,
+              last_availability_check: new Date().toISOString(),
+              created_by: user.id,
+            })
+            .select()
+            .single();
+
+          if (contentError || !newContent) {
+            console.error("[BATCH MODE] Error saving content:", contentError);
+            continue;
+          }
+          contentId = newContent.id;
+        }
+
+        // Insert content_match with pending_evaluation status
+        const { data: match, error: matchError } = await supabaseClient
+          .from("content_matches")
+          .upsert({
+            learning_objective_id,
+            content_id: contentId,
+            teaching_unit_id: teaching_unit_id || null,
+            match_score: null,  // Will be set by batch evaluation
+            duration_fit_score: candidate.scores.duration_fit,
+            semantic_similarity_score: candidate.scores.semantic_similarity,
+            engagement_quality_score: candidate.scores.engagement_quality,
+            channel_authority_score: candidate.scores.channel_authority,
+            recency_score: candidate.scores.recency,
+            ai_relevance_score: null,
+            ai_pedagogy_score: null,
+            ai_quality_score: null,
+            ai_reasoning: null,
+            ai_recommendation: null,
+            status: 'pending_evaluation',
+          }, { onConflict: "learning_objective_id,content_id" })
+          .select('id')
+          .single();
+
+        if (matchError) {
+          console.error("[BATCH MODE] Error saving content match:", matchError);
+        } else {
+          batchSavedMatches.push(match);
+        }
+      }
+
+      console.log(`[BATCH MODE] Created ${batchSavedMatches.length} pending evaluation records`);
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          batch_evaluation_pending: true,
+          videos_discovered: batchSavedMatches.length,
+          content_match_ids: batchSavedMatches.map(m => m.id),
+          message: 'Videos discovered and queued for batch evaluation. Call submit-batch-evaluation after all LOs are processed.'
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // SYNC MODE: Original inline evaluation (when batch mode is disabled)
     if (use_ai_evaluation && topCandidatesForAI.length > 0) {
       try {
-        console.log(`Calling AI evaluation for ${topCandidatesForAI.length} videos...`);
-        
+        console.log(`[SYNC MODE] Calling AI evaluation for ${topCandidatesForAI.length} videos...`);
+
         const evalResponse = await fetch(`${supabaseUrl}/functions/v1/evaluate-content-batch`, {
           method: 'POST',
           headers: {

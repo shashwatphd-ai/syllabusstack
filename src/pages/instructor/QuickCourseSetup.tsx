@@ -32,23 +32,25 @@ interface ProcessingResult {
   lo_count: number;
 }
 
-type Step = 
-  | 'upload' 
-  | 'extracting' 
-  | 'analyzing' 
-  | 'creating_course' 
-  | 'saving_structure' 
-  | 'finding_content' 
-  | 'complete' 
+type Step =
+  | 'upload'
+  | 'extracting'
+  | 'analyzing'
+  | 'creating_course'
+  | 'saving_structure'
+  | 'finding_content'
+  | 'evaluating_content'
+  | 'complete'
   | 'error';
 
 const STEP_INFO: Record<Step, { label: string; progress: number; description: string }> = {
   upload: { label: 'Upload Syllabus', progress: 0, description: 'Drag and drop your syllabus PDF' },
   extracting: { label: 'Extracting Text', progress: 15, description: 'Reading document content with AI...' },
   analyzing: { label: 'Analyzing Structure', progress: 35, description: 'Identifying modules and learning objectives...' },
-  creating_course: { label: 'Creating Course', progress: 55, description: 'Setting up your course...' },
-  saving_structure: { label: 'Saving Structure', progress: 70, description: 'Saving modules and objectives...' },
-  finding_content: { label: 'Finding Content', progress: 85, description: 'Searching for matching videos...' },
+  creating_course: { label: 'Creating Course', progress: 50, description: 'Setting up your course...' },
+  saving_structure: { label: 'Saving Structure', progress: 60, description: 'Saving modules and objectives...' },
+  finding_content: { label: 'Finding Content', progress: 75, description: 'Searching for matching videos...' },
+  evaluating_content: { label: 'Evaluating Videos', progress: 90, description: 'AI is scoring videos for pedagogical fit...' },
   complete: { label: 'Complete!', progress: 100, description: 'Your course is ready!' },
   error: { label: 'Error', progress: 0, description: 'Something went wrong' },
 };
@@ -65,7 +67,8 @@ export default function QuickCourseSetupPage() {
   const [errorMessage, setErrorMessage] = useState('');
   const [createdCourseId, setCreatedCourseId] = useState<string | null>(null);
   const [contentProgress, setContentProgress] = useState({ current: 0, total: 0 });
-  
+  const [evaluationBatchJobId, setEvaluationBatchJobId] = useState<string | null>(null);
+
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
@@ -193,9 +196,58 @@ export default function QuickCourseSetupPage() {
         
         setContentProgress({ current: Math.min(i + batchSize, learningObjectives.length), total: learningObjectives.length });
       }
-      
+
+      // Step 4: Trigger batch evaluation for all discovered videos
+      setStep('evaluating_content');
+
+      try {
+        const { data: evalData, error: evalError } = await supabase.functions.invoke('submit-batch-evaluation', {
+          body: { instructor_course_id: createdCourseId },
+        });
+
+        if (evalError) {
+          console.error('Error submitting batch evaluation:', evalError);
+          // Continue anyway - videos will be pending evaluation
+        } else if (evalData?.batch_job_id) {
+          setEvaluationBatchJobId(evalData.batch_job_id);
+
+          // Poll for evaluation completion
+          const pollEvaluation = async () => {
+            try {
+              const { data: pollData } = await supabase.functions.invoke('poll-batch-evaluation', {
+                body: { batch_job_id: evalData.batch_job_id },
+              });
+
+              if (pollData?.is_complete) {
+                console.log('Batch evaluation complete:', pollData);
+                return true;
+              }
+              return false;
+            } catch (e) {
+              console.error('Error polling evaluation:', e);
+              return false;
+            }
+          };
+
+          // Poll every 5 seconds for up to 2 minutes
+          let attempts = 0;
+          const maxAttempts = 24;
+          while (attempts < maxAttempts) {
+            await new Promise(resolve => setTimeout(resolve, 5000));
+            const complete = await pollEvaluation();
+            if (complete) break;
+            attempts++;
+          }
+        } else {
+          console.log('No batch job created (possibly not enough videos)');
+        }
+      } catch (e) {
+        console.error('Batch evaluation error:', e);
+        // Continue anyway - not critical
+      }
+
       setStep('complete');
-      
+
       toast({
         title: 'Course Created Successfully!',
         description: `Created ${processResult.module_count} modules with ${processResult.lo_count} learning objectives.`,
@@ -223,6 +275,7 @@ export default function QuickCourseSetupPage() {
     setErrorMessage('');
     setCreatedCourseId(null);
     setContentProgress({ current: 0, total: 0 });
+    setEvaluationBatchJobId(null);
   };
 
   const isProcessing = !['upload', 'complete', 'error'].includes(step);
