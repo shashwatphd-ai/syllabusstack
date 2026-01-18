@@ -1869,7 +1869,7 @@ export type Database = {
           {
             foreignKeyName: "lecture_slides_teaching_unit_id_fkey"
             columns: ["teaching_unit_id"]
-            isOneToOne: false
+            isOneToOne: true
             referencedRelation: "teaching_units"
             referencedColumns: ["id"]
           },
