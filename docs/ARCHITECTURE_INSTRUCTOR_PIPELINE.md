@@ -90,7 +90,7 @@ supabase/functions/process-syllabus/index.ts
 │                                                                             │
 │  PHASE 1: TEXT EXTRACTION                                                   │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │  Model: gemini-2.0-flash                                            │   │
+│  │  Model: gemini-2.5-flash-lite                                       │   │
 │  │  Input: PDF/DOCX binary (base64)                                    │   │
 │  │  Output: Raw text content                                           │   │
 │  │  Cost: ~$0.008                                                      │   │
@@ -331,13 +331,19 @@ Search YouTube for educational videos matching each Teaching Unit's search queri
 
 ### Frontend Trigger
 ```typescript
-// QuickCourseSetup.tsx (lines 174-197)
-for (const lo of learningObjectives) {
-  await supabase.functions.invoke('search-youtube-content', {
-    body: { learning_objective_id: lo.id }
-  });
-}
+// QuickCourseSetup.tsx - Recommended: Parallel processing for better performance
+await Promise.all(
+  learningObjectives.map(lo =>
+    supabase.functions.invoke('search-youtube-content', {
+      body: { learning_objective_id: lo.id }
+    })
+  )
+);
 ```
+
+> **Performance Note**: Using `Promise.all` enables parallel requests, significantly
+> reducing total time when processing many learning objectives. The sequential `for`
+> loop pattern should be avoided as it waits for each request before starting the next.
 
 ### Edge Function
 ```
@@ -755,8 +761,8 @@ supabase/functions/process-batch-images/index.ts
 │     │    - Visual requirements: type, description, elements, style    │    │
 │     │    - Design rules: clean, high contrast, 16:9, no photos        │    │
 │     │                                                                 │    │
-│     │ b. Generate image via Gemini 2.0 Flash Image                    │    │
-│     │    Model: gemini-2.0-flash-preview-image-generation             │    │
+│     │ b. Generate image via Gemini 3 Pro Image                        │    │
+│     │    Model: gemini-3-pro-image-preview (MODEL_CONFIG.GEMINI_IMAGE)│    │
 │     │    Config: { responseModalities: ['TEXT', 'IMAGE'] }            │    │
 │     │                                                                 │    │
 │     │ c. Upload to Supabase Storage                                   │    │
@@ -972,12 +978,12 @@ CREATE TABLE research_cache (
 | Flag | Default | Description |
 |------|---------|-------------|
 | `ENABLE_BATCH_CURRICULUM` | `true` | Use Vertex AI batch for curriculum decomposition |
-| `ENABLE_BATCH_EVALUATION` | `true`* | Use Vertex AI batch for video evaluation |
+| `ENABLE_BATCH_EVALUATION` | `true` | Use Vertex AI batch for video evaluation |
 | `ENABLE_SYNC_CURRICULUM_FALLBACK` | `true` | Allow sync fallback when batch not ready |
 | `ENABLE_RESEARCH_CACHE` | `true` | Cache research grounding results (7-day TTL) |
 | `ENABLE_BATCH_IMAGE_GENERATION` | `true` | Generate images asynchronously after slides |
 
-*Note: `ENABLE_BATCH_EVALUATION` checks for `=== 'true'` in search-youtube-content but `!== 'false'` in submit-batch-evaluation.
+All flags use consistent `!== 'false'` checking (enabled by default unless explicitly set to 'false').
 
 ### Setting Feature Flags
 
@@ -1000,11 +1006,11 @@ supabase secrets set ENABLE_BATCH_CURRICULUM=false
 
 | Model ID | Purpose | Cost/1M tokens |
 |----------|---------|----------------|
-| `gemini-2.0-flash` | Text extraction, Image generation | $0.10 input |
 | `gemini-2.5-flash` | Domain analysis, Structure analysis, Research, Evaluation | $0.15 input |
-| `gemini-3-pro-preview` | Curriculum decomposition, Slide generation (batch) | $1.25 input |
-| `gemini-3-pro-image-preview` | Image generation (v3 sync) | $0.50 input |
-| `gemini-2.0-flash-preview-image-generation` | Image generation (batch async) | $0.10 input |
+| `gemini-2.5-flash-lite` | Fast text extraction, embeddings | $0.10 input |
+| `gemini-3-pro-preview` | Curriculum decomposition, Slide generation (batch) | $2.00 input |
+| `gemini-3-flash-preview` | Fast complex reasoning | $0.50 input |
+| `gemini-3-pro-image-preview` | Image generation (sync and async batch) | $0.50 input |
 
 ### Model Configuration (ai-orchestrator.ts)
 
@@ -1060,14 +1066,14 @@ src/components/slides/__tests__/SlideRenderer.test.tsx
 
 | Stage | Operation | Model | Cost |
 |-------|-----------|-------|------|
-| 1 | Text Extraction | gemini-2.0-flash | $0.008 |
+| 1 | Text Extraction | gemini-2.5-flash-lite | $0.008 |
 | 1 | Domain Analysis | gemini-2.5-flash | $0.003 |
 | 1 | Structure Analysis | gemini-2.5-flash | $0.015 |
-| 2 | Curriculum Decomposition | gemini-3-pro (batch, 50% off) | $0.52 |
+| 2 | Curriculum Decomposition | gemini-3-pro-preview (batch, 50% off) | $0.52 |
 | 4 | Video Evaluation | gemini-2.5-flash (batch, 50% off) | $0.06 |
 | 5 | Research Grounding | gemini-2.5-flash | $0.27 |
-| 5 | Slide Generation | gemini-3-pro (batch, 50% off) | $1.74 |
-| 6 | Image Generation | gemini-2.0-flash-image | $0.40 |
+| 5 | Slide Generation | gemini-3-pro-preview (batch, 50% off) | $1.74 |
+| 6 | Image Generation | gemini-3-pro-image-preview | $0.40 |
 | **Total** | | | **~$3.02** |
 
 ### Savings from Batch Processing
