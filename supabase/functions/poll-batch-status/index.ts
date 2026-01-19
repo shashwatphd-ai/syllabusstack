@@ -1,10 +1,9 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
 import { MODEL_CONFIG } from '../_shared/ai-orchestrator.ts';
 import { createVertexAIAuth } from '../_shared/vertex-ai-auth.ts';
 import { createGCSClient, GCSClient } from '../_shared/gcs-client.ts';
 import { createVertexAIBatchClient, VertexAIBatchClient } from '../_shared/vertex-ai-batch.ts';
-
 // ============================================================================
 // POLL BATCH STATUS - Check and process Vertex AI batch job results
 // ============================================================================
