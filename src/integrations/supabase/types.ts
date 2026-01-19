@@ -2332,6 +2332,45 @@ export type Database = {
           },
         ]
       }
+      research_cache: {
+        Row: {
+          created_at: string | null
+          domain: string | null
+          expires_at: string
+          hit_count: number | null
+          id: string
+          input_tokens: number | null
+          output_tokens: number | null
+          research_content: Json
+          search_terms: string
+          topic_hash: string
+        }
+        Insert: {
+          created_at?: string | null
+          domain?: string | null
+          expires_at: string
+          hit_count?: number | null
+          id?: string
+          input_tokens?: number | null
+          output_tokens?: number | null
+          research_content: Json
+          search_terms: string
+          topic_hash: string
+        }
+        Update: {
+          created_at?: string | null
+          domain?: string | null
+          expires_at?: string
+          hit_count?: number | null
+          id?: string
+          input_tokens?: number | null
+          output_tokens?: number | null
+          research_content?: Json
+          search_terms?: string
+          topic_hash?: string
+        }
+        Relationships: []
+      }
       skill_profiles: {
         Row: {
           assessment_version: string | null
@@ -3025,6 +3064,7 @@ export type Database = {
         Returns: boolean
       }
       cleanup_expired_cache: { Args: never; Returns: number }
+      cleanup_expired_research_cache: { Args: never; Returns: number }
       find_similar_cached_search: {
         Args: {
           p_keywords: string[]

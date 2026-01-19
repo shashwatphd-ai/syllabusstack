@@ -155,7 +155,7 @@ export interface LectureSlide {
   slide_style: 'standard' | 'minimal' | 'detailed' | 'interactive';
   generation_context: Record<string, unknown> | null;
   generation_model: string | null;
-  status: 'pending' | 'generating' | 'ready' | 'published' | 'failed';
+  status: 'pending' | 'preparing' | 'batch_pending' | 'generating' | 'ready' | 'published' | 'failed';
   error_message: string | null;
   has_audio: boolean;
   audio_status: 'pending' | 'generating' | 'ready' | 'failed' | null;
