@@ -814,7 +814,8 @@ serve(async (req) => {
       batchRequests.push({
         contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
         systemInstruction: { parts: [{ text: PROFESSOR_SYSTEM_PROMPT }] },
-        generationConfig: { temperature: 0.7, maxOutputTokens: 8192 },
+        // Use 32K tokens - 8K was causing truncation for comprehensive slides
+        generationConfig: { temperature: 0.7, maxOutputTokens: 32768 },
       });
     }
 
