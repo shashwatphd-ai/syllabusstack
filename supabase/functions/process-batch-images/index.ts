@@ -21,6 +21,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { MODEL_CONFIG } from '../_shared/ai-orchestrator.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -32,7 +33,7 @@ const corsHeaders = {
 // ============================================================================
 
 const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
-const IMAGE_MODEL = 'gemini-2.0-flash-preview-image-generation';
+const IMAGE_MODEL = MODEL_CONFIG.GEMINI_IMAGE;
 
 // Rate limiting: max concurrent image generations
 const MAX_CONCURRENT_IMAGES = 3;
@@ -83,11 +84,18 @@ interface LectureSlideRecord {
   batch_job_id: string | null;
 }
 
+// Extended type for query result with joined instructor_courses data
+interface LectureSlideRecordWithDomain extends LectureSlideRecord {
+  instructor_courses: {
+    detected_domain: string | null;
+  } | null;
+}
+
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
 
-function base64ToBlob(base64: string): Uint8Array {
+function base64ToUint8Array(base64: string): Uint8Array {
   const binaryString = atob(base64);
   const bytes = new Uint8Array(binaryString.length);
   for (let i = 0; i < binaryString.length; i++) {
@@ -113,12 +121,13 @@ async function generateImage(
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const url = `${GOOGLE_API_BASE}/models/${IMAGE_MODEL}:generateContent?key=${apiKey}`;
+      const url = `${GOOGLE_API_BASE}/models/${IMAGE_MODEL}:generateContent`;
 
       const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey,
         },
         body: JSON.stringify({
           contents: [
@@ -262,7 +271,7 @@ async function processLectureSlides(
 
           const { error: uploadError } = await supabase.storage
             .from('lecture-visuals')
-            .upload(fileName, base64ToBlob(result.base64), {
+            .upload(fileName, base64ToUint8Array(result.base64), {
               contentType: 'image/png',
               upsert: true,
             });
@@ -277,7 +286,10 @@ async function processLectureSlides(
             .from('lecture-visuals')
             .getPublicUrl(fileName);
 
-          return { slide, url: urlData?.publicUrl || fileName, error: null };
+          if (!urlData?.publicUrl) {
+            return { slide, url: null, error: `Failed to get public URL for ${fileName}` };
+          }
+          return { slide, url: urlData.publicUrl, error: null };
         }
 
         return { slide, url: null, error: 'Image generation returned no data' };
@@ -434,7 +446,7 @@ serve(async (req) => {
     let processedCount = 0;
 
     for (const record of records) {
-      const domain = (record as any).instructor_courses?.detected_domain;
+      const domain = (record as LectureSlideRecordWithDomain).instructor_courses?.detected_domain;
 
       const result = await processLectureSlides(
         supabase,
