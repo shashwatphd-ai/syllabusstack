@@ -2,15 +2,12 @@
  * AI-Driven Content-Audio Segment Mapper
  * Maps speaker notes to slide content blocks for synchronized highlighting
  *
- * MIGRATION NOTES: Uses Google Cloud Generative Language API directly
- * - API endpoint: generativelanguage.googleapis.com/v1beta
- * - Model: gemini-2.5-flash for fast segment mapping
- * - API key: GOOGLE_CLOUD_API_KEY environment variable
- * - Request format: Google's native format with systemInstruction and contents
- * - Response parsing: candidates[0].content.parts[0].text
+ * MIGRATION NOTES: Uses OpenRouter as primary gateway with Google Gemini fallback
+ * - OpenRouter for unified access to multiple providers
+ * - Model: gpt-4o-mini via OpenRouter, falls back to Gemini Flash
  */
 
-const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+import { simpleCompletion, MODELS, parseJsonResponse } from './openrouter-client.ts';
 
 export interface ContentBlock {
   id: string;
@@ -156,7 +153,7 @@ function createProportionalMapping(blocks: ContentBlock[], speakerNotes: string)
 export async function mapAudioSegments(
   slide: SlideForMapping,
   audioDurationSeconds: number,
-  apiKey: string
+  _apiKey?: string // kept for backwards compatibility
 ): Promise<AudioSegment[]> {
   const blocks = extractContentBlocks(slide);
   const speakerNotes = slide.speaker_notes || '';
@@ -191,46 +188,21 @@ Return ONLY the JSON array, no explanation:
 [{"target_block": "...", "start_percent": 0, "end_percent": X, "narration_excerpt": "..."}, ...]`;
 
   try {
-    const model = 'gemini-2.5-flash';
-    const url = `${GOOGLE_API_BASE}/models/${model}:generateContent?key=${apiKey}`;
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
+    const systemPrompt = 'You are an expert at analyzing educational content structure. Output valid JSON only.';
+    
+    const content = await simpleCompletion(
+      MODELS.FAST, // gpt-4o-mini:floor
+      systemPrompt,
+      prompt,
+      {
+        max_tokens: 1000,
+        fallbacks: [MODELS.GEMINI_FLASH],
       },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: prompt }],
-          },
-        ],
-        systemInstruction: {
-          parts: [{ text: 'You are an expert at analyzing educational content structure. Output valid JSON only.' }],
-        },
-        generationConfig: {
-          maxOutputTokens: 1000,
-        },
-      }),
-    });
-
-    if (!response.ok) {
-      console.error('AI API error:', response.status);
-      return createProportionalMapping(blocks, speakerNotes);
-    }
-
-    const data = await response.json();
-    let content = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
-
-    // Extract JSON from markdown code blocks if present
-    const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (jsonMatch) {
-      content = jsonMatch[1].trim();
-    }
+      '[Segment Mapper]'
+    );
 
     // Try to parse JSON
-    const segments = JSON.parse(content) as AudioSegment[];
+    const segments = parseJsonResponse<AudioSegment[]>(content);
 
     // Validate segments
     if (!Array.isArray(segments) || segments.length === 0) {
@@ -267,7 +239,7 @@ Return ONLY the JSON array, no explanation:
  */
 export async function batchMapSegments(
   slides: Array<SlideForMapping & { order: number; audio_duration_seconds?: number }>,
-  apiKey: string
+  _apiKey?: string // kept for backwards compatibility
 ): Promise<Map<number, AudioSegment[]>> {
   const results = new Map<number, AudioSegment[]>();
   
@@ -275,8 +247,7 @@ export async function batchMapSegments(
     try {
       const segments = await mapAudioSegments(
         slide,
-        slide.audio_duration_seconds || 60,
-        apiKey
+        slide.audio_duration_seconds || 60
       );
       results.set(slide.order, segments);
       
