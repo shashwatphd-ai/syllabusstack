@@ -210,26 +210,28 @@ export function useSkillsAssessmentWizard() {
   const start = useCallback(async (sessionType: 'standard' | 'quick' = 'standard') => {
     const result = await startAssessment.mutateAsync({ sessionType });
     setSessionId(result.session_id);
-    setCurrentQuestions(result.first_batch);
+    setCurrentQuestions(result.first_batch || []);
     setCurrentQuestionIndex(0);
     setProgress({
-      answered: result.questions_answered,
-      total: result.total_questions,
-      percentage: Math.round((result.questions_answered / result.total_questions) * 100),
+      answered: result.questions_answered || 0,
+      total: result.total_questions || 0,
+      percentage: result.total_questions > 0 
+        ? Math.round((result.questions_answered / result.total_questions) * 100) 
+        : 0,
     });
     setQuestionStartTime(Date.now());
     return result;
   }, [startAssessment]);
 
   const submitAnswer = useCallback(async (responseValue: number) => {
-    if (!sessionId || !currentQuestions[currentQuestionIndex]) return;
+    const currentQuestion = currentQuestions?.[currentQuestionIndex];
+    if (!sessionId || !currentQuestion) return;
 
     const responseTimeMs = Date.now() - questionStartTime;
-    const question = currentQuestions[currentQuestionIndex];
 
     const result = await submitResponse.mutateAsync({
       sessionId,
-      questionId: question.id,
+      questionId: currentQuestion.id,
       responseValue,
       responseTimeMs,
     });
@@ -260,7 +262,7 @@ export function useSkillsAssessmentWizard() {
     return await completeAssessment.mutateAsync({ sessionId });
   }, [sessionId, completeAssessment]);
 
-  const currentQuestion = currentQuestions[currentQuestionIndex] || null;
+  const currentQuestion = currentQuestions?.[currentQuestionIndex] ?? null;
   const isLoading = startAssessment.isPending || submitResponse.isPending || completeAssessment.isPending;
 
   return {

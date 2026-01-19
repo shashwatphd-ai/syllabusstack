@@ -2,15 +2,13 @@
  * AI-Driven SSML Transformer
  * Converts plain speaker notes into expressive SSML for natural text-to-speech
  *
- * MIGRATION NOTES: Uses Google Cloud Generative Language API directly
- * - API endpoint: generativelanguage.googleapis.com/v1beta
- * - Model: gemini-3-flash-preview for fast, quality SSML generation
- * - API key: GOOGLE_CLOUD_API_KEY environment variable
- * - Request format: Google's native format with systemInstruction and contents
+ * MIGRATION NOTES: Uses OpenRouter as primary gateway with Google Gemini fallback
+ * - OpenRouter for unified access to multiple providers
+ * - Model: gpt-4o-mini via OpenRouter, falls back to Gemini Flash
  * - Temperature: 0.3 for consistent SSML structure
  */
 
-const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+import { simpleCompletion, MODELS } from './openrouter-client.ts';
 
 export interface SSMLContext {
   slideType: string;
@@ -30,7 +28,7 @@ export interface SSMLContext {
 export async function transformToSSML(
   speakerNotes: string,
   context: SSMLContext,
-  apiKey: string
+  _apiKey?: string // kept for backwards compatibility
 ): Promise<string> {
   const isFirst = context.slideIndex === 0;
   const isLast = context.slideIndex === context.totalSlides - 1;
@@ -90,42 +88,18 @@ CRITICAL: DO NOT slow down speech excessively. The base TTS already speaks at no
 Return ONLY the SSML markup, no explanation. The output must be valid SSML.`;
 
   try {
-    const model = 'gemini-3-flash-preview';
-    const url = `${GOOGLE_API_BASE}/models/${model}:generateContent?key=${apiKey}`;
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
+    const systemPrompt = 'You are an expert speech synthesis engineer who transforms text into expressive SSML. You understand the nuances of natural speech patterns, pauses, emphasis, and prosody. Your SSML output produces lifelike, engaging audio narration.';
+    
+    let ssml = await simpleCompletion(
+      MODELS.FAST, // gpt-4o-mini:floor
+      systemPrompt,
+      prompt,
+      {
+        temperature: 0.3,
+        fallbacks: [MODELS.GEMINI_FLASH],
       },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: prompt }],
-          },
-        ],
-        systemInstruction: {
-          parts: [{ text: 'You are an expert speech synthesis engineer who transforms text into expressive SSML. You understand the nuances of natural speech patterns, pauses, emphasis, and prosody. Your SSML output produces lifelike, engaging audio narration.' }],
-        },
-        generationConfig: {
-          temperature: 0.3, // Lower temperature for more consistent SSML structure
-        },
-      }),
-    });
-
-    if (!response.ok) {
-      console.error('[SSML Transformer] API error:', response.status);
-      // Fall back to basic SSML wrapping
-      return wrapBasicSSML(speakerNotes);
-    }
-
-    const data = await response.json();
-    let ssml = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-
-    if (!ssml) {
-      return wrapBasicSSML(speakerNotes);
-    }
+      '[SSML Transformer]'
+    );
 
     // Clean up the SSML if AI added markdown or explanations
     ssml = extractSSML(ssml);

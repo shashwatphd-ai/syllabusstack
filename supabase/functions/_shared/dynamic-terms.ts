@@ -4,14 +4,13 @@
  * Extracts domain-specific terms from instructor_courses and learns synonyms automatically.
  * No hardcoded concept lists - everything is derived from the syllabus content.
  *
- * MIGRATION NOTES: Uses Google Cloud Generative Language API directly
- * - API endpoint: generativelanguage.googleapis.com/v1beta
- * - Model: gemini-2.5-flash for fast synonym learning
- * - API key: GOOGLE_CLOUD_API_KEY environment variable (standardized from GEMINI_API_KEY)
- * - Request format: Google's native format with contents and generationConfig
+ * MIGRATION NOTES: Uses OpenRouter as primary gateway with Google Gemini fallback
+ * - OpenRouter for unified access to multiple providers
+ * - Model: gpt-4o-mini via OpenRouter, falls back to Gemini Flash
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
+import { simpleCompletion, MODELS, parseJsonResponse } from './openrouter-client.ts';
 
 const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
 const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -185,12 +184,6 @@ export async function learnSynonymsWithAI(
   context: string[],
   domain: string
 ): Promise<string[]> {
-  const apiKey = Deno.env.get('GOOGLE_CLOUD_API_KEY');
-  if (!apiKey) {
-    console.log('[DYNAMIC-TERMS] No GOOGLE_CLOUD_API_KEY, skipping synonym learning');
-    return [];
-  }
-
   try {
     const prompt = `Given the academic term "${term}" in the context of ${domain}, provide 3-5 synonyms or closely related terms that could be used interchangeably in educational content searches.
 
@@ -199,35 +192,25 @@ ${context.slice(0, 2).map(c => `- "${c}"`).join('\n')}
 
 Return ONLY a JSON array of strings, no explanation. Example: ["synonym1", "synonym2", "synonym3"]`;
 
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+    const content = await simpleCompletion(
+      MODELS.FAST, // gpt-4o-mini:floor
+      'You are a domain expert. Output valid JSON arrays only.',
+      prompt,
       {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.3, maxOutputTokens: 200 },
-        }),
-        signal: AbortSignal.timeout(10000),
-      }
+        temperature: 0.3,
+        max_tokens: 200,
+        fallbacks: [MODELS.GEMINI_FLASH],
+      },
+      '[Dynamic Terms]'
     );
 
-    if (!response.ok) return [];
-
-    const data = await response.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-
     // Parse JSON array from response
-    const match = text.match(/\[.*\]/s);
-    if (match) {
-      const synonyms = JSON.parse(match[0]) as string[];
-      return synonyms.filter(s => typeof s === 'string' && s.length > 2);
-    }
+    const synonyms = parseJsonResponse<string[]>(content);
+    return synonyms.filter(s => typeof s === 'string' && s.length > 2);
   } catch (e) {
     console.log(`[DYNAMIC-TERMS] AI synonym learning failed: ${e}`);
+    return [];
   }
-
-  return [];
 }
 
 /**

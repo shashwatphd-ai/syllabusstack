@@ -1,9 +1,13 @@
 /**
  * AI-Driven Fallback Narration Generator
  * Generates natural lecture narration when speaker_notes are missing or insufficient
+ *
+ * MIGRATION NOTES: Uses OpenRouter as primary gateway with Google Gemini fallback
+ * - OpenRouter for unified access to multiple providers
+ * - Model: gpt-4o-mini via OpenRouter, falls back to Gemini Flash
  */
 
-const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+import { simpleCompletion, MODELS } from './openrouter-client.ts';
 
 export interface SlideForNarration {
   order?: number;
@@ -61,7 +65,7 @@ export function needsNarration(speakerNotes: string | undefined): boolean {
 export async function generateNarration(
   slide: SlideForNarration,
   context: NarrationContext,
-  apiKey: string
+  _apiKey?: string // kept for backwards compatibility
 ): Promise<string> {
   const isFirstSlide = context.slideIndex === 0;
   const isLastSlide = context.slideIndex === context.totalSlides - 1;
@@ -133,36 +137,18 @@ ${isLastSlide ? '6. This is the LAST slide - conclude with a summary and encoura
 Return ONLY the narration text, no explanations or metadata.`;
 
   try {
-    const model = 'gemini-2.5-flash';
-    const url = `${GOOGLE_API_BASE}/models/${model}:generateContent?key=${apiKey}`;
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
+    const systemPrompt = 'You are an expert university professor who gives engaging, clear lectures. You speak naturally and conversationally while maintaining academic authority.';
+    
+    const narration = await simpleCompletion(
+      MODELS.FAST, // gpt-4o-mini:floor
+      systemPrompt,
+      prompt,
+      {
+        max_tokens: 800,
+        fallbacks: [MODELS.GEMINI_FLASH],
       },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: prompt }],
-          },
-        ],
-        systemInstruction: {
-          parts: [{ text: 'You are an expert university professor who gives engaging, clear lectures. You speak naturally and conversationally while maintaining academic authority.' }],
-        },
-        generationConfig: {
-          maxOutputTokens: 800,
-        },
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`AI API error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    const narration = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+      '[AI Narrator]'
+    );
 
     if (!narration || narration.length < 50) {
       throw new Error('Generated narration too short');
@@ -182,7 +168,7 @@ export async function batchGenerateNarration(
   slides: SlideForNarration[],
   unitTitle: string,
   domain: string,
-  apiKey: string
+  _apiKey?: string // kept for backwards compatibility
 ): Promise<Map<number, string>> {
   const narrations = new Map<number, string>();
   
@@ -201,8 +187,7 @@ export async function batchGenerateNarration(
           totalSlides: slides.length,
           unitTitle,
           domain,
-        },
-        apiKey
+        }
       );
       
       const order = slide.order ?? i;
