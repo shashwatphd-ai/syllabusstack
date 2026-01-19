@@ -122,7 +122,8 @@ export default function QuickCourseSetupPage() {
         .single();
 
       if (courseError) throw courseError;
-      setCreatedCourseId(course.id);
+      const courseId = course.id;  // Capture in local variable for immediate use
+      setCreatedCourseId(courseId);
       
       // Step 2: Extract text and analyze structure
       setStep('extracting');
@@ -202,7 +203,7 @@ export default function QuickCourseSetupPage() {
 
       try {
         const { data: evalData, error: evalError } = await supabase.functions.invoke('submit-batch-evaluation', {
-          body: { instructor_course_id: createdCourseId },
+          body: { instructor_course_id: courseId },
         });
 
         if (evalError) {
