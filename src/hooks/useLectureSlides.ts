@@ -252,14 +252,25 @@ export function useCourseLectureSlides(instructorCourseId?: string) {
   const queryClient = useQueryClient();
   
   // Set up Realtime subscription for status changes
-  // Use a ref to avoid stale closures with queryClient
+  // Use a ref to track if subscription is already set up to prevent duplicates
   useEffect(() => {
     if (!instructorCourseId) return;
+    
+    // Only log once when actually setting up
+    const channelName = `lecture-slides-${instructorCourseId}`;
+    
+    // Check if channel already exists
+    const existingChannels = supabase.getChannels();
+    const existingChannel = existingChannels.find(ch => ch.topic === `realtime:${channelName}`);
+    if (existingChannel) {
+      // Channel already exists, skip setup
+      return;
+    }
     
     console.log('[Realtime] Setting up lecture_slides subscription for:', instructorCourseId);
     
     const channel = supabase
-      .channel(`lecture-slides-${instructorCourseId}`)
+      .channel(channelName)
       .on(
         'postgres_changes',
         {
@@ -298,8 +309,7 @@ export function useCourseLectureSlides(instructorCourseId?: string) {
       console.log('[Realtime] Cleaning up lecture_slides subscription');
       supabase.removeChannel(channel);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [instructorCourseId]);
+  }, [instructorCourseId, queryClient]);
   
   return useQuery({
     queryKey: ['course-lecture-slides', instructorCourseId],
