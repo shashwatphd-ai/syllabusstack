@@ -23,7 +23,7 @@
 //
 // Uses Google Cloud Generative Language API directly
 
-import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
+import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
 import { getCachedResponse, setCachedResponse, CACHE_TTL, trackAIUsage } from "./ai-cache.ts";
 
 // Task types for model selection
