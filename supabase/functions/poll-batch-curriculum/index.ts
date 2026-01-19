@@ -133,8 +133,8 @@ serve(async (req) => {
       throw error;
     }
 
-    if (!batchJob.google_batch_id) {
-      throw new Error('No google_batch_id found for this job');
+    if (!batchJob.google_batch_id || batchJob.google_batch_id.startsWith('pending-')) {
+      throw new Error('No valid google_batch_id found for this job');
     }
 
     const vertexStatus = await batchClient.getBatchJob(batchJob.google_batch_id);
