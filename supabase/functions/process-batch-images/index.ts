@@ -227,7 +227,7 @@ IMPORTANT: Generate a clear, educational diagram. Do NOT generate photos of peop
 // ============================================================================
 
 async function processLectureSlides(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   record: LectureSlideRecord,
   apiKey: string,
   domain?: string
