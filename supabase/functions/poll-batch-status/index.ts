@@ -737,11 +737,11 @@ async function processCompletedBatch(
           }
         })
         .catch((err) => {
-          console.error(`[Poll] Image generation trigger error (non-blocking):`, err.message || err);
+          console.error(`[Poll] Image generation trigger error (non-blocking):`, err instanceof Error ? err.message : String(err));
         });
-    }
 
-    console.log(`[Poll] ${succeededCount} slides ready. Async image generation started.`);
+      console.log(`[Poll] ${succeededCount} slides ready. Async image generation triggered.`);
+    }
   } else if (succeededCount > 0) {
     console.log(`[Poll] ${succeededCount} slides ready. Image generation disabled (ENABLE_BATCH_IMAGE_GENERATION=${Deno.env.get('ENABLE_BATCH_IMAGE_GENERATION')}).`);
   }

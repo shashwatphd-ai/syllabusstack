@@ -189,9 +189,15 @@ function getApiKey(): string {
 
 /**
  * Get the app URL for HTTP-Referer header
+ * OpenRouter requires this header to match a registered site
  */
 function getAppUrl(): string {
-  return Deno.env.get('APP_URL') || 'https://syllabusstack.com';
+  const appUrl = Deno.env.get('APP_URL');
+  if (!appUrl) {
+    // Fail fast with clear error - prevents auth failures in staging/dev
+    throw new Error('APP_URL is not configured. This is required for the OpenRouter HTTP-Referer header.');
+  }
+  return appUrl;
 }
 
 /**
