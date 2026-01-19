@@ -285,6 +285,143 @@ serve(async (req) => {
 });
 
 // ============================================================================
+// JSON REPAIR UTILITY
+// ============================================================================
+//
+// Attempts to repair truncated JSON from AI responses that hit token limits.
+// Common issues:
+//   - Unterminated strings (missing closing quote)
+//   - Missing closing brackets/braces
+//   - Truncated in the middle of a value
+//
+
+function repairTruncatedJson(jsonStr: string): string | null {
+  try {
+    // First, try to find the last complete slide object
+    // Look for the pattern where we have complete slide entries
+    
+    // Count open brackets/braces
+    let braceCount = 0;
+    let bracketCount = 0;
+    let inString = false;
+    let lastValidPos = 0;
+    let prevChar = '';
+    
+    for (let i = 0; i < jsonStr.length; i++) {
+      const char = jsonStr[i];
+      
+      // Handle string state (ignore characters inside strings)
+      if (char === '"' && prevChar !== '\\') {
+        inString = !inString;
+      }
+      
+      if (!inString) {
+        if (char === '{') braceCount++;
+        else if (char === '}') {
+          braceCount--;
+          // Mark valid position after closing a complete object
+          if (braceCount >= 0) lastValidPos = i + 1;
+        }
+        else if (char === '[') bracketCount++;
+        else if (char === ']') {
+          bracketCount--;
+          if (bracketCount >= 0) lastValidPos = i + 1;
+        }
+      }
+      
+      prevChar = char;
+    }
+    
+    // If we're in a string, find the last complete object before the truncation
+    if (inString || braceCount > 0 || bracketCount > 0) {
+      // Try to find the last complete slide object
+      // Look for },\n pattern that indicates end of a complete slide
+      const slideEndPattern = /\}\s*,?\s*$/g;
+      let match;
+      let lastGoodEnd = 0;
+      
+      // Find positions where we might have complete objects
+      const possibleEnds = [];
+      const regex = /\}\s*,?\s*\n/g;
+      while ((match = regex.exec(jsonStr)) !== null) {
+        possibleEnds.push(match.index + match[0].length - 1);
+      }
+      
+      // Try each possible end position, starting from the latest
+      for (let i = possibleEnds.length - 1; i >= 0; i--) {
+        const testStr = jsonStr.substring(0, possibleEnds[i] + 1);
+        
+        // Count brackets in the test string
+        let testBraces = 0;
+        let testBrackets = 0;
+        let testInString = false;
+        let testPrev = '';
+        
+        for (const c of testStr) {
+          if (c === '"' && testPrev !== '\\') testInString = !testInString;
+          if (!testInString) {
+            if (c === '{') testBraces++;
+            else if (c === '}') testBraces--;
+            else if (c === '[') testBrackets++;
+            else if (c === ']') testBrackets--;
+          }
+          testPrev = c;
+        }
+        
+        // If this position has balanced inner structure, use it
+        if (testBraces >= 1 && testBrackets >= 1) {
+          lastGoodEnd = possibleEnds[i];
+          break;
+        }
+      }
+      
+      if (lastGoodEnd > 0) {
+        // Truncate to the last good position and close the structure
+        let repaired = jsonStr.substring(0, lastGoodEnd + 1);
+        
+        // Remove any trailing comma
+        repaired = repaired.replace(/,\s*$/, '');
+        
+        // Close any remaining open brackets/braces
+        let finalBraces = 0;
+        let finalBrackets = 0;
+        let finalInString = false;
+        let finalPrev = '';
+        
+        for (const c of repaired) {
+          if (c === '"' && finalPrev !== '\\') finalInString = !finalInString;
+          if (!finalInString) {
+            if (c === '{') finalBraces++;
+            else if (c === '}') finalBraces--;
+            else if (c === '[') finalBrackets++;
+            else if (c === ']') finalBrackets--;
+          }
+          finalPrev = c;
+        }
+        
+        // Close open structures
+        repaired += ']'.repeat(Math.max(0, finalBrackets));
+        repaired += '}'.repeat(Math.max(0, finalBraces));
+        
+        // Validate the repair worked
+        try {
+          JSON.parse(repaired);
+          return repaired;
+        } catch {
+          // Repair failed, return null
+          return null;
+        }
+      }
+    }
+    
+    return null;
+  } catch (e) {
+    console.error('[Poll] JSON repair error:', e);
+    return null;
+  }
+}
+
+// ============================================================================
 // PROCESS COMPLETED BATCH
 // ============================================================================
 //
@@ -433,8 +570,21 @@ async function processCompletedBatch(
         // Pattern 3: Final cleanup of any stray backticks
         jsonStr = jsonStr.replace(/^`+/, '').replace(/`+$/, '');
 
-        // Parse the cleaned JSON
-        const parsed = JSON.parse(jsonStr);
+        // Try to parse the cleaned JSON, with repair for truncated responses
+        let parsed;
+        try {
+          parsed = JSON.parse(jsonStr);
+        } catch (initialParseError) {
+          // Attempt to repair truncated JSON
+          console.log(`[Poll] Attempting JSON repair for index ${i}`);
+          const repaired = repairTruncatedJson(jsonStr);
+          if (repaired) {
+            parsed = JSON.parse(repaired);
+            console.log(`[Poll] JSON repair successful for index ${i}`);
+          } else {
+            throw initialParseError; // Re-throw if repair failed
+          }
+        }
         slides = parsed.slides || parsed;
         
         // Validate slides have actual content (not just empty structure)
