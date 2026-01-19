@@ -524,6 +524,74 @@ OUTPUT (JSON array of slides):
       "speaker_notes": "200-300 words expanding on the definition...",
       "estimated_seconds": 90,
       "pedagogy": {...}
+    },
+    {
+      "order": 3,
+      "type": "misconception",
+      "title": "Common Misconception: [Wrong Belief]",
+      "content": {
+        "main_text": "Many students initially believe that... This section directly addresses this misconception.",
+        "main_text_layout": { "type": "callout", "emphasis_words": ["misconception", "incorrect"] },
+        "key_points": ["Why this belief seems logical initially", "Evidence that contradicts this belief"],
+        "key_points_layout": [
+          { "type": "plain", "emphasis_words": ["seems logical"] },
+          { "type": "plain", "emphasis_words": ["evidence", "contradicts"] }
+        ],
+        "misconception": {
+          "wrong_belief": "Students often think that [specific incorrect belief]. This is a natural assumption because [reason it seems plausible].",
+          "why_wrong": "This belief is problematic because [specific reason]. Research by [Author/Study] shows that [contradicting evidence]. In practice, this leads to [negative consequence].",
+          "correct_understanding": "The accurate understanding is that [correct concept]. This means [practical implication]. A helpful way to remember this: [mnemonic or analogy]."
+        }
+      },
+      "visual_directive": {
+        "type": "diagram",
+        "description": "Split comparison showing the wrong belief crossed out on the left, correct understanding highlighted on the right with connecting arrows showing the transformation",
+        "elements": ["wrong_belief_box", "correct_understanding_box", "transformation_arrow"],
+        "style": "clean academic with red/green contrast",
+        "educational_purpose": "Visually reinforce the contrast between misconception and correct understanding"
+      },
+      "speaker_notes": "200-300 words explaining why this misconception is so common, providing additional examples of how it manifests, and reinforcing the correct understanding with a memorable analogy...",
+      "estimated_seconds": 120,
+      "pedagogy": {
+        "purpose": "Address and correct a common misconception before it becomes entrenched",
+        "bloom_action": "evaluate prior beliefs and reconstruct understanding",
+        "transition_to_next": "Now that we've cleared up this misconception, let's see how the correct understanding applies in practice..."
+      }
+    },
+    {
+      "order": 4,
+      "type": "example",
+      "title": "Real-World Example: [Company/Case Name]",
+      "content": {
+        "main_text": "Let's examine how [concept] plays out in a real-world scenario...",
+        "main_text_layout": { "type": "plain", "emphasis_words": ["real-world", "scenario"] },
+        "key_points": ["Context of the example", "How the concept was applied", "Results and outcomes"],
+        "key_points_layout": [
+          { "type": "plain", "emphasis_words": ["context"] },
+          { "type": "flow", "segments": ["Challenge", "Application", "Result"] },
+          { "type": "plain", "emphasis_words": ["outcomes", "results"] }
+        ],
+        "example": {
+          "scenario": "In 2023, [Company X] faced [specific challenge]. They needed to [specific goal] while dealing with [specific constraint].",
+          "application": "Using [concept from this lecture], they implemented [specific action]. This involved [step 1], [step 2], and [step 3].",
+          "outcome": "The result was [specific measurable outcome]. This demonstrates how [concept] enables [benefit] in practice.",
+          "lesson": "The key takeaway is that [principle]. This example shows why [concept] matters for [target audience/profession]."
+        }
+      },
+      "visual_directive": {
+        "type": "case_study",
+        "description": "Timeline or process diagram showing the company's journey from challenge through application of concept to successful outcome",
+        "elements": ["company_logo_placeholder", "challenge_icon", "solution_steps", "outcome_metrics"],
+        "style": "professional business case study",
+        "educational_purpose": "Connect abstract concept to concrete real-world application students can relate to"
+      },
+      "speaker_notes": "200-300 words providing additional context about the company, why this example is particularly instructive, alternative approaches they could have taken, and how students might encounter similar situations...",
+      "estimated_seconds": 120,
+      "pedagogy": {
+        "purpose": "Demonstrate practical application of the concept in a real context",
+        "bloom_action": "apply theoretical knowledge to analyze a real case",
+        "transition_to_next": "Having seen how this works in practice, let's now explore..."
+      }
     }
   ]
 }

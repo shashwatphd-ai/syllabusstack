@@ -548,31 +548,43 @@ async function processCompletedBatch(
   console.log(`[Poll] Batch complete: ${succeededCount} succeeded, ${failedCount} failed`);
 
   // ========================================================================
-  // POST-BATCH: Queue Image Generation
+  // POST-BATCH: Trigger Async Image Generation
   // ========================================================================
   //
-  // v3 PARITY NOTE: v3 generates images inline using gemini-3-pro-image-preview.
-  // For batch processing, images should be generated separately to avoid:
-  //   1. Timeout issues (batch + images would be too slow)
-  //   2. Rate limiting on image generation API
+  // After slides are saved, trigger async image generation via process-batch-images.
+  // This is a fire-and-forget call - slides are already usable without images.
+  // Images will be populated asynchronously to avoid timeout issues.
   //
-  // ARCHITECTURE:
-  //   - Slides are marked 'ready' immediately (usable without images)
-  //   - visual_directive data is stored in each slide for later generation
-  //   - A separate function (process-batch-images) can generate images async
-  //   - Frontend can trigger image generation on-demand or via scheduled job
-  //
-  // TO IMPLEMENT FULL v3 PARITY:
-  //   1. Create edge function: process-batch-images
-  //   2. For each slide with visual_directive.type !== 'none':
-  //      - Call gemini-3-pro-image-preview with visual_directive.description
-  //      - Upload to lecture-visuals bucket
-  //      - Update slide.visual.url
-  //   3. Consider using batch_jobs table with job_type='images'
-  //
-  // For now, slides are ready for use. Images can be generated later.
-  //
-  if (succeededCount > 0) {
-    console.log(`[Poll] NOTE: ${succeededCount} slides ready. Image generation can be triggered separately.`);
+  const enableImageGeneration = Deno.env.get('ENABLE_BATCH_IMAGE_GENERATION') !== 'false';
+
+  if (succeededCount > 0 && enableImageGeneration) {
+    console.log(`[Poll] Triggering async image generation for batch job: ${batchJob.id}`);
+
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+
+    // Fire-and-forget: Trigger image generation asynchronously
+    // Don't await - let it run in background while we return the poll response
+    fetch(`${supabaseUrl}/functions/v1/process-batch-images`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ batch_job_id: batchJob.id }),
+    })
+      .then((res) => {
+        if (res.ok) {
+          console.log(`[Poll] Image generation triggered successfully for batch ${batchJob.id}`);
+        } else {
+          console.warn(`[Poll] Image generation trigger failed: ${res.status}`);
+        }
+      })
+      .catch((err) => {
+        console.warn(`[Poll] Image generation trigger error (non-blocking):`, err);
+      });
+
+    console.log(`[Poll] ${succeededCount} slides ready. Async image generation started.`);
+  } else if (succeededCount > 0) {
+    console.log(`[Poll] ${succeededCount} slides ready. Image generation disabled or skipped.`);
   }
 }
