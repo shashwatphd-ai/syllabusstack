@@ -1,14 +1,12 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
 import { trackAIUsage, createServiceClient } from "../_shared/ai-cache.ts";
+import { functionCall, MODELS } from "../_shared/openrouter-client.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-
-// Google Cloud API configuration
-const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 /**
  * Assessment Question Generation Schema
@@ -117,11 +115,6 @@ serve(async (req) => {
   }
 
   try {
-    const GOOGLE_CLOUD_API_KEY = Deno.env.get("GOOGLE_CLOUD_API_KEY");
-    if (!GOOGLE_CLOUD_API_KEY) {
-      throw new Error("GOOGLE_CLOUD_API_KEY is not configured");
-    }
-
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       throw new Error("No authorization header");
@@ -187,65 +180,16 @@ Include a mix of:
 For each multiple choice question, provide exactly 4 options with one correct answer.
 For short answer questions, include keywords that indicate correct understanding.`;
 
-    const url = `${GOOGLE_API_BASE}/models/gemini-2.5-flash:generateContent?key=${GOOGLE_CLOUD_API_KEY}`;
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        contents: [
-          { role: "user", parts: [{ text: userPrompt + "\n\nReturn your response using the generate_questions function." }] }
-        ],
-        systemInstruction: {
-          parts: [{ text: QUESTION_GENERATION_PROMPT }]
-        },
-        tools: [{
-          functionDeclarations: [{
-            name: QUESTION_GENERATION_SCHEMA.name,
-            description: QUESTION_GENERATION_SCHEMA.description,
-            parameters: QUESTION_GENERATION_SCHEMA.parameters
-          }]
-        }],
-        toolConfig: {
-          functionCallingConfig: {
-            mode: "ANY",
-            allowedFunctionNames: [QUESTION_GENERATION_SCHEMA.name]
-          }
-        }
-      }),
-    });
+    // Use OpenRouter for AI call
+    const parsed = await functionCall<{ questions: any[] }>(
+      MODELS.FAST,
+      QUESTION_GENERATION_PROMPT,
+      userPrompt,
+      QUESTION_GENERATION_SCHEMA,
+      { fallbacks: [MODELS.GEMINI_FLASH] },
+      '[generate-assessment-questions]'
+    );
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("Google Cloud API error:", response.status, errorText);
-
-      if (response.status === 429) {
-        return new Response(
-          JSON.stringify({ error: "Rate limit exceeded. Please try again later." }),
-          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      if (response.status === 403) {
-        // Google Cloud returns 403 for billing/quota issues
-        return new Response(
-          JSON.stringify({ error: "API quota exceeded or billing issue. Please check your Google Cloud account." }),
-          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      throw new Error(`Google Cloud API error: ${response.status} - ${errorText}`);
-    }
-
-    const data = await response.json();
-    console.log("AI response received");
-
-    // Extract questions from function call response
-    const functionCall = data.candidates?.[0]?.content?.parts?.[0]?.functionCall;
-    if (!functionCall?.args) {
-      throw new Error("Invalid AI response format");
-    }
-
-    const parsed = functionCall.args;
     const questions = parsed.questions || [];
 
     console.log(`Generated ${questions.length} questions`);
@@ -287,9 +231,7 @@ For short answer questions, include keywords that indicate correct understanding
       serviceClient,
       user.id,
       "generate-assessment-questions",
-      "google/gemini-2.5-flash",
-      data.usage?.prompt_tokens,
-      data.usage?.completion_tokens
+      "openrouter/gpt-4o-mini"
     );
 
     return new Response(

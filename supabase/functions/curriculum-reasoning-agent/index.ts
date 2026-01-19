@@ -1,6 +1,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0';
+import { simpleCompletion, parseJsonResponse, MODELS } from "../_shared/openrouter-client.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -58,9 +59,6 @@ interface DecomposeResponse {
   total_estimated_time_minutes: number;
   domain_context: string;
 }
-
-// Google Cloud API configuration
-const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 const SYSTEM_PROMPT = `You are an expert curriculum designer with deep expertise in pedagogical sequencing, instructional design, Bloom's Taxonomy, and Understanding by Design (UbD) framework.
 
@@ -178,63 +176,16 @@ RESPONSE FORMAT (JSON only):
 }
 
 async function callAI(systemPrompt: string, userPrompt: string): Promise<DecomposeResponse> {
-  const googleApiKey = Deno.env.get('GOOGLE_CLOUD_API_KEY');
+  console.log('[curriculum-reasoning-agent] Calling OpenRouter API for decomposition...');
 
-  if (!googleApiKey) {
-    throw new Error('GOOGLE_CLOUD_API_KEY not configured');
-  }
-
-  console.log('[curriculum-reasoning-agent] Calling Google Cloud API for decomposition...');
-
-  // Using gemini-3-pro-preview (mapped from openai/gpt-5.2) for complex curriculum decomposition
-  const url = `${GOOGLE_API_BASE}/models/gemini-3-pro-preview:generateContent?key=${googleApiKey}`;
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      contents: [
-        { role: 'user', parts: [{ text: userPrompt }] }
-      ],
-      systemInstruction: {
-        parts: [{ text: systemPrompt }]
-      },
-    }),
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
-    console.error('[curriculum-reasoning-agent] Google Cloud API error:', error);
-
-    if (response.status === 429) {
-      throw new Error('Rate limit exceeded. Please try again later.');
-    }
-    if (response.status === 403) {
-      // Google Cloud returns 403 for billing/quota issues
-      throw new Error('API quota exceeded or billing issue. Please check your Google Cloud account.');
-    }
-
-    throw new Error(`Google Cloud API error: ${response.status}`);
-  }
-
-  // Safer JSON parsing - handle truncated/empty responses from rate limiting
-  const responseText = await response.text();
-
-  if (!responseText || responseText.trim() === '') {
-    console.error('[curriculum-reasoning-agent] Empty response from AI gateway - possible rate limit');
-    throw new Error('Empty response from AI gateway - possible rate limit. Please try again.');
-  }
-
-  let data;
-  try {
-    data = JSON.parse(responseText);
-  } catch (parseError) {
-    console.error('[curriculum-reasoning-agent] Failed to parse gateway response:', responseText.substring(0, 500));
-    throw new Error('Invalid JSON from AI gateway - response may have been truncated');
-  }
-
-  const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  // Using REASONING model for complex curriculum decomposition
+  const content = await simpleCompletion(
+    MODELS.REASONING,
+    systemPrompt,
+    userPrompt,
+    { fallbacks: [MODELS.GEMINI_PRO, MODELS.FAST] },
+    '[curriculum-reasoning-agent]'
+  );
 
   if (!content) {
     throw new Error('No content in AI response');
@@ -242,16 +193,9 @@ async function callAI(systemPrompt: string, userPrompt: string): Promise<Decompo
 
   console.log('[curriculum-reasoning-agent] Raw AI response length:', content.length);
 
-  // Try to extract JSON from the response (may be wrapped in markdown)
-  let jsonContent = content;
-  const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (jsonMatch) {
-    jsonContent = jsonMatch[1].trim();
-  }
-
   try {
-    const parsed = JSON.parse(jsonContent);
-    return parsed as DecomposeResponse;
+    const parsed = parseJsonResponse<DecomposeResponse>(content);
+    return parsed;
   } catch (e) {
     console.error('[curriculum-reasoning-agent] Failed to parse AI response:', content.substring(0, 500));
     throw new Error('Failed to parse AI response as JSON');

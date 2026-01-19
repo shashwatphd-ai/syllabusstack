@@ -2,16 +2,14 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
 import { MASTER_SYSTEM_PROMPT, JOB_REQUIREMENTS_PROMPT, createJobRequirementsCacheKey } from "../_shared/prompts.ts";
 import { getCachedResponse, setCachedResponse, trackAIUsage, createServiceClient, CACHE_TTL } from "../_shared/ai-cache.ts";
-import { JOB_REQUIREMENTS_SCHEMA, createToolDefinition, createToolChoice } from "../_shared/schemas.ts";
+import { JOB_REQUIREMENTS_SCHEMA } from "../_shared/schemas.ts";
 import { generateKeywordVector } from "../_shared/ai-orchestrator.ts";
+import { functionCall, MODELS } from "../_shared/openrouter-client.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-
-// Google Cloud API configuration
-const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -26,11 +24,6 @@ serve(async (req) => {
         JSON.stringify({ error: "Job title is required" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
-    }
-
-    const GOOGLE_CLOUD_API_KEY = Deno.env.get("GOOGLE_CLOUD_API_KEY");
-    if (!GOOGLE_CLOUD_API_KEY) {
-      throw new Error("GOOGLE_CLOUD_API_KEY is not configured");
     }
 
     console.log("Analyzing dream job:", jobTitle);
@@ -82,7 +75,7 @@ serve(async (req) => {
         realisticBar = tableCache.realistic_bar;
         requirementsKeywords = tableCache.keywords || [];
       } else {
-        // No cache - call AI
+        // No cache - call AI via OpenRouter
         const systemPrompt = `${MASTER_SYSTEM_PROMPT}
 
 ${JOB_REQUIREMENTS_PROMPT}`;
@@ -104,59 +97,23 @@ Be specific to this role and company type. Use real industry knowledge.
 
 Return your response using the generate_job_requirements function.`;
 
-        const url = `${GOOGLE_API_BASE}/models/gemini-2.5-flash:generateContent?key=${GOOGLE_CLOUD_API_KEY}`;
-        const response = await fetch(url, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            contents: [
-              { role: "user", parts: [{ text: userContent }] }
-            ],
-            systemInstruction: {
-              parts: [{ text: systemPrompt }]
-            },
-            tools: [{
-              functionDeclarations: [JOB_REQUIREMENTS_SCHEMA]
-            }],
-            toolConfig: {
-              functionCallingConfig: {
-                mode: "ANY",
-                allowedFunctionNames: [JOB_REQUIREMENTS_SCHEMA.name]
-              }
-            }
-          }),
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error("Google Cloud API error:", response.status, errorText);
-
-          if (response.status === 429) {
-            return new Response(
-              JSON.stringify({ error: "Rate limit exceeded. Please try again later." }),
-              { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-            );
-          }
-          if (response.status === 403) {
-            // Google Cloud returns 403 for billing/quota issues
-            return new Response(
-              JSON.stringify({ error: "API quota exceeded or billing issue. Please check your Google Cloud account." }),
-              { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-            );
-          }
-          throw new Error(`Google Cloud API error: ${response.status}`);
-        }
-
-        const data = await response.json();
-        console.log("AI response received");
-
-        const functionCall = data.candidates?.[0]?.content?.parts?.[0]?.functionCall;
-        if (!functionCall?.args) {
-          throw new Error("Invalid AI response format");
-        }
-        const parsed = functionCall.args;
+        // Use OpenRouter for AI call
+        const parsed = await functionCall<{
+          requirements: any[];
+          description: string | null;
+          salary_range: string | null;
+          day_one_capabilities: any[];
+          differentiators: any[];
+          common_misconceptions: any[];
+          realistic_bar: string | null;
+        }>(
+          MODELS.FAST,
+          systemPrompt,
+          userContent,
+          JOB_REQUIREMENTS_SCHEMA,
+          { fallbacks: [MODELS.GEMINI_FLASH] },
+          '[analyze-dream-job]'
+        );
 
         requirements = parsed.requirements || [];
         description = parsed.description || null;
@@ -217,7 +174,7 @@ Return your response using the generate_job_requirements function.`;
             realistic_bar: realisticBar,
             requirements_keywords: requirementsKeywords
           },
-          "google/gemini-2.5-flash",
+          "openrouter/gpt-4o-mini",
           CACHE_TTL.job_requirements
         );
       }
@@ -285,7 +242,7 @@ Return your response using the generate_job_requirements function.`;
             serviceClient,
             user.id,
             "analyze-dream-job",
-            "google/gemini-2.5-flash"
+            "openrouter/gpt-4o-mini"
           );
         }
       }

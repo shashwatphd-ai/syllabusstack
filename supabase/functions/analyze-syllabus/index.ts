@@ -2,19 +2,17 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
 import { MASTER_SYSTEM_PROMPT, SYLLABUS_EXTRACTION_PROMPT } from "../_shared/prompts.ts";
 import { trackAIUsage, createServiceClient } from "../_shared/ai-cache.ts";
-import { SYLLABUS_EXTRACTION_SCHEMA, createToolDefinition, createToolChoice } from "../_shared/schemas.ts";
+import { SYLLABUS_EXTRACTION_SCHEMA } from "../_shared/schemas.ts";
 import { updateCourseKeywords } from "../_shared/similarity.ts";
 import { generateKeywordVector } from "../_shared/ai-orchestrator.ts";
 import { checkRateLimit, getUserLimits, createRateLimitResponse } from "../_shared/rate-limiter.ts";
 import { createErrorResponse, handleAIGatewayError, createSuccessResponse, logInfo, logError } from "../_shared/error-handler.ts";
+import { functionCall, MODELS, convertSchemaToTool } from "../_shared/openrouter-client.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-
-// Google Cloud API configuration
-const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -65,11 +63,6 @@ serve(async (req) => {
       }
     }
 
-    const GOOGLE_CLOUD_API_KEY = Deno.env.get("GOOGLE_CLOUD_API_KEY");
-    if (!GOOGLE_CLOUD_API_KEY) {
-      return createErrorResponse('SERVICE_UNAVAILABLE', corsHeaders, 'AI service not configured');
-    }
-
     logInfo('analyze-syllabus', 'processing', { courseId });
 
     // Set analysis status to 'analyzing' if we have a courseId and supabase client
@@ -117,48 +110,26 @@ IMPORTANT:
 
 Return your response using the extract_syllabus_data function.`;
 
-    const url = `${GOOGLE_API_BASE}/models/gemini-2.5-flash:generateContent?key=${GOOGLE_CLOUD_API_KEY}`;
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        contents: [
-          { role: "user", parts: [{ text: userContent }] }
-        ],
-        systemInstruction: {
-          parts: [{ text: systemPrompt }]
-        },
-        tools: [{
-          functionDeclarations: [SYLLABUS_EXTRACTION_SCHEMA]
-        }],
-        toolConfig: {
-          functionCallingConfig: {
-            mode: "ANY",
-            allowedFunctionNames: [SYLLABUS_EXTRACTION_SCHEMA.name]
-          }
-        }
-      }),
-    });
+    // Use OpenRouter for AI call
+    const parsed = await functionCall<{
+      capabilities: any[];
+      course_themes: string[];
+      tools_learned: string[];
+      course_title: string | null;
+      course_code: string | null;
+      semester: string | null;
+      credits: number | null;
+    }>(
+      MODELS.FAST,
+      systemPrompt,
+      userContent,
+      SYLLABUS_EXTRACTION_SCHEMA,
+      { fallbacks: [MODELS.GEMINI_FLASH] },
+      '[analyze-syllabus]'
+    );
 
-    // Handle AI gateway errors
-    const gatewayError = handleAIGatewayError(response, corsHeaders);
-    if (gatewayError) {
-      logError('analyze-syllabus', new Error(`AI gateway error: ${response.status}`));
-      return gatewayError;
-    }
+    logInfo('analyze-syllabus', 'ai_response_received', { hasCapabilities: !!parsed.capabilities?.length });
 
-    const data = await response.json();
-    logInfo('analyze-syllabus', 'ai_response_received', { hasFunctionCall: !!data.candidates?.[0]?.content?.parts?.[0]?.functionCall });
-
-    // Extract capabilities from function call response
-    const functionCall = data.candidates?.[0]?.content?.parts?.[0]?.functionCall;
-    if (!functionCall?.args) {
-      return createErrorResponse('AI_GATEWAY_ERROR', corsHeaders, 'Invalid AI response format');
-    }
-
-    const parsed = functionCall.args;
     const capabilities = parsed.capabilities || [];
     const courseThemes = parsed.course_themes || [];
     const toolsLearned = parsed.tools_learned || [];
@@ -210,7 +181,7 @@ Return your response using the extract_syllabus_data function.`;
             evidence_types: evidenceTypes,
             tools_methods: toolsLearned,
             capability_keywords: allKeywords,
-            ai_model_used: "google/gemini-2.5-flash",
+            ai_model_used: "openrouter/gpt-4o-mini",
             analysis_status: "completed",
             analysis_error: null
           };
@@ -269,9 +240,7 @@ Return your response using the extract_syllabus_data function.`;
             serviceClient,
             user.id,
             "analyze-syllabus",
-            "google/gemini-2.5-flash",
-            data.usage?.prompt_tokens,
-            data.usage?.completion_tokens
+            "openrouter/gpt-4o-mini"
           );
         }
       }
