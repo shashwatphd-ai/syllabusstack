@@ -310,13 +310,15 @@ export function useCourseSlideStatus(instructorCourseId?: string) {
 
     enabled: !!instructorCourseId,
 
-    // Poll every 30 seconds if there's an active batch (Google recommends conservative polling)
+    // Poll every 30 seconds if there's an active batch OR we still have work in-flight.
+    // This makes the UI resilient when Realtime events are delayed/blocked.
     refetchInterval: (query) => {
       const data = query.state.data;
-      if (data?.active_batch) {
-        return 30000; // Poll during active batch - 30s aligns with Google's recommendations
+      const hasWorkInFlight = !!data?.active_batch || (data?.batch_pending ?? 0) > 0 || (data?.generating ?? 0) > 0;
+      if (hasWorkInFlight) {
+        return 30000; // Conservative polling - aligns with provider recommendations
       }
-      return false; // Don't poll if no active batch
+      return false;
     },
 
     staleTime: 5000,

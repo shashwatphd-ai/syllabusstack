@@ -67,23 +67,39 @@ export default function InstructorCourseDetailPage() {
   // - submitBatchSlides: Submits all slides to Google Batch API
   // - slideStatus: Overall course slide status with active batch info
   const submitBatchSlides = useSubmitBatchSlides();
-  const { data: slideStatus } = useCourseSlideStatus(id);
+  const courseSlideStatusQuery = useCourseSlideStatus(id);
+  const slideStatus = courseSlideStatusQuery.data;
 
   // Legacy hooks (kept for stuck item cleanup and failed retry)
   const cleanupStuck = useCleanupStuckSlides();
   const retryFailed = useRetryFailedSlides();
-  
-  // Calculate slide stats from local data
-  // NOTE: Includes both legacy 'pending' and new 'batch_pending' statuses
-  // Cast to string for comparison since auto-generated types may not include 'batch_pending' yet
-  const slidesStats = {
-    total: lectureSlides?.length || 0,
-    ready: lectureSlides?.filter(s => s.status === 'ready').length || 0,
-    published: lectureSlides?.filter(s => s.status === 'published').length || 0,
-    pending: lectureSlides?.filter(s => (s.status as string) === 'pending' || (s.status as string) === 'batch_pending').length || 0,
-    generating: lectureSlides?.filter(s => s.status === 'generating').length || 0,
-    failed: lectureSlides?.filter(s => s.status === 'failed').length || 0,
-  };
+
+  // Calculate slide stats.
+  // Prefer backend-computed counts (poll-batch-status) because Realtime can be flaky on some networks.
+  // Fallback to local lectureSlides-derived counts when status API isn't available yet.
+  const slidesStats = useMemo(() => {
+    if (slideStatus?.success) {
+      return {
+        total: slideStatus.total_slides ?? 0,
+        ready: slideStatus.ready ?? 0,
+        published: slideStatus.published ?? 0,
+        pending: (slideStatus.pending ?? 0) + (slideStatus.batch_pending ?? 0),
+        generating: slideStatus.generating ?? 0,
+        failed: slideStatus.failed ?? 0,
+      };
+    }
+
+    return {
+      total: lectureSlides?.length || 0,
+      ready: lectureSlides?.filter(s => s.status === 'ready').length || 0,
+      published: lectureSlides?.filter(s => s.status === 'published').length || 0,
+      // NOTE: Includes both legacy 'pending' and new 'batch_pending' statuses
+      // Cast to string for comparison since auto-generated types may not include 'batch_pending' yet
+      pending: lectureSlides?.filter(s => (s.status as string) === 'pending' || (s.status as string) === 'batch_pending').length || 0,
+      generating: lectureSlides?.filter(s => s.status === 'generating').length || 0,
+      failed: lectureSlides?.filter(s => s.status === 'failed').length || 0,
+    };
+  }, [lectureSlides, slideStatus]);
 
   const [isModuleDialogOpen, setIsModuleDialogOpen] = useState(false);
   const [newModule, setNewModule] = useState({ title: '', description: '' });
