@@ -2,29 +2,36 @@
 // Centralized AI request handling with model selection, caching, fallback logic, and cost tracking
 //
 // ============================================================================
-// MIGRATION NOTES: Lovable AI Gateway → Google Cloud Generative Language API
+// ROUTING STRATEGY: OpenRouter → Google Cloud
 // ============================================================================
 //
-// WHAT CHANGED:
-// - Removed Lovable API fallback logic (was used as backup)
-// - Now uses Google Cloud API (generativelanguage.googleapis.com) directly
-// - Standardized on GOOGLE_CLOUD_API_KEY environment variable
-// - Updated model names to current Google Cloud model identifiers
+// PRIMARY: OpenRouter (unified gateway for OpenAI, Google, Anthropic)
+// FALLBACK: Direct Google Cloud API (if OpenRouter fails)
 //
-// EXPECTED OUTCOMES:
-// - Direct API access without intermediary gateway
-// - Consistent model naming (gemini-2.5-flash, gemini-3-pro-preview, etc.)
-// - Accurate cost tracking based on Google Cloud pricing
-// - Fallback logic between primary/fallback models still works
+// This provides:
+// - Access to best-in-class models from multiple providers
+// - Automatic fallbacks within OpenRouter
+// - Final fallback to direct Google if OpenRouter is unavailable
+// - Unified cost tracking and billing through OpenRouter
 //
-// API ENDPOINT:
-// Before: https://ai.gateway.lovable.dev/v1/chat/completions (OpenAI format)
-// After:  https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent
+// Environment Variables:
+// - OPENROUTER_API_KEY: OpenRouter API key (required for primary)
+// - GOOGLE_CLOUD_API_KEY: Google Cloud API key (required for fallback)
+// - AI_PROVIDER: 'google' to bypass OpenRouter entirely (optional)
+// - APP_URL: Application URL for OpenRouter HTTP-Referer header
 //
-// Uses Google Cloud Generative Language API directly
+// ============================================================================
 
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
 import { getCachedResponse, setCachedResponse, CACHE_TTL, trackAIUsage } from "./ai-cache.ts";
+import { 
+  callOpenRouter, 
+  functionCall as openRouterFunctionCall,
+  simpleCompletion as openRouterSimpleCompletion,
+  MODELS as OPENROUTER_MODELS,
+  shouldUseOpenRouter,
+  type OpenRouterResponse,
+} from "./openrouter-client.ts";
 
 // Task types for model selection
 export type AITaskType = 
@@ -38,7 +45,12 @@ export type AITaskType =
   | 'answer_evaluation'
   | 'content_search';
 
+// ============================================================================
+// MODEL CONFIGURATION
+// ============================================================================
+
 // Google Gemini models (direct API via generativelanguage.googleapis.com)
+// Used as fallback when OpenRouter is unavailable
 export const MODEL_CONFIG = {
   // Fast, cost-effective (default)
   GEMINI_FLASH: 'gemini-2.5-flash',
@@ -52,9 +64,48 @@ export const MODEL_CONFIG = {
   GEMINI_IMAGE: 'gemini-3-pro-image-preview',
 };
 
-// Vertex AI model paths for batch prediction
-// Format: publishers/google/models/{model_id}
-// Used by Vertex AI batchPredictionJobs API
+// OpenRouter model mapping for each task
+// Maps our task types to OpenRouter model names with fallbacks
+const OPENROUTER_TASK_MODELS: Record<AITaskType, { primary: string; fallback: string }> = {
+  syllabus_extraction: { 
+    primary: OPENROUTER_MODELS.FAST,           // gpt-4o-mini - fast extraction
+    fallback: OPENROUTER_MODELS.GEMINI_FLASH,  // google/gemini-2.5-flash
+  },
+  capability_analysis: { 
+    primary: OPENROUTER_MODELS.FAST, 
+    fallback: OPENROUTER_MODELS.GEMINI_FLASH,
+  },
+  job_requirements: { 
+    primary: OPENROUTER_MODELS.REASONING,      // gpt-4.1 - needs reasoning
+    fallback: OPENROUTER_MODELS.CLAUDE_SONNET, // claude-sonnet-4
+  },
+  gap_analysis: { 
+    primary: OPENROUTER_MODELS.REASONING,      // Complex comparison
+    fallback: OPENROUTER_MODELS.CLAUDE_SONNET,
+  },
+  recommendations: { 
+    primary: OPENROUTER_MODELS.FAST, 
+    fallback: OPENROUTER_MODELS.GEMINI_FLASH,
+  },
+  embedding: { 
+    primary: OPENROUTER_MODELS.FAST_CHEAP,     // Cost-optimized
+    fallback: OPENROUTER_MODELS.GEMINI_FLASH,
+  },
+  question_generation: {
+    primary: OPENROUTER_MODELS.FAST,
+    fallback: OPENROUTER_MODELS.GEMINI_FLASH,
+  },
+  answer_evaluation: {
+    primary: OPENROUTER_MODELS.FAST,
+    fallback: OPENROUTER_MODELS.GEMINI_FLASH,
+  },
+  content_search: {
+    primary: OPENROUTER_MODELS.FAST_CHEAP,
+    fallback: OPENROUTER_MODELS.GEMINI_FLASH,
+  }
+};
+
+// Vertex AI model paths for batch prediction (unchanged - these bypass OpenRouter)
 export const VERTEX_AI_MODELS = {
   GEMINI_FLASH: 'publishers/google/models/gemini-2.5-flash',
   GEMINI_FLASH_LITE: 'publishers/google/models/gemini-2.5-flash-lite',
@@ -63,20 +114,7 @@ export const VERTEX_AI_MODELS = {
   GEMINI_IMAGE: 'publishers/google/models/gemini-3-pro-image-preview',
 };
 
-/**
- * Get the Vertex AI model path for a given model ID
- * @param modelId Model ID from MODEL_CONFIG (e.g., "gemini-3-pro-preview")
- * @returns Full Vertex AI model path (e.g., "publishers/google/models/gemini-3-pro-preview")
- */
-export function getVertexAIModelPath(modelId: string): string {
-  // If already a full path, return as-is
-  if (modelId.startsWith('publishers/') || modelId.startsWith('projects/')) {
-    return modelId;
-  }
-  return `publishers/google/models/${modelId}`;
-}
-
-// Task to model mapping with primary and fallback
+// Task to model mapping for direct Google calls (fallback)
 export const TASK_MODEL_MAP: Record<AITaskType, { primary: string; fallback: string }> = {
   syllabus_extraction: { 
     primary: MODEL_CONFIG.GEMINI_FLASH, 
@@ -87,11 +125,11 @@ export const TASK_MODEL_MAP: Record<AITaskType, { primary: string; fallback: str
     fallback: MODEL_CONFIG.GEMINI_PRO 
   },
   job_requirements: { 
-    primary: MODEL_CONFIG.GEMINI_PRO,   // Needs reasoning for accurate requirements
+    primary: MODEL_CONFIG.GEMINI_PRO,
     fallback: MODEL_CONFIG.GEMINI_FLASH 
   },
   gap_analysis: { 
-    primary: MODEL_CONFIG.GEMINI_PRO,   // Complex comparison task
+    primary: MODEL_CONFIG.GEMINI_PRO,
     fallback: MODEL_CONFIG.GEMINI_FLASH 
   },
   recommendations: { 
@@ -116,14 +154,26 @@ export const TASK_MODEL_MAP: Record<AITaskType, { primary: string; fallback: str
   }
 };
 
-// Cost per 1M tokens for each model (USD) - Google Cloud API pricing
+// Cost per 1M tokens for each model (USD) - for tracking
+// OpenRouter uses pay-as-you-go with similar pricing
 export const MODEL_COSTS: Record<string, { input: number; output: number }> = {
+  // Google models (direct)
   'gemini-2.5-flash': { input: 0.15, output: 0.60 },
   'gemini-2.5-flash-lite': { input: 0.10, output: 0.40 },
   'gemini-3-pro-preview': { input: 2.00, output: 12.00 },
   'gemini-3-flash-preview': { input: 0.50, output: 3.00 },
   'gemini-3-pro-image-preview': { input: 0.50, output: 3.00 },
+  // OpenRouter models (approximate)
+  'openai/gpt-4o-mini': { input: 0.15, output: 0.60 },
+  'openai/gpt-4.1': { input: 2.00, output: 8.00 },
+  'google/gemini-2.5-flash': { input: 0.15, output: 0.60 },
+  'anthropic/claude-sonnet-4': { input: 3.00, output: 15.00 },
+  'anthropic/claude-3.5-haiku': { input: 0.25, output: 1.25 },
 };
+
+// ============================================================================
+// INTERFACES
+// ============================================================================
 
 export interface AIRequest {
   task: AITaskType;
@@ -144,7 +194,12 @@ export interface AIResponse {
   cost_usd: number;
   cached: boolean;
   fallback_used: boolean;
+  provider: 'openrouter' | 'google';
 }
+
+// ============================================================================
+// UTILITY FUNCTIONS
+// ============================================================================
 
 /**
  * Calculate cost from token counts for a specific model
@@ -155,27 +210,112 @@ export function calculateCost(model: string, inputTokens: number, outputTokens: 
 }
 
 /**
- * Estimate token count from text
- * Rough approximation: ~4 characters per token
+ * Estimate token count from text (rough approximation)
  */
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
 /**
+ * Get Vertex AI model path for batch prediction
+ */
+export function getVertexAIModelPath(modelId: string): string {
+  if (modelId.startsWith('publishers/') || modelId.startsWith('projects/')) {
+    return modelId;
+  }
+  return `publishers/google/models/${modelId}`;
+}
+
+// ============================================================================
+// OPENROUTER AI CALL
+// ============================================================================
+
+/**
+ * Make AI call through OpenRouter
+ */
+async function makeOpenRouterCall(
+  request: AIRequest,
+  primaryModel: string,
+  fallbackModel: string
+): Promise<{ content: any; usage: { prompt_tokens: number; completion_tokens: number }; model: string }> {
+  console.log(`[OpenRouter] Task: ${request.task}, Primary: ${primaryModel}, Fallback: ${fallbackModel}`);
+
+  // If schema provided, use function calling
+  if (request.schema && request.functionName) {
+    const result = await openRouterFunctionCall<any>(
+      primaryModel,
+      request.systemPrompt,
+      request.userPrompt,
+      {
+        name: request.functionName,
+        description: `Extract ${request.task} data`,
+        parameters: request.schema as Record<string, unknown>,
+      },
+      { fallbacks: [fallbackModel] },
+      `[OpenRouter:${request.task}]`
+    );
+    
+    // Estimate tokens for function calls (OpenRouter doesn't always return usage for tool calls)
+    const inputTokens = estimateTokens(request.systemPrompt + request.userPrompt);
+    const outputTokens = estimateTokens(JSON.stringify(result));
+    
+    return {
+      content: result,
+      usage: { prompt_tokens: inputTokens, completion_tokens: outputTokens },
+      model: primaryModel,
+    };
+  }
+
+  // Simple completion
+  const response = await callOpenRouter({
+    model: primaryModel,
+    messages: [
+      { role: 'system', content: request.systemPrompt },
+      { role: 'user', content: request.userPrompt },
+    ],
+    fallbacks: [fallbackModel],
+    temperature: 0.7,
+    max_tokens: 8192,
+  }, `[OpenRouter:${request.task}]`);
+
+  let content: any = response.choices[0]?.message?.content || '';
+  
+  // Try to parse as JSON if it looks like JSON
+  if (typeof content === 'string' && (content.startsWith('{') || content.startsWith('['))) {
+    try {
+      content = JSON.parse(content);
+    } catch {
+      // Keep as string
+    }
+  }
+
+  return {
+    content,
+    usage: {
+      prompt_tokens: response.usage?.prompt_tokens || estimateTokens(request.systemPrompt + request.userPrompt),
+      completion_tokens: response.usage?.completion_tokens || estimateTokens(JSON.stringify(content)),
+    },
+    model: response.model || primaryModel,
+  };
+}
+
+// ============================================================================
+// GOOGLE CLOUD DIRECT CALL (FALLBACK)
+// ============================================================================
+
+/**
  * Get Google Cloud API key
  */
-function getAPIKey(): string {
+function getGoogleAPIKey(): string {
   const googleKey = Deno.env.get("GOOGLE_CLOUD_API_KEY");
   if (googleKey) {
     return googleKey;
   }
-
   throw new Error("GOOGLE_CLOUD_API_KEY is not configured.");
 }
 
 /**
- * Make a single AI call using Google Gemini API directly
+ * Make a direct call to Google Gemini API (fallback)
  */
 async function makeGeminiCall(
   request: AIRequest,
@@ -184,7 +324,6 @@ async function makeGeminiCall(
 ): Promise<{ content: any; usage: { prompt_tokens: number; completion_tokens: number } }> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
   
-  // Build request body for Gemini API
   const body: any = {
     contents: [
       {
@@ -200,54 +339,47 @@ async function makeGeminiCall(
     }
   };
 
-  // Add JSON schema for structured output
   if (request.schema) {
     body.generationConfig.responseMimeType = "application/json";
     body.generationConfig.responseSchema = request.schema;
   }
 
-  console.log(`Gemini Direct Request: task=${request.task}, model=${model}`);
+  console.log(`[GoogleDirect] Fallback request: task=${request.task}, model=${model}`);
 
   const response = await fetch(url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error(`Gemini API error: ${response.status}`, errorText);
+    console.error(`[GoogleDirect] Error ${response.status}:`, errorText);
     
     if (response.status === 429) {
-      throw new Error("RATE_LIMIT: Rate limit exceeded. Please try again later.");
+      throw new Error("RATE_LIMIT: Rate limit exceeded");
     }
     if (response.status === 403) {
-      throw new Error("API_KEY_INVALID: Google Cloud API key is invalid or lacks permissions.");
+      throw new Error("API_KEY_INVALID: Google Cloud API key is invalid");
     }
     throw new Error(`AI_ERROR: Gemini request failed with status ${response.status}`);
   }
 
   const data = await response.json();
   
-  // Extract content from Gemini response
   let content: any;
   const textContent = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
   
   if (request.schema) {
-    // Parse JSON response
     try {
       content = JSON.parse(textContent);
     } catch {
-      // If JSON parsing fails, return raw text
       content = textContent;
     }
   } else {
     content = textContent;
   }
 
-  // Get usage metadata
   const usageMetadata = data.usageMetadata || {};
   
   return {
@@ -259,20 +391,13 @@ async function makeGeminiCall(
   };
 }
 
-/**
- * Make a single AI call with specified model
- */
-async function makeAICall(
-  request: AIRequest,
-  model: string
-): Promise<{ content: any; usage: { prompt_tokens: number; completion_tokens: number } }> {
-  const apiKey = getAPIKey();
-  return makeGeminiCall(request, model, apiKey);
-}
+// ============================================================================
+// MAIN ORCHESTRATION FUNCTION
+// ============================================================================
 
 /**
- * Main AI orchestration function with fallback logic
- * Tries primary model first, falls back on failure
+ * Main AI orchestration function
+ * Routes through OpenRouter first, falls back to direct Google on failure
  */
 export async function callAI(
   request: AIRequest,
@@ -283,7 +408,7 @@ export async function callAI(
   if (request.cacheKey && supabase) {
     const cached = await getCachedResponse(supabase, request.cacheKey);
     if (cached) {
-      console.log(`Cache HIT for task: ${request.task}`);
+      console.log(`[AI] Cache HIT for task: ${request.task}`);
       return {
         content: cached,
         model_used: 'cached',
@@ -292,48 +417,72 @@ export async function callAI(
         cost_usd: 0,
         cached: true,
         fallback_used: false,
+        provider: 'openrouter',
       };
     }
   }
 
-  // Get model configuration
-  const modelConfig = TASK_MODEL_MAP[request.task] || { 
-    primary: MODEL_CONFIG.GEMINI_FLASH, 
-    fallback: MODEL_CONFIG.GEMINI_PRO 
-  };
-  
-  // Allow model override
-  const primaryModel = request.model || modelConfig.primary;
-  const fallbackModel = modelConfig.fallback;
-
-  let result: { content: any; usage: { prompt_tokens: number; completion_tokens: number } };
+  let result: { content: any; usage: { prompt_tokens: number; completion_tokens: number }; model?: string };
   let modelUsed: string;
   let fallbackUsed = false;
+  let provider: 'openrouter' | 'google' = 'openrouter';
 
-  try {
-    // Try primary model
-    result = await makeAICall(request, primaryModel);
-    modelUsed = primaryModel;
-    console.log(`Primary model ${primaryModel} succeeded`);
-  } catch (primaryError) {
-    // Check if it's a non-retryable error
-    const errorMessage = primaryError instanceof Error ? primaryError.message : String(primaryError);
-    
-    if (errorMessage.startsWith("RATE_LIMIT:") || errorMessage.startsWith("CREDITS_EXHAUSTED:") || errorMessage.startsWith("API_KEY_INVALID:")) {
-      throw primaryError;
+  const useOpenRouter = shouldUseOpenRouter();
+
+  if (useOpenRouter) {
+    // === PRIMARY: OpenRouter ===
+    const openRouterModels = OPENROUTER_TASK_MODELS[request.task];
+    const primaryModel = request.model || openRouterModels.primary;
+    const fallbackModel = openRouterModels.fallback;
+
+    try {
+      result = await makeOpenRouterCall(request, primaryModel, fallbackModel);
+      modelUsed = result.model || primaryModel;
+      provider = 'openrouter';
+      console.log(`[AI] OpenRouter succeeded: ${modelUsed}`);
+    } catch (openRouterError) {
+      const errorMessage = openRouterError instanceof Error ? openRouterError.message : String(openRouterError);
+      console.warn(`[AI] OpenRouter failed, falling back to Google Direct:`, errorMessage);
+      
+      // === FALLBACK: Direct Google ===
+      try {
+        const googleModels = TASK_MODEL_MAP[request.task];
+        const googleApiKey = getGoogleAPIKey();
+        
+        result = await makeGeminiCall(request, googleModels.primary, googleApiKey);
+        modelUsed = googleModels.primary;
+        fallbackUsed = true;
+        provider = 'google';
+        console.log(`[AI] Google Direct fallback succeeded: ${modelUsed}`);
+      } catch (googleError) {
+        console.error(`[AI] Both OpenRouter and Google Direct failed`);
+        throw googleError;
+      }
     }
-
-    console.warn(`Primary model ${primaryModel} failed, trying fallback ${fallbackModel}:`, errorMessage);
+  } else {
+    // === BYPASS: Direct Google (AI_PROVIDER=google) ===
+    const googleModels = TASK_MODEL_MAP[request.task];
+    const primaryModel = request.model || googleModels.primary;
+    const fallbackModel = googleModels.fallback;
+    const googleApiKey = getGoogleAPIKey();
     
     try {
-      // Try fallback model
-      result = await makeAICall(request, fallbackModel);
+      result = await makeGeminiCall(request, primaryModel, googleApiKey);
+      modelUsed = primaryModel;
+      provider = 'google';
+    } catch (primaryError) {
+      const errorMessage = primaryError instanceof Error ? primaryError.message : String(primaryError);
+      
+      if (errorMessage.startsWith("RATE_LIMIT:") || errorMessage.startsWith("API_KEY_INVALID:")) {
+        throw primaryError;
+      }
+
+      console.warn(`[AI] Primary Google model failed, trying fallback:`, errorMessage);
+      
+      result = await makeGeminiCall(request, fallbackModel, googleApiKey);
       modelUsed = fallbackModel;
       fallbackUsed = true;
-      console.log(`Fallback model ${fallbackModel} succeeded`);
-    } catch (fallbackError) {
-      console.error(`Both primary and fallback models failed`);
-      throw fallbackError;
+      provider = 'google';
     }
   }
 
@@ -353,7 +502,7 @@ export async function callAI(
     );
   }
 
-  // Track usage if user provided
+  // Track usage in database
   if (supabase && userId) {
     await trackAIUsage(
       supabase, 
@@ -365,7 +514,7 @@ export async function callAI(
     );
   }
 
-  console.log(`AI Response: model=${modelUsed}, api=Google Cloud, tokens=${result.usage.prompt_tokens}/${result.usage.completion_tokens}, cost=$${costUsd.toFixed(6)}, fallback=${fallbackUsed}`);
+  console.log(`[AI] Response: provider=${provider}, model=${modelUsed}, tokens=${result.usage.prompt_tokens}/${result.usage.completion_tokens}, cost=$${costUsd.toFixed(6)}, fallback=${fallbackUsed}`);
 
   return {
     content: result.content,
@@ -375,6 +524,7 @@ export async function callAI(
     cost_usd: costUsd,
     cached: false,
     fallback_used: fallbackUsed,
+    provider,
   };
 }
 
@@ -387,20 +537,44 @@ export async function callAISimple(
   userPrompt: string,
   model?: string
 ): Promise<{ content: string; model_used: string }> {
-  const selectedModel = model || TASK_MODEL_MAP[task]?.primary || MODEL_CONFIG.GEMINI_FLASH;
+  const useOpenRouter = shouldUseOpenRouter();
   
-  const result = await makeAICall({
+  if (useOpenRouter) {
+    const openRouterModels = OPENROUTER_TASK_MODELS[task];
+    const selectedModel = model || openRouterModels.primary;
+    
+    const content = await openRouterSimpleCompletion(
+      selectedModel,
+      systemPrompt,
+      userPrompt,
+      { fallbacks: [openRouterModels.fallback] },
+      `[OpenRouter:${task}]`
+    );
+    
+    return { content, model_used: selectedModel };
+  }
+
+  // Direct Google fallback
+  const googleModels = TASK_MODEL_MAP[task];
+  const selectedModel = model || googleModels.primary;
+  const googleApiKey = getGoogleAPIKey();
+  
+  const result = await makeGeminiCall({
     task,
     systemPrompt,
     userPrompt,
     model: selectedModel
-  }, selectedModel);
+  }, selectedModel, googleApiKey);
 
   return {
     content: typeof result.content === 'string' ? result.content : JSON.stringify(result.content),
     model_used: selectedModel,
   };
 }
+
+// ============================================================================
+// SUPABASE CLIENT HELPERS
+// ============================================================================
 
 /**
  * Create a service role Supabase client
@@ -431,11 +605,15 @@ export function createUserClient(authHeader: string): SupabaseClient {
  * Get model for a specific task (useful for edge functions)
  */
 export function getModelForTask(task: AITaskType): { primary: string; fallback: string } {
-  return TASK_MODEL_MAP[task] || { 
-    primary: MODEL_CONFIG.GEMINI_FLASH, 
-    fallback: MODEL_CONFIG.GEMINI_PRO 
-  };
+  if (shouldUseOpenRouter()) {
+    return OPENROUTER_TASK_MODELS[task];
+  }
+  return TASK_MODEL_MAP[task];
 }
+
+// ============================================================================
+// KEYWORD-BASED SIMILARITY (LOCAL ALTERNATIVE TO EMBEDDINGS)
+// ============================================================================
 
 /**
  * Generate keyword-based representation for similarity matching
