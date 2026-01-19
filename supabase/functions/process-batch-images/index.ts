@@ -188,12 +188,54 @@ async function generateImage(
   return null;
 }
 
+function inferVisualDirective(slide: Slide): VisualDirective | null {
+  // Skip title slides and summary slides - they typically don't need visuals
+  const skipTypes = ['title_slide', 'summary', 'conclusion', 'recap'];
+  if (skipTypes.includes(slide.type?.toLowerCase() || '')) {
+    return null;
+  }
+  
+  // Check if slide already has visual directive
+  if (slide.visual_directive?.type && slide.visual_directive.type !== 'none') {
+    return slide.visual_directive;
+  }
+  
+  // Infer from slide content
+  const content = slide.content || {};
+  const title = slide.title || '';
+  const mainText = typeof content.main_text === 'string' ? content.main_text : '';
+  const keyPoints = Array.isArray(content.key_points) ? content.key_points : [];
+  
+  // Build description from available content
+  const conceptText = keyPoints.slice(0, 2).join(' ') || mainText.slice(0, 300);
+  
+  // Determine visual type based on slide type and content
+  let visualType = 'diagram';
+  if (slide.type === 'example' || slide.type === 'case_study') {
+    visualType = 'illustration';
+  } else if (slide.type === 'comparison') {
+    visualType = 'infographic';
+  }
+  
+  return {
+    type: visualType,
+    description: `Visual representation of: ${title}. Key concepts: ${conceptText.slice(0, 200)}`,
+    elements: [title, ...keyPoints.slice(0, 3).map(p => typeof p === 'string' ? p.slice(0, 50) : '')].filter(Boolean),
+    style: 'clean academic professional',
+    educational_purpose: `Illustrate the core concept of ${title}`,
+  };
+}
+
 function buildImagePrompt(
   slide: Slide,
   lectureTitle: string,
   domain?: string
 ): string {
-  const directive = slide.visual_directive;
+  // Try to get existing directive or infer one
+  const directive = slide.visual_directive?.type && slide.visual_directive.type !== 'none' 
+    ? slide.visual_directive 
+    : inferVisualDirective(slide);
+  
   if (!directive) return '';
 
   return `Create an educational diagram for a university lecture slide.
@@ -238,13 +280,15 @@ async function processLectureSlides(
 
   console.log(`${functionName} Processing lecture: ${record.title} (${record.slides.length} slides)`);
 
-  // Find slides that need images
-  const slidesNeedingImages = record.slides.filter(
-    (slide) =>
-      slide.visual_directive?.type &&
-      slide.visual_directive.type !== 'none' &&
-      (!slide.visual?.url)
-  );
+  // Find slides that need images - use inference if visual_directive is missing
+  const slidesNeedingImages = record.slides.filter((slide) => {
+    // Skip if already has a visual URL
+    if (slide.visual?.url) return false;
+    
+    // Check if has explicit directive or can be inferred
+    const directive = inferVisualDirective(slide);
+    return directive !== null;
+  });
 
   console.log(`${functionName} ${slidesNeedingImages.length} slides need images`);
 
