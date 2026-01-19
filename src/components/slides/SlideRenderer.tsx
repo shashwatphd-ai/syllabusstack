@@ -378,17 +378,20 @@ export function SlideRenderer({
               {professor && (slide.content as any).misconception && (
                 <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20">
                   <p className="font-medium text-red-600 dark:text-red-400 text-sm mb-1">⚠️ Common Misconception</p>
-                  {typeof (slide.content as any).misconception === 'string' ? (
-                    // Legacy string format
-                    <p className="text-sm">{(slide.content as any).misconception}</p>
-                  ) : (
-                    // V3 object format
-                    <>
-                      <p className="text-sm mb-1"><strong>Wrong belief:</strong> {(slide.content as any).misconception.wrong_belief}</p>
-                      <p className="text-sm mb-1"><strong>Why it's wrong:</strong> {(slide.content as any).misconception.why_wrong}</p>
-                      <p className="text-sm text-green-600 dark:text-green-400"><strong>Correct:</strong> {(slide.content as any).misconception.correct_understanding}</p>
-                    </>
-                  )}
+                  {(() => {
+                    const misconception = (slide.content as any).misconception;
+                    return typeof misconception === 'string' ? (
+                      // Legacy string format
+                      <p className="text-sm">{misconception}</p>
+                    ) : (
+                      // V3 object format
+                      <>
+                        <p className="text-sm mb-1"><strong>Wrong belief:</strong> {misconception.wrong_belief}</p>
+                        <p className="text-sm mb-1"><strong>Why it's wrong:</strong> {misconception.why_wrong}</p>
+                        <p className="text-sm text-green-600 dark:text-green-400"><strong>Correct:</strong> {misconception.correct_understanding}</p>
+                      </>
+                    );
+                  })()}
                 </div>
               )}
               
@@ -413,16 +416,19 @@ export function SlideRenderer({
               {slide.content.example && (
                 <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20">
                   <p className="font-medium text-green-600 dark:text-green-400 text-sm mb-1">Example</p>
-                  {typeof slide.content.example === 'string' ? (
-                    // Legacy string format
-                    <p className="text-sm">{slide.content.example}</p>
-                  ) : (
-                    // V3 object format
-                    <>
-                      <p className="text-sm mb-1">{slide.content.example.scenario}</p>
-                      <p className="text-sm text-muted-foreground">{getExampleExplanation()}</p>
-                    </>
-                  )}
+                  {(() => {
+                    const example = slide.content.example;
+                    return typeof example === 'string' ? (
+                      // Legacy string format
+                      <p className="text-sm">{example}</p>
+                    ) : (
+                      // V3 object format
+                      <>
+                        <p className="text-sm mb-1">{example.scenario}</p>
+                        <p className="text-sm text-muted-foreground">{getExampleExplanation()}</p>
+                      </>
+                    );
+                  })()}
                 </div>
               )}
               

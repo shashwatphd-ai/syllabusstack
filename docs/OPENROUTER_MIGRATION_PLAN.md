@@ -72,8 +72,8 @@ Examples:
 | **process-syllabus** (structure) | gemini-2.5-flash | `openai/gpt-4o-mini` | auto |
 | **submit-batch-curriculum** | gemini-3-pro (Vertex) | `openai/gpt-4.1` | N/A (batch) |
 | **submit-batch-evaluation** | gemini-2.5-flash (Vertex) | `openai/gpt-4o-mini` | N/A (batch) |
-| **process-batch-research** (research) | gemini-2.5-flash + Google Search | `google/gemini-2.5-flash` | Keep native |
-| **process-batch-images** | gemini-3-pro-image | `google/gemini-2.5-flash` + separate image | Keep native |
+| **process-batch-research** (research) | gemini-2.5-flash + Google Search | Keep native (Google Search grounding) | N/A |
+| **process-batch-images** | gemini-3-pro-image | Keep native (OpenRouter doesn't support image gen) | N/A |
 
 ---
 

@@ -146,7 +146,7 @@ Return a JSON object with a "slides" array. Each slide must have:
     "style": "...",
     "educational_purpose": "..."
   },
-  "speaker_notes": "Comprehensive teaching notes (200-300 words)...",
+  "speaker_notes": "Comprehensive teaching notes (200-400 words)...",
   "pedagogy": {
     "bloom_level": "understand|apply|analyze|evaluate|create",
     "prior_knowledge": ["..."],

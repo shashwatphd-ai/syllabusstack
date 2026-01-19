@@ -566,8 +566,9 @@ AI_PROVIDER=openrouter   # or 'google' to rollback
 ```typescript
 let score = 70;  // Base: slides generated
 
-// Content depth
-if (avgSpeakerNotesLength > 500) score += 10;
+// Content depth (aligned with 200-400 word speaker notes from prompt)
+if (avgSpeakerNotesLength > 200) score += 5;
+if (avgSpeakerNotesLength > 350) score += 5;  // Bonus for hitting upper range
 if (hasMisconceptionSlides) score += 5;
 if (hasDefinitionBlocks) score += 5;
 
