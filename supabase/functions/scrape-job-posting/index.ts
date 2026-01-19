@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import { getWebProvider } from "../_shared/web-provider.ts";
+import { simpleCompletion, MODELS } from "../_shared/openrouter-client.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -131,25 +132,11 @@ serve(async (req) => {
     
     console.log(`Scraped ${markdown.length} characters from ${jobUrl.host}`);
 
-    // Use Lovable AI to extract structured job data
-    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
-    
+    // Use OpenRouter for AI extraction
     let jobData: JobPostingData;
     
-    if (OPENAI_API_KEY) {
-      // Use AI to extract structured data
-      const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${OPENAI_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          messages: [
-            {
-              role: "system",
-              content: `You are a job posting analyzer. Extract structured information from job postings.
+    try {
+      const systemPrompt = `You are a job posting analyzer. Extract structured information from job postings.
 Return a JSON object with these fields (use null for missing fields):
 {
   "title": "job title",
@@ -161,34 +148,22 @@ Return a JSON object with these fields (use null for missing fields):
   "requirements": ["list of required skills/qualifications"],
   "responsibilities": ["list of key responsibilities"],
   "experienceLevel": "entry|mid|senior|lead|executive"
-}`
-            },
-            {
-              role: "user",
-              content: `Extract job information from this posting:\n\n${markdown.slice(0, 8000)}`
-            }
-          ],
-          temperature: 0.3,
-          response_format: { type: "json_object" }
-        }),
-      });
+}`;
 
-      if (aiResponse.ok) {
-        const aiData = await aiResponse.json();
-        try {
-          jobData = JSON.parse(aiData.choices[0].message.content);
-          console.log("AI extracted job data:", jobData.title);
-        } catch {
-          console.error("Failed to parse AI response");
-          jobData = extractJobDataFallback(markdown, metadata);
-        }
-      } else {
-        console.error("AI API error:", aiResponse.status);
-        jobData = extractJobDataFallback(markdown, metadata);
-      }
-    } else {
-      // Fallback: basic extraction without AI
-      console.log("No OPENAI_API_KEY, using fallback extraction");
+      const userPrompt = `Extract job information from this posting:\n\n${markdown.slice(0, 8000)}`;
+
+      const aiResponse = await simpleCompletion(
+        MODELS.FAST,
+        systemPrompt,
+        userPrompt,
+        { json: true, fallbacks: [MODELS.GEMINI_FLASH] },
+        '[scrape-job-posting]'
+      );
+
+      jobData = JSON.parse(aiResponse);
+      console.log("AI extracted job data:", jobData.title);
+    } catch (aiError) {
+      console.error("AI extraction failed, using fallback:", aiError);
       jobData = extractJobDataFallback(markdown, metadata);
     }
 
@@ -198,7 +173,7 @@ Return a JSON object with these fields (use null for missing fields):
         data: jobData,
         sourceUrl: jobUrl.href,
         sourceHost: jobUrl.host,
-        provider: webProvider.name,  // Track which provider was used
+        provider: webProvider.name,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

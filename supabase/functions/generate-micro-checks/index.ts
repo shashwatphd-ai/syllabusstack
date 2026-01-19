@@ -1,13 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
+import { simpleCompletion, parseJsonResponse, MODELS } from "../_shared/openrouter-client.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
-
-// Google Cloud API configuration
-const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 interface MicroCheckRequest {
   content_id: string;
@@ -36,7 +34,6 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const googleApiKey = Deno.env.get('GOOGLE_CLOUD_API_KEY');
     
     const supabase = createClient(supabaseUrl, supabaseKey);
 
@@ -76,7 +73,9 @@ serve(async (req) => {
       checkInterval * (i + 1)
     );
 
-    const prompt = `You are an educational assessment expert. Generate ${num_checks} micro-check questions for a video about "${content_title}".
+    const systemPrompt = 'You are an educational assessment expert. Generate micro-check questions in valid JSON format only.';
+
+    const userPrompt = `You are an educational assessment expert. Generate ${num_checks} micro-check questions for a video about "${content_title}".
 
 Learning Objective: ${learning_objective_text}
 
@@ -108,36 +107,16 @@ Return a JSON array with exactly ${num_checks} objects in this format:
 
 Return ONLY the JSON array, no other text.`;
 
-    // Use Google Cloud API
-    const url = `${GOOGLE_API_BASE}/models/gemini-2.5-flash:generateContent?key=${googleApiKey}`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        contents: [
-          { role: 'user', parts: [{ text: prompt }] }
-        ],
-        systemInstruction: {
-          parts: [{ text: 'You are an educational assessment expert. Generate micro-check questions in valid JSON format only.' }]
-        },
-        generationConfig: {
-          temperature: 0.7,
-        },
-      }),
-    });
+    // Use OpenRouter for AI call
+    const content = await simpleCompletion(
+      MODELS.FAST,
+      systemPrompt,
+      userPrompt,
+      { temperature: 0.7, fallbacks: [MODELS.GEMINI_FLASH] },
+      '[generate-micro-checks]'
+    );
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('AI API error:', errorText);
-      throw new Error(`AI API error: ${response.status}`);
-    }
-
-    const aiData = await response.json();
-    const generatedText = aiData.candidates?.[0]?.content?.parts?.[0]?.text;
-
-    if (!generatedText) {
+    if (!content) {
       throw new Error('No response from AI');
     }
 
@@ -145,13 +124,13 @@ Return ONLY the JSON array, no other text.`;
     let microChecks: GeneratedMicroCheck[];
     try {
       // Extract JSON from the response (in case there's extra text)
-      const jsonMatch = generatedText.match(/\[[\s\S]*\]/);
+      const jsonMatch = content.match(/\[[\s\S]*\]/);
       if (!jsonMatch) {
         throw new Error('No JSON array found in response');
       }
       microChecks = JSON.parse(jsonMatch[0]);
     } catch (parseError) {
-      console.error('Failed to parse AI response:', generatedText);
+      console.error('Failed to parse AI response:', content);
       throw new Error('Failed to parse micro-checks from AI response');
     }
 
@@ -196,9 +175,7 @@ Return ONLY the JSON array, no other text.`;
     await supabase.from('ai_usage').insert({
       user_id: user.id,
       function_name: 'generate-micro-checks',
-      model_used: 'gemini-2.5-flash',
-      input_tokens: prompt.length,
-      output_tokens: generatedText.length,
+      model_used: 'openrouter/gpt-4o-mini',
     });
 
     return new Response(JSON.stringify({ 

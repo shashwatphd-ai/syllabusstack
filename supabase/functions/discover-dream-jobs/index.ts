@@ -1,13 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
+import { simpleCompletion, parseJsonResponse, MODELS } from "../_shared/openrouter-client.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-
-// Google Cloud API configuration
-const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 interface DiscoveredJob {
   title: string;
@@ -62,11 +60,6 @@ serve(async (req) => {
       .select("title")
       .eq("user_id", user.id)
       .limit(10);
-
-    const GOOGLE_CLOUD_API_KEY = Deno.env.get("GOOGLE_CLOUD_API_KEY");
-    if (!GOOGLE_CLOUD_API_KEY) {
-      throw new Error("GOOGLE_CLOUD_API_KEY is not configured");
-    }
 
     console.log("Discovering dream jobs for user with context:", {
       interests,
@@ -130,40 +123,14 @@ Based on this profile, suggest 5-8 diverse career paths including:
 - Interdisciplinary roles combining their interests
 - Both traditional and non-traditional paths`;
 
-    const url = `${GOOGLE_API_BASE}/models/gemini-2.5-flash:generateContent?key=${GOOGLE_CLOUD_API_KEY}`;
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        contents: [
-          { role: "user", parts: [{ text: userContent }] }
-        ],
-        systemInstruction: {
-          parts: [{ text: systemPrompt }]
-        },
-        generationConfig: {
-          temperature: 0.7,
-        },
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("Google Cloud API error:", response.status, errorText);
-
-      if (response.status === 429) {
-        return new Response(
-          JSON.stringify({ error: "Rate limit exceeded. Please try again later." }),
-          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      throw new Error(`AI gateway error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    // Use OpenRouter for AI call
+    const content = await simpleCompletion(
+      MODELS.FAST,
+      systemPrompt,
+      userContent,
+      { temperature: 0.7, fallbacks: [MODELS.GEMINI_FLASH] },
+      '[discover-dream-jobs]'
+    );
 
     if (!content) {
       throw new Error("No response from AI");
@@ -172,13 +139,7 @@ Based on this profile, suggest 5-8 diverse career paths including:
     // Parse JSON from response
     let parsed;
     try {
-      // Try to extract JSON from the response
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        parsed = JSON.parse(jsonMatch[0]);
-      } else {
-        throw new Error("No JSON found in response");
-      }
+      parsed = parseJsonResponse<{ discoveredJobs: DiscoveredJob[]; careerInsights: string }>(content);
     } catch (parseError) {
       console.error("Failed to parse AI response:", content);
       throw new Error("Failed to parse career suggestions");

@@ -1,13 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { simpleCompletion, parseJsonResponse, MODELS } from "../_shared/openrouter-client.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
-
-// Google Cloud API configuration
-const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 // Bloom's Taxonomy descriptions for AI context
 const BLOOM_DESCRIPTIONS: Record<string, { action: string; videoTypes: string; focus: string }> = {
@@ -60,11 +58,6 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
-    
-    const googleApiKey = Deno.env.get('GOOGLE_CLOUD_API_KEY');
-    if (!googleApiKey) {
-      throw new Error('GOOGLE_CLOUD_API_KEY is not configured');
-    }
 
     const { learning_objective } = await req.json();
 
@@ -163,49 +156,22 @@ Return ONLY valid JSON in this exact format:
   ]
 }`;
 
-    console.log('Calling AI for content strategy generation...');
+    console.log('Calling OpenRouter for content strategy generation...');
 
-    const url = `${GOOGLE_API_BASE}/models/gemini-2.5-flash:generateContent?key=${googleApiKey}`;
-    const aiResponse = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        contents: [
-          { role: 'user', parts: [{ text: userPrompt }] }
-        ],
-        systemInstruction: {
-          parts: [{ text: systemPrompt }]
-        },
-        generationConfig: {
-          temperature: 0.7,
-        },
-      }),
-    });
-
-    if (!aiResponse.ok) {
-      const errorText = await aiResponse.text();
-      console.error('AI API error:', aiResponse.status, errorText);
-      throw new Error(`AI API error: ${aiResponse.status}`);
-    }
-
-    const aiData = await aiResponse.json();
-    const content = aiData.candidates?.[0]?.content?.parts?.[0]?.text;
-
-    if (!content) {
-      throw new Error('No content in AI response');
-    }
-
-    // Parse the JSON from AI response
+    // Use OpenRouter for AI call
     let strategies;
     try {
-      // Extract JSON from response (handle markdown code blocks)
-      const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/) || [null, content];
-      const jsonStr = jsonMatch[1].trim();
-      strategies = JSON.parse(jsonStr);
+      const content = await simpleCompletion(
+        MODELS.FAST,
+        systemPrompt,
+        userPrompt,
+        { temperature: 0.7, fallbacks: [MODELS.GEMINI_FLASH] },
+        '[generate-content-strategy]'
+      );
+
+      strategies = parseJsonResponse<{ strategies: any[] }>(content);
     } catch (parseError) {
-      console.error('Failed to parse AI response:', content);
+      console.error('Failed to parse AI response, using fallback');
       // Fallback to basic strategies if AI parsing fails
       strategies = {
         strategies: [

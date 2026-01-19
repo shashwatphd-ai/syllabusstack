@@ -2,19 +2,17 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
 import { MASTER_SYSTEM_PROMPT, GAP_ANALYSIS_PROMPT } from "../_shared/prompts.ts";
 import { trackAIUsage, createServiceClient } from "../_shared/ai-cache.ts";
-import { GAP_ANALYSIS_SCHEMA, createToolDefinition, createToolChoice } from "../_shared/schemas.ts";
+import { GAP_ANALYSIS_SCHEMA } from "../_shared/schemas.ts";
 import { analyzeRequirementCoverage, buildUserCapabilityKeywords } from "../_shared/similarity.ts";
 import { generateKeywordVector, calculateSimilarity } from "../_shared/ai-orchestrator.ts";
 import { checkRateLimit, getUserLimits, createRateLimitResponse } from "../_shared/rate-limiter.ts";
-import { createErrorResponse, handleAIGatewayError, logInfo, logError } from "../_shared/error-handler.ts";
+import { createErrorResponse, logInfo, logError } from "../_shared/error-handler.ts";
+import { functionCall, MODELS } from "../_shared/openrouter-client.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-
-// Google Cloud API configuration
-const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -140,12 +138,6 @@ serve(async (req) => {
         .filter(r => r.importance === 'important')
         .map(r => r.skill_name)
     };
-    // --- END PHASE 5 PRE-ANALYSIS ---
-
-    const GOOGLE_CLOUD_API_KEY = Deno.env.get("GOOGLE_CLOUD_API_KEY");
-    if (!GOOGLE_CLOUD_API_KEY) {
-      throw new Error("GOOGLE_CLOUD_API_KEY is not configured");
-    }
 
     // Format capabilities with proficiency info
     const capabilitiesList = (capabilities || []).map(c => 
@@ -219,58 +211,26 @@ Focus on:
 
 Return your response using the generate_gap_analysis function.`;
 
-    const url = `${GOOGLE_API_BASE}/models/gemini-2.5-flash:generateContent?key=${GOOGLE_CLOUD_API_KEY}`;
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        contents: [
-          { role: "user", parts: [{ text: userContent }] }
-        ],
-        systemInstruction: {
-          parts: [{ text: systemPrompt }]
-        },
-        tools: [{
-          functionDeclarations: [GAP_ANALYSIS_SCHEMA]
-        }],
-        toolConfig: {
-          functionCallingConfig: {
-            mode: "ANY",
-            allowedFunctionNames: [GAP_ANALYSIS_SCHEMA.name]
-          }
-        }
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("AI gateway error:", response.status, errorText);
-      
-      if (response.status === 429) {
-        return new Response(
-          JSON.stringify({ error: "Rate limit exceeded. Please try again later." }),
-          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      if (response.status === 403) {
-        // Google Cloud returns 403 for billing/quota issues
-        return new Response(
-          JSON.stringify({ error: "API quota exceeded or billing issue. Please check your Google Cloud account." }),
-          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      throw new Error(`Google Cloud API error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    const functionCall = data.candidates?.[0]?.content?.parts?.[0]?.functionCall;
-    if (!functionCall?.args) {
-      throw new Error("Invalid AI response format");
-    }
-
-    const analysis = functionCall.args;
+    // Use OpenRouter for AI call
+    const analysis = await functionCall<{
+      match_score: number;
+      strong_overlaps: any[];
+      critical_gaps: any[];
+      partial_overlaps: any[];
+      honest_assessment: string;
+      readiness_level: string;
+      interview_readiness: string;
+      job_success_prediction: string;
+      priority_gaps: any[];
+      anti_recommendations: string[];
+    }>(
+      MODELS.FAST,
+      systemPrompt,
+      userContent,
+      GAP_ANALYSIS_SCHEMA,
+      { fallbacks: [MODELS.GEMINI_FLASH] },
+      '[gap-analysis]'
+    );
 
     // Blend keyword-based score with AI analysis for final score
     // Weight: 30% keyword, 70% AI assessment
@@ -287,7 +247,6 @@ Return your response using the generate_gap_analysis function.`;
       .eq("id", dreamJobId);
 
     // Persist gap analysis to database using UPSERT (update if exists, insert if not)
-    // This prevents duplicate records for the same user/dream_job combination
     const { data: gapAnalysisRecord, error: upsertError } = await supabase
       .from("gap_analyses")
       .upsert({
@@ -303,7 +262,7 @@ Return your response using the generate_gap_analysis function.`;
         job_success_prediction: analysis.job_success_prediction,
         priority_gaps: analysis.priority_gaps,
         match_score: analysis.match_score,
-        ai_model_used: "google/gemini-2.5-flash",
+        ai_model_used: "openrouter/gpt-4o-mini",
         updated_at: new Date().toISOString()
       }, {
         onConflict: 'user_id,dream_job_id'
@@ -341,9 +300,7 @@ Return your response using the generate_gap_analysis function.`;
       serviceClient,
       userId,
       "gap-analysis",
-      "google/gemini-2.5-flash",
-      data.usage?.prompt_tokens,
-      data.usage?.completion_tokens
+      "openrouter/gpt-4o-mini"
     );
 
     console.log(`Gap analysis complete. Match score: ${analysis.match_score}%`);
