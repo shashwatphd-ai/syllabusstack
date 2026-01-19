@@ -9,15 +9,63 @@ const corsHeaders = {
 // Google Cloud API configuration
 const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
-// Bloom's Taxonomy descriptions for evaluation context
-const BLOOM_EVALUATION_CRITERIA: Record<string, string> = {
-  remember: "Does this video clearly introduce and explain key facts, definitions, and concepts? Look for clear explanations of WHAT things are.",
-  understand: "Does this video help explain WHY things work the way they do? Look for examples, analogies, and visual explanations that build understanding.",
-  apply: "Does this video show HOW to do something step-by-step? Look for tutorials, worked examples, and practical demonstrations.",
-  analyze: "Does this video break down complex topics into components? Look for comparisons, case studies, and deep analysis of relationships.",
-  evaluate: "Does this video help learners make judgments or decisions? Look for debates, critiques, pros/cons analysis, and evaluation frameworks.",
-  create: "Does this video show how to build or design something new? Look for project walkthroughs, creative processes, and synthesis of ideas."
+// Bloom's Taxonomy descriptions with weighted scoring guidance
+// Higher levels require more sophisticated content matching
+const BLOOM_EVALUATION_CRITERIA: Record<string, { description: string; weight: number }> = {
+  remember: {
+    description: "Does this video clearly introduce and explain key facts, definitions, and concepts? Look for clear explanations of WHAT things are. Good videos use repetition, mnemonics, and clear terminology.",
+    weight: 1.0
+  },
+  understand: {
+    description: "Does this video help explain WHY things work the way they do? Look for examples, analogies, visual explanations, and conceptual bridges. Should go beyond definitions to build mental models.",
+    weight: 1.1
+  },
+  apply: {
+    description: "Does this video show HOW to do something step-by-step? Look for tutorials, worked examples, and practical demonstrations with clear procedures. Must show actual application, not just theory.",
+    weight: 1.2
+  },
+  analyze: {
+    description: "Does this video break down complex topics into components? Look for comparisons, case studies, relationship mapping, and systematic decomposition. Should identify patterns and connections.",
+    weight: 1.3
+  },
+  evaluate: {
+    description: "Does this video help learners make judgments or decisions? Look for debates, critiques, pros/cons analysis, evaluation frameworks, and criteria-based assessment. Must model critical thinking.",
+    weight: 1.4
+  },
+  create: {
+    description: "Does this video show how to build or design something new? Look for project walkthroughs, creative processes, synthesis of ideas, and original production. Should enable student creation.",
+    weight: 1.5
+  }
 };
+
+// Mayer's Multimedia Learning Principles for quality evaluation
+const MAYER_PRINCIPLES = `
+MAYER'S MULTIMEDIA PRINCIPLES - Use these to assess pedagogical quality:
+1. COHERENCE: Is extraneous material minimized? Or is it cluttered with irrelevant content?
+2. SIGNALING: Are key concepts highlighted and organized clearly?
+3. SEGMENTING: Is complex information broken into manageable chunks?
+4. MODALITY: Is audio/narration used effectively with visuals (not just text on screen)?
+5. PERSONALIZATION: Is the tone conversational and engaging (not robotic/formal)?
+
+RED FLAGS TO DETECT:
+- Outdated information (check for dates, deprecated tools, old interfaces)
+- Factual inaccuracies or oversimplifications that mislead
+- Missing prerequisites (assumes knowledge not yet taught)
+- Clickbait titles that don't match content
+- Poor audio/video quality that impedes learning
+- Excessive length without clear structure
+`;
+
+// Scoring calibration guidance
+const SCORING_CALIBRATION = `
+SCORING CALIBRATION:
+- 90-100: Exceptional - Could be used in a professional course, nearly perfect match
+- 80-89: Excellent - Strong match, minor improvements possible
+- 70-79: Good - Solid content, some gaps or suboptimal aspects
+- 60-69: Acceptable - Usable with caveats, notable weaknesses
+- 50-59: Marginal - Significant concerns, use only if no alternatives
+- Below 50: Not Recommended - Off-topic, wrong level, or quality issues
+`;
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -57,7 +105,9 @@ serve(async (req) => {
     }
 
     const bloomLevel = learning_objective.bloom_level?.toLowerCase() || 'understand';
-    const bloomCriteria = BLOOM_EVALUATION_CRITERIA[bloomLevel] || BLOOM_EVALUATION_CRITERIA.understand;
+    const bloomConfig = BLOOM_EVALUATION_CRITERIA[bloomLevel] || BLOOM_EVALUATION_CRITERIA.understand;
+    const bloomCriteria = bloomConfig.description;
+    const bloomWeight = bloomConfig.weight;
 
     // Format videos for evaluation (limit to 15 to manage token usage)
     const videosToEvaluate = videos.slice(0, 15);
@@ -69,9 +119,18 @@ serve(async (req) => {
    Description: ${(v.description || '').substring(0, 300)}...`
     ).join('\n\n');
 
-    const systemPrompt = `You are an expert educational content evaluator. Your job is to assess YouTube videos for their pedagogical fit with specific learning objectives. You understand Bloom's Taxonomy deeply and can identify whether a video's teaching approach matches the required cognitive level.
+    const systemPrompt = `You are an expert educational content evaluator with deep expertise in instructional design, Bloom's Taxonomy, and Mayer's Multimedia Learning Principles. Your job is to critically assess YouTube videos for their pedagogical fit with specific learning objectives.
 
-Be honest and critical - not all videos are good matches. A great video for "understanding" might be poor for "applying" the same concept.`;
+${MAYER_PRINCIPLES}
+
+${SCORING_CALIBRATION}
+
+EVALUATION MINDSET:
+- Be HONEST and CRITICAL - most videos are mediocre (60-75 range)
+- A 90+ score should be rare - reserved for near-perfect pedagogical matches
+- A great video for "understanding" might be poor for "applying" the same concept
+- Consider both content accuracy AND pedagogical effectiveness
+- Flag any red flags that would make content unsuitable`;
 
     // Build the user prompt - enhanced when teaching unit context is available
     let userPrompt: string;
