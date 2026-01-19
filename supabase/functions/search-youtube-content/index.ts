@@ -773,7 +773,7 @@ serve(async (req) => {
     // =========================================================================
     // STEP 5: AI Batch Evaluation (BATCH or SYNC mode)
     // =========================================================================
-    const enableBatchEvaluation = Deno.env.get('ENABLE_BATCH_EVALUATION') === 'true';
+    const enableBatchEvaluation = Deno.env.get('ENABLE_BATCH_EVALUATION') !== 'false';
 
     if (enableBatchEvaluation && topCandidatesForAI.length > 0) {
       // BATCH MODE: Skip inline evaluation, save videos for batch processing
