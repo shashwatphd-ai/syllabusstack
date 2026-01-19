@@ -558,33 +558,42 @@ async function processCompletedBatch(
   const enableImageGeneration = Deno.env.get('ENABLE_BATCH_IMAGE_GENERATION') !== 'false';
 
   if (succeededCount > 0 && enableImageGeneration) {
-    console.log(`[Poll] Triggering async image generation for batch job: ${batchJob.id}`);
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    if (!supabaseUrl || !serviceKey) {
+      console.error(`[Poll] Missing env vars for image generation: SUPABASE_URL=${!!supabaseUrl}, SERVICE_KEY=${!!serviceKey}`);
+    } else {
+      const imageUrl = `${supabaseUrl}/functions/v1/process-batch-images`;
+      console.log(`[Poll] Triggering async image generation: POST ${imageUrl}`);
+      console.log(`[Poll] Payload: { batch_job_id: "${batchJob.id}" }`);
 
-    // Fire-and-forget: Trigger image generation asynchronously
-    // Don't await - let it run in background while we return the poll response
-    fetch(`${supabaseUrl}/functions/v1/process-batch-images`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ batch_job_id: batchJob.id }),
-    })
-      .then((res) => {
-        if (res.ok) {
-          console.log(`[Poll] Image generation triggered successfully for batch ${batchJob.id}`);
-        } else {
-          console.warn(`[Poll] Image generation trigger failed: ${res.status}`);
-        }
+      // Fire-and-forget: Trigger image generation asynchronously
+      // Don't await - let it run in background while we return the poll response
+      fetch(imageUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${serviceKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ batch_job_id: batchJob.id }),
       })
-      .catch((err) => {
-        console.warn(`[Poll] Image generation trigger error (non-blocking):`, err);
-      });
+        .then(async (res) => {
+          if (res.ok) {
+            console.log(`[Poll] Image generation triggered successfully for batch ${batchJob.id}`);
+          } else {
+            const errorBody = await res.text().catch(() => 'Unable to read response body');
+            console.error(`[Poll] Image generation trigger failed: ${res.status} ${res.statusText}`);
+            console.error(`[Poll] Error response: ${errorBody.substring(0, 500)}`);
+          }
+        })
+        .catch((err) => {
+          console.error(`[Poll] Image generation trigger error (non-blocking):`, err.message || err);
+        });
+    }
 
     console.log(`[Poll] ${succeededCount} slides ready. Async image generation started.`);
   } else if (succeededCount > 0) {
-    console.log(`[Poll] ${succeededCount} slides ready. Image generation disabled or skipped.`);
+    console.log(`[Poll] ${succeededCount} slides ready. Image generation disabled (ENABLE_BATCH_IMAGE_GENERATION=${Deno.env.get('ENABLE_BATCH_IMAGE_GENERATION')}).`);
   }
 }

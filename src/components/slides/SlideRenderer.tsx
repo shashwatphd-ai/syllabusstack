@@ -374,13 +374,21 @@ export function SlideRenderer({
                 </div>
               )}
 
-              {/* V3 Misconception box */}
+              {/* V3 Misconception box - handles both string and object formats */}
               {professor && (slide.content as any).misconception && (
                 <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20">
                   <p className="font-medium text-red-600 dark:text-red-400 text-sm mb-1">⚠️ Common Misconception</p>
-                  <p className="text-sm mb-1"><strong>Wrong belief:</strong> {(slide.content as any).misconception.wrong_belief}</p>
-                  <p className="text-sm mb-1"><strong>Why it's wrong:</strong> {(slide.content as any).misconception.why_wrong}</p>
-                  <p className="text-sm text-green-600 dark:text-green-400"><strong>Correct:</strong> {(slide.content as any).misconception.correct_understanding}</p>
+                  {typeof (slide.content as any).misconception === 'string' ? (
+                    // Legacy string format
+                    <p className="text-sm">{(slide.content as any).misconception}</p>
+                  ) : (
+                    // V3 object format
+                    <>
+                      <p className="text-sm mb-1"><strong>Wrong belief:</strong> {(slide.content as any).misconception.wrong_belief}</p>
+                      <p className="text-sm mb-1"><strong>Why it's wrong:</strong> {(slide.content as any).misconception.why_wrong}</p>
+                      <p className="text-sm text-green-600 dark:text-green-400"><strong>Correct:</strong> {(slide.content as any).misconception.correct_understanding}</p>
+                    </>
+                  )}
                 </div>
               )}
               
@@ -401,12 +409,20 @@ export function SlideRenderer({
                 </ol>
               )}
               
-              {/* Example */}
+              {/* Example - handles both string and object formats */}
               {slide.content.example && (
                 <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20">
                   <p className="font-medium text-green-600 dark:text-green-400 text-sm mb-1">Example</p>
-                  <p className="text-sm mb-1">{slide.content.example.scenario}</p>
-                  <p className="text-sm text-muted-foreground">{getExampleExplanation()}</p>
+                  {typeof slide.content.example === 'string' ? (
+                    // Legacy string format
+                    <p className="text-sm">{slide.content.example}</p>
+                  ) : (
+                    // V3 object format
+                    <>
+                      <p className="text-sm mb-1">{slide.content.example.scenario}</p>
+                      <p className="text-sm text-muted-foreground">{getExampleExplanation()}</p>
+                    </>
+                  )}
                 </div>
               )}
               

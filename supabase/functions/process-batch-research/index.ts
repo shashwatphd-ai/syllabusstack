@@ -122,9 +122,22 @@ Return a JSON object with a "slides" array. Each slide must have:
   "content": {
     "main_text": "Thorough explanation...",
     "key_points": ["Detailed point with full explanation..."],
-    "definition": "For new terms",
-    "example": "Specific scenario",
-    "misconception": "Common error and correction"
+    "definition": {
+      "term": "The exact term",
+      "formal_definition": "Precise, textbook-quality definition",
+      "simple_explanation": "Plain-language version",
+      "significance": "Why this concept matters"
+    },
+    "example": {
+      "scenario": "Detailed real-world situation with specifics",
+      "walkthrough": "Step-by-step explanation of how the concept applies",
+      "connection_to_concept": "Explicit link back to the abstract principle"
+    },
+    "misconception": {
+      "wrong_belief": "What students often incorrectly believe",
+      "why_wrong": "Why this belief is problematic with evidence",
+      "correct_understanding": "The accurate understanding with practical implications"
+    }
   },
   "visual_directive": {
     "type": "diagram",
@@ -133,7 +146,7 @@ Return a JSON object with a "slides" array. Each slide must have:
     "style": "...",
     "educational_purpose": "..."
   },
-  "speaker_notes": "Comprehensive teaching notes...",
+  "speaker_notes": "Comprehensive teaching notes (200-300 words)...",
   "pedagogy": {
     "bloom_level": "understand|apply|analyze|evaluate|create",
     "prior_knowledge": ["..."],
