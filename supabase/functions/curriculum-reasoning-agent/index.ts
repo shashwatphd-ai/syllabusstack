@@ -62,18 +62,37 @@ interface DecomposeResponse {
 // Google Cloud API configuration
 const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
-const SYSTEM_PROMPT = `You are an expert curriculum designer with deep expertise in pedagogical sequencing, instructional design, and Bloom's Taxonomy. Your task is to decompose high-level learning objectives into teachable micro-concepts that can be taught through individual videos.
+const SYSTEM_PROMPT = `You are an expert curriculum designer with deep expertise in pedagogical sequencing, instructional design, Bloom's Taxonomy, and Understanding by Design (UbD) framework.
 
-CRITICAL RULES:
-1. Each teaching unit should represent ONE focused concept that can be taught in a single 5-15 minute video
-2. Units must be ordered by prerequisite dependencies - foundational concepts FIRST
-3. Search queries must be HIGHLY SPECIFIC to find the exact teaching content needed
-4. Think about what a student ACTUALLY needs to learn to achieve the learning objective
+YOUR APPROACH - BACKWARD DESIGN (Wiggins & McTighe):
+1. START WITH THE END: What should students be able to DO after mastering this learning objective?
+2. DETERMINE EVIDENCE: How will we know they've achieved it? What observable behaviors demonstrate mastery?
+3. DESIGN LEARNING: Work backward to identify the discrete micro-concepts that build toward that end state.
+
+CRITICAL PEDAGOGICAL PRINCIPLES:
+1. MICROLEARNING: Each teaching unit = ONE focused concept, 5-15 minutes, single video
+2. PREREQUISITE MAPPING: Foundational concepts FIRST - never assume prior knowledge
+3. COGNITIVE SCAFFOLDING: Progress from Remember → Understand → Apply → Analyze → Evaluate → Create
+4. SPECIFICITY: Search queries must be HIGHLY SPECIFIC to find exact teaching content
+5. REAL-WORLD RELEVANCE: Every unit should connect abstract concepts to practical application
+
+QUALITY MARKERS FOR TEACHING UNITS:
+- Clear, measurable learning outcome per unit
+- Explicit prerequisite dependencies
+- Common misconceptions identified proactively
+- Multiple varied search queries for content discovery
+- Appropriate video type matched to cognitive level (explainer for concepts, tutorial for procedures)
+
+2024-2025 BEST PRACTICES:
+- Active learning emphasis over passive consumption
+- Spaced repetition and retrieval practice integration
+- Inclusive design considering diverse learner needs
+- Real-world case studies from the last 3 years
 
 OUTPUT FORMAT: Return valid JSON only, no markdown or explanations outside the JSON.`;
 
 function buildUserPrompt(lo: LearningObjective, module: ModuleContext | null, course: CourseContext): string {
-  return `TASK: Decompose this learning objective into 3-8 teachable micro-concepts.
+  return `TASK: Decompose this learning objective into 3-8 teachable micro-concepts using backward design.
 
 LEARNING OBJECTIVE:
 "${lo.text}"
@@ -91,30 +110,50 @@ ${course.description ? `Description: ${course.description}` : ''}
 ${course.detected_domain ? `Domain: ${course.detected_domain}` : ''}
 ${course.syllabus_text ? `\nSYLLABUS EXCERPT (for context):\n${course.syllabus_text.substring(0, 3000)}` : ''}
 
-CHAIN OF THOUGHT PROCESS:
-1. First, identify the END STATE - what should students be able to DO after mastering this LO?
-2. Work BACKWARDS - what prerequisite knowledge is absolutely needed?
-3. Identify EACH discrete concept that must be taught separately
-4. Order them by prerequisite dependencies (foundational → advanced)
-5. For each concept, determine the ideal video type and specific search queries
+BACKWARD DESIGN PROCESS (Wiggins & McTighe UbD Framework):
 
-VIDEO TYPES:
-- "explainer": Conceptual explanations, theory, "what is X?"
-- "tutorial": Step-by-step how-to, practical application
-- "worked_example": Solving specific problems with full walkthrough
-- "case_study": Real-world application and analysis
-- "lecture": Academic deep-dive, comprehensive coverage
-- "demonstration": Visual showing of process or technique
+STAGE 1 - IDENTIFY DESIRED RESULTS:
+Ask yourself: After completing this learning objective, what should students be able to DO that they couldn't do before?
+- What are the enduring understandings they will gain?
+- What essential questions will they be able to answer?
+- What knowledge and skills are explicit in this LO?
 
-SEARCH QUERY GUIDELINES:
-- Be SPECIFIC: "Boolean algebra AND OR NOT gates tutorial" NOT "logic explained"
-- Include domain context: "fsQCA truth table construction political science"
-- Target specific video types: "Venn diagram set operations visual explanation"
-- Avoid generic terms alone: "tutorial", "course", "introduction"
+STAGE 2 - DETERMINE ACCEPTABLE EVIDENCE:
+Ask yourself: How would I know a student has achieved this?
+- What would demonstrate true understanding vs. surface familiarity?
+- What real-world task or problem should they be able to solve?
+
+STAGE 3 - PLAN LEARNING EXPERIENCES (YOUR OUTPUT):
+Work BACKWARD from the end state:
+- What foundational concepts must be established first?
+- What is the logical progression from novice to competent?
+- Where do students typically struggle or form misconceptions?
+
+VIDEO TYPES (Match to Bloom's Level):
+- "explainer": Conceptual explanations, theory (Remember/Understand)
+- "tutorial": Step-by-step how-to (Apply)
+- "worked_example": Problem solving with walkthrough (Apply/Analyze)
+- "case_study": Real-world analysis (Analyze/Evaluate)
+- "lecture": Academic deep-dive (Understand/Analyze)
+- "demonstration": Visual process showing (Apply)
+
+SEARCH QUERY BEST PRACTICES:
+- SPECIFIC: "Boolean algebra AND OR NOT gates tutorial" NOT "logic explained"
+- DOMAIN-AWARE: "fsQCA truth table construction political science"
+- PLATFORM-TARGETED: Include "tutorial", "explained", "walkthrough" appropriately
+- NEGATIVE FILTERS (in avoid_terms): Terms that would find wrong content level
+
+QUALITY CRITERIA FOR EACH TEACHING UNIT:
+✓ Single focused concept (5-15 min video)
+✓ Clear measurable outcome
+✓ Explicit prerequisite chain
+✓ At least one common misconception identified
+✓ 4-5 highly specific search queries
+✓ Appropriate video type for cognitive level
 
 RESPONSE FORMAT (JSON only):
 {
-  "reasoning_chain": "Step-by-step explanation of your decomposition logic",
+  "reasoning_chain": "Detailed backward design thinking: END STATE → EVIDENCE → SEQUENCE",
   "domain_context": "Identified domain/field for this content",
   "total_estimated_time_minutes": <number>,
   "teaching_units": [
@@ -123,16 +162,16 @@ RESPONSE FORMAT (JSON only):
       "title": "Clear, specific title",
       "description": "Brief description of what this unit covers",
       "what_to_teach": "Specific concepts and skills to be taught",
-      "why_this_matters": "Why this is important for the overall LO",
-      "how_to_teach": "Pedagogical approach - visual, hands-on, conceptual",
-      "common_misconceptions": ["List of common student misunderstandings"],
-      "prerequisites": ["Concepts that must be understood first"],
-      "enables": ["What concepts this unit unlocks"],
+      "why_this_matters": "Why this is important for the overall LO and real-world application",
+      "how_to_teach": "Pedagogical approach with specific techniques (worked example, comparison, analogy, etc.)",
+      "common_misconceptions": ["Specific misunderstandings students often have"],
+      "prerequisites": ["Concepts that MUST be understood first (be specific)"],
+      "enables": ["What learning this unit unlocks"],
       "target_video_type": "explainer|tutorial|worked_example|case_study|lecture|demonstration",
       "target_duration_minutes": <5-15>,
-      "search_queries": ["query1", "query2", "query3", "query4", "query5"],
-      "required_concepts": ["Must be mentioned in video"],
-      "avoid_terms": ["Terms that indicate wrong content"]
+      "search_queries": ["highly specific query 1", "query with domain terms 2", "query with action verbs 3", "alternative phrasing 4", "authoritative source query 5"],
+      "required_concepts": ["Key terms that MUST be covered in the video"],
+      "avoid_terms": ["Terms indicating wrong level or off-topic content"]
     }
   ]
 }`;

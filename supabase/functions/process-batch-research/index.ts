@@ -47,6 +47,10 @@ const corsHeaders = {
 const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 const BATCH_MODEL = MODEL_CONFIG.GEMINI_PRO;
 
+// Research cache configuration
+const CACHE_TTL_DAYS = 7;
+const ENABLE_RESEARCH_CACHE = Deno.env.get('ENABLE_RESEARCH_CACHE') !== 'false';
+
 // ============================================================================
 // PROFESSOR SYSTEM PROMPT - Must match submit-batch-slides and v3
 // ============================================================================
@@ -221,14 +225,111 @@ interface BatchRequest {
 }
 
 // ============================================================================
-// RESEARCH AGENT - Google Search Grounding
+// RESEARCH CACHE UTILITIES
+// ============================================================================
+
+async function computeTopicHash(searchTerms: string, domain: string): Promise<string> {
+  const normalized = `${searchTerms.toLowerCase().trim()}:${domain || 'general'}`;
+  const encoder = new TextEncoder();
+  const data = encoder.encode(normalized);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function getCachedResearch(
+  supabase: any,
+  searchTerms: string,
+  domain: string
+): Promise<ResearchContext | null> {
+  if (!ENABLE_RESEARCH_CACHE) return null;
+  
+  try {
+    const topicHash = await computeTopicHash(searchTerms, domain);
+    
+    const { data, error } = await supabase
+      .from('research_cache')
+      .select('*')
+      .eq('topic_hash', topicHash)
+      .gt('expires_at', new Date().toISOString())
+      .maybeSingle();
+    
+    if (error || !data) return null;
+    
+    // Increment hit count (fire and forget)
+    supabase
+      .from('research_cache')
+      .update({ hit_count: (data.hit_count || 0) + 1 })
+      .eq('id', data.id)
+      .then(() => {})
+      .catch(() => {});
+    
+    console.log(`[Research Cache] HIT for: ${searchTerms.substring(0, 50)}...`);
+    return data.research_content as ResearchContext;
+  } catch (e) {
+    console.warn('[Research Cache] Error reading cache:', e);
+    return null;
+  }
+}
+
+async function cacheResearch(
+  supabase: any,
+  searchTerms: string,
+  domain: string,
+  research: ResearchContext,
+  inputTokens?: number,
+  outputTokens?: number
+): Promise<void> {
+  if (!ENABLE_RESEARCH_CACHE) return;
+  
+  try {
+    const topicHash = await computeTopicHash(searchTerms, domain);
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + CACHE_TTL_DAYS);
+    
+    await supabase
+      .from('research_cache')
+      .upsert({
+        topic_hash: topicHash,
+        search_terms: searchTerms,
+        domain: domain || null,
+        research_content: research,
+        input_tokens: inputTokens || null,
+        output_tokens: outputTokens || null,
+        expires_at: expiresAt.toISOString(),
+        hit_count: 0,
+      }, {
+        onConflict: 'topic_hash',
+        ignoreDuplicates: false,
+      });
+    
+    console.log(`[Research Cache] STORED: ${searchTerms.substring(0, 50)}...`);
+  } catch (e) {
+    console.warn('[Research Cache] Error writing cache:', e);
+  }
+}
+
+// ============================================================================
+// RESEARCH AGENT - Google Search Grounding (with caching)
 // ============================================================================
 
 async function runResearchAgent(
   unitData: TeachingUnitData,
   domainConfig: any,
-  googleApiKey: string
+  googleApiKey: string,
+  supabase?: any
 ): Promise<ResearchContext> {
+  const searchTerms = `${unitData.title} ${unitData.what_to_teach}`;
+  const domain = unitData.domain;
+  
+  // Check cache first
+  if (supabase) {
+    const cached = await getCachedResearch(supabase, searchTerms, domain);
+    if (cached) {
+      return cached;
+    }
+  }
+  
   const model = MODEL_CONFIG.GEMINI_FLASH;
   const url = `${GOOGLE_API_BASE}/models/${model}:generateContent`;
 
@@ -291,7 +392,7 @@ Format as JSON:
       const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
       const jsonStr = jsonMatch ? jsonMatch[1].trim() : text.trim();
       const research = JSON.parse(jsonStr);
-      return {
+      const result: ResearchContext = {
         grounding_sources: sources.length > 0 ? sources : research.grounding_sources || [],
         key_facts: research.key_facts || [],
         current_developments: research.current_developments || [],
@@ -299,8 +400,16 @@ Format as JSON:
         statistics: research.statistics || [],
         case_studies: research.case_studies || [],
       };
+      
+      // Cache the successful result
+      if (supabase) {
+        await cacheResearch(supabase, searchTerms, domain, result);
+      }
+      
+      return result;
     } catch {
-      return { ...getEmptyResearchContext(unitData.title), grounding_sources: sources };
+      const fallback = { ...getEmptyResearchContext(unitData.title), grounding_sources: sources };
+      return fallback;
     }
   } catch (error) {
     console.warn(`[Research] Error for ${unitData.title}:`, error);
@@ -654,7 +763,7 @@ serve(async (req) => {
 
       const chunkPromises = chunk.map(async ({ unitId, unitData }) => {
         const research = googleApiKey
-          ? await runResearchAgent(unitData, domainConfig, googleApiKey)
+          ? await runResearchAgent(unitData, domainConfig, googleApiKey, supabase)
           : getEmptyResearchContext(unitData.title);
         return { unitId, unitData, research };
       });
