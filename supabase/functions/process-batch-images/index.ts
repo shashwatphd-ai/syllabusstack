@@ -86,9 +86,9 @@ interface LectureSlideRecord {
 
 // Extended type for query result with joined instructor_courses data
 interface LectureSlideRecordWithDomain extends LectureSlideRecord {
-  instructor_courses: {
+  instructor_courses: Array<{
     detected_domain: string | null;
-  } | null;
+  }> | null;
 }
 
 // ============================================================================
@@ -446,7 +446,8 @@ serve(async (req) => {
     let processedCount = 0;
 
     for (const record of records) {
-      const domain = (record as LectureSlideRecordWithDomain).instructor_courses?.detected_domain;
+      const domainData = (record as LectureSlideRecordWithDomain).instructor_courses;
+      const domain = domainData?.[0]?.detected_domain ?? undefined;
 
       const result = await processLectureSlides(
         supabase,
