@@ -1,6 +1,18 @@
 # OpenAI Migration Implementation Plan
 
-## Executive Summary
+> **⚠️ SUPERSEDED:** This plan has been replaced by `OPENROUTER_MIGRATION_PLAN.md`
+>
+> OpenRouter provides a simpler solution with:
+> - Single API for ALL providers (OpenAI, Google, Anthropic)
+> - Automatic fallbacks
+> - Same pricing as direct API
+> - Less code to maintain
+>
+> See `OPENROUTER_MIGRATION_PLAN.md` for the recommended approach.
+
+---
+
+## Executive Summary (Original - for reference)
 
 **Objective:** Migrate 10 Supabase Edge Functions from Google Gemini API to OpenAI API for consistent quality across batch and sync operations.
 
