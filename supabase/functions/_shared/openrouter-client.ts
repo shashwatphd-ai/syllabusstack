@@ -513,6 +513,139 @@ export function shouldUseOpenRouter(): boolean {
 }
 
 // ============================================================================
+// IMAGE GENERATION HELPER
+// ============================================================================
+
+/**
+ * Response from image generation
+ */
+export interface ImageGenerationResult {
+  base64: string;
+  mimeType: string;
+  textResponse?: string;
+}
+
+/**
+ * Generate an image using OpenRouter's image generation model
+ * 
+ * Uses google/gemini-2.5-flash-image-preview for educational diagram generation.
+ * Returns base64-encoded image data ready for upload to storage.
+ * 
+ * @param prompt The image generation prompt
+ * @param options Retry and delay options
+ * @returns Base64 image data with MIME type, or null if generation failed
+ * 
+ * @example
+ * const result = await generateImage('Create a diagram showing photosynthesis');
+ * if (result) {
+ *   // Upload result.base64 to storage
+ *   console.log(`Generated ${result.mimeType} image`);
+ * }
+ */
+export async function generateImage(
+  prompt: string,
+  options: {
+    maxRetries?: number;
+    retryDelayMs?: number;
+  } = {},
+  logPrefix = '[OpenRouter-Image]'
+): Promise<ImageGenerationResult | null> {
+  const { maxRetries = 2, retryDelayMs = 1500 } = options;
+  const apiKey = getApiKey();
+  const appUrl = getAppUrl();
+
+  console.log(`${logPrefix} Generating image...`);
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetch(`${OPENROUTER_API_BASE}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': appUrl,
+          'X-Title': 'SyllabusStack',
+        },
+        body: JSON.stringify({
+          model: 'google/gemini-2.5-flash-image-preview',
+          messages: [{ role: 'user', content: prompt }],
+          modalities: ['image', 'text']
+        })
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        console.warn(`${logPrefix} Attempt ${attempt + 1} failed: ${response.status} - ${errText}`);
+
+        // Don't retry on auth/payment errors
+        if (response.status === 401 || response.status === 402) {
+          console.error(`${logPrefix} Fatal error (${response.status}), not retrying`);
+          return null;
+        }
+
+        if (attempt < maxRetries) {
+          await new Promise(r => setTimeout(r, retryDelayMs * (attempt + 1)));
+          continue;
+        }
+        return null;
+      }
+
+      const data = await response.json();
+      
+      // Extract image from response - OpenRouter format for image models
+      const message = data.choices?.[0]?.message;
+      const images = message?.images;
+      const textContent = message?.content;
+
+      if (images && images.length > 0) {
+        const imageUrl = images[0]?.image_url?.url;
+        
+        if (imageUrl?.startsWith('data:image/')) {
+          // Parse data URL: data:image/png;base64,<data>
+          const commaIndex = imageUrl.indexOf(',');
+          if (commaIndex === -1) {
+            console.warn(`${logPrefix} Invalid data URL format`);
+            return null;
+          }
+
+          const header = imageUrl.substring(0, commaIndex);
+          const base64 = imageUrl.substring(commaIndex + 1);
+          const mimeMatch = header.match(/data:(image\/[^;]+)/);
+          const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
+
+          console.log(`${logPrefix} Successfully generated ${mimeType} image (${Math.round(base64.length / 1024)}KB)`);
+          
+          return {
+            base64,
+            mimeType,
+            textResponse: textContent || undefined
+          };
+        }
+      }
+
+      console.warn(`${logPrefix} No image data in response`);
+      
+      if (attempt < maxRetries) {
+        await new Promise(r => setTimeout(r, retryDelayMs * (attempt + 1)));
+        continue;
+      }
+      return null;
+
+    } catch (error) {
+      console.error(`${logPrefix} Attempt ${attempt + 1} error:`, error);
+      
+      if (attempt < maxRetries) {
+        await new Promise(r => setTimeout(r, retryDelayMs * (attempt + 1)));
+        continue;
+      }
+      return null;
+    }
+  }
+
+  return null;
+}
+
+// ============================================================================
 // BATCH PROCESSING HELPER
 // ============================================================================
 

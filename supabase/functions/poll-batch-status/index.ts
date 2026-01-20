@@ -697,12 +697,15 @@ async function processCompletedBatch(
   console.log(`[Poll] Batch complete: ${succeededCount} succeeded, ${failedCount} failed`);
 
   // ========================================================================
-  // POST-BATCH: Trigger Async Image Generation
+  // POST-BATCH: Populate Image Generation Queue
   // ========================================================================
   //
-  // After slides are saved, trigger async image generation via process-batch-images.
-  // This is a fire-and-forget call - slides are already usable without images.
-  // Images will be populated asynchronously to avoid timeout issues.
+  // After slides are saved, populate the image_generation_queue table
+  // with items for each slide that needs an image. Then trigger the
+  // process-batch-images function to start processing.
+  //
+  // This queue-based approach ensures reliable, resumable image generation
+  // that won't timeout even with hundreds of slides.
   //
   const enableImageGeneration = Deno.env.get('ENABLE_BATCH_IMAGE_GENERATION') !== 'false';
 
@@ -713,36 +716,188 @@ async function processCompletedBatch(
     if (!supabaseUrl || !serviceKey) {
       console.error(`[Poll] Missing env vars for image generation: SUPABASE_URL=${!!supabaseUrl}, SERVICE_KEY=${!!serviceKey}`);
     } else {
-      const imageUrl = `${supabaseUrl}/functions/v1/process-batch-images`;
-      console.log(`[Poll] Triggering async image generation: POST ${imageUrl}`);
-      console.log(`[Poll] Payload: { batch_job_id: "${batchJob.id}" }`);
+      console.log(`[Poll] Populating image generation queue for batch ${batchJob.id}`);
+      
+      // Get domain for this course
+      let domain: string | undefined;
+      const { data: course } = await supabase
+        .from('instructor_courses')
+        .select('detected_domain')
+        .eq('id', batchJob.instructor_course_id)
+        .single();
+      domain = course?.detected_domain || undefined;
 
-      // Fire-and-forget: Trigger image generation asynchronously
-      // Don't await - let it run in background while we return the poll response
-      fetch(imageUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${serviceKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ batch_job_id: batchJob.id }),
-      })
-        .then(async (res) => {
-          if (res.ok) {
-            console.log(`[Poll] Image generation triggered successfully for batch ${batchJob.id}`);
-          } else {
-            const errorBody = await res.text().catch(() => 'Unable to read response body');
-            console.error(`[Poll] Image generation trigger failed: ${res.status} ${res.statusText}`);
-            console.error(`[Poll] Error response: ${errorBody.substring(0, 500)}`);
+      // Get all ready lectures from this batch
+      const { data: lectures } = await supabase
+        .from('lecture_slides')
+        .select('id, title, slides')
+        .eq('batch_job_id', batchJob.id)
+        .eq('status', 'ready');
+
+      if (lectures && lectures.length > 0) {
+        let totalQueueItems = 0;
+
+        // Populate queue for each lecture
+        for (const lecture of lectures) {
+          const slides = (lecture.slides || []) as any[];
+          const queueItems: Array<{
+            lecture_slides_id: string;
+            slide_index: number;
+            slide_title: string;
+            prompt: string;
+            status: string;
+          }> = [];
+
+          for (let i = 0; i < slides.length; i++) {
+            const slide = slides[i];
+            
+            // Skip if already has image
+            if (slide.visual?.url) continue;
+            
+            // Skip title/summary slides
+            const skipTypes = ['title_slide', 'summary', 'conclusion', 'recap'];
+            if (skipTypes.includes(slide.type?.toLowerCase() || '')) continue;
+
+            // Build prompt from slide content
+            const directive = slide.visual_directive?.type && slide.visual_directive.type !== 'none'
+              ? slide.visual_directive
+              : inferVisualDirective(slide);
+            
+            if (!directive) continue;
+
+            const prompt = buildImagePrompt(slide, lecture.title, domain, directive);
+            if (!prompt) continue;
+
+            queueItems.push({
+              lecture_slides_id: lecture.id,
+              slide_index: i,
+              slide_title: slide.title || `Slide ${i + 1}`,
+              prompt,
+              status: 'pending',
+            });
           }
-        })
-        .catch((err) => {
-          console.error(`[Poll] Image generation trigger error (non-blocking):`, err instanceof Error ? err.message : String(err));
-        });
 
-      console.log(`[Poll] ${succeededCount} slides ready. Async image generation triggered.`);
+          if (queueItems.length > 0) {
+            // Insert queue items (upsert to handle re-runs)
+            const { error: insertError } = await supabase
+              .from('image_generation_queue')
+              .upsert(queueItems, {
+                onConflict: 'lecture_slides_id,slide_index',
+                ignoreDuplicates: true,
+              });
+
+            if (insertError) {
+              console.error(`[Poll] Failed to insert queue items for ${lecture.id}:`, insertError);
+            } else {
+              totalQueueItems += queueItems.length;
+            }
+          }
+        }
+
+        console.log(`[Poll] Queued ${totalQueueItems} slides for image generation`);
+
+        // Trigger image generation processing
+        if (totalQueueItems > 0) {
+          const imageUrl = `${supabaseUrl}/functions/v1/process-batch-images`;
+          console.log(`[Poll] Triggering image generation: POST ${imageUrl}`);
+
+          // Fire-and-forget: Trigger image generation asynchronously
+          fetch(imageUrl, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${serviceKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ continue: true }),
+          })
+            .then(async (res) => {
+              if (res.ok) {
+                console.log(`[Poll] Image generation triggered successfully`);
+              } else {
+                const errorBody = await res.text().catch(() => 'Unable to read response body');
+                console.error(`[Poll] Image generation trigger failed: ${res.status}`);
+                console.error(`[Poll] Error: ${errorBody.substring(0, 500)}`);
+              }
+            })
+            .catch((err) => {
+              console.error(`[Poll] Image generation trigger error:`, err instanceof Error ? err.message : String(err));
+            });
+
+          console.log(`[Poll] ${succeededCount} slides ready. Image queue populated with ${totalQueueItems} items.`);
+        }
+      }
     }
   } else if (succeededCount > 0) {
-    console.log(`[Poll] ${succeededCount} slides ready. Image generation disabled (ENABLE_BATCH_IMAGE_GENERATION=${Deno.env.get('ENABLE_BATCH_IMAGE_GENERATION')}).`);
+    console.log(`[Poll] ${succeededCount} slides ready. Image generation disabled.`);
   }
+}
+
+// ============================================================================
+// HELPER FUNCTIONS FOR IMAGE QUEUE POPULATION
+// ============================================================================
+
+interface VisualDirective {
+  type: string;
+  description: string;
+  elements?: string[];
+  style?: string;
+  educational_purpose?: string;
+}
+
+function inferVisualDirective(slide: any): VisualDirective | null {
+  const content = slide.content || {};
+  const title = slide.title || '';
+  const mainText = typeof content.main_text === 'string' ? content.main_text : '';
+  const keyPoints = Array.isArray(content.key_points) ? content.key_points : [];
+  
+  const conceptText = keyPoints.slice(0, 2).join(' ') || mainText.slice(0, 300);
+  
+  if (!conceptText && !title) return null;
+  
+  let visualType = 'diagram';
+  if (slide.type === 'example' || slide.type === 'case_study') {
+    visualType = 'illustration';
+  } else if (slide.type === 'comparison') {
+    visualType = 'infographic';
+  }
+  
+  return {
+    type: visualType,
+    description: `Visual representation of: ${title}. Key concepts: ${conceptText.slice(0, 200)}`,
+    elements: [title, ...keyPoints.slice(0, 3).map((p: any) => typeof p === 'string' ? p.slice(0, 50) : '')].filter(Boolean),
+    style: 'clean academic professional',
+    educational_purpose: `Illustrate the core concept of ${title}`,
+  };
+}
+
+function buildImagePrompt(
+  slide: any,
+  lectureTitle: string,
+  domain: string | undefined,
+  directive: VisualDirective
+): string {
+  return `Create an educational diagram for a university lecture slide.
+
+TOPIC: ${slide.title}
+LECTURE: ${lectureTitle}
+${domain ? `DOMAIN: ${domain}` : ''}
+
+VISUAL REQUIREMENTS:
+- Type: ${directive.type}
+- Description: ${directive.description}
+- Must include these elements: ${directive.elements?.join(', ') || 'appropriate educational elements'}
+- Style: ${directive.style || 'clean academic'}
+${directive.educational_purpose ? `- Educational purpose: ${directive.educational_purpose}` : ''}
+
+DESIGN RULES:
+- Clean, minimal design suitable for projection
+- High contrast (works on both light/dark backgrounds)
+- Clear labels on all elements
+- No decorative elements, pure information
+- Professional academic style
+- 16:9 aspect ratio
+- Large, readable text (minimum 24pt equivalent)
+- Use color strategically to highlight key concepts
+
+IMPORTANT: Generate a clear, educational diagram. Do NOT generate photos of people or realistic photographs.`;
 }

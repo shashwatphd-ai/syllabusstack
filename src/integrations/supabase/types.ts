@@ -1502,6 +1502,62 @@ export type Database = {
           },
         ]
       }
+      image_generation_queue: {
+        Row: {
+          attempts: number
+          created_at: string
+          error_message: string | null
+          id: string
+          image_url: string | null
+          lecture_slides_id: string
+          max_attempts: number
+          processed_at: string | null
+          prompt: string
+          slide_index: number
+          slide_title: string | null
+          started_at: string | null
+          status: string
+        }
+        Insert: {
+          attempts?: number
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          image_url?: string | null
+          lecture_slides_id: string
+          max_attempts?: number
+          processed_at?: string | null
+          prompt: string
+          slide_index: number
+          slide_title?: string | null
+          started_at?: string | null
+          status?: string
+        }
+        Update: {
+          attempts?: number
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          image_url?: string | null
+          lecture_slides_id?: string
+          max_attempts?: number
+          processed_at?: string | null
+          prompt?: string
+          slide_index?: number
+          slide_title?: string | null
+          started_at?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "image_generation_queue_lecture_slides_id_fkey"
+            columns: ["lecture_slides_id"]
+            isOneToOne: false
+            referencedRelation: "lecture_slides"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       instructor_courses: {
         Row: {
           access_code: string | null
