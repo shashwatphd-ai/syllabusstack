@@ -590,7 +590,8 @@ serve(async (req) => {
       continue: continueProcessing, 
       lecture_slides_id, 
       lecture_slides_ids,
-      batch_job_id 
+      batch_job_id,
+      instructor_course_id,
     } = body;
 
     // Initialize Supabase
@@ -780,12 +781,68 @@ serve(async (req) => {
     }
 
     // ========================================================================
+    // MODE 4: instructor_course_id - process all slides for a course
+    // ========================================================================
+    if (instructor_course_id) {
+      console.log(`${functionName} Course mode - processing all slides for course ${instructor_course_id}`);
+
+      // Get all ready lectures for this course
+      const { data: lectures, error } = await supabase
+        .from('lecture_slides')
+        .select('id')
+        .eq('instructor_course_id', instructor_course_id)
+        .eq('status', 'ready');
+
+      if (error || !lectures || lectures.length === 0) {
+        console.log(`${functionName} No ready lectures found for course`);
+        return new Response(
+          JSON.stringify({
+            success: true,
+            message: 'No ready lectures found for course',
+            queued: 0,
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Get domain from course
+      const { data: course } = await supabase
+        .from('instructor_courses')
+        .select('detected_domain')
+        .eq('id', instructor_course_id)
+        .single();
+      const domain = course?.detected_domain || undefined;
+
+      // Populate queue for all lectures
+      let totalQueued = 0;
+      for (const lecture of lectures) {
+        const queued = await populateQueueFromLecture(supabase, lecture.id, domain);
+        totalQueued += queued;
+      }
+
+      if (totalQueued > 0) {
+        // Trigger processing
+        await triggerContinuation(supabaseUrl, serviceRoleKey);
+      }
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          message: `Queued ${totalQueued} slides from ${lectures.length} lectures`,
+          queued: totalQueued,
+          lectures: lectures.length,
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // ========================================================================
     // No valid mode specified
     // ========================================================================
     return new Response(
       JSON.stringify({
         success: false,
-        error: 'Specify continue:true, lecture_slides_id, lecture_slides_ids, or batch_job_id',
+        error: 'Specify continue:true, lecture_slides_id, lecture_slides_ids, batch_job_id, or instructor_course_id',
       }),
       { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

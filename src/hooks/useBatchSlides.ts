@@ -425,3 +425,133 @@ export function useQueueStatus(instructorCourseId?: string) {
     } : undefined,
   };
 }
+
+// ============================================================================
+// useTriggerImageGeneration
+// ============================================================================
+//
+// Triggers the queue-based image generation for slides that need images.
+// Uses the new image_generation_queue table and self-continuing process-batch-images.
+//
+// USAGE:
+//   const triggerImages = useTriggerImageGeneration();
+//   triggerImages.mutate({ instructorCourseId });
+//
+
+export interface ImageGenerationStatusResponse {
+  success: boolean;
+  message?: string;
+  queued?: number;
+  processing?: number;
+  completed?: number;
+  failed?: number;
+  total?: number;
+}
+
+export function useTriggerImageGeneration() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async ({ instructorCourseId }: { instructorCourseId: string }) => {
+      console.log(`[ImageGen] Triggering image generation for course ${instructorCourseId}`);
+
+      const { data, error } = await supabase.functions.invoke('process-batch-images', {
+        body: { instructor_course_id: instructorCourseId },
+      });
+
+      if (error) {
+        console.error('[ImageGen] Trigger error:', error);
+        throw error;
+      }
+
+      return data as ImageGenerationStatusResponse;
+    },
+
+    onSuccess: (data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['course-slide-status', variables.instructorCourseId] });
+      queryClient.invalidateQueries({ queryKey: ['course-lecture-slides', variables.instructorCourseId] });
+
+      toast({
+        title: '🖼️ Image Generation Started',
+        description: data.message || `Processing images for ${data.queued || 0} slides.`,
+      });
+    },
+
+    onError: (error: Error) => {
+      console.error('[ImageGen] Trigger failed:', error);
+      toast({
+        title: 'Image Generation Failed',
+        description: error.message || 'Failed to start image generation.',
+        variant: 'destructive',
+      });
+    },
+  });
+}
+
+// ============================================================================
+// useImageGenerationStatus
+// ============================================================================
+//
+// Fetches the current status of image generation queue for a course.
+//
+
+export function useImageGenerationStatus(instructorCourseId?: string) {
+  return useQuery({
+    queryKey: ['image-generation-status', instructorCourseId],
+
+    queryFn: async (): Promise<ImageGenerationStatusResponse> => {
+      if (!instructorCourseId) {
+        return { success: false };
+      }
+
+      // Query the image_generation_queue table directly
+      const { data: queueItems, error } = await supabase
+        .from('image_generation_queue')
+        .select('status, lecture_slides!inner(instructor_course_id)')
+        .eq('lecture_slides.instructor_course_id', instructorCourseId);
+
+      if (error) {
+        console.error('[ImageGen] Status query error:', error);
+        return { success: false };
+      }
+
+      const counts = {
+        pending: 0,
+        processing: 0,
+        completed: 0,
+        failed: 0,
+      };
+
+      for (const item of queueItems || []) {
+        if (item.status === 'pending') counts.pending++;
+        else if (item.status === 'processing') counts.processing++;
+        else if (item.status === 'completed') counts.completed++;
+        else if (item.status === 'failed') counts.failed++;
+      }
+
+      return {
+        success: true,
+        queued: counts.pending,
+        processing: counts.processing,
+        completed: counts.completed,
+        failed: counts.failed,
+        total: (queueItems || []).length,
+      };
+    },
+
+    enabled: !!instructorCourseId,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      // Poll every 10 seconds while there's active work
+      if (data?.processing && data.processing > 0) {
+        return 10000;
+      }
+      if (data?.queued && data.queued > 0) {
+        return 10000;
+      }
+      return false;
+    },
+    staleTime: 5000,
+  });
+}
