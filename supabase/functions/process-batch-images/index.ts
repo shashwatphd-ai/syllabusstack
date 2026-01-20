@@ -28,7 +28,112 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
-import { generateImage, ImageGenerationResult } from '../_shared/openrouter-client.ts';
+
+// ============================================================================
+// NATIVE GOOGLE IMAGE GENERATION
+// ============================================================================
+// 
+// Uses native Google Cloud API with gemini-3-pro-image-preview for image generation.
+// This bypasses OpenRouter because the image model is not reliably available there.
+// Matches the approach used in generate-lecture-slides-v3.
+//
+// ============================================================================
+
+const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+
+interface ImageGenerationResult {
+  base64: string;
+  mimeType: string;
+  textResponse?: string;
+}
+
+/**
+ * Generate an image using native Google Cloud API
+ * Uses gemini-3-pro-image-preview model for high-quality educational diagrams
+ */
+async function generateImageNative(
+  prompt: string,
+  logPrefix: string
+): Promise<ImageGenerationResult | null> {
+  const apiKey = Deno.env.get('GOOGLE_CLOUD_API_KEY');
+  if (!apiKey) {
+    console.error(`${logPrefix} GOOGLE_CLOUD_API_KEY not configured`);
+    return null;
+  }
+
+  console.log(`${logPrefix} Generating image via native Google API...`);
+
+  const maxRetries = 2;
+  const retryDelayMs = 1500;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const model = 'gemini-3-pro-image-preview';
+      const url = `${GOOGLE_API_BASE}/models/${model}:generateContent?key=${apiKey}`;
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+        }),
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        console.warn(`${logPrefix} Attempt ${attempt + 1} failed: ${response.status} - ${errText}`);
+
+        // Don't retry on auth errors
+        if (response.status === 401 || response.status === 403) {
+          console.error(`${logPrefix} Fatal auth error, not retrying`);
+          return null;
+        }
+
+        if (attempt < maxRetries) {
+          await new Promise(r => setTimeout(r, retryDelayMs * (attempt + 1)));
+          continue;
+        }
+        return null;
+      }
+
+      const data = await response.json();
+      const parts = data.candidates?.[0]?.content?.parts || [];
+
+      let text: string | undefined;
+      let base64: string | undefined;
+
+      for (const part of parts) {
+        if (part.text) text = part.text;
+        if (part.inlineData) base64 = part.inlineData.data;
+      }
+
+      if (base64) {
+        console.log(`${logPrefix} Successfully generated image (${Math.round(base64.length / 1024)}KB)`);
+        return { base64, mimeType: 'image/png', textResponse: text };
+      }
+
+      console.warn(`${logPrefix} No image data in response`);
+      
+      if (attempt < maxRetries) {
+        await new Promise(r => setTimeout(r, retryDelayMs * (attempt + 1)));
+        continue;
+      }
+      return null;
+
+    } catch (error) {
+      console.error(`${logPrefix} Attempt ${attempt + 1} error:`, error);
+      
+      if (attempt < maxRetries) {
+        await new Promise(r => setTimeout(r, retryDelayMs * (attempt + 1)));
+        continue;
+      }
+      return null;
+    }
+  }
+
+  return null;
+}
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -332,11 +437,8 @@ async function processQueueItem(
   try {
     console.log(`${logPrefix} Generating for: ${item.slide_title || 'Untitled'}`);
 
-    // Generate image using OpenRouter
-    const result = await generateImage(item.prompt, {
-      maxRetries: 1, // We have queue-level retries
-      retryDelayMs: 1000,
-    }, logPrefix);
+    // Generate image using native Google API (gemini-3-pro-image-preview)
+    const result = await generateImageNative(item.prompt, logPrefix);
 
     if (!result) {
       return { success: false, imageUrl: null, error: 'Image generation returned no data' };
@@ -427,7 +529,7 @@ async function updateLectureSlides(
           alt_text: slide.visual_directive?.description || slide.title || '',
           fallback_description: slide.visual_directive?.description || '',
           educational_purpose: slide.visual_directive?.educational_purpose,
-          source: 'ai_generated_openrouter',
+          source: 'ai_generated_google_native',
         },
       };
     }
