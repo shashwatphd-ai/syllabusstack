@@ -520,7 +520,7 @@ export function shouldUseOpenRouter(): boolean {
 // ============================================================================
 
 /**
- * Response from image generation
+ * Result from image generation
  */
 export interface ImageGenerationResult {
   base64: string;
@@ -529,21 +529,18 @@ export interface ImageGenerationResult {
 }
 
 /**
- * Generate an image using OpenRouter's image generation model
+ * Generate an image using OpenRouter's image generation capabilities
  * 
- * Uses google/gemini-2.5-flash-image-preview for educational diagram generation.
- * Returns base64-encoded image data ready for upload to storage.
- * 
- * @param prompt The image generation prompt
+ * Based on OpenRouter docs (Jan 2026):
+ * - Use modalities: ['image', 'text'] for image generation
+ * - Implement exponential backoff for 429/503 errors
+ * - Respect retry-after headers when present
+ * - No async batch endpoint exists - must use individual calls
+ *
+ * @param prompt The text prompt for image generation
  * @param options Retry and delay options
- * @returns Base64 image data with MIME type, or null if generation failed
- * 
- * @example
- * const result = await generateImage('Create a diagram showing photosynthesis');
- * if (result) {
- *   // Upload result.base64 to storage
- *   console.log(`Generated ${result.mimeType} image`);
- * }
+ * @param logPrefix Logging prefix
+ * @returns ImageGenerationResult or null on failure
  */
 export async function generateImage(
   prompt: string,
@@ -553,13 +550,12 @@ export async function generateImage(
   } = {},
   logPrefix = '[OpenRouter-Image]'
 ): Promise<ImageGenerationResult | null> {
-  const { maxRetries = 2, retryDelayMs = 1500 } = options;
+  const { maxRetries = 3, retryDelayMs = 2000 } = options;
   
-  // Use OpenRouter for unified AI routing
   const apiKey = getApiKey();
   const appUrl = getAppUrl();
 
-  console.log(`${logPrefix} Generating image via OpenRouter...`);
+  console.log(`${logPrefix} Generating image via OpenRouter (${MODELS.GEMINI_IMAGE})...`);
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
@@ -578,18 +574,57 @@ export async function generateImage(
         })
       });
 
+      // Handle rate limiting with retry-after header
+      if (response.status === 429) {
+        const retryAfter = response.headers.get('retry-after');
+        const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : retryDelayMs * Math.pow(2, attempt);
+        console.warn(`${logPrefix} Rate limited (429). Waiting ${waitMs}ms before retry ${attempt + 1}/${maxRetries}`);
+        
+        if (attempt < maxRetries) {
+          await new Promise(r => setTimeout(r, waitMs));
+          continue;
+        }
+        return null;
+      }
+
+      // Handle 503 (no available provider) with exponential backoff
+      if (response.status === 503) {
+        const waitMs = retryDelayMs * Math.pow(2, attempt);
+        console.warn(`${logPrefix} No provider available (503). Waiting ${waitMs}ms before retry ${attempt + 1}/${maxRetries}`);
+        
+        if (attempt < maxRetries) {
+          await new Promise(r => setTimeout(r, waitMs));
+          continue;
+        }
+        return null;
+      }
+
+      // Don't retry on fatal errors
+      if (response.status === 401 || response.status === 402) {
+        const errText = await response.text();
+        console.error(`${logPrefix} Fatal auth/payment error (${response.status}): ${errText}`);
+        return null;
+      }
+
+      // Handle 404 (model not found/deprecated)
+      if (response.status === 404) {
+        const errText = await response.text();
+        console.error(`${logPrefix} Model not available (404): ${errText}`);
+        // Still retry in case it's a transient routing issue
+        if (attempt < maxRetries) {
+          const waitMs = retryDelayMs * Math.pow(2, attempt);
+          await new Promise(r => setTimeout(r, waitMs));
+          continue;
+        }
+        return null;
+      }
+
       if (!response.ok) {
         const errText = await response.text();
         console.warn(`${logPrefix} Attempt ${attempt + 1} failed: ${response.status} - ${errText}`);
 
-        // Don't retry on auth/payment errors
-        if (response.status === 401 || response.status === 402) {
-          console.error(`${logPrefix} Fatal error (${response.status}), not retrying`);
-          return null;
-        }
-
         if (attempt < maxRetries) {
-          await new Promise(r => setTimeout(r, retryDelayMs * (attempt + 1)));
+          await new Promise(r => setTimeout(r, retryDelayMs * Math.pow(2, attempt)));
           continue;
         }
         return null;
@@ -618,7 +653,7 @@ export async function generateImage(
           const mimeMatch = header.match(/data:(image\/[^;]+)/);
           const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
 
-          console.log(`${logPrefix} Successfully generated ${mimeType} image (${Math.round(base64.length / 1024)}KB)`);
+          console.log(`${logPrefix} ✓ Generated ${mimeType} image (${Math.round(base64.length / 1024)}KB)`);
           
           return {
             base64,
@@ -628,10 +663,10 @@ export async function generateImage(
         }
       }
 
-      console.warn(`${logPrefix} No image data in response`);
+      console.warn(`${logPrefix} No image data in response, retrying...`);
       
       if (attempt < maxRetries) {
-        await new Promise(r => setTimeout(r, retryDelayMs * (attempt + 1)));
+        await new Promise(r => setTimeout(r, retryDelayMs * Math.pow(2, attempt)));
         continue;
       }
       return null;
@@ -640,7 +675,7 @@ export async function generateImage(
       console.error(`${logPrefix} Attempt ${attempt + 1} error:`, error);
       
       if (attempt < maxRetries) {
-        await new Promise(r => setTimeout(r, retryDelayMs * (attempt + 1)));
+        await new Promise(r => setTimeout(r, retryDelayMs * Math.pow(2, attempt)));
         continue;
       }
       return null;
