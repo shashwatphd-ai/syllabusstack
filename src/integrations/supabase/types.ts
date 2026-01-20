@@ -453,6 +453,7 @@ export type Database = {
           instructor_course_id: string
           job_type: string
           output_uri: string | null
+          provider: string | null
           request_mapping: Json
           status: string
           succeeded_count: number | null
@@ -471,6 +472,7 @@ export type Database = {
           instructor_course_id: string
           job_type?: string
           output_uri?: string | null
+          provider?: string | null
           request_mapping?: Json
           status?: string
           succeeded_count?: number | null
@@ -489,6 +491,7 @@ export type Database = {
           instructor_course_id?: string
           job_type?: string
           output_uri?: string | null
+          provider?: string | null
           request_mapping?: Json
           status?: string
           succeeded_count?: number | null
@@ -1831,8 +1834,10 @@ export type Database = {
           error_message: string | null
           estimated_duration_minutes: number | null
           generation_context: Json | null
+          generation_cost_usd: number | null
           generation_model: string | null
           generation_phases: Json | null
+          generation_provider: string | null
           has_audio: boolean | null
           id: string
           instructor_course_id: string
@@ -1857,8 +1862,10 @@ export type Database = {
           error_message?: string | null
           estimated_duration_minutes?: number | null
           generation_context?: Json | null
+          generation_cost_usd?: number | null
           generation_model?: string | null
           generation_phases?: Json | null
+          generation_provider?: string | null
           has_audio?: boolean | null
           id?: string
           instructor_course_id: string
@@ -1883,8 +1890,10 @@ export type Database = {
           error_message?: string | null
           estimated_duration_minutes?: number | null
           generation_context?: Json | null
+          generation_cost_usd?: number | null
           generation_model?: string | null
           generation_phases?: Json | null
+          generation_provider?: string | null
           has_audio?: boolean | null
           id?: string
           instructor_course_id?: string
