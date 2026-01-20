@@ -1,5 +1,5 @@
 // ============================================================================
-// PROCESS BATCH IMAGES - Queue-Based Async Image Generation via OpenRouter
+// PROCESS BATCH IMAGES - Queue-Based Async Image Generation via Unified AI
 // ============================================================================
 //
 // PURPOSE: Generate images for slides using a queue-based, self-continuing
@@ -8,7 +8,7 @@
 //
 // ARCHITECTURE:
 //   1. Fetch N pending items from queue (batch of 5-8)
-//   2. Generate images in parallel using OpenRouter (google/gemini-2.5-flash-image-preview)
+//   2. Generate images via Unified AI Client (Google Direct primary, OpenRouter fallback)
 //   3. Upload to Supabase storage
 //   4. Update queue status + lecture_slides records
 //   5. If more pending items exist, self-invoke to continue
@@ -28,7 +28,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
-import { generateImage } from '../_shared/openrouter-client.ts';
+import { generateImage } from '../_shared/unified-ai-client.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -332,11 +332,13 @@ async function processQueueItem(
   try {
     console.log(`${logPrefix} Generating for: ${item.slide_title || 'Untitled'}`);
 
-    // Generate image using OpenRouter (google/gemini-2.5-flash-image-preview)
-    const result = await generateImage(item.prompt, {
+    // Generate image via Unified AI Client (Google Direct primary, OpenRouter fallback)
+    const result = await generateImage({
+      prompt: item.prompt,
+      slideTitle: item.slide_title || undefined,
       maxRetries: 2,
-      retryDelayMs: 1500,
-    }, logPrefix);
+      logPrefix: logPrefix,
+    });
 
     if (!result) {
       return { success: false, imageUrl: null, error: 'Image generation returned no data' };
@@ -427,7 +429,7 @@ async function updateLectureSlides(
           alt_text: slide.visual_directive?.description || slide.title || '',
           fallback_description: slide.visual_directive?.description || '',
           educational_purpose: slide.visual_directive?.educational_purpose,
-          source: 'ai_generated_openrouter',
+          source: 'ai_generated_unified',
         },
       };
     }
