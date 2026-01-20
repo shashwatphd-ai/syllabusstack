@@ -542,29 +542,40 @@ export interface ImageGenerationResult {
  *   console.log(`Generated ${result.mimeType} image`);
  * }
  */
+/**
+ * Get Lovable AI API key (different from OpenRouter)
+ */
+function getLovableAiKey(): string {
+  const key = Deno.env.get('LOVABLE_API_KEY');
+  if (!key) {
+    throw new Error('LOVABLE_API_KEY environment variable is required for image generation');
+  }
+  return key;
+}
+
 export async function generateImage(
   prompt: string,
   options: {
     maxRetries?: number;
     retryDelayMs?: number;
   } = {},
-  logPrefix = '[OpenRouter-Image]'
+  logPrefix = '[LovableAI-Image]'
 ): Promise<ImageGenerationResult | null> {
   const { maxRetries = 2, retryDelayMs = 1500 } = options;
-  const apiKey = getApiKey();
-  const appUrl = getAppUrl();
+  
+  // Use Lovable AI Gateway for image generation (NOT OpenRouter)
+  const LOVABLE_AI_GATEWAY = 'https://ai.gateway.lovable.dev/v1/chat/completions';
+  const apiKey = getLovableAiKey();
 
   console.log(`${logPrefix} Generating image...`);
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      const response = await fetch(`${OPENROUTER_API_BASE}/chat/completions`, {
+      const response = await fetch(LOVABLE_AI_GATEWAY, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
-          'HTTP-Referer': appUrl,
-          'X-Title': 'SyllabusStack',
         },
         body: JSON.stringify({
           model: 'google/gemini-2.5-flash-image-preview',
