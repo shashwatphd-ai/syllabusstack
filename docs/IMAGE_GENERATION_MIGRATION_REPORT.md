@@ -1,14 +1,14 @@
 # Image Generation Migration Report
 
 **Date:** 2025-01-20  
-**Status:** ✅ Complete  
+**Status:** ⏳ Deployed - Pending Testing  
 **Migration:** Lovable AI Gateway → OpenRouter
 
 ---
 
 ## Executive Summary
 
-Successfully migrated the image generation pipeline from the Lovable AI Gateway to OpenRouter's unified API. This consolidates all AI operations under a single provider (OpenRouter) for consistent routing, cost tracking, and model management.
+Migrated the `process-batch-images` edge function from the Lovable AI Gateway to OpenRouter's unified API. The `generate-lecture-slides-v3` function remains on direct Google Cloud API (unchanged).
 
 ---
 
@@ -33,15 +33,19 @@ Successfully migrated the image generation pipeline from the Lovable AI Gateway 
 ### After Migration
 
 ```
-┌─────────────────────────────────┐
-│     process-batch-images        │────┐
-│     (queue-based generation)    │    │    ┌────────────────────────────────┐
-└─────────────────────────────────┘    ├───▶│         OpenRouter             │
-                                       │    │    OPENROUTER_API_KEY          │
-┌─────────────────────────────────┐    │    │    openrouter.ai/api/v1        │
-│   generate-lecture-slides-v3    │────┘    │    model: gemini-2.5-flash-    │
-│   (inline generation - future)  │         │           image-preview        │
-└─────────────────────────────────┘         └────────────────────────────────┘
+┌─────────────────────────────────┐    ┌────────────────────────────────┐
+│     process-batch-images        │───▶│         OpenRouter             │
+│     (queue-based generation)    │    │    OPENROUTER_API_KEY          │
+│                                 │    │    openrouter.ai/api/v1        │
+│                                 │    │    model: gemini-2.5-flash-    │
+│                                 │    │           image-preview        │
+└─────────────────────────────────┘    └────────────────────────────────┘
+
+┌─────────────────────────────────┐    ┌────────────────────────────────┐
+│   generate-lecture-slides-v3    │───▶│    Google Cloud API            │
+│   (inline - UNCHANGED)          │    │    GOOGLE_CLOUD_API_KEY        │
+│                                 │    │    gemini-3-pro-image-preview  │
+└─────────────────────────────────┘    └────────────────────────────────┘
 ```
 
 ---
@@ -50,11 +54,11 @@ Successfully migrated the image generation pipeline from the Lovable AI Gateway 
 
 ### 1. `supabase/functions/_shared/openrouter-client.ts`
 
-| Section | Change | Lines |
-|---------|--------|-------|
-| MODELS constant | Added `GEMINI_IMAGE: 'google/gemini-2.5-flash-image-preview'` | 63-65 |
-| `getLovableAiKey()` | **Removed** - no longer needed | 545-554 (deleted) |
-| `generateImage()` | Updated to use OpenRouter API | 545-630 |
+| Section | Change | Description |
+|---------|--------|-------------|
+| MODELS constant | Added `GEMINI_IMAGE` | `'google/gemini-2.5-flash-image-preview'` |
+| `getLovableAiKey()` | **Removed** | No longer needed |
+| `generateImage()` | Updated | Now uses OpenRouter API |
 
 #### Detailed Changes to `generateImage()`
 
@@ -133,8 +137,8 @@ const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
 
 | Function | Status | Notes |
 |----------|--------|-------|
-| `process-batch-images` | ✅ Updated | Uses shared `generateImage()` |
-| `generate-lecture-slides-v3` | ⏳ Separate | Still uses direct Google API |
+| `process-batch-images` | ✅ Updated | Uses shared `generateImage()` via OpenRouter |
+| `generate-lecture-slides-v3` | ⚪ Unchanged | Uses direct Google API (`gemini-3-pro-image-preview`) |
 
 ---
 
@@ -185,8 +189,8 @@ If OpenRouter image generation fails:
 
 ## Future Enhancements
 
-1. **Unify `generate-lecture-slides-v3`** - Migrate from direct Google API to shared OpenRouter client
-2. **Add `image_config`** - Include `aspect_ratio: '16:9'` for lecture slide optimization
+1. **Unify `generate-lecture-slides-v3`** - Migrate from direct Google API to shared OpenRouter client (currently uses `gemini-3-pro-image-preview` via direct Google Cloud API)
+2. **Add `image_config`** - Include `aspect_ratio: '16:9'` for lecture slide optimization (not yet implemented)
 3. **Automatic Fallback** - Implement fallback to Lovable AI Gateway if OpenRouter fails
 4. **Cost Dashboard** - Add image generation cost tracking to usage analytics
 
