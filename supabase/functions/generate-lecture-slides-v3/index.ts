@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
 import { MODEL_CONFIG } from '../_shared/ai-orchestrator.ts';
+import { simpleCompletion, generateImage as generateImageOpenRouter, MODELS } from '../_shared/openrouter-client.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -190,7 +191,10 @@ const MODEL_MAP: Record<string, string> = {
   'openai/gpt-5-nano': 'gemini-2.5-flash-lite',
 };
 
-async function callGoogleAI(
+// DEPRECATED: This function is kept ONLY for the Research Agent which requires
+// Google Search Grounding (not available via OpenRouter). Professor AI and Visual AI
+// have been migrated to OpenRouter via simpleCompletion() and generateImageOpenRouter().
+async function callGoogleAIWithGrounding(
   model: string,
   systemPrompt: string,
   userPrompt: string,
@@ -200,7 +204,7 @@ async function callGoogleAI(
   if (!apiKey) throw new Error('GOOGLE_CLOUD_API_KEY not configured');
 
   const googleModel = MODEL_MAP[model] || model;
-  console.log(`[Professor AI] Calling ${googleModel} with ${userPrompt.length} chars prompt`);
+  console.log(`[Research Agent] Calling ${googleModel} with ${userPrompt.length} chars prompt`);
 
   const url = `${GOOGLE_API_BASE}/models/${googleModel}:generateContent?key=${apiKey}`;
 
@@ -227,7 +231,7 @@ async function callGoogleAI(
 
   if (!response.ok) {
     const errText = await response.text();
-    console.error(`[Professor AI] Error from ${googleModel}:`, response.status, errText);
+    console.error(`[Research Agent] Error from ${googleModel}:`, response.status, errText);
     if (response.status === 429) {
       throw new Error('Rate limit exceeded. Please try again in a moment.');
     }
@@ -239,14 +243,16 @@ async function callGoogleAI(
 
   if (!content) throw new Error('No content in AI response');
 
-  console.log(`[Professor AI] ${googleModel} returned ${content.length} chars`);
+  console.log(`[Research Agent] ${googleModel} returned ${content.length} chars`);
   return content;
 }
 
-async function generateImage(
+// Native generateImage function - kept for Visual AI as gemini-3-pro-image-preview
+// is not yet available on OpenRouter. Professor AI uses OpenRouter.
+async function generateImageNative(
   prompt: string,
   slideTitle: string
-): Promise<{ base64: string; text?: string } | null> {
+): Promise<{ base64: string; mimeType: string; text?: string } | null> {
   const apiKey = Deno.env.get('GOOGLE_CLOUD_API_KEY');
   if (!apiKey) return null;
 
@@ -258,19 +264,10 @@ async function generateImage(
 
     const response = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: prompt }],
-          },
-        ],
-        generationConfig: {
-          responseModalities: ['TEXT', 'IMAGE'],
-        },
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
       }),
     });
 
@@ -286,18 +283,13 @@ async function generateImage(
     let base64: string | undefined;
 
     for (const part of parts) {
-      if (part.text) {
-        text = part.text;
-      }
-      if (part.inlineData) {
-        base64 = part.inlineData.data;
-      }
+      if (part.text) text = part.text;
+      if (part.inlineData) base64 = part.inlineData.data;
     }
 
     if (base64) {
-      return { base64, text };
+      return { base64, mimeType: 'image/png', text };
     }
-
     return null;
   } catch (error) {
     console.error(`[Visual AI] Error:`, error);
@@ -1095,11 +1087,19 @@ OUTPUT (JSON array of slides):
 CRITICAL: Every slide MUST have speaker_notes with 200-300 words. Never leave speaker_notes empty or short.
 Generate all ${targetSlides} slides now with RICH, EDUCATIONAL content and LAYOUT HINTS for every key_point.`;
 
-  const result = await callGoogleAI(
-    MODEL_CONFIG.GEMINI_PRO,
+  // Use OpenRouter for Professor AI (with fallbacks)
+  // NOTE: Do NOT use json: true - the prompt expects markdown-wrapped JSON which parseJsonFromAI handles
+  const result = await simpleCompletion(
+    'google/gemini-3-flash-preview',
     PROFESSOR_SYSTEM_PROMPT,
     userPrompt,
-    0.7
+    {
+      temperature: 0.7,
+      max_tokens: 16000,
+      // json: true, // DO NOT USE: prompt expects markdown blocks, parseJsonFromAI handles this
+      fallbacks: [MODELS.GEMINI_FLASH, MODELS.REASONING],
+    },
+    '[Professor AI]'
   );
 
   try {
@@ -1166,16 +1166,17 @@ DESIGN RULES:
 - 16:9 aspect ratio
 - Large text that's readable from a distance`;
 
-      const result = await generateImage(imagePrompt, slide.title);
+      // Use native Google API for Visual AI (gemini-3-pro-image-preview not on OpenRouter yet)
+      const result = await generateImageNative(imagePrompt, slide.title);
       
       if (result?.base64) {
         try {
-          // Upload to storage
-          const fileName = `slide_${context.id}_${slide.order}_${Date.now()}.png`;
+          const ext = result.mimeType === 'image/jpeg' ? 'jpg' : 'png';
+          const fileName = `slide_${context.id}_${slide.order}_${Date.now()}.${ext}`;
           const { error: uploadError } = await supabase.storage
             .from('lecture-visuals')
             .upload(fileName, base64ToBlob(result.base64), {
-              contentType: 'image/png',
+              contentType: result.mimeType,
               upsert: true,
             });
 
@@ -1548,14 +1549,16 @@ DESIGN RULES:
 - 16:9 aspect ratio`;
 
         try {
-          const result = await generateImage(imagePrompt, slide.title);
+          // Use native Google API for Visual AI
+          const result = await generateImageNative(imagePrompt, slide.title);
           
           if (result?.base64) {
-            const fileName = `slide_${context.id}_${slide.order}_${Date.now()}.png`;
+            const ext = result.mimeType === 'image/jpeg' ? 'jpg' : 'png';
+            const fileName = `slide_${context.id}_${slide.order}_${Date.now()}.${ext}`;
             const { error: uploadError } = await supabase.storage
               .from('lecture-visuals')
               .upload(fileName, base64ToBlob(result.base64), {
-                contentType: 'image/png',
+                contentType: result.mimeType,
                 upsert: true,
               });
 
