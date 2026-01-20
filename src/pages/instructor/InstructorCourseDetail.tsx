@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, FileText, Video, CheckCircle2, Clock, AlertCircle, Settings2, Copy, Share2, Loader2, Sparkles, Users, Presentation, RotateCcw } from 'lucide-react';
+import { ArrowLeft, Plus, FileText, Video, CheckCircle2, Clock, AlertCircle, Settings2, Copy, Share2, Loader2, Sparkles, Users, Presentation, RotateCcw, Image } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { Button } from '@/components/ui/button';
@@ -26,7 +26,7 @@ import { useContentStats } from '@/hooks/useContentStats';
 import { useLOContentStatus } from '@/hooks/useContentStats';
 import { useCourseLectureSlides, useBulkPublishSlides, useCleanupStuckSlides, useRetryFailedSlides } from '@/hooks/useLectureSlides';
 // NEW: Use batch API hooks for "Generate All" functionality (50% cost savings)
-import { useSubmitBatchSlides, useCourseSlideStatus } from '@/hooks/useBatchSlides';
+import { useSubmitBatchSlides, useCourseSlideStatus, useTriggerImageGeneration, useImageGenerationStatus } from '@/hooks/useBatchSlides';
 import { LoadingState } from '@/components/common/LoadingState';
 import { EmptyState } from '@/components/common/EmptyState';
 import { UnifiedModuleCard } from '@/components/instructor/UnifiedModuleCard';
@@ -74,6 +74,9 @@ export default function InstructorCourseDetailPage() {
   const cleanupStuck = useCleanupStuckSlides();
   const retryFailed = useRetryFailedSlides();
 
+  // Image generation hooks
+  const triggerImageGen = useTriggerImageGeneration();
+  const imageGenStatus = useImageGenerationStatus(id);
   // Calculate slide stats.
   // Prefer backend-computed counts (poll-batch-status) because Realtime can be flaky on some networks.
   // Fallback to local lectureSlides-derived counts when status API isn't available yet.
@@ -555,6 +558,50 @@ export default function InstructorCourseDetailPage() {
                               <RotateCcw className="h-4 w-4" />
                               <span className="hidden sm:inline">Retry {slidesStats.failed} Failed</span>
                               <span className="sm:hidden">Retry {slidesStats.failed}</span>
+                            </>
+                          )}
+                        </Button>
+                      )}
+                      
+                      {/* Generate Images Button - visible when slides are ready but need images */}
+                      {slidesStats.ready > 0 && (
+                        <Button
+                          variant="outline"
+                          className="gap-2 h-9 flex-1 sm:flex-none"
+                          onClick={() => id && triggerImageGen.mutate({ instructorCourseId: id })}
+                          disabled={triggerImageGen.isPending || (imageGenStatus.data?.processing || 0) > 0}
+                        >
+                          {triggerImageGen.isPending ? (
+                            <>
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              <span className="hidden sm:inline">Starting...</span>
+                              <span className="sm:hidden">...</span>
+                            </>
+                          ) : (imageGenStatus.data?.processing || 0) > 0 ? (
+                            <>
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              <span className="hidden sm:inline">
+                                Images {imageGenStatus.data?.completed || 0}/{imageGenStatus.data?.total || 0}
+                              </span>
+                              <span className="sm:hidden">
+                                {imageGenStatus.data?.completed || 0}/{imageGenStatus.data?.total || 0}
+                              </span>
+                            </>
+                          ) : (imageGenStatus.data?.queued || 0) > 0 ? (
+                            <>
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              <span className="hidden sm:inline">
+                                {imageGenStatus.data?.queued} images queued
+                              </span>
+                              <span className="sm:hidden">
+                                {imageGenStatus.data?.queued} queued
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <Image className="h-4 w-4" />
+                              <span className="hidden sm:inline">Generate Images</span>
+                              <span className="sm:hidden">Images</span>
                             </>
                           )}
                         </Button>
