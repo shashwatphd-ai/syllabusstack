@@ -61,6 +61,9 @@ export const MODELS = {
   GEMINI_FLASH_FAST: 'google/gemini-2.0-flash',
   GEMINI_PRO: 'google/gemini-2.5-pro',
 
+  // === IMAGE GENERATION ===
+  GEMINI_IMAGE: 'google/gemini-2.5-flash-image-preview',
+
   // === ANTHROPIC (Alternative high-quality) ===
   CLAUDE_SONNET: 'anthropic/claude-sonnet-4',
   CLAUDE_HAIKU: 'anthropic/claude-3.5-haiku',
@@ -542,43 +545,34 @@ export interface ImageGenerationResult {
  *   console.log(`Generated ${result.mimeType} image`);
  * }
  */
-/**
- * Get Lovable AI API key (different from OpenRouter)
- */
-function getLovableAiKey(): string {
-  const key = Deno.env.get('LOVABLE_API_KEY');
-  if (!key) {
-    throw new Error('LOVABLE_API_KEY environment variable is required for image generation');
-  }
-  return key;
-}
-
 export async function generateImage(
   prompt: string,
   options: {
     maxRetries?: number;
     retryDelayMs?: number;
   } = {},
-  logPrefix = '[LovableAI-Image]'
+  logPrefix = '[OpenRouter-Image]'
 ): Promise<ImageGenerationResult | null> {
   const { maxRetries = 2, retryDelayMs = 1500 } = options;
   
-  // Use Lovable AI Gateway for image generation (NOT OpenRouter)
-  const LOVABLE_AI_GATEWAY = 'https://ai.gateway.lovable.dev/v1/chat/completions';
-  const apiKey = getLovableAiKey();
+  // Use OpenRouter for unified AI routing
+  const apiKey = getApiKey();
+  const appUrl = getAppUrl();
 
-  console.log(`${logPrefix} Generating image...`);
+  console.log(`${logPrefix} Generating image via OpenRouter...`);
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      const response = await fetch(LOVABLE_AI_GATEWAY, {
+      const response = await fetch(`${OPENROUTER_API_BASE}/chat/completions`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
+          'HTTP-Referer': appUrl,
+          'X-Title': 'SyllabusStack',
         },
         body: JSON.stringify({
-          model: 'google/gemini-2.5-flash-image-preview',
+          model: MODELS.GEMINI_IMAGE,
           messages: [{ role: 'user', content: prompt }],
           modalities: ['image', 'text']
         })
