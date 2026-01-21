@@ -360,17 +360,10 @@ async function processQueueItem(
       return { success: false, imageUrl: null, error: `Upload failed: ${uploadError.message}` };
     }
 
-    // Get public URL
-    const { data: urlData } = supabase.storage
-      .from('lecture-visuals')
-      .getPublicUrl(fileName);
-
-    if (!urlData?.publicUrl) {
-      return { success: false, imageUrl: null, error: 'Failed to get public URL' };
-    }
-
-    console.log(`${logPrefix} Success: ${urlData.publicUrl}`);
-    return { success: true, imageUrl: urlData.publicUrl, error: null };
+    // Store the file path (not URL) - the frontend's AuthenticatedImage will create signed URLs
+    // The bucket is private, so getPublicUrl() returns an inaccessible URL
+    console.log(`${logPrefix} Success: ${fileName} (private bucket)`);
+    return { success: true, imageUrl: fileName, error: null };
 
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);

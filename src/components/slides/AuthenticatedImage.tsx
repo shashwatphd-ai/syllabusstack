@@ -102,19 +102,21 @@ export function AuthenticatedImage({
 }
 
 /**
- * Extract storage path from a full Supabase URL
+ * Extract storage path from a full Supabase URL or return plain file path
  */
 function extractPathFromUrl(url: string, bucket: string): string | null {
   if (!url) return null;
   
-  // Check if it's a relative path (just the filename)
+  // Check if it's a plain file path (just the filename, no http/https)
+  // This is the new format for private buckets
   if (!url.startsWith('http://') && !url.startsWith('https://')) {
     return url;
   }
   
-  // Pattern for public URLs
+  // Pattern for public URLs (legacy format - won't work for private buckets)
   const publicPattern = `/storage/v1/object/public/${bucket}/`;
   if (url.includes(publicPattern)) {
+    // Extract the path and create a signed URL for private bucket access
     return url.split(publicPattern)[1] || null;
   }
   
