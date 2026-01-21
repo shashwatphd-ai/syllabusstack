@@ -1,13 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { generateText, MODELS } from "../_shared/unified-ai-client.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
-
-// Google Cloud API configuration
-const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -43,10 +41,7 @@ serve(async (req) => {
     // Use service client for database operations
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
     
-    const googleApiKey = Deno.env.get('GOOGLE_CLOUD_API_KEY');
-    if (!googleApiKey) {
-      throw new Error('GOOGLE_CLOUD_API_KEY is not configured');
-    }
+    // Note: Now using unified-ai-client which handles API keys internally
 
     const { learning_objective_id, message, conversation_history = [] } = await req.json();
 
@@ -143,45 +138,22 @@ User: "Show me university content"
 
     console.log(`Content assistant chat for LO: ${learning_objective_id}`);
 
-    // Build contents array from conversation history for Google API
-    const contents = messages.slice(1).map((m: any) => ({
-      role: m.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: m.content }]
-    }));
+    // Build conversation prompt from history
+    const conversationText = messages.slice(1).map((m: any) => 
+      `${m.role === 'assistant' ? 'Assistant' : 'User'}: ${m.content}`
+    ).join('\n\n');
 
-    const url = `${GOOGLE_API_BASE}/models/gemini-2.5-flash:generateContent?key=${googleApiKey}`;
-    const aiResponse = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        contents,
-        systemInstruction: {
-          parts: [{ text: messages[0].content }]
-        },
-        generationConfig: {
-          temperature: 0.7,
-        },
-      }),
+    // Use unified AI client for text generation
+    const result = await generateText({
+      prompt: conversationText,
+      systemPrompt: messages[0].content,
+      model: MODELS.FAST,
+      temperature: 0.7,
+      fallbacks: [MODELS.GEMINI_FLASH],
+      logPrefix: '[content-assistant-chat]'
     });
 
-    if (!aiResponse.ok) {
-      const errorText = await aiResponse.text();
-      console.error('AI API error:', aiResponse.status, errorText);
-
-      if (aiResponse.status === 429) {
-        return new Response(JSON.stringify({ error: 'Rate limit exceeded, please try again later' }), {
-          status: 429,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-
-      throw new Error(`AI API error: ${aiResponse.status}`);
-    }
-
-    const aiData = await aiResponse.json();
-    const assistantMessage = aiData.candidates?.[0]?.content?.parts?.[0]?.text;
+    const assistantMessage = result.content;
 
     if (!assistantMessage) {
       throw new Error('No response from AI');

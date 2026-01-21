@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
-import { simpleCompletion, parseJsonResponse, MODELS } from "../_shared/openrouter-client.ts";
+import { generateText, MODELS, parseJsonResponse } from "../_shared/unified-ai-client.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -107,14 +107,16 @@ Return a JSON array with exactly ${num_checks} objects in this format:
 
 Return ONLY the JSON array, no other text.`;
 
-    // Use OpenRouter for AI call
-    const content = await simpleCompletion(
-      MODELS.FAST,
-      systemPrompt,
-      userPrompt,
-      { temperature: 0.7, fallbacks: [MODELS.GEMINI_FLASH] },
-      '[generate-micro-checks]'
-    );
+    // Use unified AI client for text generation
+    const result = await generateText({
+      prompt: userPrompt,
+      systemPrompt: systemPrompt,
+      model: MODELS.FAST,
+      temperature: 0.7,
+      fallbacks: [MODELS.GEMINI_FLASH],
+      logPrefix: '[generate-micro-checks]'
+    });
+    const content = result.content;
 
     if (!content) {
       throw new Error('No response from AI');

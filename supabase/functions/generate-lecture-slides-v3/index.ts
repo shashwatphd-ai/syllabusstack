@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
 import { MODEL_CONFIG } from '../_shared/ai-orchestrator.ts';
-import { simpleCompletion, generateImage as generateImageOpenRouter, MODELS } from '../_shared/openrouter-client.ts';
+import { generateText, generateImage, MODELS, parseJsonResponse } from '../_shared/unified-ai-client.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -1087,20 +1087,19 @@ OUTPUT (JSON array of slides):
 CRITICAL: Every slide MUST have speaker_notes with 200-300 words. Never leave speaker_notes empty or short.
 Generate all ${targetSlides} slides now with RICH, EDUCATIONAL content and LAYOUT HINTS for every key_point.`;
 
-  // Use OpenRouter for Professor AI (with fallbacks)
+  // Use unified AI client for Professor AI (with fallbacks)
   // NOTE: Do NOT use json: true - the prompt expects markdown-wrapped JSON which parseJsonFromAI handles
-  const result = await simpleCompletion(
-    'google/gemini-3-flash-preview',
-    PROFESSOR_SYSTEM_PROMPT,
-    userPrompt,
-    {
-      temperature: 0.7,
-      max_tokens: 16000,
-      // json: true, // DO NOT USE: prompt expects markdown blocks, parseJsonFromAI handles this
-      fallbacks: [MODELS.GEMINI_FLASH, MODELS.REASONING],
-    },
-    '[Professor AI]'
-  );
+  const aiResult = await generateText({
+    prompt: userPrompt,
+    systemPrompt: PROFESSOR_SYSTEM_PROMPT,
+    model: 'google/gemini-3-flash-preview',
+    temperature: 0.7,
+    maxTokens: 16000,
+    // json: true, // DO NOT USE: prompt expects markdown blocks, parseJsonFromAI handles this
+    fallbacks: [MODELS.GEMINI_FLASH, MODELS.REASONING],
+    logPrefix: '[Professor AI]'
+  });
+  const result = aiResult.content;
 
   try {
     const parsed = parseJsonFromAI(result);
@@ -1166,8 +1165,8 @@ DESIGN RULES:
 - 16:9 aspect ratio
 - Large text that's readable from a distance`;
 
-      // Use native Google API for Visual AI (gemini-3-pro-image-preview not on OpenRouter yet)
-      const result = await generateImageNative(imagePrompt, slide.title);
+      // Use unified AI client for Visual AI (handles Google Direct primary, OpenRouter fallback)
+      const result = await generateImage({ prompt: imagePrompt, slideTitle: slide.title, maxRetries: 2, logPrefix: '[Visual AI v3]' });
       
       if (result?.base64) {
         try {

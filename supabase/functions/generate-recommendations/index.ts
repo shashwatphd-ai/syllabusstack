@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target
 import { MASTER_SYSTEM_PROMPT, RECOMMENDATIONS_PROMPT, ANTI_RECOMMENDATIONS_PROMPT } from "../_shared/prompts.ts";
 import { trackAIUsage, createServiceClient } from "../_shared/ai-cache.ts";
 import { RECOMMENDATIONS_SCHEMA } from "../_shared/schemas.ts";
-import { functionCall, MODELS } from "../_shared/openrouter-client.ts";
+import { generateStructured, MODELS } from "../_shared/unified-ai-client.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -154,19 +154,20 @@ PRIORITIZE:
 
 Return your response using the generate_recommendations function.`;
 
-    // Use OpenRouter for AI call
-    const parsed = await functionCall<{
+    // Use unified AI client for structured extraction
+    const result = await generateStructured<{
       recommendations: any[];
       anti_recommendations: any[];
       learning_path_summary: string;
-    }>(
-      MODELS.FAST,
-      systemPrompt,
-      userContent,
-      RECOMMENDATIONS_SCHEMA,
-      { fallbacks: [MODELS.GEMINI_FLASH] },
-      '[generate-recommendations]'
-    );
+    }>({
+      prompt: userContent,
+      systemPrompt: systemPrompt,
+      schema: RECOMMENDATIONS_SCHEMA,
+      model: MODELS.FAST,
+      fallbacks: [MODELS.GEMINI_FLASH],
+      logPrefix: '[generate-recommendations]'
+    });
+    const parsed = result.data;
 
     const recommendations = parsed.recommendations || [];
     const antiRecommendations = parsed.anti_recommendations || [];

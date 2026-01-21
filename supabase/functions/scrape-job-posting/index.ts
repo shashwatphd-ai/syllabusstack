@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import { getWebProvider } from "../_shared/web-provider.ts";
-import { simpleCompletion, MODELS } from "../_shared/openrouter-client.ts";
+import { generateText, MODELS } from "../_shared/unified-ai-client.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -152,15 +152,16 @@ Return a JSON object with these fields (use null for missing fields):
 
       const userPrompt = `Extract job information from this posting:\n\n${markdown.slice(0, 8000)}`;
 
-      const aiResponse = await simpleCompletion(
-        MODELS.FAST,
-        systemPrompt,
-        userPrompt,
-        { json: true, fallbacks: [MODELS.GEMINI_FLASH] },
-        '[scrape-job-posting]'
-      );
+      const result = await generateText({
+        prompt: userPrompt,
+        systemPrompt: systemPrompt,
+        model: MODELS.FAST,
+        json: true,
+        fallbacks: [MODELS.GEMINI_FLASH],
+        logPrefix: '[scrape-job-posting]'
+      });
 
-      jobData = JSON.parse(aiResponse);
+      jobData = JSON.parse(result.content);
       console.log("AI extracted job data:", jobData.title);
     } catch (aiError) {
       console.error("AI extraction failed, using fallback:", aiError);

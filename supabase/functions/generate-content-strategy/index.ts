@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { simpleCompletion, parseJsonResponse, MODELS } from "../_shared/openrouter-client.ts";
+import { generateText, MODELS, parseJsonResponse } from "../_shared/unified-ai-client.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -158,18 +158,19 @@ Return ONLY valid JSON in this exact format:
 
     console.log('Calling OpenRouter for content strategy generation...');
 
-    // Use OpenRouter for AI call
+    // Use unified AI client for text generation
     let strategies;
     try {
-      const content = await simpleCompletion(
-        MODELS.FAST,
-        systemPrompt,
-        userPrompt,
-        { temperature: 0.7, fallbacks: [MODELS.GEMINI_FLASH] },
-        '[generate-content-strategy]'
-      );
+      const result = await generateText({
+        prompt: userPrompt,
+        systemPrompt: systemPrompt,
+        model: MODELS.FAST,
+        temperature: 0.7,
+        fallbacks: [MODELS.GEMINI_FLASH],
+        logPrefix: '[generate-content-strategy]'
+      });
 
-      strategies = parseJsonResponse<{ strategies: any[] }>(content);
+      strategies = parseJsonResponse<{ strategies: any[] }>(result.content);
     } catch (parseError) {
       console.error('Failed to parse AI response, using fallback');
       // Fallback to basic strategies if AI parsing fails

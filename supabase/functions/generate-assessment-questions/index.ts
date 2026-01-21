@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
 import { trackAIUsage, createServiceClient } from "../_shared/ai-cache.ts";
-import { functionCall, MODELS } from "../_shared/openrouter-client.ts";
+import { generateStructured, MODELS } from "../_shared/unified-ai-client.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -180,15 +180,16 @@ Include a mix of:
 For each multiple choice question, provide exactly 4 options with one correct answer.
 For short answer questions, include keywords that indicate correct understanding.`;
 
-    // Use OpenRouter for AI call
-    const parsed = await functionCall<{ questions: any[] }>(
-      MODELS.FAST,
-      QUESTION_GENERATION_PROMPT,
-      userPrompt,
-      QUESTION_GENERATION_SCHEMA,
-      { fallbacks: [MODELS.GEMINI_FLASH] },
-      '[generate-assessment-questions]'
-    );
+    // Use unified AI client for structured extraction
+    const result = await generateStructured<{ questions: any[] }>({
+      prompt: userPrompt,
+      systemPrompt: QUESTION_GENERATION_PROMPT,
+      schema: QUESTION_GENERATION_SCHEMA,
+      model: MODELS.FAST,
+      fallbacks: [MODELS.GEMINI_FLASH],
+      logPrefix: '[generate-assessment-questions]'
+    });
+    const parsed = result.data;
 
     const questions = parsed.questions || [];
 

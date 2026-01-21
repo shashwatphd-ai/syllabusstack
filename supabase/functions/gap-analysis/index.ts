@@ -7,7 +7,7 @@ import { analyzeRequirementCoverage, buildUserCapabilityKeywords } from "../_sha
 import { generateKeywordVector, calculateSimilarity } from "../_shared/ai-orchestrator.ts";
 import { checkRateLimit, getUserLimits, createRateLimitResponse } from "../_shared/rate-limiter.ts";
 import { createErrorResponse, logInfo, logError } from "../_shared/error-handler.ts";
-import { functionCall, MODELS } from "../_shared/openrouter-client.ts";
+import { generateStructured, MODELS } from "../_shared/unified-ai-client.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -211,8 +211,8 @@ Focus on:
 
 Return your response using the generate_gap_analysis function.`;
 
-    // Use OpenRouter for AI call
-    const analysis = await functionCall<{
+    // Use unified AI client for structured extraction
+    const result = await generateStructured<{
       match_score: number;
       strong_overlaps: any[];
       critical_gaps: any[];
@@ -223,14 +223,15 @@ Return your response using the generate_gap_analysis function.`;
       job_success_prediction: string;
       priority_gaps: any[];
       anti_recommendations: string[];
-    }>(
-      MODELS.FAST,
-      systemPrompt,
-      userContent,
-      GAP_ANALYSIS_SCHEMA,
-      { fallbacks: [MODELS.GEMINI_FLASH] },
-      '[gap-analysis]'
-    );
+    }>({
+      prompt: userContent,
+      systemPrompt: systemPrompt,
+      schema: GAP_ANALYSIS_SCHEMA,
+      model: MODELS.FAST,
+      fallbacks: [MODELS.GEMINI_FLASH],
+      logPrefix: '[gap-analysis]'
+    });
+    const analysis = result.data;
 
     // Blend keyword-based score with AI analysis for final score
     // Weight: 30% keyword, 70% AI assessment
