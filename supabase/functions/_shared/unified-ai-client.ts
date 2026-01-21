@@ -377,9 +377,9 @@ async function generateImageOpenRouter(
     return null;
   }
 
-  // Use Gemini 2.5 Flash Image for better text rendering (Flux has spelling issues)
-  const model = 'google/gemini-2.5-flash-image-preview';
-  console.log(`${logPrefix} Trying OpenRouter Gemini image generation...`);
+  // Use Gemini 3 Pro Image for best quality text rendering
+  const model = 'google/gemini-3-pro-image-preview';
+  console.log(`${logPrefix} Trying OpenRouter Gemini 3 Pro image generation...`);
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
