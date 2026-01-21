@@ -420,19 +420,35 @@ async function generateImageOpenRouter(
 
       const data = await response.json();
       const message = data.choices?.[0]?.message;
+      const content = message?.content;
       
-      // Check for images array (OpenRouter multimodal format)
+      // Format 1: content is an array with type: 'image' items (correct multimodal format)
+      if (Array.isArray(content)) {
+        for (const item of content) {
+          if (item.type === 'image' || item.type === 'image_url') {
+            const imageUrl = item.image_url?.url || item.url;
+            if (typeof imageUrl === 'string' && imageUrl.startsWith('data:image/')) {
+              const match = imageUrl.match(/^data:image\/(\w+);base64,(.+)$/);
+              if (match) {
+                console.log(`${logPrefix} ✓ Gemini image from content array (${Math.round(match[2].length / 1024)}KB)`);
+                return { base64: match[2], mimeType: `image/${match[1]}` };
+              }
+            }
+          }
+        }
+      }
+      
+      // Format 2: images array (legacy format some models may use)
       const images = message?.images;
       if (images?.length > 0) {
         const imageObj = images[0];
         const imageUrl = imageObj?.image_url?.url || imageObj?.url;
         
         if (typeof imageUrl === 'string' && imageUrl.startsWith('data:image/')) {
-          const commaIndex = imageUrl.indexOf(',');
-          if (commaIndex !== -1) {
-            const base64 = imageUrl.substring(commaIndex + 1);
-            console.log(`${logPrefix} ✓ Gemini image generated (${Math.round(base64.length / 1024)}KB)`);
-            return { base64, mimeType: 'image/png' };
+          const match = imageUrl.match(/^data:image\/(\w+);base64,(.+)$/);
+          if (match) {
+            console.log(`${logPrefix} ✓ Gemini image from images array (${Math.round(match[2].length / 1024)}KB)`);
+            return { base64: match[2], mimeType: `image/${match[1]}` };
           }
         }
         
@@ -453,8 +469,7 @@ async function generateImageOpenRouter(
         }
       }
       
-      // Check content for inline base64
-      const content = message?.content;
+      // Format 3: content is string with inline base64 (fallback)
       if (content && typeof content === 'string' && content.includes('data:image/')) {
         const dataMatch = content.match(/data:image\/[^;]+;base64,([A-Za-z0-9+/=]+)/);
         if (dataMatch?.[1]) {
@@ -463,7 +478,7 @@ async function generateImageOpenRouter(
         }
       }
 
-      console.warn(`${logPrefix} OpenRouter Gemini returned no image. Has images: ${!!images}, content type: ${typeof content}`);
+      console.warn(`${logPrefix} OpenRouter returned no image. Content type: ${typeof content}, isArray: ${Array.isArray(content)}, has images: ${!!images}`);
       if (attempt < maxRetries) {
         await new Promise(r => setTimeout(r, 1500));
         continue;
