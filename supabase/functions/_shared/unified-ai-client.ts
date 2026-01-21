@@ -376,9 +376,9 @@ async function generateImageOpenRouter(
     return null;
   }
 
-  // Use GPT-5 with image modality
-  const model = 'openai/gpt-5';
-  console.log(`${logPrefix} Trying OpenRouter GPT-5 image generation...`);
+  // Use Flux Pro for image generation via OpenRouter
+  const model = 'black-forest-labs/flux.2-pro';
+  console.log(`${logPrefix} Trying OpenRouter Flux Pro image generation...`);
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
@@ -430,7 +430,7 @@ async function generateImageOpenRouter(
           const commaIndex = imageUrl.indexOf(',');
           if (commaIndex !== -1) {
             const base64 = imageUrl.substring(commaIndex + 1);
-            console.log(`${logPrefix} ✓ GPT-5 image generated (${Math.round(base64.length / 1024)}KB)`);
+            console.log(`${logPrefix} ✓ Flux Pro image generated (${Math.round(base64.length / 1024)}KB)`);
             return { base64, mimeType: 'image/png' };
           }
         }
@@ -443,11 +443,11 @@ async function generateImageOpenRouter(
               const blob = await imgResp.blob();
               const buffer = await blob.arrayBuffer();
               const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
-              console.log(`${logPrefix} ✓ GPT-5 image fetched (${Math.round(base64.length / 1024)}KB)`);
+              console.log(`${logPrefix} ✓ Flux Pro image fetched (${Math.round(base64.length / 1024)}KB)`);
               return { base64, mimeType: blob.type || 'image/png' };
             }
           } catch (e) {
-            console.warn(`${logPrefix} Failed to fetch GPT-5 image URL:`, e);
+            console.warn(`${logPrefix} Failed to fetch Flux Pro image URL:`, e);
           }
         }
       }
@@ -457,12 +457,12 @@ async function generateImageOpenRouter(
       if (content && typeof content === 'string' && content.includes('data:image/')) {
         const dataMatch = content.match(/data:image\/[^;]+;base64,([A-Za-z0-9+/=]+)/);
         if (dataMatch?.[1]) {
-          console.log(`${logPrefix} ✓ GPT-5 inline base64 (${Math.round(dataMatch[1].length / 1024)}KB)`);
+          console.log(`${logPrefix} ✓ Flux Pro inline base64 (${Math.round(dataMatch[1].length / 1024)}KB)`);
           return { base64: dataMatch[1], mimeType: 'image/png' };
         }
       }
 
-      console.warn(`${logPrefix} GPT-5 returned no image. Has images: ${!!images}, content type: ${typeof content}`);
+      console.warn(`${logPrefix} Flux Pro returned no image. Has images: ${!!images}, content type: ${typeof content}`);
       if (attempt < maxRetries) {
         await new Promise(r => setTimeout(r, 1500));
         continue;
