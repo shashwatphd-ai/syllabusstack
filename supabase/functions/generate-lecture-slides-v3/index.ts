@@ -246,56 +246,7 @@ async function callGoogleAIWithGrounding(
   console.log(`[Research Agent] ${googleModel} returned ${content.length} chars`);
   return content;
 }
-
-// Native generateImage function - kept for Visual AI as gemini-3-pro-image-preview
-// is not yet available on OpenRouter. Professor AI uses OpenRouter.
-async function generateImageNative(
-  prompt: string,
-  slideTitle: string
-): Promise<{ base64: string; mimeType: string; text?: string } | null> {
-  const apiKey = Deno.env.get('GOOGLE_CLOUD_API_KEY');
-  if (!apiKey) return null;
-
-  console.log(`[Visual AI] Generating image for: ${slideTitle}`);
-
-  try {
-    const model = 'gemini-3-pro-image-preview';
-    const url = `${GOOGLE_API_BASE}/models/${model}:generateContent?key=${apiKey}`;
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
-      }),
-    });
-
-    if (!response.ok) {
-      console.warn(`[Visual AI] Image generation failed: ${response.status}`);
-      return null;
-    }
-
-    const data = await response.json();
-    const parts = data.candidates?.[0]?.content?.parts || [];
-
-    let text: string | undefined;
-    let base64: string | undefined;
-
-    for (const part of parts) {
-      if (part.text) text = part.text;
-      if (part.inlineData) base64 = part.inlineData.data;
-    }
-
-    if (base64) {
-      return { base64, mimeType: 'image/png', text };
-    }
-    return null;
-  } catch (error) {
-    console.error(`[Visual AI] Error:`, error);
-    return null;
-  }
-}
+// generateImageNative removed - now using unified-ai-client.ts generateImage()
 
 function parseJsonFromAI(content: string): any {
   // Extract JSON from markdown code blocks if present
@@ -1548,8 +1499,8 @@ DESIGN RULES:
 - 16:9 aspect ratio`;
 
         try {
-          // Use native Google API for Visual AI
-          const result = await generateImageNative(imagePrompt, slide.title);
+          // Use unified AI client for Visual AI (handles Google Direct primary, OpenRouter fallback)
+          const result = await generateImage({ prompt: imagePrompt, slideTitle: slide.title, maxRetries: 2, logPrefix: '[Visual AI v3 regen]' });
           
           if (result?.base64) {
             const ext = result.mimeType === 'image/jpeg' ? 'jpg' : 'png';

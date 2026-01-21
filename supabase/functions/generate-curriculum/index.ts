@@ -1,13 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
+import { generateText, MODELS, parseJsonResponse } from "../_shared/unified-ai-client.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
-
-// Google Cloud API configuration
-const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 interface GenerateCurriculumRequest {
   career_match_id?: string;
@@ -44,8 +42,7 @@ serve(async (req) => {
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
-    const googleApiKey = Deno.env.get('GOOGLE_CLOUD_API_KEY');
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!
 
     // Authenticate user
     const authHeader = req.headers.get('Authorization');
@@ -221,55 +218,31 @@ Return JSON in this exact format:
   "curriculum_summary": "Brief summary of what this curriculum covers"
 }`;
 
-    if (!googleApiKey) {
-      return new Response(JSON.stringify({ error: 'AI service not configured' }), {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    // Use unified AI client for curriculum generation
+    console.log('[generate-curriculum] Calling unified AI client');
+    
+    let content: string;
+    try {
+      const aiResult = await generateText({
+        prompt: userPrompt,
+        systemPrompt: systemPrompt,
+        model: MODELS.FAST,
+        temperature: 0.7,
+        json: true,
+        logPrefix: '[generate-curriculum]',
       });
-    }
-
-    // Call Google Cloud API
-    const url = `${GOOGLE_API_BASE}/models/gemini-2.5-flash:generateContent?key=${googleApiKey}`;
-    const aiResponse = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        contents: [
-          { role: 'user', parts: [{ text: userPrompt }] }
-        ],
-        systemInstruction: {
-          parts: [{ text: systemPrompt }]
-        },
-        generationConfig: {
-          temperature: 0.7,
-        },
-      }),
-    });
-
-    if (!aiResponse.ok) {
-      const errorText = await aiResponse.text();
-      console.error('Google Cloud API error:', aiResponse.status, errorText);
-
-      if (aiResponse.status === 429) {
+      content = aiResult.content;
+    } catch (aiError: any) {
+      console.error('AI generation error:', aiError);
+      
+      if (aiError.message?.includes('429') || aiError.message?.includes('rate limit')) {
         return new Response(JSON.stringify({ error: 'Rate limit exceeded, please try again later' }), {
           status: 429,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
-      if (aiResponse.status === 403) {
-        // Google Cloud returns 403 for billing/quota issues
-        return new Response(JSON.stringify({ error: 'API quota exceeded or billing issue. Please check your Google Cloud account.' }), {
-          status: 403,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
       throw new Error('Failed to generate curriculum from AI');
     }
-
-    const aiData = await aiResponse.json();
-    const content = aiData.candidates?.[0]?.content?.parts?.[0]?.text;
 
     if (!content) {
       throw new Error('No content returned from AI');
