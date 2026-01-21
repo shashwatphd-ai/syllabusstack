@@ -359,14 +359,10 @@ async function generateImageGoogleDirect(
 }
 
 /**
- * OpenRouter image generation fallback using Gemini 2.5 Flash Image
+ * OpenRouter image generation fallback using Flux Schnell
  * 
- * OpenRouter uses the chat/completions endpoint with modalities for image generation.
- * Valid image models (Jan 2026):
- * - google/gemini-2.5-flash-image-preview (Nano Banana - fast & cheap)
- * - black-forest-labs/flux.2-klein-4b (Flux - fast)
- * - black-forest-labs/flux.2-pro (Flux - higher quality)
- * - openai/gpt-5-image-mini
+ * OpenRouter uses the /api/v1/images/generations endpoint for image generation.
+ * Flux Schnell is reliable and fast for educational diagrams.
  */
 async function generateImageOpenRouter(
   prompt: string,
@@ -381,12 +377,13 @@ async function generateImageOpenRouter(
     return null;
   }
 
-  // Use Gemini 2.5 Flash Image (Nano Banana) - fast and reliable
-  const model = 'google/gemini-2.5-flash-image-preview';
-  console.log(`${logPrefix} Trying OpenRouter with ${model}...`);
+  // Use Flux Schnell - fast, reliable, and available on OpenRouter
+  const model = 'black-forest-labs/flux-schnell';
+  console.log(`${logPrefix} Trying OpenRouter Flux (${model})...`);
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
+      // OpenRouter uses chat completions for Flux - it generates images from text prompts
       const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -397,11 +394,7 @@ async function generateImageOpenRouter(
         },
         body: JSON.stringify({
           model,
-          messages: [{
-            role: 'user',
-            content: prompt
-          }],
-          modalities: ['image', 'text'],
+          messages: [{ role: 'user', content: `Generate an image: ${prompt}` }],
         }),
       });
 
@@ -427,38 +420,37 @@ async function generateImageOpenRouter(
 
       const data = await response.json();
       const message = data.choices?.[0]?.message;
+      const content = message?.content;
       
-      // Check for images array (OpenRouter standard format)
-      const images = message?.images;
-      if (images?.length > 0) {
-        const imageObj = images[0];
-        const imageUrl = imageObj?.image_url?.url || imageObj?.imageUrl?.url || imageObj?.url;
-        
-        if (typeof imageUrl === 'string' && imageUrl.startsWith('data:image/')) {
-          const commaIndex = imageUrl.indexOf(',');
-          if (commaIndex !== -1) {
-            const base64 = imageUrl.substring(commaIndex + 1);
-            const headerPart = imageUrl.substring(0, commaIndex);
-            const mimeMatch = headerPart.match(/data:(image\/[^;]+)/);
-            const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
-            console.log(`${logPrefix} ✓ OpenRouter image generated (${Math.round(base64.length / 1024)}KB)`);
-            return { base64, mimeType };
+      // Flux returns image URL in content - fetch and convert to base64
+      if (content && typeof content === 'string') {
+        // Check for URL pattern
+        const urlMatch = content.match(/https?:\/\/[^\s"'<>]+\.(png|jpg|jpeg|webp)/i);
+        if (urlMatch) {
+          console.log(`${logPrefix} Flux returned URL, fetching...`);
+          try {
+            const imgResp = await fetch(urlMatch[0]);
+            if (imgResp.ok) {
+              const blob = await imgResp.blob();
+              const buffer = await blob.arrayBuffer();
+              const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+              console.log(`${logPrefix} ✓ Flux image fetched (${Math.round(base64.length / 1024)}KB)`);
+              return { base64, mimeType: blob.type || 'image/png' };
+            }
+          } catch (e) {
+            console.warn(`${logPrefix} Failed to fetch Flux image URL:`, e);
           }
         }
-      }
-
-      // Fallback: check content for inline image
-      const content = message?.content;
-      if (content && typeof content === 'string' && content.includes('data:image/')) {
-        const dataUrlMatch = content.match(/data:image\/[^;]+;base64,([A-Za-z0-9+/=]+)/);
-        if (dataUrlMatch?.[1]) {
-          const base64 = dataUrlMatch[1];
-          console.log(`${logPrefix} ✓ OpenRouter image (inline base64) (${Math.round(base64.length / 1024)}KB)`);
-          return { base64, mimeType: 'image/png' };
+        
+        // Check for base64 data URL
+        const dataMatch = content.match(/data:image\/[^;]+;base64,([A-Za-z0-9+/=]+)/);
+        if (dataMatch?.[1]) {
+          console.log(`${logPrefix} ✓ Flux inline base64 (${Math.round(dataMatch[1].length / 1024)}KB)`);
+          return { base64: dataMatch[1], mimeType: 'image/png' };
         }
       }
 
-      console.warn(`${logPrefix} OpenRouter returned no image. Content type: ${typeof content}, has images: ${!!images}`);
+      console.warn(`${logPrefix} Flux returned no image. Content: ${String(content).slice(0, 100)}`);
       if (attempt < maxRetries) {
         await new Promise(r => setTimeout(r, 1500));
         continue;
