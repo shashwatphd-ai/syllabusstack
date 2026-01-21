@@ -8,6 +8,20 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  if (error && typeof error === 'object' && 'message' in error) {
+    const msg = (error as any).message;
+    if (typeof msg === 'string' && msg.length) return msg;
+  }
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return 'Unknown error';
+  }
+}
+
 // ============================================================================
 // TYPE DEFINITIONS - Professor AI v3
 // ============================================================================
@@ -1303,66 +1317,37 @@ serve(async (req) => {
     console.log('[Main] === PHASE 1: CONTEXT GATHERING ===');
     const context = await fetchTeachingUnitContext(supabase, teaching_unit_id, userId);
 
-    // Check for existing slides
-    const { data: existingRecord } = await supabase
+    // Create or update slide record in a single atomic operation.
+    // This avoids race conditions and prevents duplicate key errors on regenerate.
+    const upsertPayload: any = {
+      teaching_unit_id,
+      learning_objective_id: context.learning_objective.id,
+      instructor_course_id: context.course.id,
+      title: context.title,
+      status: 'generating',
+      error_message: null,
+      slide_style: style,
+      generation_phases: {
+        started: new Date().toISOString(),
+        current_phase: 'professor',
+        progress_percent: 0,
+        version: 3,
+        regenerate: regenerate,
+      },
+      ...(userId ? { created_by: userId } : {}),
+      // slides column is NOT NULL; clear to an empty array on regenerate
+      ...(regenerate ? { slides: [] } : {}),
+    };
+
+    const { data: upserted, error: upsertErr } = await supabase
       .from('lecture_slides')
+      .upsert(upsertPayload, { onConflict: 'teaching_unit_id' })
       .select('id')
-      .eq('teaching_unit_id', teaching_unit_id)
-      .maybeSingle();
+      .single();
 
-    let slideRecordId: string;
-
-    if (existingRecord) {
-      // Always update existing record (whether regenerating or not)
-      // This handles both normal updates and regeneration
-      const { data: updated, error: updateErr } = await supabase
-        .from('lecture_slides')
-        .update({
-          status: 'generating',
-          error_message: null,
-          slide_style: style,
-          slides: regenerate ? null : undefined, // Clear slides if regenerating
-          generation_phases: { 
-            started: new Date().toISOString(), 
-            current_phase: 'professor', 
-            progress_percent: 0,
-            version: 3,
-            regenerate: regenerate,
-          },
-        })
-        .eq('id', existingRecord.id)
-        .select('id')
-        .single();
-
-      if (updateErr) throw updateErr;
-      slideRecordId = updated.id;
-      console.log('[Main] Updated existing slide record:', slideRecordId, regenerate ? '(regenerating)' : '');
-    } else {
-      // No existing record - create new one
-      const { data: inserted, error: insertErr } = await supabase
-        .from('lecture_slides')
-        .insert({
-          teaching_unit_id,
-          learning_objective_id: context.learning_objective.id,
-          instructor_course_id: context.course.id,
-          title: context.title,
-          status: 'generating',
-          slide_style: style,
-          created_by: userId,
-          generation_phases: { 
-            started: new Date().toISOString(), 
-            current_phase: 'professor', 
-            progress_percent: 0,
-            version: 3,
-          },
-        })
-        .select('id')
-        .single();
-
-      if (insertErr) throw insertErr;
-      slideRecordId = inserted.id;
-      console.log('[Main] Created new slide record:', slideRecordId);
-    }
+    if (upsertErr) throw upsertErr;
+    const slideRecordId = upserted.id as string;
+    console.log('[Main] Slide record ready:', slideRecordId, regenerate ? '(regenerating)' : '');
 
     try {
       // PHASE 2: Research Agent - Google Search Grounding
@@ -1597,11 +1582,11 @@ DESIGN RULES:
     } catch (agentError) {
       console.error('[Main] Agent error:', agentError);
       
-      await supabase
+       await supabase
         .from('lecture_slides')
         .update({
           status: 'failed',
-          error_message: agentError instanceof Error ? agentError.message : 'Unknown error',
+           error_message: getErrorMessage(agentError),
         })
         .eq('id', slideRecordId);
 
@@ -1610,12 +1595,12 @@ DESIGN RULES:
 
   } catch (error) {
     console.error('[Main] Fatal error:', error);
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+     return new Response(
+       JSON.stringify({
+         success: false,
+         error: getErrorMessage(error),
+       }),
+       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+     );
   }
 });
