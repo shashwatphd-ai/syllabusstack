@@ -1,12 +1,10 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { generateStructured, MODELS } from "../_shared/unified-ai-client.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-
-// Google Cloud API configuration
-const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 /**
  * AGENTIC SEARCH CONTEXT GENERATOR
@@ -54,10 +52,6 @@ serve(async (req) => {
   }
 
   try {
-    const GOOGLE_CLOUD_API_KEY = Deno.env.get("GOOGLE_CLOUD_API_KEY");
-    if (!GOOGLE_CLOUD_API_KEY) {
-      throw new Error("GOOGLE_CLOUD_API_KEY is not configured");
-    }
 
     const { learning_objective, module, course } = await req.json() as SearchContextRequest;
 
@@ -135,34 +129,19 @@ Generate search queries that will find the most relevant educational videos for 
       }
     };
 
-    const url = `${GOOGLE_API_BASE}/models/gemini-3-flash-preview:generateContent?key=${GOOGLE_CLOUD_API_KEY}`;
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        contents: [
-          { role: "user", parts: [{ text: userPrompt + "\n\nReturn your response using the generate_search_context function." }] }
-        ],
-        systemInstruction: {
-          parts: [{ text: systemPrompt }]
-        },
-        tools: [{
-          functionDeclarations: [searchContextSchema]
-        }],
-        toolConfig: {
-          functionCallingConfig: {
-            mode: "ANY",
-            allowedFunctionNames: ["generate_search_context"]
-          }
-        }
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`[SEARCH CONTEXT] AI API error: ${response.status}`, errorText);
+    // Use unified AI client for structured function call
+    let result: SearchContextResponse;
+    try {
+      const aiResult = await generateStructured<SearchContextResponse>({
+        prompt: userPrompt,
+        systemPrompt: systemPrompt,
+        schema: searchContextSchema,
+        model: MODELS.FAST,
+        logPrefix: '[SEARCH CONTEXT]',
+      });
+      result = aiResult.data;
+    } catch (aiError) {
+      console.error(`[SEARCH CONTEXT] AI error:`, aiError);
       
       // Fallback: generate basic queries without AI
       const fallbackQueries = generateFallbackQueries(learning_objective, module, course);
@@ -178,16 +157,6 @@ Generate search queries that will find the most relevant educational videos for 
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-
-    const data = await response.json();
-
-    // Extract function call result
-    const functionCall = data.candidates?.[0]?.content?.parts?.[0]?.functionCall;
-    if (!functionCall?.args) {
-      throw new Error("No function call response from AI");
-    }
-
-    const result: SearchContextResponse = functionCall.args;
 
     console.log(`[SEARCH CONTEXT] Generated ${result.queries.length} queries:`);
     result.queries.forEach((q, i) => console.log(`  ${i + 1}. ${q}`));
