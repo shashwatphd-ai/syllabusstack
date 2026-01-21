@@ -359,10 +359,9 @@ async function generateImageGoogleDirect(
 }
 
 /**
- * OpenRouter image generation fallback using Flux Schnell
+ * OpenRouter image generation fallback using GPT-5
  * 
- * OpenRouter uses the /api/v1/images/generations endpoint for image generation.
- * Flux Schnell is reliable and fast for educational diagrams.
+ * GPT-5 on OpenRouter supports image generation via the modalities parameter.
  */
 async function generateImageOpenRouter(
   prompt: string,
@@ -377,13 +376,12 @@ async function generateImageOpenRouter(
     return null;
   }
 
-  // Use Flux Schnell - fast, reliable, and available on OpenRouter
-  const model = 'black-forest-labs/flux-schnell';
-  console.log(`${logPrefix} Trying OpenRouter Flux (${model})...`);
+  // Use GPT-5 with image modality
+  const model = 'openai/gpt-5';
+  console.log(`${logPrefix} Trying OpenRouter GPT-5 image generation...`);
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      // OpenRouter uses chat completions for Flux - it generates images from text prompts
       const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -394,7 +392,8 @@ async function generateImageOpenRouter(
         },
         body: JSON.stringify({
           model,
-          messages: [{ role: 'user', content: `Generate an image: ${prompt}` }],
+          messages: [{ role: 'user', content: prompt }],
+          modalities: ['text', 'image'],
         }),
       });
 
@@ -420,37 +419,50 @@ async function generateImageOpenRouter(
 
       const data = await response.json();
       const message = data.choices?.[0]?.message;
-      const content = message?.content;
       
-      // Flux returns image URL in content - fetch and convert to base64
-      if (content && typeof content === 'string') {
-        // Check for URL pattern
-        const urlMatch = content.match(/https?:\/\/[^\s"'<>]+\.(png|jpg|jpeg|webp)/i);
-        if (urlMatch) {
-          console.log(`${logPrefix} Flux returned URL, fetching...`);
+      // Check for images array (OpenRouter multimodal format)
+      const images = message?.images;
+      if (images?.length > 0) {
+        const imageObj = images[0];
+        const imageUrl = imageObj?.image_url?.url || imageObj?.url;
+        
+        if (typeof imageUrl === 'string' && imageUrl.startsWith('data:image/')) {
+          const commaIndex = imageUrl.indexOf(',');
+          if (commaIndex !== -1) {
+            const base64 = imageUrl.substring(commaIndex + 1);
+            console.log(`${logPrefix} ✓ GPT-5 image generated (${Math.round(base64.length / 1024)}KB)`);
+            return { base64, mimeType: 'image/png' };
+          }
+        }
+        
+        // If it's a URL, fetch it
+        if (typeof imageUrl === 'string' && imageUrl.startsWith('http')) {
           try {
-            const imgResp = await fetch(urlMatch[0]);
+            const imgResp = await fetch(imageUrl);
             if (imgResp.ok) {
               const blob = await imgResp.blob();
               const buffer = await blob.arrayBuffer();
               const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
-              console.log(`${logPrefix} ✓ Flux image fetched (${Math.round(base64.length / 1024)}KB)`);
+              console.log(`${logPrefix} ✓ GPT-5 image fetched (${Math.round(base64.length / 1024)}KB)`);
               return { base64, mimeType: blob.type || 'image/png' };
             }
           } catch (e) {
-            console.warn(`${logPrefix} Failed to fetch Flux image URL:`, e);
+            console.warn(`${logPrefix} Failed to fetch GPT-5 image URL:`, e);
           }
         }
-        
-        // Check for base64 data URL
+      }
+      
+      // Check content for inline base64
+      const content = message?.content;
+      if (content && typeof content === 'string' && content.includes('data:image/')) {
         const dataMatch = content.match(/data:image\/[^;]+;base64,([A-Za-z0-9+/=]+)/);
         if (dataMatch?.[1]) {
-          console.log(`${logPrefix} ✓ Flux inline base64 (${Math.round(dataMatch[1].length / 1024)}KB)`);
+          console.log(`${logPrefix} ✓ GPT-5 inline base64 (${Math.round(dataMatch[1].length / 1024)}KB)`);
           return { base64: dataMatch[1], mimeType: 'image/png' };
         }
       }
 
-      console.warn(`${logPrefix} Flux returned no image. Content: ${String(content).slice(0, 100)}`);
+      console.warn(`${logPrefix} GPT-5 returned no image. Has images: ${!!images}, content type: ${typeof content}`);
       if (attempt < maxRetries) {
         await new Promise(r => setTimeout(r, 1500));
         continue;

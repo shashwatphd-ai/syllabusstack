@@ -40,13 +40,13 @@ const corsHeaders = {
 // ============================================================================
 
 // Process this many items per invocation (stay well under 60s timeout)
-const BATCH_SIZE = 6;
+const BATCH_SIZE = 3;
 
-// Max concurrent image generations per batch
-const MAX_CONCURRENT = 3;
+// Max concurrent image generations per batch (reduced to avoid rate limits)
+const MAX_CONCURRENT = 1;
 
-// Delay between concurrent batches to avoid rate limiting
-const BATCH_DELAY_MS = 500;
+// Delay between items to avoid rate limiting
+const BATCH_DELAY_MS = 2000;
 
 // ============================================================================
 // TYPES
