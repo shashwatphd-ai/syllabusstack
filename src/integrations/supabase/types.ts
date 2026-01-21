@@ -448,6 +448,7 @@ export type Database = {
           error_message: string | null
           failed_count: number | null
           failed_request_keys: Json | null
+          generation_cost_usd: number | null
           google_batch_id: string
           id: string
           instructor_course_id: string
@@ -467,6 +468,7 @@ export type Database = {
           error_message?: string | null
           failed_count?: number | null
           failed_request_keys?: Json | null
+          generation_cost_usd?: number | null
           google_batch_id: string
           id?: string
           instructor_course_id: string
@@ -486,6 +488,7 @@ export type Database = {
           error_message?: string | null
           failed_count?: number | null
           failed_request_keys?: Json | null
+          generation_cost_usd?: number | null
           google_batch_id?: string
           id?: string
           instructor_course_id?: string

@@ -1,7 +1,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0';
-import { simpleCompletion, parseJsonResponse, MODELS } from "../_shared/openrouter-client.ts";
+import { generateText, MODELS, parseJsonResponse } from "../_shared/unified-ai-client.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -176,28 +176,28 @@ RESPONSE FORMAT (JSON only):
 }
 
 async function callAI(systemPrompt: string, userPrompt: string): Promise<DecomposeResponse> {
-  console.log('[curriculum-reasoning-agent] Calling OpenRouter API for decomposition...');
+  console.log('[curriculum-reasoning-agent] Calling AI for decomposition...');
 
   // Using REASONING model for complex curriculum decomposition
-  const content = await simpleCompletion(
-    MODELS.REASONING,
-    systemPrompt,
-    userPrompt,
-    { fallbacks: [MODELS.GEMINI_PRO, MODELS.FAST] },
-    '[curriculum-reasoning-agent]'
-  );
+  const result = await generateText({
+    prompt: userPrompt,
+    systemPrompt: systemPrompt,
+    model: MODELS.REASONING,
+    fallbacks: [MODELS.GEMINI_PRO, MODELS.FAST],
+    logPrefix: '[curriculum-reasoning-agent]'
+  });
 
-  if (!content) {
+  if (!result.content) {
     throw new Error('No content in AI response');
   }
 
-  console.log('[curriculum-reasoning-agent] Raw AI response length:', content.length);
+  console.log('[curriculum-reasoning-agent] Raw AI response length:', result.content.length);
 
   try {
-    const parsed = parseJsonResponse<DecomposeResponse>(content);
+    const parsed = parseJsonResponse<DecomposeResponse>(result.content);
     return parsed;
   } catch (e) {
-    console.error('[curriculum-reasoning-agent] Failed to parse AI response:', content.substring(0, 500));
+    console.error('[curriculum-reasoning-agent] Failed to parse AI response:', result.content.substring(0, 500));
     throw new Error('Failed to parse AI response as JSON');
   }
 }

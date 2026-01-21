@@ -7,7 +7,7 @@ import { updateCourseKeywords } from "../_shared/similarity.ts";
 import { generateKeywordVector } from "../_shared/ai-orchestrator.ts";
 import { checkRateLimit, getUserLimits, createRateLimitResponse } from "../_shared/rate-limiter.ts";
 import { createErrorResponse, handleAIGatewayError, createSuccessResponse, logInfo, logError } from "../_shared/error-handler.ts";
-import { functionCall, MODELS, convertSchemaToTool } from "../_shared/openrouter-client.ts";
+import { generateStructured, MODELS } from "../_shared/unified-ai-client.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -110,8 +110,8 @@ IMPORTANT:
 
 Return your response using the extract_syllabus_data function.`;
 
-    // Use OpenRouter for AI call
-    const parsed = await functionCall<{
+    // Use unified AI client for structured extraction
+    const result = await generateStructured<{
       capabilities: any[];
       course_themes: string[];
       tools_learned: string[];
@@ -119,14 +119,15 @@ Return your response using the extract_syllabus_data function.`;
       course_code: string | null;
       semester: string | null;
       credits: number | null;
-    }>(
-      MODELS.FAST,
-      systemPrompt,
-      userContent,
-      SYLLABUS_EXTRACTION_SCHEMA,
-      { fallbacks: [MODELS.GEMINI_FLASH] },
-      '[analyze-syllabus]'
-    );
+    }>({
+      prompt: userContent,
+      systemPrompt: systemPrompt,
+      schema: SYLLABUS_EXTRACTION_SCHEMA,
+      model: MODELS.FAST,
+      fallbacks: [MODELS.GEMINI_FLASH],
+      logPrefix: '[analyze-syllabus]'
+    });
+    const parsed = result.data;
 
     logInfo('analyze-syllabus', 'ai_response_received', { hasCapabilities: !!parsed.capabilities?.length });
 
