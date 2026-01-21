@@ -1312,18 +1312,22 @@ serve(async (req) => {
 
     let slideRecordId: string;
 
-    if (existingRecord && !regenerate) {
+    if (existingRecord) {
+      // Always update existing record (whether regenerating or not)
+      // This handles both normal updates and regeneration
       const { data: updated, error: updateErr } = await supabase
         .from('lecture_slides')
         .update({
           status: 'generating',
           error_message: null,
           slide_style: style,
+          slides: regenerate ? null : undefined, // Clear slides if regenerating
           generation_phases: { 
             started: new Date().toISOString(), 
             current_phase: 'professor', 
             progress_percent: 0,
             version: 3,
+            regenerate: regenerate,
           },
         })
         .eq('id', existingRecord.id)
@@ -1332,7 +1336,9 @@ serve(async (req) => {
 
       if (updateErr) throw updateErr;
       slideRecordId = updated.id;
+      console.log('[Main] Updated existing slide record:', slideRecordId, regenerate ? '(regenerating)' : '');
     } else {
+      // No existing record - create new one
       const { data: inserted, error: insertErr } = await supabase
         .from('lecture_slides')
         .insert({
@@ -1355,9 +1361,8 @@ serve(async (req) => {
 
       if (insertErr) throw insertErr;
       slideRecordId = inserted.id;
+      console.log('[Main] Created new slide record:', slideRecordId);
     }
-
-    console.log('[Main] Slide record:', slideRecordId);
 
     try {
       // PHASE 2: Research Agent - Google Search Grounding
