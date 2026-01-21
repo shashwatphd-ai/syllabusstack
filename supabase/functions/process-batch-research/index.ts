@@ -808,7 +808,8 @@ serve(async (req) => {
       };
 
       const userPrompt = buildUserPrompt(enrichedUnitData);
-      const requestKey = `slide_${batchRequests.length}`;
+      // Use stable unit ID as key - prevents index mismatch when units are skipped
+      const requestKey = `slide_${unit.id}`;
       requestMapping[requestKey] = unit.id;
 
       batchRequests.push({
@@ -855,7 +856,10 @@ serve(async (req) => {
     const inputPath = `inputs/${batchId}/requests.jsonl`;
     const outputPrefix = `gs://${gcsClient.bucketName}/outputs/${batchId}/`;
 
-    const jsonlLines = batchRequests.map((req) => ({
+    // Build JSONL with custom_id for stable response mapping
+    const requestMappingKeys = Object.keys(requestMapping);
+    const jsonlLines = batchRequests.map((req, idx) => ({
+      custom_id: requestMappingKeys[idx], // Include stable ID for response matching
       request: {
         contents: req.contents,
         systemInstruction: req.systemInstruction,

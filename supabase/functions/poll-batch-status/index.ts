@@ -500,12 +500,17 @@ async function processCompletedBatch(
     const response = responseWrapper.response || responseWrapper;
     const status = responseWrapper.status;
 
-    // Use index-based mapping (responses match input order)
-    const responseKey = `slide_${i}`;
-    const teachingUnitId = requestMapping[responseKey] || requestMapping[i] || requestMapping[`slide_${i}`];
+    // Use custom_id from response for stable mapping (not index-based)
+    const customId = responseWrapper.custom_id;
+    const responseKey = customId || `slide_${i}`;
+    const teachingUnitId = requestMapping[responseKey];
 
     if (!teachingUnitId) {
-      console.warn(`[Poll] No mapping for index ${i}`);
+      console.warn(`[Poll] No mapping for key ${responseKey}`, {
+        customId,
+        index: i,
+        availableKeys: Object.keys(requestMapping).slice(0, 5),
+      });
       continue;
     }
 
