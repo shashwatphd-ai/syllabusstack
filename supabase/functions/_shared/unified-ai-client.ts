@@ -359,7 +359,14 @@ async function generateImageGoogleDirect(
 }
 
 /**
- * OpenRouter image generation fallback
+ * OpenRouter image generation fallback using Gemini 2.5 Flash Image
+ * 
+ * OpenRouter uses the chat/completions endpoint with modalities for image generation.
+ * Valid image models (Jan 2026):
+ * - google/gemini-2.5-flash-image-preview (Nano Banana - fast & cheap)
+ * - black-forest-labs/flux.2-klein-4b (Flux - fast)
+ * - black-forest-labs/flux.2-pro (Flux - higher quality)
+ * - openai/gpt-5-image-mini
  */
 async function generateImageOpenRouter(
   prompt: string,
@@ -374,6 +381,10 @@ async function generateImageOpenRouter(
     return null;
   }
 
+  // Use Gemini 2.5 Flash Image (Nano Banana) - fast and reliable
+  const model = 'google/gemini-2.5-flash-image-preview';
+  console.log(`${logPrefix} Trying OpenRouter with ${model}...`);
+
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -385,8 +396,11 @@ async function generateImageOpenRouter(
           'X-Title': 'SyllabusStack',
         },
         body: JSON.stringify({
-          model: MODELS.GEMINI_IMAGE,
-          messages: [{ role: 'user', content: prompt }],
+          model,
+          messages: [{
+            role: 'user',
+            content: prompt
+          }],
           modalities: ['image', 'text'],
         }),
       });
@@ -402,7 +416,8 @@ async function generateImageOpenRouter(
       }
 
       if (!response.ok) {
-        console.warn(`${logPrefix} OpenRouter failed: ${response.status}`);
+        const errText = await response.text();
+        console.warn(`${logPrefix} OpenRouter failed: ${response.status} - ${errText.slice(0, 200)}`);
         if (attempt < maxRetries) {
           await new Promise(r => setTimeout(r, 1500 * Math.pow(2, attempt)));
           continue;
@@ -412,27 +427,38 @@ async function generateImageOpenRouter(
 
       const data = await response.json();
       const message = data.choices?.[0]?.message;
+      
+      // Check for images array (OpenRouter standard format)
       const images = message?.images;
-      const textContent = message?.content;
-
-      if (images && images.length > 0) {
-        const imageUrl = images[0]?.image_url?.url;
+      if (images?.length > 0) {
+        const imageObj = images[0];
+        const imageUrl = imageObj?.image_url?.url || imageObj?.imageUrl?.url || imageObj?.url;
         
-        if (imageUrl?.startsWith('data:image/')) {
+        if (typeof imageUrl === 'string' && imageUrl.startsWith('data:image/')) {
           const commaIndex = imageUrl.indexOf(',');
-          if (commaIndex === -1) return null;
-
-          const header = imageUrl.substring(0, commaIndex);
-          const base64 = imageUrl.substring(commaIndex + 1);
-          const mimeMatch = header.match(/data:(image\/[^;]+)/);
-          const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
-
-          console.log(`${logPrefix} ✓ OpenRouter image generated (${Math.round(base64.length / 1024)}KB)`);
-          return { base64, mimeType, textResponse: textContent || undefined };
+          if (commaIndex !== -1) {
+            const base64 = imageUrl.substring(commaIndex + 1);
+            const headerPart = imageUrl.substring(0, commaIndex);
+            const mimeMatch = headerPart.match(/data:(image\/[^;]+)/);
+            const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
+            console.log(`${logPrefix} ✓ OpenRouter image generated (${Math.round(base64.length / 1024)}KB)`);
+            return { base64, mimeType };
+          }
         }
       }
 
-      console.warn(`${logPrefix} OpenRouter returned no image data`);
+      // Fallback: check content for inline image
+      const content = message?.content;
+      if (content && typeof content === 'string' && content.includes('data:image/')) {
+        const dataUrlMatch = content.match(/data:image\/[^;]+;base64,([A-Za-z0-9+/=]+)/);
+        if (dataUrlMatch?.[1]) {
+          const base64 = dataUrlMatch[1];
+          console.log(`${logPrefix} ✓ OpenRouter image (inline base64) (${Math.round(base64.length / 1024)}KB)`);
+          return { base64, mimeType: 'image/png' };
+        }
+      }
+
+      console.warn(`${logPrefix} OpenRouter returned no image. Content type: ${typeof content}, has images: ${!!images}`);
       if (attempt < maxRetries) {
         await new Promise(r => setTimeout(r, 1500));
         continue;

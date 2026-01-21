@@ -62,6 +62,10 @@ export const MODELS = {
   GEMINI_PRO: 'google/gemini-2.5-pro',
 
   // === IMAGE GENERATION ===
+  // Note: OpenRouter image models - Flux is more reliable than Gemini image preview
+  FLUX_SCHNELL: 'black-forest-labs/flux-schnell',
+  FLUX_DEV: 'black-forest-labs/flux-dev',
+  // Keep for reference but not used for OpenRouter fallback
   GEMINI_IMAGE: 'google/gemini-2.5-flash-image-preview',
 
   // === ANTHROPIC (Alternative high-quality) ===
