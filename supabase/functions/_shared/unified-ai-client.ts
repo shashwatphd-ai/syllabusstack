@@ -359,9 +359,10 @@ async function generateImageGoogleDirect(
 }
 
 /**
- * OpenRouter image generation fallback using GPT-5
+ * OpenRouter image generation fallback using Gemini 2.5 Flash Image
  * 
- * GPT-5 on OpenRouter supports image generation via the modalities parameter.
+ * Gemini models have superior text rendering compared to Flux.
+ * google/gemini-2.5-flash-image-preview is available on OpenRouter.
  */
 async function generateImageOpenRouter(
   prompt: string,
@@ -376,9 +377,9 @@ async function generateImageOpenRouter(
     return null;
   }
 
-  // Use Flux Pro for image generation via OpenRouter
-  const model = 'black-forest-labs/flux.2-pro';
-  console.log(`${logPrefix} Trying OpenRouter Flux Pro image generation...`);
+  // Use Gemini 2.5 Flash Image for better text rendering (Flux has spelling issues)
+  const model = 'google/gemini-2.5-flash-image-preview';
+  console.log(`${logPrefix} Trying OpenRouter Gemini image generation...`);
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
@@ -430,7 +431,7 @@ async function generateImageOpenRouter(
           const commaIndex = imageUrl.indexOf(',');
           if (commaIndex !== -1) {
             const base64 = imageUrl.substring(commaIndex + 1);
-            console.log(`${logPrefix} ✓ Flux Pro image generated (${Math.round(base64.length / 1024)}KB)`);
+            console.log(`${logPrefix} ✓ Gemini image generated (${Math.round(base64.length / 1024)}KB)`);
             return { base64, mimeType: 'image/png' };
           }
         }
@@ -443,11 +444,11 @@ async function generateImageOpenRouter(
               const blob = await imgResp.blob();
               const buffer = await blob.arrayBuffer();
               const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
-              console.log(`${logPrefix} ✓ Flux Pro image fetched (${Math.round(base64.length / 1024)}KB)`);
+              console.log(`${logPrefix} ✓ Gemini image fetched (${Math.round(base64.length / 1024)}KB)`);
               return { base64, mimeType: blob.type || 'image/png' };
             }
           } catch (e) {
-            console.warn(`${logPrefix} Failed to fetch Flux Pro image URL:`, e);
+            console.warn(`${logPrefix} Failed to fetch Gemini image URL:`, e);
           }
         }
       }
@@ -457,12 +458,12 @@ async function generateImageOpenRouter(
       if (content && typeof content === 'string' && content.includes('data:image/')) {
         const dataMatch = content.match(/data:image\/[^;]+;base64,([A-Za-z0-9+/=]+)/);
         if (dataMatch?.[1]) {
-          console.log(`${logPrefix} ✓ Flux Pro inline base64 (${Math.round(dataMatch[1].length / 1024)}KB)`);
+          console.log(`${logPrefix} ✓ Gemini inline base64 (${Math.round(dataMatch[1].length / 1024)}KB)`);
           return { base64: dataMatch[1], mimeType: 'image/png' };
         }
       }
 
-      console.warn(`${logPrefix} Flux Pro returned no image. Has images: ${!!images}, content type: ${typeof content}`);
+      console.warn(`${logPrefix} OpenRouter Gemini returned no image. Has images: ${!!images}, content type: ${typeof content}`);
       if (attempt < maxRetries) {
         await new Promise(r => setTimeout(r, 1500));
         continue;
