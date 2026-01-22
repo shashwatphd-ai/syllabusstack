@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
+import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
 import { MODEL_CONFIG, getVertexAIModelPath } from '../_shared/ai-orchestrator.ts';
 import { createVertexAIAuth } from '../_shared/vertex-ai-auth.ts';
 import { createGCSClient } from '../_shared/gcs-client.ts';
@@ -579,7 +579,7 @@ Return valid JSON with a "slides" array.`;
  * @returns Processing results
  */
 async function processBatchViaOpenRouter(
-  supabase: ReturnType<typeof createClient>,
+  supabase: SupabaseClient,
   batchJobId: string,
   unitsToProcess: TeachingUnitData[],
   requestMapping: Record<string, string>
