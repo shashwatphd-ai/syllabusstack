@@ -8,7 +8,7 @@
 //
 // ARCHITECTURE:
 //   1. Fetch N pending items from queue (batch of 5-8)
-//   2. Generate images via Unified AI Client (Google Direct primary, OpenRouter fallback)
+//   2. Generate images via Unified AI Client (OpenRouter with Gemini 2.5 Flash Image)
 //   3. Upload to Supabase storage
 //   4. Update queue status + lecture_slides records
 //   5. If more pending items exist, self-invoke to continue
@@ -328,23 +328,23 @@ async function processQueueItem(
   item: QueueItem
 ): Promise<{ success: boolean; imageUrl: string | null; error: string | null }> {
   const logPrefix = `[Image ${item.slide_index}]`;
-  
+
   try {
     console.log(`${logPrefix} Generating for: ${item.slide_title || 'Untitled'}`);
 
-    // Generate image via Unified AI Client (Google Direct primary, OpenRouter fallback)
+    // Generate image via Unified AI Client (OpenRouter with Gemini 2.5 Flash Image)
     const result = await generateImage({
       prompt: item.prompt,
       slideTitle: item.slide_title || undefined,
-      maxRetries: 2,
       logPrefix: logPrefix,
     });
 
-    if (!result) {
-      return { success: false, imageUrl: null, error: 'Image generation returned no data' };
+    // Handle discriminated union: check result.success
+    if (!result.success) {
+      return { success: false, imageUrl: null, error: result.error.message };
     }
 
-    // Upload to Supabase storage
+    // Upload to Supabase storage (success case)
     const fileName = `slide_${item.lecture_slides_id}_${item.slide_index}_${Date.now()}.png`;
     const fileData = base64ToUint8Array(result.base64);
 
