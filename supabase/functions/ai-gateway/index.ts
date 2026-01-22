@@ -65,7 +65,6 @@ interface GatewayRequest {
     };
     // For images
     slide_title?: string;
-    max_retries?: number;
   };
 }
 
@@ -191,28 +190,27 @@ serve(async (req) => {
         const result = await generateImage({
           prompt,
           slideTitle: options?.slide_title,
-          maxRetries: options?.max_retries,
-          useFallback: true,
           logPrefix: functionName,
         });
 
-        if (!result) {
+        // Handle discriminated union: check result.success
+        if (!result.success) {
           response = {
             success: false,
             task,
-            error: 'Image generation failed after all retries',
+            error: `Image generation failed: ${result.error.message}`,
           };
           break;
         }
 
-        // Track usage
+        // Track usage (success case)
         if (userId) {
           await trackAIUsage(
             supabase,
             userId,
             'ai-gateway/image',
             result.provider,
-            'gemini-3-pro-image-preview',
+            result.model,
             0,
             0,
             result.cost_usd
@@ -229,10 +227,9 @@ serve(async (req) => {
           },
           metadata: {
             provider: result.provider,
-            model: 'gemini-3-pro-image-preview',
+            model: result.model,
             latency_ms: result.latency_ms,
             cost_usd: result.cost_usd,
-            fallback_used: result.fallback_used,
           },
         };
         break;
