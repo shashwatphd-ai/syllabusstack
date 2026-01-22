@@ -1,13 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
+import { generateText, MODELS, parseJsonResponse } from "../_shared/unified-ai-client.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-
-// Google Cloud API configuration
-const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 // Duration matrix: Bloom level x Specificity (in minutes)
 const DURATION_MATRIX: Record<string, Record<string, number>> = {
@@ -36,11 +34,6 @@ serve(async (req) => {
   }
 
   try {
-    const GOOGLE_CLOUD_API_KEY = Deno.env.get("GOOGLE_CLOUD_API_KEY");
-    if (!GOOGLE_CLOUD_API_KEY) {
-      throw new Error("GOOGLE_CLOUD_API_KEY is not configured");
-    }
-
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       throw new Error("No authorization header");
@@ -140,43 +133,24 @@ Return a JSON array of learning objectives with this exact structure:
 
 If no explicit learning objectives are found, infer them from course topics and assignments. Extract at least 3 and at most 15 learning objectives.`;
 
-    const url = `${GOOGLE_API_BASE}/models/gemini-2.5-flash:generateContent?key=${GOOGLE_CLOUD_API_KEY}`;
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        contents: [
-          { role: "user", parts: [{ text: userPrompt }] }
-        ],
-        systemInstruction: {
-          parts: [{ text: systemPrompt }]
-        },
-      }),
+    // Call AI via OpenRouter (unified-ai-client)
+    const result = await generateText({
+      prompt: userPrompt,
+      systemPrompt: systemPrompt,
+      model: MODELS.GEMINI_FLASH,
+      logPrefix: '[extract-learning-objectives]'
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("Google Cloud API error:", response.status, errorText);
-      throw new Error(`AI gateway error: ${response.status}`);
-    }
-
-    const aiData = await response.json();
-    const content = aiData.candidates?.[0]?.content?.parts?.[0]?.text;
-
-    if (!content) {
+    if (!result.content) {
       throw new Error("No content returned from AI");
     }
 
     // Parse the JSON response
     let learningObjectives: LearningObjective[];
     try {
-      // Remove markdown code blocks if present
-      const cleanContent = content.replace(/```json\n?|\n?```/g, "").trim();
-      learningObjectives = JSON.parse(cleanContent);
+      learningObjectives = parseJsonResponse<LearningObjective[]>(result.content);
     } catch (parseError) {
-      console.error("Failed to parse AI response:", content);
+      console.error("Failed to parse AI response:", result.content);
       throw new Error("Failed to parse learning objectives from AI response");
     }
 

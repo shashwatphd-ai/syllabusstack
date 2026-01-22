@@ -1,13 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { generateText, MODELS, parseJsonResponse } from "../_shared/unified-ai-client.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
-
-// Google Cloud API configuration
-const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 // Bloom's Taxonomy descriptions with weighted scoring guidance
 // Higher levels require more sophisticated content matching
@@ -79,11 +77,6 @@ serve(async (req) => {
         status: 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
-    }
-
-    const googleApiKey = Deno.env.get('GOOGLE_CLOUD_API_KEY');
-    if (!googleApiKey) {
-      throw new Error('GOOGLE_CLOUD_API_KEY is not configured');
     }
 
     const { learning_objective, teaching_unit, videos } = await req.json();
@@ -246,54 +239,25 @@ Note: total_score = (relevance_score * 0.4) + (pedagogy_score * 0.35) + (quality
 
     console.log(`Evaluating ${videosToEvaluate.length} videos for LO: ${learning_objective.id}${hasTeachingUnit ? `, Teaching Unit: ${teaching_unit.id}` : ''}`);
 
-    const url = `${GOOGLE_API_BASE}/models/gemini-2.5-flash:generateContent?key=${googleApiKey}`;
-    const aiResponse = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        contents: [
-          { role: 'user', parts: [{ text: userPrompt }] }
-        ],
-        systemInstruction: {
-          parts: [{ text: systemPrompt }]
-        },
-        generationConfig: {
-          temperature: 0.3, // Lower temperature for more consistent scoring
-        },
-      }),
+    // Call AI via OpenRouter (unified-ai-client)
+    const result = await generateText({
+      prompt: userPrompt,
+      systemPrompt: systemPrompt,
+      model: MODELS.GEMINI_FLASH,
+      temperature: 0.3, // Lower temperature for more consistent scoring
+      logPrefix: '[evaluate-content-batch]'
     });
 
-    if (!aiResponse.ok) {
-      const errorText = await aiResponse.text();
-      console.error('AI API error:', aiResponse.status, errorText);
-
-      if (aiResponse.status === 429) {
-        return new Response(JSON.stringify({ error: 'Rate limit exceeded, please try again later' }), {
-          status: 429,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-
-      throw new Error(`AI API error: ${aiResponse.status}`);
-    }
-
-    const aiData = await aiResponse.json();
-    const content = aiData.candidates?.[0]?.content?.parts?.[0]?.text;
-
-    if (!content) {
+    if (!result.content) {
       throw new Error('No content in AI response');
     }
 
     // Parse the JSON from AI response
     let evaluations;
     try {
-      const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/) || [null, content];
-      const jsonStr = jsonMatch[1].trim();
-      evaluations = JSON.parse(jsonStr);
+      evaluations = parseJsonResponse(result.content);
     } catch (parseError) {
-      console.error('Failed to parse AI evaluation response:', content);
+      console.error('Failed to parse AI evaluation response:', result.content);
       // Return basic scores if parsing fails
       evaluations = {
         evaluations: videosToEvaluate.map((v: any) => ({
