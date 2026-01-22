@@ -7,6 +7,7 @@ import {
   storeExtractedTerms,
   getLearnedSynonyms,
 } from "../_shared/dynamic-terms.ts";
+import { generateText, MODELS, parseJsonResponse } from "../_shared/unified-ai-client.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -88,12 +89,8 @@ interface DomainConfig {
 // DOMAIN ANALYZER - AI-powered domain classification
 // ============================================================================
 
-// Google Cloud API configuration
-const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
-
 async function analyzeDomainWithAI(
-  syllabusText: string,
-  googleApiKey: string
+  syllabusText: string
 ): Promise<DomainConfig> {
   console.log('[DOMAIN-ANALYZER] Starting AI-powered domain analysis');
 
@@ -138,33 +135,21 @@ CRITICAL RULES:
 4. Match academic_level to the syllabus complexity`;
 
   try {
-    const url = `${GOOGLE_API_BASE}/models/gemini-2.5-flash:generateContent?key=${googleApiKey}`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        contents: [
-          { role: 'user', parts: [{ text: metaPrompt }] }
-        ],
-        generationConfig: {
-          temperature: 0.3,
-        },
-      }),
+    // Call AI via OpenRouter (unified-ai-client)
+    const result = await generateText({
+      prompt: metaPrompt,
+      model: MODELS.GEMINI_FLASH,
+      temperature: 0.3,
+      logPrefix: '[DOMAIN-ANALYZER]'
     });
 
-    if (!response.ok) {
-      console.warn('[DOMAIN-ANALYZER] AI call failed:', response.status);
+    if (!result.content) {
+      console.warn('[DOMAIN-ANALYZER] AI returned no content');
       return getFallbackDomainConfig(syllabusText);
     }
 
-    const data = await response.json();
-    const content = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-
     try {
-      const cleaned = content.replace(/```json?\n?|\n?```/g, '').trim();
-      const config = JSON.parse(cleaned) as DomainConfig;
+      const config = parseJsonResponse<DomainConfig>(result.content);
       console.log(`[DOMAIN-ANALYZER] AI identified domain: ${config.domain}`);
       console.log(`[DOMAIN-ANALYZER] Trusted sites: ${config.trusted_sites.slice(0, 3).join(', ')}`);
       return config;
@@ -401,7 +386,7 @@ Do NOT summarize - extract the complete text content.`
     console.log('[PROCESS-SYLLABUS] Starting AI-powered domain analysis');
     
     // Generate comprehensive domain configuration using AI
-    const domainConfig = await analyzeDomainWithAI(extractedText, GOOGLE_CLOUD_API_KEY);
+    const domainConfig = await analyzeDomainWithAI(extractedText);
     console.log(`[PROCESS-SYLLABUS] Generated domain config for: ${domainConfig.domain}`);
     console.log(`[PROCESS-SYLLABUS] Trusted sites: ${domainConfig.trusted_sites.slice(0, 3).join(', ')}`);
     
@@ -482,46 +467,23 @@ RULES:
 7. Course-level objectives (that apply to the whole course) should go in "unassigned_objectives"
 8. If an objective seems relevant to multiple modules, assign it to the MOST specific module or to unassigned_objectives`;
 
-    const structureUrl = `${GOOGLE_API_BASE}/models/gemini-2.5-flash:generateContent?key=${GOOGLE_CLOUD_API_KEY}`;
-    const structureResponse = await fetch(structureUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        contents: [
-          { role: "user", parts: [{ text: structurePrompt }] },
-        ],
-      }),
+    // Call AI via OpenRouter (unified-ai-client)
+    const structureResult = await generateText({
+      prompt: structurePrompt,
+      model: MODELS.GEMINI_FLASH,
+      logPrefix: '[process-syllabus:structure]'
     });
 
-    if (!structureResponse.ok) {
-      if (structureResponse.status === 429) {
-        throw new Error("Rate limit exceeded. Please try again in a moment.");
-      }
-      if (structureResponse.status === 403) {
-        // Google Cloud returns 403 for billing/quota issues
-        throw new Error("API quota exceeded or billing issue. Please check your Google Cloud account.");
-      }
-      const errorText = await structureResponse.text();
-      console.error("Google Cloud API error:", structureResponse.status, errorText);
-      throw new Error(`AI analysis failed: ${structureResponse.status}`);
-    }
-
-    const structureData = await structureResponse.json();
-    const content = structureData.candidates?.[0]?.content?.parts?.[0]?.text;
-
-    if (!content) {
+    if (!structureResult.content) {
       throw new Error("No content returned from AI");
     }
 
     // Parse the JSON response
     let courseStructure: CourseStructure;
     try {
-      const cleanContent = content.replace(/```json\n?|\n?```/g, "").trim();
-      courseStructure = JSON.parse(cleanContent);
+      courseStructure = parseJsonResponse<CourseStructure>(structureResult.content);
     } catch (parseError) {
-      console.error("Failed to parse AI response:", content);
+      console.error("Failed to parse AI response:", structureResult.content);
       throw new Error("Failed to parse course structure from AI response");
     }
 
