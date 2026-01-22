@@ -3,24 +3,34 @@
 // ============================================================================
 //
 // PURPOSE: Consolidate all AI routing into a single, intelligent gateway that:
-//   1. Routes text generation through OpenRouter (primary)
-//   2. Routes image generation through Google Direct (more reliable than OpenRouter)
-//   3. Routes search grounding through Google Direct (only option)
-//   4. Provides automatic fallbacks and cost tracking
+//   1. Routes text generation through OpenRouter (MODELS.PROFESSOR_AI)
+//   2. Routes image generation through OpenRouter (MODELS.IMAGE = gemini-2.5-flash-image)
+//   3. Routes search grounding through Google Direct (only option - not on OpenRouter)
+//   4. Provides explicit error handling (no silent failures)
 //
-// ARCHITECTURE DECISIONS:
+// ARCHITECTURE DECISIONS (Updated 2026-01-22):
 //   - OpenRouter for TEXT: Best cost optimization, fallbacks, and model variety
-//   - Google Direct for IMAGES: More reliable than OpenRouter's gemini-2.5-flash-image-preview
+//   - OpenRouter for IMAGES: Using google/gemini-2.5-flash-image ("Nano Banana")
+//     * Cost: ~$0.039 per image
+//     * NO FALLBACK: Returns explicit error on failure (no silent null returns)
 //   - Google Direct for SEARCH: Search grounding not available on OpenRouter
 //
+// ROUTING SUMMARY:
+//   | Operation     | Provider   | Model                           |
+//   |---------------|------------|----------------------------------|
+//   | Text (slides) | OpenRouter | google/gemini-2.5-flash          |
+//   | Images        | OpenRouter | google/gemini-2.5-flash-image    |
+//   | Research      | Google     | gemini-2.5-flash + googleSearch  |
+//
 // USAGE:
-//   import { generateText, generateImage, searchGrounded, trackAIUsage } from '../_shared/unified-ai-client.ts';
+//   import { generateText, generateImage, searchGrounded } from '../_shared/unified-ai-client.ts';
 //
 //   // Text generation
 //   const text = await generateText({ prompt: 'Hello', systemPrompt: 'Be helpful' });
 //
-//   // Image generation (with automatic fallback)
+//   // Image generation (returns structured result or error - never null)
 //   const image = await generateImage({ prompt: 'A diagram of...' });
+//   if (!image.success) console.error(image.error.message);
 //
 //   // Search-grounded research
 //   const research = await searchGrounded({ query: 'Latest statistics on...' });
@@ -69,7 +79,37 @@ export interface AIResult {
   fallback_used?: boolean;
 }
 
-export interface ImageResult {
+// Success result from image generation
+export interface ImageResultSuccess {
+  success: true;
+  base64: string;
+  mimeType: string;
+  textResponse?: string;
+  provider: 'openrouter';
+  model: string;
+  cost_usd: number;
+  latency_ms: number;
+}
+
+// Error result from image generation (explicit errors, no silent nulls)
+export interface ImageResultError {
+  success: false;
+  error: {
+    code: 'IMAGE_GENERATION_FAILED' | 'OPENROUTER_ERROR' | 'INVALID_RESPONSE' | 'CONFIG_ERROR';
+    message: string;
+    provider: 'openrouter';
+    model: string;
+    httpStatus?: number;
+    rawError?: string;
+  };
+}
+
+// Union type for all image generation outcomes
+export type ImageResult = ImageResultSuccess | ImageResultError;
+
+// DEPRECATED: Old interface kept for backwards compatibility during migration
+// Will be removed in future version
+export interface ImageResultLegacy {
   base64: string;
   mimeType: string;
   textResponse?: string;
@@ -108,14 +148,26 @@ export interface SearchResult {
 const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 // Cost estimates per 1M tokens (for tracking)
+// Source: https://openrouter.ai/docs/models
 const COST_PER_MILLION: Record<string, { input: number; output: number }> = {
+  // OpenAI models
   'openai/gpt-4o-mini': { input: 0.15, output: 0.60 },
   'openai/gpt-4.1': { input: 2.00, output: 8.00 },
+  // Google Gemini text models
   'google/gemini-2.5-flash': { input: 0.075, output: 0.30 },
+  'google/gemini-2.0-flash': { input: 0.10, output: 0.40 },
+  'google/gemini-2.5-pro': { input: 1.25, output: 5.00 },
+  // Google Gemini image model (Nano Banana)
+  // Cost: ~$0.039 per image (1290 output tokens at $0.0025/1K + input)
+  'google/gemini-2.5-flash-image': { input: 0.0003, output: 0.0025 },
+  // Legacy models (kept for backwards compatibility)
   'google/gemini-3-flash-preview': { input: 0.10, output: 0.40 },
   'google/gemini-3-pro-preview': { input: 1.25, output: 5.00 },
   'gemini-3-pro-image-preview': { input: 0.50, output: 2.00 },
 };
+
+// Fixed cost per image for Gemini 2.5 Flash Image
+const IMAGE_COST_USD = 0.039;
 
 // ============================================================================
 // TEXT GENERATION - OpenRouter Primary
@@ -218,283 +270,237 @@ export async function generateStructured<T>(request: {
 }
 
 // ============================================================================
-// IMAGE GENERATION - Google Direct Primary (more reliable)
+// IMAGE GENERATION - OpenRouter Only (Gemini 2.5 Flash Image)
+// ============================================================================
+//
+// ARCHITECTURE (Updated 2026-01-22):
+//   - Provider: OpenRouter only (no Google Direct)
+//   - Model: google/gemini-2.5-flash-image ("Nano Banana")
+//   - Cost: ~$0.039 per image
+//   - Fallback: NONE - returns explicit error on failure
+//
+// WHY NO FALLBACK:
+//   - User preference: explicit errors over silent degradation
+//   - Debugging: easier to identify issues when errors are explicit
+//   - Cost control: prevents unexpected model switches
+//
 // ============================================================================
 
 /**
- * Generate an image using Google Direct API (primary) with OpenRouter fallback
- * 
- * RATIONALE: OpenRouter's google/gemini-2.5-flash-image-preview returns empty
- * images array ~40% of the time. Google Direct gemini-3-pro-image-preview is
- * more reliable.
+ * Generate an image using OpenRouter's Gemini 2.5 Flash Image model
+ *
+ * @param request.prompt - The image generation prompt
+ * @param request.aspectRatio - Optional aspect ratio (1:1, 16:9, 9:16, 4:3, 3:4)
+ * @param request.useFreeModel - Use free tier model for testing (rate limited)
+ * @param request.logPrefix - Log prefix for debugging
+ *
+ * @returns ImageResult - Either success with base64 image or error with details
+ *                        NEVER returns null - always explicit success/error
  */
 export async function generateImage(request: {
   prompt: string;
   slideTitle?: string;
-  maxRetries?: number;
-  useFallback?: boolean;
+  aspectRatio?: '1:1' | '16:9' | '9:16' | '4:3' | '3:4';
+  useFreeModel?: boolean;
   logPrefix?: string;
-}): Promise<ImageResult | null> {
+}): Promise<ImageResult> {
   const startTime = Date.now();
-  const logPrefix = request.logPrefix || '[UnifiedAI-Image]';
-  const maxRetries = request.maxRetries ?? 2;
+  const logPrefix = request.logPrefix || '[Image]';
 
-  console.log(`${logPrefix} Generating image via Google Direct (gemini-3-pro-image-preview)`);
+  // Validate configuration
+  const apiKey = Deno.env.get('OPENROUTER_API_KEY');
+  const appUrl = Deno.env.get('APP_URL') || 'https://syllabusstack.com';
 
-  // Try Google Direct first (more reliable)
-  const googleResult = await generateImageGoogleDirect(request.prompt, maxRetries, logPrefix);
-  
-  if (googleResult) {
+  if (!apiKey) {
+    console.error(`${logPrefix} OPENROUTER_API_KEY not configured`);
     return {
-      ...googleResult,
-      provider: 'google_direct',
-      latency_ms: Date.now() - startTime,
-      cost_usd: 0.002, // Estimate for image generation
+      success: false,
+      error: {
+        code: 'CONFIG_ERROR',
+        message: 'OPENROUTER_API_KEY environment variable is not configured',
+        provider: 'openrouter',
+        model: 'none',
+      },
     };
   }
 
-  // Fallback to OpenRouter if enabled
-  if (request.useFallback !== false) {
-    console.log(`${logPrefix} Google Direct failed, trying OpenRouter fallback...`);
-    
-    const openRouterResult = await generateImageOpenRouter(request.prompt, maxRetries, logPrefix);
-    
-    if (openRouterResult) {
-      return {
-        ...openRouterResult,
-        provider: 'openrouter',
-        latency_ms: Date.now() - startTime,
-        fallback_used: true,
-        cost_usd: 0.002,
+  // Select model: free tier for testing, paid for production
+  const model = request.useFreeModel
+    ? MODELS.IMAGE_FREE    // 'google/gemini-2.5-flash-image-preview:free'
+    : MODELS.IMAGE;        // 'google/gemini-2.5-flash-image'
+
+  console.log(`${logPrefix} Generating image via OpenRouter (${model})`);
+  console.log(`${logPrefix} Prompt: ${request.prompt.substring(0, 100)}...`);
+
+  try {
+    // Build request body
+    const body: Record<string, unknown> = {
+      model,
+      messages: [
+        {
+          role: 'user',
+          content: request.prompt,
+        },
+      ],
+    };
+
+    // Add aspect ratio configuration if specified
+    // OpenRouter supports image_config for Gemini image models
+    if (request.aspectRatio) {
+      body.image_config = {
+        aspect_ratio: request.aspectRatio,
       };
     }
-  }
 
-  console.error(`${logPrefix} All image generation attempts failed`);
-  return null;
-}
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': appUrl,
+        'X-Title': 'SyllabusStack',
+      },
+      body: JSON.stringify(body),
+    });
 
-/**
- * Google Direct image generation using gemini-3-pro-image-preview
- */
-async function generateImageGoogleDirect(
-  prompt: string,
-  maxRetries: number,
-  logPrefix: string
-): Promise<{ base64: string; mimeType: string; textResponse?: string } | null> {
-  const apiKey = Deno.env.get('GOOGLE_CLOUD_API_KEY');
-  if (!apiKey) {
-    console.warn(`${logPrefix} GOOGLE_CLOUD_API_KEY not configured`);
-    return null;
-  }
+    // Handle HTTP errors explicitly
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`${logPrefix} OpenRouter error ${response.status}:`, errorText.substring(0, 300));
 
-  const model = 'gemini-3-pro-image-preview';
-  const url = `${GOOGLE_API_BASE}/models/${model}:generateContent?key=${apiKey}`;
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts: [{ text: prompt }] }],
-          generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
-        }),
-      });
-
-      if (response.status === 429) {
-        const waitMs = 2000 * Math.pow(2, attempt);
-        console.warn(`${logPrefix} Rate limited (429). Waiting ${waitMs}ms...`);
-        if (attempt < maxRetries) {
-          await new Promise(r => setTimeout(r, waitMs));
-          continue;
-        }
-        return null;
-      }
-
-      if (!response.ok) {
-        const errText = await response.text();
-        console.warn(`${logPrefix} Attempt ${attempt + 1} failed: ${response.status}`);
-        if (attempt < maxRetries) {
-          await new Promise(r => setTimeout(r, 1500 * Math.pow(2, attempt)));
-          continue;
-        }
-        return null;
-      }
-
-      const data = await response.json();
-      const parts = data.candidates?.[0]?.content?.parts || [];
-
-      let text: string | undefined;
-      let base64: string | undefined;
-
-      for (const part of parts) {
-        if (part.text) text = part.text;
-        if (part.inlineData) base64 = part.inlineData.data;
-      }
-
-      if (base64) {
-        console.log(`${logPrefix} ✓ Google Direct image generated (${Math.round(base64.length / 1024)}KB)`);
-        return { base64, mimeType: 'image/png', textResponse: text };
-      }
-
-      console.warn(`${logPrefix} No image data in response, attempt ${attempt + 1}`);
-      if (attempt < maxRetries) {
-        await new Promise(r => setTimeout(r, 1500));
-        continue;
-      }
-      return null;
-
-    } catch (error) {
-      console.error(`${logPrefix} Google Direct error:`, error);
-      if (attempt < maxRetries) {
-        await new Promise(r => setTimeout(r, 1500 * Math.pow(2, attempt)));
-        continue;
-      }
-      return null;
-    }
-  }
-
-  return null;
-}
-
-/**
- * OpenRouter image generation fallback using Gemini 2.5 Flash Image
- * 
- * Gemini models have superior text rendering compared to Flux.
- * google/gemini-2.5-flash-image-preview is available on OpenRouter.
- */
-async function generateImageOpenRouter(
-  prompt: string,
-  maxRetries: number,
-  logPrefix: string
-): Promise<{ base64: string; mimeType: string; textResponse?: string } | null> {
-  const apiKey = Deno.env.get('OPENROUTER_API_KEY');
-  const appUrl = Deno.env.get('APP_URL');
-  
-  if (!apiKey || !appUrl) {
-    console.warn(`${logPrefix} OpenRouter not configured`);
-    return null;
-  }
-
-  // Use Gemini 3 Pro Image for best quality text rendering
-  const model = 'google/gemini-3-pro-image-preview';
-  console.log(`${logPrefix} Trying OpenRouter Gemini 3 Pro image generation...`);
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': appUrl,
-          'X-Title': 'SyllabusStack',
-        },
-        body: JSON.stringify({
+      return {
+        success: false,
+        error: {
+          code: 'OPENROUTER_ERROR',
+          message: `OpenRouter returned HTTP ${response.status}: ${response.statusText}`,
+          provider: 'openrouter',
           model,
-          messages: [{ role: 'user', content: prompt }],
-          modalities: ['text', 'image'],
-        }),
-      });
+          httpStatus: response.status,
+          rawError: errorText.substring(0, 500),
+        },
+      };
+    }
 
-      if (response.status === 429 || response.status === 503) {
-        const waitMs = 2000 * Math.pow(2, attempt);
-        console.warn(`${logPrefix} OpenRouter ${response.status}. Waiting ${waitMs}ms...`);
-        if (attempt < maxRetries) {
-          await new Promise(r => setTimeout(r, waitMs));
-          continue;
-        }
-        return null;
-      }
+    const data = await response.json();
 
-      if (!response.ok) {
-        const errText = await response.text();
-        console.warn(`${logPrefix} OpenRouter failed: ${response.status} - ${errText.slice(0, 200)}`);
-        if (attempt < maxRetries) {
-          await new Promise(r => setTimeout(r, 1500 * Math.pow(2, attempt)));
-          continue;
-        }
-        return null;
-      }
+    // Extract image from response
+    const content = data.choices?.[0]?.message?.content;
 
-      const data = await response.json();
-      const message = data.choices?.[0]?.message;
-      const content = message?.content;
-      
-      // Format 1: content is an array with type: 'image' items (correct multimodal format)
-      if (Array.isArray(content)) {
-        for (const item of content) {
-          if (item.type === 'image' || item.type === 'image_url') {
-            const imageUrl = item.image_url?.url || item.url;
-            if (typeof imageUrl === 'string' && imageUrl.startsWith('data:image/')) {
-              const match = imageUrl.match(/^data:image\/(\w+);base64,(.+)$/);
-              if (match) {
-                console.log(`${logPrefix} ✓ Gemini image from content array (${Math.round(match[2].length / 1024)}KB)`);
-                return { base64: match[2], mimeType: `image/${match[1]}` };
-              }
-            }
-          }
-        }
-      }
-      
-      // Format 2: images array (legacy format some models may use)
-      const images = message?.images;
-      if (images?.length > 0) {
-        const imageObj = images[0];
-        const imageUrl = imageObj?.image_url?.url || imageObj?.url;
-        
+    if (!content) {
+      console.error(`${logPrefix} OpenRouter returned empty content`);
+      return {
+        success: false,
+        error: {
+          code: 'INVALID_RESPONSE',
+          message: 'OpenRouter returned empty content in response',
+          provider: 'openrouter',
+          model,
+        },
+      };
+    }
+
+    // Parse the response to extract base64 image
+    const extracted = extractImageFromResponse(content, data.choices?.[0]?.message, logPrefix);
+
+    if (!extracted) {
+      console.error(`${logPrefix} Could not extract image from response`);
+      return {
+        success: false,
+        error: {
+          code: 'INVALID_RESPONSE',
+          message: 'Could not extract image data from OpenRouter response. Response format may have changed.',
+          provider: 'openrouter',
+          model,
+          rawError: JSON.stringify(content).substring(0, 500),
+        },
+      };
+    }
+
+    const latency_ms = Date.now() - startTime;
+    console.log(`${logPrefix} ✓ Image generated successfully in ${latency_ms}ms (${Math.round(extracted.base64.length / 1024)}KB)`);
+
+    return {
+      success: true,
+      base64: extracted.base64,
+      mimeType: extracted.mimeType,
+      textResponse: extracted.textResponse,
+      provider: 'openrouter',
+      model,
+      cost_usd: IMAGE_COST_USD,
+      latency_ms,
+    };
+
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`${logPrefix} Exception during image generation:`, errorMessage);
+
+    return {
+      success: false,
+      error: {
+        code: 'IMAGE_GENERATION_FAILED',
+        message: `Image generation failed with exception: ${errorMessage}`,
+        provider: 'openrouter',
+        model,
+        rawError: errorMessage,
+      },
+    };
+  }
+}
+
+/**
+ * Extract base64 image from OpenRouter response
+ * Handles multiple response formats from Gemini image models
+ *
+ * @internal
+ */
+function extractImageFromResponse(
+  content: unknown,
+  message: Record<string, unknown> | undefined,
+  logPrefix: string
+): { base64: string; mimeType: string; textResponse?: string } | null {
+
+  // Format 1: content is an array with type: 'image' or 'image_url' items
+  if (Array.isArray(content)) {
+    for (const item of content) {
+      if (item.type === 'image' || item.type === 'image_url') {
+        const imageUrl = item.image_url?.url || item.url;
         if (typeof imageUrl === 'string' && imageUrl.startsWith('data:image/')) {
           const match = imageUrl.match(/^data:image\/(\w+);base64,(.+)$/);
           if (match) {
-            console.log(`${logPrefix} ✓ Gemini image from images array (${Math.round(match[2].length / 1024)}KB)`);
+            console.log(`${logPrefix} Extracted image from content array`);
             return { base64: match[2], mimeType: `image/${match[1]}` };
           }
         }
-        
-        // If it's a URL, fetch it
-        if (typeof imageUrl === 'string' && imageUrl.startsWith('http')) {
-          try {
-            const imgResp = await fetch(imageUrl);
-            if (imgResp.ok) {
-              const blob = await imgResp.blob();
-              const buffer = await blob.arrayBuffer();
-              const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
-              console.log(`${logPrefix} ✓ Gemini image fetched (${Math.round(base64.length / 1024)}KB)`);
-              return { base64, mimeType: blob.type || 'image/png' };
-            }
-          } catch (e) {
-            console.warn(`${logPrefix} Failed to fetch Gemini image URL:`, e);
-          }
-        }
       }
-      
-      // Format 3: content is string with inline base64 (fallback)
-      if (content && typeof content === 'string' && content.includes('data:image/')) {
-        const dataMatch = content.match(/data:image\/[^;]+;base64,([A-Za-z0-9+/=]+)/);
-        if (dataMatch?.[1]) {
-          console.log(`${logPrefix} ✓ Gemini inline base64 (${Math.round(dataMatch[1].length / 1024)}KB)`);
-          return { base64: dataMatch[1], mimeType: 'image/png' };
-        }
-      }
-
-      console.warn(`${logPrefix} OpenRouter returned no image. Content type: ${typeof content}, isArray: ${Array.isArray(content)}, has images: ${!!images}`);
-      if (attempt < maxRetries) {
-        await new Promise(r => setTimeout(r, 1500));
-        continue;
-      }
-      return null;
-
-    } catch (error) {
-      console.error(`${logPrefix} OpenRouter error:`, error);
-      if (attempt < maxRetries) {
-        await new Promise(r => setTimeout(r, 1500 * Math.pow(2, attempt)));
-        continue;
-      }
-      return null;
     }
   }
 
+  // Format 2: images array on message object (legacy format)
+  const images = message?.images as Array<Record<string, unknown>> | undefined;
+  if (images?.length && images.length > 0) {
+    const imageObj = images[0];
+    const imageUrl = (imageObj?.image_url as Record<string, unknown>)?.url || imageObj?.url;
+
+    if (typeof imageUrl === 'string' && imageUrl.startsWith('data:image/')) {
+      const match = imageUrl.match(/^data:image\/(\w+);base64,(.+)$/);
+      if (match) {
+        console.log(`${logPrefix} Extracted image from images array`);
+        return { base64: match[2], mimeType: `image/${match[1]}` };
+      }
+    }
+  }
+
+  // Format 3: content is a string containing inline base64 data URL
+  if (typeof content === 'string' && content.includes('data:image/')) {
+    const dataMatch = content.match(/data:image\/([^;]+);base64,([A-Za-z0-9+/=]+)/);
+    if (dataMatch) {
+      console.log(`${logPrefix} Extracted inline base64 from content string`);
+      return { base64: dataMatch[2], mimeType: `image/${dataMatch[1]}` };
+    }
+  }
+
+  // No image found in any expected format
+  console.warn(`${logPrefix} No image found. Content type: ${typeof content}, isArray: ${Array.isArray(content)}`);
   return null;
 }
 
