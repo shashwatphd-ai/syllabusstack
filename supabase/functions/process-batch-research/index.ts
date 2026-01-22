@@ -5,7 +5,7 @@ import { createVertexAIAuth } from '../_shared/vertex-ai-auth.ts';
 import { createGCSClient } from '../_shared/gcs-client.ts';
 import { createVertexAIBatchClient } from '../_shared/vertex-ai-batch.ts';
 // OpenRouter imports for alternative batch processing (BATCH_PROVIDER=openrouter)
-import { generateText, MODELS } from '../_shared/unified-ai-client.ts';
+import { generateText, MODELS, parseJsonResponse } from '../_shared/unified-ai-client.ts';
 
 // ============================================================================
 // PROCESS BATCH RESEARCH - Background Research and Batch Slide Generation
@@ -595,81 +595,108 @@ async function processBatchViaOpenRouter(
 
   console.log(`[Batch-OR] Processing ${unitsToProcess.length} units via OpenRouter (${MODELS.PROFESSOR_AI})`);
 
+  // Rate limit retry configuration
+  const MAX_RETRIES = 3;
+  const BASE_DELAY_MS = 2000; // 2 seconds base delay for exponential backoff
+
   for (let i = 0; i < unitsToProcess.length; i++) {
     const unit = unitsToProcess[i];
     const slideId = requestMapping[unit.id];
 
     console.log(`[Batch-OR] [${i + 1}/${unitsToProcess.length}] Processing: ${unit.title}`);
 
-    try {
-      // Update status to generating
-      await supabase
-        .from('lecture_slides')
-        .update({ status: 'generating' })
-        .eq('id', slideId);
+    let attempt = 0;
+    let success = false;
 
-      // Build the prompt (same as single slide flow)
-      const userPrompt = buildUserPrompt(unit);
-
-      // Generate via OpenRouter using same model as single slides
-      const result = await generateText({
-        prompt: userPrompt,
-        systemPrompt: PROFESSOR_SYSTEM_PROMPT,
-        model: MODELS.PROFESSOR_AI,               // 'google/gemini-2.5-flash'
-        fallbacks: [MODELS.PROFESSOR_AI_FALLBACK], // 'google/gemini-2.0-flash'
-        temperature: 0.7,
-        maxTokens: 16000,
-        logPrefix: `[Batch-OR:${i + 1}]`,
-      });
-
-      // Parse the response
-      let slides;
+    while (attempt <= MAX_RETRIES && !success) {
       try {
-        // Extract JSON from markdown blocks if present
-        const jsonMatch = result.content.match(/```(?:json)?\s*([\s\S]*?)```/);
-        const jsonStr = jsonMatch ? jsonMatch[1].trim() : result.content.trim();
-        const parsed = JSON.parse(jsonStr);
-        slides = parsed.slides || parsed;
-      } catch (parseError) {
-        throw new Error(`Failed to parse AI response: ${parseError instanceof Error ? parseError.message : 'Unknown parse error'}`);
+        // Update status to generating (only on first attempt)
+        if (attempt === 0) {
+          await supabase
+            .from('lecture_slides')
+            .update({ status: 'generating' })
+            .eq('id', slideId);
+        }
+
+        // Build the prompt (same as single slide flow)
+        const userPrompt = buildUserPrompt(unit);
+
+        // Generate via OpenRouter using same model as single slides
+        const result = await generateText({
+          prompt: userPrompt,
+          systemPrompt: PROFESSOR_SYSTEM_PROMPT,
+          model: MODELS.PROFESSOR_AI,               // 'google/gemini-2.5-flash'
+          fallbacks: [MODELS.PROFESSOR_AI_FALLBACK], // 'google/gemini-2.0-flash'
+          temperature: 0.7,
+          maxTokens: 16000,
+          logPrefix: `[Batch-OR:${i + 1}]`,
+        });
+
+        // Parse the response using shared utility
+        let slides;
+        try {
+          const parsed = parseJsonResponse<{ slides?: unknown[] }>(result.content);
+          slides = parsed.slides || parsed;
+        } catch (parseError) {
+          throw new Error(`Failed to parse AI response: ${parseError instanceof Error ? parseError.message : 'Unknown parse error'}`);
+        }
+
+        // Update the record with generated slides
+        await supabase
+          .from('lecture_slides')
+          .update({
+            slides: slides,
+            status: 'completed',
+            generation_provider: 'openrouter',
+            generation_model: result.model || MODELS.PROFESSOR_AI,
+            completed_at: new Date().toISOString(),
+          })
+          .eq('id', slideId);
+
+        processed++;
+        success = true;
+        console.log(`[Batch-OR] [${i + 1}/${unitsToProcess.length}] ✓ Completed: ${unit.title} (${Array.isArray(slides) ? slides.length : '?'} slides)`);
+
+        // Rate limit delay between successful requests
+        if (i < unitsToProcess.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+
+        // Check if this is a rate limit error (429) or temporary server error (503)
+        const isRateLimitError = errorMessage.includes('429') ||
+                                  errorMessage.includes('rate limit') ||
+                                  errorMessage.includes('503') ||
+                                  errorMessage.includes('temporarily unavailable');
+
+        if (isRateLimitError && attempt < MAX_RETRIES) {
+          // Exponential backoff: 2s, 4s, 8s
+          const delayMs = BASE_DELAY_MS * Math.pow(2, attempt);
+          console.warn(`[Batch-OR] [${i + 1}/${unitsToProcess.length}] Rate limited. Retry ${attempt + 1}/${MAX_RETRIES} after ${delayMs}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+          attempt++;
+          continue;
+        }
+
+        // Non-retryable error or max retries reached
+        console.error(`[Batch-OR] [${i + 1}/${unitsToProcess.length}] ✗ Failed: ${unit.title}`, errorMessage);
+
+        errors.push(`${unit.title}: ${errorMessage}`);
+        failed++;
+
+        // Update record with error
+        await supabase
+          .from('lecture_slides')
+          .update({
+            status: 'failed',
+            error_message: errorMessage.substring(0, 500),
+          })
+          .eq('id', slideId);
+
+        break; // Exit retry loop, move to next unit
       }
-
-      // Update the record with generated slides
-      await supabase
-        .from('lecture_slides')
-        .update({
-          slides: slides,
-          status: 'completed',
-          generation_provider: 'openrouter',
-          generation_model: result.model || MODELS.PROFESSOR_AI,
-          completed_at: new Date().toISOString(),
-        })
-        .eq('id', slideId);
-
-      processed++;
-      console.log(`[Batch-OR] [${i + 1}/${unitsToProcess.length}] ✓ Completed: ${unit.title} (${slides.length} slides)`);
-
-      // Rate limit delay - avoid 429 errors
-      // OpenRouter has rate limits per model
-      if (i < unitsToProcess.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
-
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error(`[Batch-OR] [${i + 1}/${unitsToProcess.length}] ✗ Failed: ${unit.title}`, errorMessage);
-
-      errors.push(`${unit.title}: ${errorMessage}`);
-      failed++;
-
-      // Update record with error
-      await supabase
-        .from('lecture_slides')
-        .update({
-          status: 'failed',
-          error_message: errorMessage.substring(0, 500),
-        })
-        .eq('id', slideId);
     }
   }
 
