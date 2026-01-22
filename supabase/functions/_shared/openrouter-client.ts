@@ -46,31 +46,54 @@ const OPENROUTER_API_BASE = 'https://openrouter.ai/api/v1';
  *   :nitro → Route to fastest provider
  */
 export const MODELS = {
-  // === REASONING (Complex tasks: curriculum generation, analysis) ===
+  // =========================================================================
+  // PROFESSOR AI - Primary models for lecture slide generation
+  // Used by: generate-lecture-slides-v3, process-batch-research (OpenRouter mode)
+  // =========================================================================
+  PROFESSOR_AI: 'google/gemini-2.5-flash',           // Primary: Fast, cost-effective ($0.15/1M input)
+  PROFESSOR_AI_FALLBACK: 'google/gemini-2.0-flash',  // Fallback: Even faster if 2.5 fails
+
+  // =========================================================================
+  // IMAGE GENERATION - OpenRouter Gemini 2.5 Flash Image ("Nano Banana")
+  // Used by: unified-ai-client.ts generateImage()
+  // Cost: ~$0.039 per image (1290 output tokens)
+  // =========================================================================
+  IMAGE: 'google/gemini-2.5-flash-image',                    // GA version - production
+  IMAGE_FREE: 'google/gemini-2.5-flash-image-preview:free',  // Free tier - testing/dev
+
+  // =========================================================================
+  // REASONING - Complex tasks requiring deeper analysis
+  // Used by: curriculum generation, gap analysis, job requirements
+  // =========================================================================
   REASONING: 'openai/gpt-4.1',
   REASONING_FALLBACK: 'anthropic/claude-sonnet-4',
   REASONING_CHEAP: 'openai/gpt-4.1:floor',
 
-  // === FAST (Simple tasks: evaluation, extraction) ===
+  // =========================================================================
+  // FAST - Simple extraction and evaluation tasks
+  // =========================================================================
   FAST: 'openai/gpt-4o-mini',
   FAST_CHEAP: 'openai/gpt-4o-mini:floor',
   FAST_NITRO: 'openai/gpt-4o-mini:nitro',
 
-  // === GOOGLE (When Google-specific features needed) ===
-  GEMINI_FLASH: 'google/gemini-2.5-flash',
-  GEMINI_FLASH_FAST: 'google/gemini-2.0-flash',
-  GEMINI_PRO: 'google/gemini-2.5-pro',
+  // =========================================================================
+  // GOOGLE GEMINI - Direct Gemini model access via OpenRouter
+  // GEMINI_FLASH is now aliased to PROFESSOR_AI for backwards compatibility
+  // =========================================================================
+  GEMINI_FLASH: 'google/gemini-2.5-flash',      // Same as PROFESSOR_AI
+  GEMINI_FLASH_FAST: 'google/gemini-2.0-flash', // Same as PROFESSOR_AI_FALLBACK
+  GEMINI_PRO: 'google/gemini-2.5-pro',          // Pro tier for complex reasoning
 
-  // === IMAGE GENERATION ===
-  // Note: Image generation is handled by unified-ai-client.ts using Google Direct API
-  // These are kept for reference only - not actively used for image generation
-
-  // === ANTHROPIC (Alternative high-quality) ===
+  // =========================================================================
+  // ANTHROPIC - Alternative high-quality models
+  // =========================================================================
   CLAUDE_SONNET: 'anthropic/claude-sonnet-4',
   CLAUDE_HAIKU: 'anthropic/claude-3.5-haiku',
 
-  // === AUTO ROUTING ===
-  AUTO: 'openrouter/auto',  // Let OpenRouter pick best model
+  // =========================================================================
+  // AUTO ROUTING - Let OpenRouter pick best model
+  // =========================================================================
+  AUTO: 'openrouter/auto',
 } as const;
 
 export type ModelKey = keyof typeof MODELS;
@@ -517,9 +540,10 @@ export function shouldUseOpenRouter(): boolean {
 }
 
 // ============================================================================
-// IMAGE GENERATION - DEPRECATED
+// IMAGE GENERATION - VIA UNIFIED-AI-CLIENT
 // ============================================================================
-// NOTE: Image generation is now handled by unified-ai-client.ts
-// which uses Google Direct API (gemini-3-pro-image-preview) as primary
-// with OpenRouter as fallback. The functions below are kept for reference
-// but are NOT actively used.
+// Image generation is handled by unified-ai-client.ts using:
+//   - Model: google/gemini-2.5-flash-image (MODELS.IMAGE)
+//   - Provider: OpenRouter only (no Google Direct fallback)
+//   - Cost: ~$0.039 per image
+// See unified-ai-client.ts generateImage() for implementation.

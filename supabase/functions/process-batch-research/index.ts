@@ -4,38 +4,43 @@ import { MODEL_CONFIG, getVertexAIModelPath } from '../_shared/ai-orchestrator.t
 import { createVertexAIAuth } from '../_shared/vertex-ai-auth.ts';
 import { createGCSClient } from '../_shared/gcs-client.ts';
 import { createVertexAIBatchClient } from '../_shared/vertex-ai-batch.ts';
+// OpenRouter imports for alternative batch processing (BATCH_PROVIDER=openrouter)
+import { generateText, MODELS } from '../_shared/unified-ai-client.ts';
 
 // ============================================================================
-// PROCESS BATCH RESEARCH - Background Research and Vertex AI Submission
+// PROCESS BATCH RESEARCH - Background Research and Batch Slide Generation
 // ============================================================================
 //
-// PURPOSE: Run research and submit batch job to Vertex AI
+// PURPOSE: Run research and generate slides for multiple teaching units
 //
-// WHY THIS EXISTS:
-//   - Edge functions have 150s timeout
-//   - Research for 78+ units takes 5+ minutes
-//   - Split from submit-batch-slides for timeout handling
-//   - Called AFTER submit-batch-slides creates placeholder records
+// PROVIDER TOGGLE (Updated 2026-01-22):
+//   BATCH_PROVIDER env var controls routing:
+//     - 'openrouter' (default): Sequential processing via OpenRouter
+//     - 'vertex': Vertex AI Batch Prediction (50% cost discount)
 //
-// FLOW:
+// WHY TWO MODES:
+//   - OpenRouter: Unified routing, same as single slides, easier debugging
+//   - Vertex AI: 50% batch discount, but separate API/flow
+//
+// FLOW (OpenRouter mode):
 //   1. Receive batch_job_id from submit-batch-slides
 //   2. Fetch all teaching units for this batch
 //   3. Run research agent with concurrency control
-//   4. Build prompts with research grounding
+//   4. Process each unit sequentially via generateText()
+//   5. Update lecture_slides records inline
+//
+// FLOW (Vertex mode):
+//   1-4. Same as above
 //   5. Upload JSONL to Cloud Storage
 //   6. Create Vertex AI batch prediction job
-//   7. Update batch_jobs and lecture_slides status
-//
-// CALLING PATTERN:
-//   Frontend calls submit-batch-slides first (returns immediately)
-//   Then frontend calls this function to start research
-//   Frontend polls poll-batch-status for progress
+//   7. Poll for completion separately
 //
 // ENVIRONMENT VARIABLES:
-//   - GCP_SERVICE_ACCOUNT_KEY: Base64 encoded service account JSON
-//   - GCS_BUCKET: Cloud Storage bucket
-//   - GCP_REGION: Vertex AI region (default: us-central1)
-//   - GOOGLE_CLOUD_API_KEY: For research agent
+//   - BATCH_PROVIDER: 'openrouter' (default) or 'vertex'
+//   - OPENROUTER_API_KEY: Required for OpenRouter mode
+//   - GCP_SERVICE_ACCOUNT_KEY: Required for Vertex mode
+//   - GCS_BUCKET: Required for Vertex mode
+//   - GOOGLE_CLOUD_API_KEY: For research agent (both modes)
 //
 // ============================================================================
 
@@ -44,8 +49,16 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// ============================================================================
+// BATCH PROVIDER TOGGLE
+// ============================================================================
+// Set BATCH_PROVIDER env var to control routing:
+//   - 'openrouter': Process sequentially via OpenRouter (default)
+//   - 'vertex': Use Vertex AI Batch Prediction (50% discount)
+const BATCH_PROVIDER = Deno.env.get('BATCH_PROVIDER') || 'openrouter';
+
 const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
-const BATCH_MODEL = MODEL_CONFIG.GEMINI_PRO;
+const BATCH_MODEL = MODEL_CONFIG.GEMINI_PRO; // Used only for Vertex AI mode
 
 // Research cache configuration
 const CACHE_TTL_DAYS = 7;
@@ -542,6 +555,135 @@ Return valid JSON with a "slides" array.`;
 }
 
 // ============================================================================
+// OPENROUTER BATCH PROCESSING
+// ============================================================================
+//
+// Alternative to Vertex AI Batch when BATCH_PROVIDER=openrouter
+// Processes units sequentially with rate limiting
+//
+// TRADE-OFFS vs Vertex AI:
+//   + Same routing as single slides (easier debugging)
+//   + Immediate results (no polling)
+//   + No GCS/Vertex setup required
+//   - No 50% batch discount
+//   - Sequential processing (slower for large batches)
+//
+
+/**
+ * Process batch slides via OpenRouter (sequential)
+ *
+ * @param supabase - Supabase client
+ * @param batchJobId - Batch job ID
+ * @param unitsToProcess - Array of teaching units with research context
+ * @param requestMapping - Map of unit IDs to slide IDs
+ * @returns Processing results
+ */
+async function processBatchViaOpenRouter(
+  supabase: ReturnType<typeof createClient>,
+  batchJobId: string,
+  unitsToProcess: TeachingUnitData[],
+  requestMapping: Record<string, string>
+): Promise<{
+  success: boolean;
+  processed: number;
+  failed: number;
+  errors: string[];
+}> {
+  const errors: string[] = [];
+  let processed = 0;
+  let failed = 0;
+
+  console.log(`[Batch-OR] Processing ${unitsToProcess.length} units via OpenRouter (${MODELS.PROFESSOR_AI})`);
+
+  for (let i = 0; i < unitsToProcess.length; i++) {
+    const unit = unitsToProcess[i];
+    const slideId = requestMapping[unit.id];
+
+    console.log(`[Batch-OR] [${i + 1}/${unitsToProcess.length}] Processing: ${unit.title}`);
+
+    try {
+      // Update status to generating
+      await supabase
+        .from('lecture_slides')
+        .update({ status: 'generating' })
+        .eq('id', slideId);
+
+      // Build the prompt (same as single slide flow)
+      const userPrompt = buildUserPrompt(unit);
+
+      // Generate via OpenRouter using same model as single slides
+      const result = await generateText({
+        prompt: userPrompt,
+        systemPrompt: PROFESSOR_SYSTEM_PROMPT,
+        model: MODELS.PROFESSOR_AI,               // 'google/gemini-2.5-flash'
+        fallbacks: [MODELS.PROFESSOR_AI_FALLBACK], // 'google/gemini-2.0-flash'
+        temperature: 0.7,
+        maxTokens: 16000,
+        logPrefix: `[Batch-OR:${i + 1}]`,
+      });
+
+      // Parse the response
+      let slides;
+      try {
+        // Extract JSON from markdown blocks if present
+        const jsonMatch = result.content.match(/```(?:json)?\s*([\s\S]*?)```/);
+        const jsonStr = jsonMatch ? jsonMatch[1].trim() : result.content.trim();
+        const parsed = JSON.parse(jsonStr);
+        slides = parsed.slides || parsed;
+      } catch (parseError) {
+        throw new Error(`Failed to parse AI response: ${parseError instanceof Error ? parseError.message : 'Unknown parse error'}`);
+      }
+
+      // Update the record with generated slides
+      await supabase
+        .from('lecture_slides')
+        .update({
+          slides: slides,
+          status: 'completed',
+          generation_provider: 'openrouter',
+          generation_model: result.model || MODELS.PROFESSOR_AI,
+          completed_at: new Date().toISOString(),
+        })
+        .eq('id', slideId);
+
+      processed++;
+      console.log(`[Batch-OR] [${i + 1}/${unitsToProcess.length}] ✓ Completed: ${unit.title} (${slides.length} slides)`);
+
+      // Rate limit delay - avoid 429 errors
+      // OpenRouter has rate limits per model
+      if (i < unitsToProcess.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`[Batch-OR] [${i + 1}/${unitsToProcess.length}] ✗ Failed: ${unit.title}`, errorMessage);
+
+      errors.push(`${unit.title}: ${errorMessage}`);
+      failed++;
+
+      // Update record with error
+      await supabase
+        .from('lecture_slides')
+        .update({
+          status: 'failed',
+          error_message: errorMessage.substring(0, 500),
+        })
+        .eq('id', slideId);
+    }
+  }
+
+  console.log(`[Batch-OR] Batch complete: ${processed} succeeded, ${failed} failed`);
+
+  return {
+    success: failed === 0,
+    processed,
+    failed,
+    errors,
+  };
+}
+
+// ============================================================================
 // MAIN HANDLER
 // ============================================================================
 
@@ -823,8 +965,87 @@ serve(async (req) => {
     console.log(`[Research] Built ${batchRequests.length} batch requests`);
 
     // ========================================================================
-    // 6. UPLOAD TO CLOUD STORAGE
+    // 6. ROUTE TO APPROPRIATE PROVIDER
     // ========================================================================
+    //
+    // BATCH_PROVIDER controls routing:
+    //   - 'openrouter': Sequential processing via OpenRouter (default)
+    //   - 'vertex': Vertex AI Batch Prediction (50% cost discount)
+    //
+
+    if (BATCH_PROVIDER === 'openrouter') {
+      // ====================================================================
+      // OPENROUTER PATH - Process sequentially via OpenRouter
+      // ====================================================================
+      console.log(`[Research] Using OpenRouter for batch processing (BATCH_PROVIDER=${BATCH_PROVIDER})`);
+
+      // Build enriched unit data for OpenRouter processing
+      const unitsToProcess: TeachingUnitData[] = [];
+      const slideIdMapping: Record<string, string> = {};
+
+      for (const unit of units) {
+        const researchData = researchByUnit.get(unit.id);
+        if (!researchData) continue;
+
+        const enrichedUnitData: TeachingUnitData = {
+          ...researchData.unitData,
+          research_context: researchData.research,
+        };
+        unitsToProcess.push(enrichedUnitData);
+
+        // Find the slide ID for this unit
+        const { data: slideRecord } = await supabase
+          .from('lecture_slides')
+          .select('id')
+          .eq('teaching_unit_id', unit.id)
+          .eq('batch_job_id', batch_job_id)
+          .single();
+
+        if (slideRecord) {
+          slideIdMapping[unit.id] = slideRecord.id;
+        }
+      }
+
+      // Process via OpenRouter
+      const result = await processBatchViaOpenRouter(
+        supabase,
+        batch_job_id,
+        unitsToProcess,
+        slideIdMapping
+      );
+
+      // Update batch job record
+      await supabase
+        .from('batch_jobs')
+        .update({
+          status: result.success ? 'completed' : (result.processed > 0 ? 'partial' : 'failed'),
+          completed_at: new Date().toISOString(),
+          provider: 'openrouter',
+          error_message: result.errors.length > 0
+            ? result.errors.slice(0, 5).join('; ').substring(0, 500)
+            : null,
+        })
+        .eq('id', batch_job_id);
+
+      return new Response(
+        JSON.stringify({
+          success: result.success,
+          batch_job_id,
+          provider: 'openrouter',
+          processed: result.processed,
+          failed: result.failed,
+          total: unitsToProcess.length,
+          errors: result.errors.slice(0, 10),
+          message: `Batch complete via OpenRouter: ${result.processed} succeeded, ${result.failed} failed`,
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // ======================================================================
+    // VERTEX AI PATH - Upload to GCS and create batch job
+    // ======================================================================
+    console.log(`[Research] Using Vertex AI for batch processing (BATCH_PROVIDER=${BATCH_PROVIDER})`);
 
     let auth, gcsClient, batchClient;
     try {
@@ -963,6 +1184,7 @@ serve(async (req) => {
         status: 'submitted',
         request_mapping: requestMapping,
         output_uri: outputPrefix,
+        provider: 'vertex',  // Track which provider was used
       })
       .eq('id', batch_job_id);
 
@@ -971,16 +1193,17 @@ serve(async (req) => {
       .update({ status: 'batch_pending' })
       .eq('batch_job_id', batch_job_id);
 
-    console.log(`[Research] Batch ${batch_job_id} submitted successfully`);
+    console.log(`[Research] Batch ${batch_job_id} submitted successfully via Vertex AI`);
 
     return new Response(
       JSON.stringify({
         success: true,
         batch_job_id,
         google_batch_id: googleBatchId,
+        provider: 'vertex',
         total: batchRequests.length,
         status: 'submitted',
-        message: `Research complete, ${batchRequests.length} slides submitted to Vertex AI`,
+        message: `Research complete, ${batchRequests.length} slides submitted to Vertex AI (50% batch discount)`,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

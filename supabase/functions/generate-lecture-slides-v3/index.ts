@@ -166,27 +166,28 @@ interface TeachingUnitContext {
 }
 
 // ============================================================================
-// AI GATEWAY HELPER - Google Cloud Generative Language API
+// AI ROUTING ARCHITECTURE (Updated 2026-01-22)
 // ============================================================================
 //
-// MIGRATION NOTES: Lovable AI Gateway → Google Cloud API
+// CURRENT ROUTING:
+//   | Operation      | Provider   | Model                          |
+//   |----------------|------------|--------------------------------|
+//   | Professor AI   | OpenRouter | google/gemini-2.5-flash        |
+//   | Images         | OpenRouter | google/gemini-2.5-flash-image  |
+//   | Research Agent | Google     | gemini-2.5-flash + googleSearch|
 //
-// WHAT CHANGED:
-// - API endpoint: ai.gateway.lovable.dev → generativelanguage.googleapis.com
-// - Authentication: API key passed as URL parameter (?key=...)
-// - Request format: Google's native format with systemInstruction and contents
-// - Image generation: Uses gemini-3-pro-image-preview with responseModalities: ['TEXT', 'IMAGE']
-// - Google Search grounding: Uses tools: [{ googleSearch: {} }] parameter
+// WHY THIS SPLIT:
+//   - OpenRouter: Unified billing, fallback chains, cost optimization
+//   - Google Direct (Research only): Search grounding not available on OpenRouter
 //
-// EXPECTED OUTCOMES:
-// - callGoogleAI(): Same text generation with Gemini models
-// - generateImage(): Native image generation using Gemini 3 Pro Image model
-// - runResearchAgent(): Google Search grounding for verified, cited content
+// IMPORTS:
+//   - generateText, MODELS from '../_shared/unified-ai-client.ts'
+//   - callGoogleAIWithGrounding (below) for research agent only
 //
-// MODEL MAPPING:
-// - google/gemini-3-pro-preview → gemini-3-pro-preview (complex reasoning, lectures)
-// - gemini-2.5-flash → Used for research agent (fast, with search grounding)
-// - gemini-3-pro-image-preview → Used for diagram/illustration generation
+// MODEL CONSTANTS (from openrouter-client.ts):
+//   - MODELS.PROFESSOR_AI = 'google/gemini-2.5-flash'
+//   - MODELS.PROFESSOR_AI_FALLBACK = 'google/gemini-2.0-flash'
+//   - MODELS.IMAGE = 'google/gemini-2.5-flash-image'
 //
 
 const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
@@ -205,9 +206,9 @@ const MODEL_MAP: Record<string, string> = {
   'openai/gpt-5-nano': 'gemini-2.5-flash-lite',
 };
 
-// DEPRECATED: This function is kept ONLY for the Research Agent which requires
-// Google Search Grounding (not available via OpenRouter). Professor AI and Visual AI
-// have been migrated to OpenRouter via simpleCompletion() and generateImageOpenRouter().
+// GOOGLE DIRECT: This function is used ONLY for Research Agent which requires
+// Google Search Grounding (tools: [{ googleSearch: {} }]). This feature is not
+// available via OpenRouter. Professor AI uses OpenRouter via generateText().
 async function callGoogleAIWithGrounding(
   model: string,
   systemPrompt: string,
@@ -1054,14 +1055,19 @@ Generate all ${targetSlides} slides now with RICH, EDUCATIONAL content and LAYOU
 
   // Use unified AI client for Professor AI (with fallbacks)
   // NOTE: Do NOT use json: true - the prompt expects markdown-wrapped JSON which parseJsonFromAI handles
+  //
+  // ROUTING (Updated 2026-01-22):
+  //   Primary: MODELS.PROFESSOR_AI = 'google/gemini-2.5-flash' (fast, cost-effective)
+  //   Fallback: MODELS.PROFESSOR_AI_FALLBACK = 'google/gemini-2.0-flash' (even faster)
+  //
   const aiResult = await generateText({
     prompt: userPrompt,
     systemPrompt: PROFESSOR_SYSTEM_PROMPT,
-    model: 'google/gemini-3-flash-preview',
+    model: MODELS.PROFESSOR_AI,              // 'google/gemini-2.5-flash'
     temperature: 0.7,
     maxTokens: 16000,
     // json: true, // DO NOT USE: prompt expects markdown blocks, parseJsonFromAI handles this
-    fallbacks: [MODELS.GEMINI_FLASH, MODELS.REASONING],
+    fallbacks: [MODELS.PROFESSOR_AI_FALLBACK], // 'google/gemini-2.0-flash'
     logPrefix: '[Professor AI]'
   });
   const result = aiResult.content;
