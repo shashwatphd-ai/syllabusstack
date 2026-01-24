@@ -51,7 +51,7 @@ export const MODELS = {
   // Used by: generate-lecture-slides-v3, process-batch-research (OpenRouter mode)
   // =========================================================================
   PROFESSOR_AI: 'google/gemini-2.5-flash',           // Primary: Fast, cost-effective ($0.15/1M input)
-  PROFESSOR_AI_FALLBACK: 'google/gemini-2.0-flash',  // Fallback: Even faster if 2.5 fails
+  PROFESSOR_AI_FALLBACK: 'google/gemini-2.0-flash-001',  // Fallback: Even faster if 2.5 fails
 
   // =========================================================================
   // IMAGE GENERATION - OpenRouter Gemini 2.5 Flash Image ("Nano Banana")
@@ -81,7 +81,7 @@ export const MODELS = {
   // GEMINI_FLASH is now aliased to PROFESSOR_AI for backwards compatibility
   // =========================================================================
   GEMINI_FLASH: 'google/gemini-2.5-flash',      // Same as PROFESSOR_AI
-  GEMINI_FLASH_FAST: 'google/gemini-2.0-flash', // Same as PROFESSOR_AI_FALLBACK
+  GEMINI_FLASH_FAST: 'google/gemini-2.0-flash-001', // Same as PROFESSOR_AI_FALLBACK
   GEMINI_PRO: 'google/gemini-2.5-pro',          // Pro tier for complex reasoning
 
   // =========================================================================

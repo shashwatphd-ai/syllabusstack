@@ -186,7 +186,7 @@ interface TeachingUnitContext {
 //
 // MODEL CONSTANTS (from openrouter-client.ts):
 //   - MODELS.PROFESSOR_AI = 'google/gemini-2.5-flash'
-//   - MODELS.PROFESSOR_AI_FALLBACK = 'google/gemini-2.0-flash'
+//   - MODELS.PROFESSOR_AI_FALLBACK = 'google/gemini-2.0-flash-001'
 //   - MODELS.IMAGE = 'google/gemini-2.5-flash-image'
 //
 
@@ -1127,7 +1127,7 @@ Generate all ${targetSlides} slides now with RICH, EDUCATIONAL content and LAYOU
   //
   // ROUTING (Updated 2026-01-22):
   //   Primary: MODELS.PROFESSOR_AI = 'google/gemini-2.5-flash' (fast, cost-effective)
-  //   Fallback: MODELS.PROFESSOR_AI_FALLBACK = 'google/gemini-2.0-flash' (even faster)
+  //   Fallback: MODELS.PROFESSOR_AI_FALLBACK = 'google/gemini-2.0-flash-001' (even faster)
   //
   const aiResult = await generateText({
     prompt: userPrompt,
@@ -1136,7 +1136,7 @@ Generate all ${targetSlides} slides now with RICH, EDUCATIONAL content and LAYOU
     temperature: 0.7,
     maxTokens: 16000,
     // json: true, // DO NOT USE: prompt expects markdown blocks, parseJsonFromAI handles this
-    fallbacks: [MODELS.PROFESSOR_AI_FALLBACK], // 'google/gemini-2.0-flash'
+    fallbacks: [MODELS.PROFESSOR_AI_FALLBACK], // 'google/gemini-2.0-flash-001'
     logPrefix: '[Professor AI]'
   });
   const result = aiResult.content;
