@@ -252,10 +252,24 @@ Note: total_score = (relevance_score * 0.4) + (pedagogy_score * 0.35) + (quality
       throw new Error('No content in AI response');
     }
 
+    // Type for AI evaluation response
+    interface EvaluationResponse {
+      evaluations: Array<{
+        video_id: string;
+        relevance_score: number;
+        pedagogy_score: number;
+        quality_score: number;
+        total_score: number;
+        reasoning: string;
+        recommendation: string;
+        concern: string | null;
+      }>;
+    }
+
     // Parse the JSON from AI response
-    let evaluations;
+    let evaluations: EvaluationResponse;
     try {
-      evaluations = parseJsonResponse(result.content);
+      evaluations = parseJsonResponse(result.content) as EvaluationResponse;
     } catch (parseError) {
       console.error('Failed to parse AI evaluation response:', result.content);
       // Return basic scores if parsing fails
