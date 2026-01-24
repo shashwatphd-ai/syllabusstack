@@ -81,7 +81,7 @@ export const MODELS = {
   // GEMINI_FLASH is now aliased to PROFESSOR_AI for backwards compatibility
   // =========================================================================
   GEMINI_FLASH: 'google/gemini-2.5-flash',      // Same as PROFESSOR_AI
-  GEMINI_FLASH_FAST: 'google/gemini-flash-1.5', // Stable 1.5 Flash
+  GEMINI_FLASH_FAST: 'google/gemini-flash-1.5', // Stable 1.5 Flash (same as PROFESSOR_AI_FALLBACK)
   GEMINI_PRO: 'google/gemini-2.5-pro',          // Pro tier for complex reasoning
 
   // =========================================================================

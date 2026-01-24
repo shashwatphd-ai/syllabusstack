@@ -155,7 +155,7 @@ const COST_PER_MILLION: Record<string, { input: number; output: number }> = {
   'openai/gpt-4.1': { input: 2.00, output: 8.00 },
   // Google Gemini text models
   'google/gemini-2.5-flash': { input: 0.075, output: 0.30 },
-  'google/gemini-2.0-flash': { input: 0.10, output: 0.40 },
+  'google/gemini-flash-1.5': { input: 0.075, output: 0.30 },
   'google/gemini-2.5-pro': { input: 1.25, output: 5.00 },
   // Google Gemini image model (Nano Banana)
   // Cost: ~$0.039 per image (1290 output tokens at $0.0025/1K + input)
