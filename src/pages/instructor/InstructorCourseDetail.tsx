@@ -710,10 +710,11 @@ export default function InstructorCourseDetailPage() {
                       {modules
                         .sort((a, b) => a.sequence_order - b.sequence_order)
                         .map((module) => (
-                          <UnifiedModuleCard 
-                            key={module.id} 
+                          <UnifiedModuleCard
+                            key={module.id}
                             module={module}
                             learningObjectives={learningObjectives?.filter(lo => lo.module_id === module.id) || []}
+                            instructorCourseId={instructorCourseId}
                           />
                         ))}
                     </div>

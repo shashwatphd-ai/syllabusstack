@@ -1,12 +1,14 @@
 import { useState, useMemo } from 'react';
-import { ChevronDown, ChevronRight, Loader2, Sparkles, Target, FileQuestion, CheckCircle2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Loader2, Sparkles, Target, FileQuestion, CheckCircle2, Play, Volume2, AlertCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Progress } from '@/components/ui/progress';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { LearningObjective, useSearchYouTubeContent } from '@/hooks/useLearningObjectives';
 import { useLOContentStatus } from '@/hooks/useContentStats';
 import { useGenerateAssessmentQuestions } from '@/hooks/useAssessment';
+import { useSubmitModuleBatchSlides, useModuleSlideStatus, useGenerateModuleAudio } from '@/hooks/useBatchSlides';
 import { useToast } from '@/hooks/use-toast';
 import { UnifiedLOCard } from './UnifiedLOCard';
 
@@ -20,9 +22,10 @@ interface Module {
 interface UnifiedModuleCardProps {
   module: Module;
   learningObjectives: LearningObjective[];
+  instructorCourseId?: string;
 }
 
-export function UnifiedModuleCard({ module, learningObjectives }: UnifiedModuleCardProps) {
+export function UnifiedModuleCard({ module, learningObjectives, instructorCourseId }: UnifiedModuleCardProps) {
   const [isOpen, setIsOpen] = useState(true);
   const [bulkSearching, setBulkSearching] = useState(false);
   const [generatingQuiz, setGeneratingQuiz] = useState(false);
@@ -30,6 +33,43 @@ export function UnifiedModuleCard({ module, learningObjectives }: UnifiedModuleC
   const searchContent = useSearchYouTubeContent();
   const generateQuestions = useGenerateAssessmentQuestions();
   const { toast } = useToast();
+
+  // Module-level slide generation hooks
+  const submitModuleSlides = useSubmitModuleBatchSlides();
+  const { data: moduleStatus, isLoading: statusLoading } = useModuleSlideStatus(module.id);
+  const generateModuleAudio = useGenerateModuleAudio();
+
+  // Determine if generation is in progress
+  const isGeneratingSlides = submitModuleSlides.isPending ||
+    moduleStatus?.active_batch != null ||
+    (moduleStatus?.in_progress ?? 0) > 0;
+
+  const isGeneratingAudio = generateModuleAudio.isPending ||
+    moduleStatus?.module?.audio_status === 'generating';
+
+  // Handle generate slides for module
+  const handleGenerateSlides = async () => {
+    if (!instructorCourseId) {
+      toast({
+        title: 'Error',
+        description: 'Course ID not available',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    submitModuleSlides.mutate({
+      instructorCourseId,
+      moduleId: module.id,
+    });
+  };
+
+  // Handle generate audio for module
+  const handleGenerateAudio = async () => {
+    generateModuleAudio.mutate({
+      moduleId: module.id,
+    });
+  };
 
   // Memoize loIds to prevent refetch on every render (was creating new array each render)
   const loIds = useMemo(() => learningObjectives.map(lo => lo.id), [learningObjectives]);
@@ -207,7 +247,91 @@ export function UnifiedModuleCard({ module, learningObjectives }: UnifiedModuleC
                     )}
                   </Button>
                 )}
+                {/* Generate Slides Button - Module Level */}
+                {instructorCourseId && learningObjectives.length > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 h-9 text-xs"
+                    onClick={handleGenerateSlides}
+                    disabled={isGeneratingSlides}
+                  >
+                    {isGeneratingSlides ? (
+                      <>
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        <span className="hidden sm:inline">
+                          {moduleStatus?.active_batch
+                            ? `${moduleStatus.active_batch.succeeded}/${moduleStatus.active_batch.total}`
+                            : 'Generating...'}
+                        </span>
+                        <span className="sm:hidden">...</span>
+                      </>
+                    ) : moduleStatus?.ready && moduleStatus.ready > 0 ? (
+                      <>
+                        <CheckCircle2 className="h-3 w-3 text-success" />
+                        <span className="hidden sm:inline">{moduleStatus.ready} Slides</span>
+                        <span className="sm:hidden">{moduleStatus.ready}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Play className="h-3 w-3" />
+                        <span className="hidden sm:inline">Generate Slides</span>
+                        <span className="sm:hidden">Slides</span>
+                      </>
+                    )}
+                  </Button>
+                )}
+                {/* Generate Audio Button - Module Level */}
+                {moduleStatus?.ready && moduleStatus.ready > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 h-9 text-xs"
+                    onClick={handleGenerateAudio}
+                    disabled={isGeneratingAudio || moduleStatus.ready === 0}
+                  >
+                    {isGeneratingAudio ? (
+                      <>
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        <span className="hidden sm:inline">Audio...</span>
+                        <span className="sm:hidden">...</span>
+                      </>
+                    ) : moduleStatus?.audio?.with_audio && moduleStatus.audio.with_audio > 0 ? (
+                      <>
+                        <Volume2 className="h-3 w-3 text-success" />
+                        <span className="hidden sm:inline">{moduleStatus.audio.with_audio} Audio</span>
+                        <span className="sm:hidden">{moduleStatus.audio.with_audio}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Volume2 className="h-3 w-3" />
+                        <span className="hidden sm:inline">Generate Audio</span>
+                        <span className="sm:hidden">Audio</span>
+                      </>
+                    )}
+                  </Button>
+                )}
               </div>
+              {/* Module Generation Progress Bar */}
+              {moduleStatus?.active_batch && (
+                <div className="ml-7 mt-2">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+                    <span>
+                      Generating: {moduleStatus.active_batch.succeeded}/{moduleStatus.active_batch.total} slides
+                    </span>
+                    {moduleStatus.active_batch.failed > 0 && (
+                      <span className="text-destructive flex items-center gap-1">
+                        <AlertCircle className="h-3 w-3" />
+                        {moduleStatus.active_batch.failed} failed
+                      </span>
+                    )}
+                  </div>
+                  <Progress
+                    value={moduleStatus.progress_percent}
+                    className="h-1.5"
+                  />
+                </div>
+              )}
             </div>
           </CollapsibleTrigger>
           {module.description && (
