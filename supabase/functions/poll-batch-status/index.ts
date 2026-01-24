@@ -53,7 +53,7 @@ serve(async (req) => {
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, serviceRoleKey);
 
-    const { batch_job_id, instructor_course_id } = await req.json();
+    const { batch_job_id, instructor_course_id, module_id } = await req.json();
 
     // Initialize Vertex AI clients (needed for polling)
     let auth, gcsClient, batchClient;
@@ -270,8 +270,165 @@ serve(async (req) => {
       );
     }
 
+    // ========================================================================
+    // OPTION 3: Get module-level status
+    // ========================================================================
+
+    if (module_id) {
+      // Get module data including generation status
+      const { data: moduleData, error: moduleError } = await supabase
+        .from('modules')
+        .select('id, title, generation_status, audio_status, last_batch_job_id, instructor_course_id')
+        .eq('id', module_id)
+        .single();
+
+      if (moduleError || !moduleData) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Module not found' }),
+          { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Get all learning objectives for this module
+      const { data: learningObjectives } = await supabase
+        .from('learning_objectives')
+        .select('id')
+        .eq('module_id', module_id);
+
+      const loIds = learningObjectives?.map(lo => lo.id) || [];
+
+      // Get all teaching units for these learning objectives
+      const { data: teachingUnits } = await supabase
+        .from('teaching_units')
+        .select('id')
+        .in('learning_objective_id', loIds);
+
+      const tuIds = teachingUnits?.map(tu => tu.id) || [];
+
+      // Get all slides for these teaching units
+      const { data: slides } = await supabase
+        .from('lecture_slides')
+        .select('id, teaching_unit_id, status, batch_job_id, has_audio, audio_status')
+        .in('teaching_unit_id', tuIds);
+
+      // Count statuses
+      const statusCounts = {
+        pending: 0,
+        preparing: 0,
+        batch_pending: 0,
+        generating: 0,
+        ready: 0,
+        published: 0,
+        failed: 0,
+      };
+
+      let slidesWithAudio = 0;
+      let slidesWithoutAudio = 0;
+
+      for (const slide of slides || []) {
+        const status = slide.status as keyof typeof statusCounts;
+        if (status in statusCounts) statusCounts[status]++;
+        if (slide.has_audio) slidesWithAudio++;
+        else slidesWithoutAudio++;
+      }
+
+      // Get batch jobs for this module
+      const { data: batchJobs } = await supabase
+        .from('batch_jobs')
+        .select('id, google_batch_id, status, total_requests, succeeded_count, failed_count, created_at, scope')
+        .eq('module_id', module_id)
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      // Find active batch job
+      const activeBatch = batchJobs?.find(j =>
+        j.status === 'preparing' || j.status === 'researching' || j.status === 'submitted' || j.status === 'processing'
+      );
+
+      // If there's an active batch and Vertex AI is configured, poll it
+      if (activeBatch && batchClient && activeBatch.google_batch_id && !activeBatch.google_batch_id.startsWith('pending-')) {
+        try {
+          const vertexStatus = await batchClient.getBatchJob(activeBatch.google_batch_id);
+
+          const updatedStatus = VertexAIBatchClient.mapJobStateToStatus(vertexStatus.state);
+          const counts = VertexAIBatchClient.extractCounts(vertexStatus.completionStats);
+
+          await supabase
+            .from('batch_jobs')
+            .update({
+              status: updatedStatus,
+              succeeded_count: counts.succeeded,
+              failed_count: counts.failed,
+            })
+            .eq('id', activeBatch.id);
+
+          // Process results if complete
+          if (VertexAIBatchClient.isSuccessState(vertexStatus.state)) {
+            const { data: fullBatchJob } = await supabase
+              .from('batch_jobs')
+              .select('*')
+              .eq('id', activeBatch.id)
+              .single();
+
+            if (fullBatchJob && gcsClient) {
+              await processCompletedBatch(supabase, fullBatchJob, vertexStatus, gcsClient);
+            }
+
+            // Update module status
+            await supabase
+              .from('modules')
+              .update({ generation_status: 'completed' })
+              .eq('id', module_id);
+          }
+
+          activeBatch.status = updatedStatus;
+          activeBatch.succeeded_count = counts.succeeded;
+          activeBatch.failed_count = counts.failed;
+        } catch (pollError) {
+          console.error('[Poll] Error polling active module batch:', pollError);
+        }
+      }
+
+      // Compute overall module generation status
+      const totalSlides = slides?.length || 0;
+      const readySlides = statusCounts.ready + statusCounts.published;
+      const progressPercent = totalSlides > 0 ? Math.round((readySlides / totalSlides) * 100) : 0;
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          scope: 'module',
+          module: {
+            id: moduleData.id,
+            title: moduleData.title,
+            generation_status: moduleData.generation_status,
+            audio_status: moduleData.audio_status,
+          },
+          total_teaching_units: tuIds.length,
+          total_slides: totalSlides,
+          ...statusCounts,
+          // Combine preparing/batch_pending/generating for "in progress" count
+          in_progress: statusCounts.preparing + statusCounts.batch_pending + statusCounts.generating,
+          progress_percent: progressPercent,
+          audio: {
+            with_audio: slidesWithAudio,
+            without_audio: slidesWithoutAudio,
+          },
+          active_batch: activeBatch ? {
+            id: activeBatch.id,
+            status: activeBatch.status,
+            total: activeBatch.total_requests,
+            succeeded: activeBatch.succeeded_count || 0,
+            failed: activeBatch.failed_count || 0,
+          } : null,
+          recent_batches: batchJobs?.slice(0, 3) || [],
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     return new Response(
-      JSON.stringify({ success: false, error: 'batch_job_id or instructor_course_id required' }),
+      JSON.stringify({ success: false, error: 'batch_job_id, instructor_course_id, or module_id required' }),
       { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 

@@ -33,13 +33,56 @@ import { useToast } from '@/hooks/use-toast';
 
 export interface BatchJob {
   id: string;
-  status: 'submitted' | 'processing' | 'completed' | 'failed' | 'partial';
+  status: 'preparing' | 'researching' | 'submitted' | 'processing' | 'completed' | 'failed' | 'partial';
   total_requests: number;
   succeeded_count: number;
   failed_count: number;
   created_at: string;
   completed_at?: string;
   error_message?: string;
+  scope?: 'course' | 'module';
+  module_id?: string | null;
+}
+
+export interface ModuleSlideStatusResponse {
+  success: boolean;
+  scope: 'module';
+  module: {
+    id: string;
+    title: string;
+    generation_status: string;
+    audio_status: string;
+  };
+  total_teaching_units: number;
+  total_slides: number;
+  pending: number;
+  preparing: number;
+  batch_pending: number;
+  generating: number;
+  ready: number;
+  published: number;
+  failed: number;
+  in_progress: number;
+  progress_percent: number;
+  audio: {
+    with_audio: number;
+    without_audio: number;
+  };
+  active_batch?: {
+    id: string;
+    status: string;
+    total: number;
+    succeeded: number;
+    failed: number;
+  } | null;
+  recent_batches?: Array<{
+    id: string;
+    status: string;
+    total: number;
+    succeeded: number;
+    failed: number;
+    created_at: string;
+  }>;
 }
 
 export interface BatchStatusResponse {
@@ -427,6 +470,243 @@ export function useQueueStatus(instructorCourseId?: string) {
 }
 
 // ============================================================================
+// useSubmitModuleBatchSlides
+// ============================================================================
+//
+// Submit all teaching units for a SPECIFIC MODULE to batch generation.
+// Uses module-level scope for sequential module-by-module workflow.
+//
+// USAGE:
+//   const submitModule = useSubmitModuleBatchSlides();
+//   submitModule.mutate({ instructorCourseId, moduleId });
+//
+
+export function useSubmitModuleBatchSlides() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async ({
+      instructorCourseId,
+      moduleId,
+      teachingUnitIds,
+    }: {
+      instructorCourseId: string;
+      moduleId: string;
+      teachingUnitIds?: string[]; // Optional - will auto-discover if not provided
+    }) => {
+      console.log(`[Batch] Submitting module ${moduleId} for batch generation`);
+
+      // STEP 1: Create placeholder records with module scope
+      const { data: submitData, error: submitError } = await supabase.functions.invoke('submit-batch-slides', {
+        body: {
+          instructor_course_id: instructorCourseId,
+          module_id: moduleId,
+          teaching_unit_ids: teachingUnitIds, // Optional - API will auto-discover if empty
+        },
+      });
+
+      if (submitError) {
+        console.error('[Batch] Module submit error:', submitError);
+        throw submitError;
+      }
+
+      if (!submitData?.success) {
+        throw new Error(submitData?.error || 'Module batch submission failed');
+      }
+
+      console.log(`[Batch] Module placeholders created, batch_job_id: ${submitData.batch_job_id}`);
+
+      // STEP 2: Start research and Vertex AI submission (slow, runs in background)
+      if (submitData.batch_job_id && submitData.total > 0) {
+        console.log(`[Batch] Starting research for module with ${submitData.total} units...`);
+
+        // Fire and don't wait - let it run in background
+        supabase.functions.invoke('process-batch-research', {
+          body: { batch_job_id: submitData.batch_job_id },
+        }).then(({ data: researchData, error: researchError }) => {
+          if (researchError) {
+            console.error('[Batch] Module research error:', researchError);
+          } else {
+            console.log('[Batch] Module research started:', researchData);
+          }
+        }).catch((err) => {
+          console.error('[Batch] Module research invocation failed:', err);
+        });
+      }
+
+      return submitData as {
+        success: boolean;
+        batch_job_id: string | null;
+        scope: 'module';
+        module_id: string;
+        total: number;
+        skipped: number;
+        status: string;
+        message: string;
+        next_step?: string;
+      };
+    },
+
+    onSuccess: (data, variables) => {
+      // Invalidate queries to refresh UI
+      queryClient.invalidateQueries({ queryKey: ['course-lecture-slides', variables.instructorCourseId] });
+      queryClient.invalidateQueries({ queryKey: ['course-slide-status', variables.instructorCourseId] });
+      queryClient.invalidateQueries({ queryKey: ['module-slide-status', variables.moduleId] });
+      queryClient.invalidateQueries({ queryKey: ['modules', variables.instructorCourseId] });
+
+      toast({
+        title: '🔬 Module Research Started',
+        description: `Processing ${data.total} slides for this module. This may take a few minutes.`,
+      });
+    },
+
+    onError: (error: Error) => {
+      console.error('[Batch] Module submit failed:', error);
+      toast({
+        title: 'Module Generation Failed',
+        description: error.message,
+        variant: 'destructive',
+      });
+    },
+  });
+}
+
+// ============================================================================
+// useModuleSlideStatus
+// ============================================================================
+//
+// Get slide generation status for a SPECIFIC MODULE.
+// Shows module-level counts, active batches, and audio status.
+//
+// USAGE:
+//   const { data } = useModuleSlideStatus(moduleId);
+//   // data.ready, data.generating, data.progress_percent, etc.
+//
+
+export function useModuleSlideStatus(moduleId?: string) {
+  return useQuery({
+    queryKey: ['module-slide-status', moduleId],
+
+    queryFn: async (): Promise<ModuleSlideStatusResponse | null> => {
+      if (!moduleId) {
+        return null;
+      }
+
+      const { data, error } = await supabase.functions.invoke('poll-batch-status', {
+        body: { module_id: moduleId },
+      });
+
+      if (error) throw error;
+      return data;
+    },
+
+    enabled: !!moduleId,
+
+    // Poll every 30 seconds if there's an active batch
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      const hasWorkInFlight = !!data?.active_batch || (data?.in_progress ?? 0) > 0;
+      if (hasWorkInFlight) {
+        return 30000;
+      }
+      return false;
+    },
+
+    staleTime: 5000,
+  });
+}
+
+// ============================================================================
+// useRetryFailedModuleSlides
+// ============================================================================
+//
+// Retry failed slides for a specific module.
+//
+
+export function useRetryFailedModuleSlides() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async ({
+      instructorCourseId,
+      moduleId,
+    }: {
+      instructorCourseId: string;
+      moduleId: string;
+    }) => {
+      // Get all learning objectives for this module
+      const { data: learningObjectives, error: loError } = await supabase
+        .from('learning_objectives')
+        .select('id')
+        .eq('module_id', moduleId);
+
+      if (loError) throw loError;
+
+      const loIds = learningObjectives?.map(lo => lo.id) || [];
+
+      // Get all teaching units for these learning objectives
+      const { data: teachingUnits, error: tuError } = await supabase
+        .from('teaching_units')
+        .select('id')
+        .in('learning_objective_id', loIds);
+
+      if (tuError) throw tuError;
+
+      const tuIds = teachingUnits?.map(tu => tu.id) || [];
+
+      // Get failed slides for these teaching units
+      const { data: failedSlides, error: fetchError } = await supabase
+        .from('lecture_slides')
+        .select('teaching_unit_id')
+        .in('teaching_unit_id', tuIds)
+        .eq('status', 'failed');
+
+      if (fetchError) throw fetchError;
+
+      if (!failedSlides || failedSlides.length === 0) {
+        return { success: true, message: 'No failed slides to retry', count: 0 };
+      }
+
+      // Submit failed units to new batch with module scope
+      const failedTeachingUnitIds = failedSlides.map(s => s.teaching_unit_id);
+
+      const { data, error } = await supabase.functions.invoke('submit-batch-slides', {
+        body: {
+          instructor_course_id: instructorCourseId,
+          module_id: moduleId,
+          teaching_unit_ids: failedTeachingUnitIds,
+        },
+      });
+
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || 'Retry failed');
+
+      return data;
+    },
+
+    onSuccess: (data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['module-slide-status', variables.moduleId] });
+      queryClient.invalidateQueries({ queryKey: ['course-slide-status', variables.instructorCourseId] });
+
+      toast({
+        title: 'Retrying Failed Module Slides',
+        description: data.message || `Retrying ${data.total ?? data.count ?? 0} failed slides`,
+      });
+    },
+
+    onError: (error: Error) => {
+      toast({
+        title: 'Retry Failed',
+        description: error.message,
+        variant: 'destructive',
+      });
+    },
+  });
+}
+
+// ============================================================================
 // useTriggerImageGeneration
 // ============================================================================
 //
@@ -483,6 +763,76 @@ export function useTriggerImageGeneration() {
       toast({
         title: 'Image Generation Failed',
         description: error.message || 'Failed to start image generation.',
+        variant: 'destructive',
+      });
+    },
+  });
+}
+
+// ============================================================================
+// useGenerateModuleAudio
+// ============================================================================
+//
+// Triggers audio generation for all slides in a module.
+//
+// USAGE:
+//   const generateAudio = useGenerateModuleAudio();
+//   generateAudio.mutate({ moduleId, voice: 'en-US-Neural2-D' });
+//
+
+export function useGenerateModuleAudio() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async ({
+      moduleId,
+      voice = 'en-US-Neural2-D',
+    }: {
+      moduleId: string;
+      voice?: string;
+    }) => {
+      console.log(`[ModuleAudio] Triggering audio generation for module ${moduleId}`);
+
+      const { data, error } = await supabase.functions.invoke('generate-module-audio', {
+        body: { module_id: moduleId, voice },
+      });
+
+      if (error) {
+        console.error('[ModuleAudio] Trigger error:', error);
+        throw error;
+      }
+
+      if (!data?.success) {
+        throw new Error(data?.error || 'Audio generation failed');
+      }
+
+      return data as {
+        success: boolean;
+        module_id: string;
+        status: string;
+        processed: number;
+        failed: number;
+        total: number;
+        totalDurationSeconds: number;
+        message: string;
+      };
+    },
+
+    onSuccess: (data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['module-slide-status', variables.moduleId] });
+
+      toast({
+        title: '🎙️ Module Audio Generated',
+        description: data.message,
+      });
+    },
+
+    onError: (error: Error) => {
+      console.error('[ModuleAudio] Generation failed:', error);
+      toast({
+        title: 'Audio Generation Failed',
+        description: error.message,
         variant: 'destructive',
       });
     },

@@ -19,7 +19,8 @@ const OPENROUTER_API_BASE = 'https://openrouter.ai/api/v1';
 const EXPECTED_MODELS = {
   PROFESSOR_AI: 'google/gemini-2.5-flash',
   PROFESSOR_AI_FALLBACK: 'google/gemini-flash-1.5',
-  IMAGE: 'google/gemini-2.5-flash-image',
+  IMAGE: 'openai/gpt-5-image-mini',
+  IMAGE_FALLBACK: 'google/gemini-2.5-flash-image',
   IMAGE_FREE: 'google/gemini-2.5-flash-image-preview:free',
   REASONING: 'openai/gpt-4.1',
   FAST: 'openai/gpt-4o-mini',
@@ -43,9 +44,14 @@ Deno.test("MODELS.PROFESSOR_AI_FALLBACK is correctly defined", () => {
   assertEquals(EXPECTED_MODELS.PROFESSOR_AI_FALLBACK, 'google/gemini-flash-1.5');
 });
 
-Deno.test("MODELS.IMAGE is correctly defined (Nano Banana)", () => {
-  // Verify the image generation model (Nano Banana)
-  assertEquals(EXPECTED_MODELS.IMAGE, 'google/gemini-2.5-flash-image');
+Deno.test("MODELS.IMAGE is correctly defined (GPT-5 Image Mini)", () => {
+  // Verify the image generation model (GPT-5 Image Mini)
+  assertEquals(EXPECTED_MODELS.IMAGE, 'openai/gpt-5-image-mini');
+});
+
+Deno.test("MODELS.IMAGE_FALLBACK is correctly defined (Gemini)", () => {
+  // Verify the fallback image model
+  assertEquals(EXPECTED_MODELS.IMAGE_FALLBACK, 'google/gemini-2.5-flash-image');
 });
 
 Deno.test("MODELS.IMAGE_FREE is correctly defined", () => {
@@ -85,7 +91,7 @@ Deno.test("Image generation request format is correct", () => {
     messages: [{ role: 'user', content: prompt }],
   };
 
-  assertEquals(requestBody.model, 'google/gemini-2.5-flash-image');
+  assertEquals(requestBody.model, 'openai/gpt-5-image-mini');
   assertEquals(requestBody.messages.length, 1);
   assertEquals(requestBody.messages[0].role, 'user');
 });
@@ -303,7 +309,7 @@ Deno.test({
 });
 
 Deno.test({
-  name: "MODELS.IMAGE model is available on OpenRouter (Nano Banana)",
+  name: "MODELS.IMAGE model is available on OpenRouter (GPT-5 Image Mini)",
   ignore: !OPENROUTER_API_KEY,
   async fn() {
     const response = await fetch(`${OPENROUTER_API_BASE}/models`, {
@@ -315,7 +321,7 @@ Deno.test({
     const data = await response.json();
     const model = data.data.find((m: { id: string }) => m.id === EXPECTED_MODELS.IMAGE);
 
-    assertExists(model, `Model ${EXPECTED_MODELS.IMAGE} (Nano Banana) should be available on OpenRouter`);
+    assertExists(model, `Model ${EXPECTED_MODELS.IMAGE} (GPT-5 Image Mini) should be available on OpenRouter`);
   }
 });
 
@@ -407,12 +413,12 @@ Deno.test("Routing architecture: Images use OpenRouter", () => {
     operation: 'Image Generation',
     provider: 'openrouter',
     model: EXPECTED_MODELS.IMAGE,
-    fallback: null, // No fallback - explicit errors
+    fallback: EXPECTED_MODELS.IMAGE_FALLBACK,
   };
 
   assertEquals(imageRouting.provider, 'openrouter');
-  assertEquals(imageRouting.model, 'google/gemini-2.5-flash-image');
-  assertEquals(imageRouting.fallback, null);
+  assertEquals(imageRouting.model, 'openai/gpt-5-image-mini');
+  assertEquals(imageRouting.fallback, 'google/gemini-2.5-flash-image');
 });
 
 Deno.test("Routing architecture: Batch supports toggle", () => {
@@ -431,15 +437,16 @@ Deno.test("Routing architecture: Batch supports toggle", () => {
 
 console.log(`
 ╔════════════════════════════════════════════════════════════════════╗
-║           OpenRouter AI Routing Tests (Updated 2026-01-22)         ║
+║           OpenRouter AI Routing Tests (Updated 2026-01-24)         ║
 ╠════════════════════════════════════════════════════════════════════╣
 ║  Model Constants:                                                  ║
 ║    - PROFESSOR_AI: google/gemini-2.5-flash                         ║
-║    - IMAGE: google/gemini-2.5-flash-image (Nano Banana)            ║
+║    - IMAGE: openai/gpt-5-image-mini (primary)                      ║
+║    - IMAGE_FALLBACK: google/gemini-2.5-flash-image                 ║
 ║                                                                    ║
 ║  Routing:                                                          ║
 ║    - Text generation → OpenRouter                                  ║
-║    - Image generation → OpenRouter (no fallback, explicit errors)  ║
+║    - Image generation → OpenRouter (GPT-5 Mini → Gemini fallback)  ║
 ║    - Batch → OpenRouter (default) or Vertex (BATCH_PROVIDER=vertex)║
 ║                                                                    ║
 ║  Integration tests require OPENROUTER_API_KEY env var              ║

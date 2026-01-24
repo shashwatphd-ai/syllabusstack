@@ -59,7 +59,15 @@ const BATCH_MODEL = MODEL_CONFIG.GEMINI_PRO;
 const PROFESSOR_SYSTEM_PROMPT = `You are an expert university professor creating comprehensive, self-contained lecture slides. You have decades of teaching experience, deep subject matter expertise, and mastery of evidence-based pedagogy.
 
 YOUR MISSION:
-Create a complete slide deck that enables DEEP LEARNING. Every slide must provide substantive, textbook-quality content that students can study independently. NO superficial bullet points or vague phrases—only thorough, academically rigorous explanations.
+Create EXACTLY 6 slides for this teaching unit that enable DEEP LEARNING. Every slide must provide substantive, textbook-quality content that students can study independently. NO superficial bullet points or vague phrases—only thorough, academically rigorous explanations.
+
+CRITICAL CONSTRAINT: You MUST generate EXACTLY 6 slides per teaching unit. This is a fixed structure:
+1. Title/Hook slide - Introduce the topic and why it matters
+2. Concept Definition slide - Define the core concept with formal and simple explanations
+3. Deep Explanation slide - Explain the underlying reasoning, cause-effect, context
+4. Example/Application slide - Real-world case study with specific data
+5. Misconception/Practice slide - Address common wrong beliefs OR guided practice
+6. Summary/Preview slide - Consolidate learning and preview what's next
 
 CORE TEACHING PHILOSOPHY:
 - Write as if this is the student's PRIMARY learning resource (not supplementary)
@@ -417,12 +425,19 @@ CITATION RULES (CRITICAL):
 //
 
 function buildUserPrompt(context: TeachingUnitData, lectureBrief: string): string {
-  const targetSlides = Math.max(5, Math.round(context.target_duration_minutes * 1.5));
+  // Fixed at 6 slides per teaching unit for module-level batch generation
+  const SLIDES_PER_TEACHING_UNIT = 6;
 
   return `${lectureBrief}
 
 === YOUR TASK ===
-Create a comprehensive ${targetSlides}-slide lecture deck for this teaching unit.
+Create EXACTLY ${SLIDES_PER_TEACHING_UNIT} slides for this teaching unit following this MANDATORY structure:
+1. Title/Hook slide - Introduce the topic and capture attention
+2. Concept Definition slide - Formal definition + simple explanation + significance
+3. Deep Explanation slide - The "why" and "how" behind the concept
+4. Example/Application slide - Real-world case with specific data
+5. Misconception OR Practice slide - Address wrong beliefs OR guided exercise
+6. Summary/Preview slide - Key takeaways and connection to next topic
 
 CRITICAL REQUIREMENTS:
 1. Every common_misconception MUST have a dedicated "misconception" slide that:
@@ -597,7 +612,7 @@ OUTPUT (JSON array of slides):
 }
 
 CRITICAL: Every slide MUST have speaker_notes with 200-300 words. Never leave speaker_notes empty or short.
-Generate all ${targetSlides} slides now with RICH, EDUCATIONAL content and LAYOUT HINTS for every key_point.
+Generate EXACTLY ${SLIDES_PER_TEACHING_UNIT} slides following the mandatory structure above with RICH, EDUCATIONAL content and LAYOUT HINTS for every key_point.
 
 IMPORTANT: Return ONLY raw JSON. Do NOT use markdown code blocks or triple backticks.`;
 }
@@ -831,7 +846,8 @@ serve(async (req) => {
     }
 
     // Parse request body
-    const { instructor_course_id, teaching_unit_ids } = await req.json();
+    // module_id is optional - if provided, auto-discover teaching units for that module
+    const { instructor_course_id, module_id, teaching_unit_ids: providedTeachingUnitIds } = await req.json();
 
     if (!instructor_course_id) {
       return new Response(
@@ -840,14 +856,54 @@ serve(async (req) => {
       );
     }
 
+    // Determine scope and teaching_unit_ids
+    let teaching_unit_ids = providedTeachingUnitIds;
+    const scope = module_id ? 'module' : 'course';
+
+    // If module_id is provided but no teaching_unit_ids, auto-discover them
+    if (module_id && (!teaching_unit_ids || teaching_unit_ids.length === 0)) {
+      console.log(`[Batch] Auto-discovering teaching units for module: ${module_id}`);
+
+      // Get all learning objectives for this module
+      const { data: learningObjectives, error: loError } = await supabase
+        .from('learning_objectives')
+        .select('id')
+        .eq('module_id', module_id);
+
+      if (loError || !learningObjectives?.length) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'No learning objectives found for this module' }),
+          { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const loIds = learningObjectives.map(lo => lo.id);
+
+      // Get all teaching units for these learning objectives
+      const { data: discoveredUnits, error: tuError } = await supabase
+        .from('teaching_units')
+        .select('id')
+        .in('learning_objective_id', loIds);
+
+      if (tuError || !discoveredUnits?.length) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'No teaching units found for this module' }),
+          { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      teaching_unit_ids = discoveredUnits.map(u => u.id);
+      console.log(`[Batch] Discovered ${teaching_unit_ids.length} teaching units for module`);
+    }
+
     if (!teaching_unit_ids?.length) {
       return new Response(
-        JSON.stringify({ success: false, error: 'teaching_unit_ids array is required' }),
+        JSON.stringify({ success: false, error: 'teaching_unit_ids array or module_id is required' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    console.log(`[Batch] Starting batch submission for ${teaching_unit_ids.length} teaching units`);
+    console.log(`[Batch] Starting ${scope}-level batch submission for ${teaching_unit_ids.length} teaching units`);
 
     // ========================================================================
     // 2. FETCH TEACHING UNIT DATA (Full context matching v3)
@@ -930,10 +986,10 @@ serve(async (req) => {
       : null;
 
     // ========================================================================
-    // SECURITY: Verify course ownership
+    // SECURITY: Verify course and module ownership
     // ========================================================================
-    // Users can only generate slides for courses they own.
-    // This prevents unauthorized batch generation for other users' courses.
+    // Users can only generate slides for courses/modules they own.
+    // This prevents unauthorized batch generation for other users' content.
     //
     if (userId && course.instructor_id && course.instructor_id !== userId) {
       console.warn(`[Batch] Authorization failed. User ${userId} attempted to generate slides for course ${course.id} owned by ${course.instructor_id}.`);
@@ -941,6 +997,29 @@ serve(async (req) => {
         JSON.stringify({ success: false, error: 'Not authorized to generate slides for this course' }),
         { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
+    }
+
+    // If module_id is provided, verify it belongs to this course
+    if (module_id) {
+      const { data: moduleData, error: moduleError } = await supabase
+        .from('modules')
+        .select('id, instructor_course_id')
+        .eq('id', module_id)
+        .single();
+
+      if (moduleError || !moduleData) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Module not found' }),
+          { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      if (moduleData.instructor_course_id !== instructor_course_id) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Module does not belong to this course' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
     }
 
     console.log(`[Batch] Found ${units.length} teaching units for course: ${course.title}`);
@@ -1002,12 +1081,26 @@ serve(async (req) => {
         id: preliminaryBatchJobId,
         google_batch_id: `pending-${preliminaryBatchJobId}`, // Will be updated when Vertex job is created
         instructor_course_id,
+        module_id: module_id || null, // Optional: for module-level batch
+        scope, // 'course' or 'module'
         job_type: 'slides',
         total_requests: unitsToProcess.length,
         status: 'preparing', // New status for research phase
         request_mapping: {},
         created_by: userId,
       });
+
+    // Update module generation_status if this is a module-level batch
+    if (module_id) {
+      await supabase
+        .from('modules')
+        .update({
+          generation_status: 'preparing',
+          last_batch_job_id: preliminaryBatchJobId,
+          generation_version: 2, // v2 = module-level batch generation
+        })
+        .eq('id', module_id);
+    }
 
     if (prelimJobError) {
       console.error('[Batch] Error creating preliminary batch job:', prelimJobError);
@@ -1057,6 +1150,8 @@ serve(async (req) => {
         success: true,
         batch_job_id: preliminaryBatchJobId,
         google_batch_id: null, // Will be set by process-batch-research
+        scope, // 'course' or 'module'
+        module_id: module_id || null,
         total: unitsToProcess.length,
         skipped: units.length - unitsToProcess.length,
         status: 'preparing',

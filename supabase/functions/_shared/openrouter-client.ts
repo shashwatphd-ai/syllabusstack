@@ -54,11 +54,12 @@ export const MODELS = {
   PROFESSOR_AI_FALLBACK: 'google/gemini-flash-1.5',  // Fallback: Stable 1.5 Flash if 2.5 fails
 
   // =========================================================================
-  // IMAGE GENERATION - OpenRouter Gemini 2.5 Flash Image ("Nano Banana")
+  // IMAGE GENERATION - OpenRouter GPT-5 Image Mini
   // Used by: unified-ai-client.ts generateImage()
-  // Cost: ~$0.039 per image (1290 output tokens)
+  // Switched from Gemini 2.5 Flash Image to GPT-5 Image Mini for better quality
   // =========================================================================
-  IMAGE: 'google/gemini-2.5-flash-image',                    // GA version - production
+  IMAGE: 'openai/gpt-5-image-mini',                          // Primary: GPT-5 Image Mini
+  IMAGE_FALLBACK: 'google/gemini-2.5-flash-image',           // Fallback: Gemini 2.5 Flash Image
   IMAGE_FREE: 'google/gemini-2.5-flash-image-preview:free',  // Free tier - testing/dev
 
   // =========================================================================
@@ -543,7 +544,7 @@ export function shouldUseOpenRouter(): boolean {
 // IMAGE GENERATION - VIA UNIFIED-AI-CLIENT
 // ============================================================================
 // Image generation is handled by unified-ai-client.ts using:
-//   - Model: google/gemini-2.5-flash-image (MODELS.IMAGE)
+//   - Model: openai/gpt-5-image-mini (MODELS.IMAGE)
+//   - Fallback: google/gemini-2.5-flash-image (MODELS.IMAGE_FALLBACK)
 //   - Provider: OpenRouter only (no Google Direct fallback)
-//   - Cost: ~$0.039 per image
 // See unified-ai-client.ts generateImage() for implementation.
