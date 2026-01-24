@@ -626,7 +626,7 @@ async function processBatchViaOpenRouter(
           prompt: userPrompt,
           systemPrompt: PROFESSOR_SYSTEM_PROMPT,
           model: MODELS.PROFESSOR_AI,               // 'google/gemini-2.5-flash'
-          fallbacks: [MODELS.PROFESSOR_AI_FALLBACK], // 'google/gemini-2.0-flash-001'
+          fallbacks: [MODELS.PROFESSOR_AI_FALLBACK], // 'google/gemini-flash-1.5'
           temperature: 0.7,
           maxTokens: 16000,
           logPrefix: `[Batch-OR:${i + 1}]`,

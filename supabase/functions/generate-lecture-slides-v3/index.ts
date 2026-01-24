@@ -182,11 +182,11 @@ interface TeachingUnitContext {
 //
 // IMPORTS:
 //   - generateText, MODELS from '../_shared/unified-ai-client.ts'
-//   - callGoogleAIWithGrounding (below) for research agent only
+//   - runResearchAgent (below) for research with Google Search grounding
 //
 // MODEL CONSTANTS (from openrouter-client.ts):
 //   - MODELS.PROFESSOR_AI = 'google/gemini-2.5-flash'
-//   - MODELS.PROFESSOR_AI_FALLBACK = 'google/gemini-2.0-flash-001'
+//   - MODELS.PROFESSOR_AI_FALLBACK = 'google/gemini-flash-1.5'
 //   - MODELS.IMAGE = 'google/gemini-2.5-flash-image'
 //
 
@@ -206,64 +206,9 @@ const MODEL_MAP: Record<string, string> = {
   'openai/gpt-5-nano': 'gemini-2.5-flash-lite',
 };
 
-// GOOGLE DIRECT: This function is used ONLY for Research Agent which requires
-// Google Search Grounding (tools: [{ googleSearch: {} }]). This feature is not
-// available via OpenRouter. Professor AI uses OpenRouter via generateText().
-async function callGoogleAIWithGrounding(
-  model: string,
-  systemPrompt: string,
-  userPrompt: string,
-  temperature: number = 0.7
-): Promise<string> {
-  const apiKey = Deno.env.get('GOOGLE_CLOUD_API_KEY');
-  if (!apiKey) throw new Error('GOOGLE_CLOUD_API_KEY not configured');
-
-  const googleModel = MODEL_MAP[model] || model;
-  console.log(`[Research Agent] Calling ${googleModel} with ${userPrompt.length} chars prompt`);
-
-  const url = `${GOOGLE_API_BASE}/models/${googleModel}:generateContent?key=${apiKey}`;
-
-  // 30s timeout to prevent edge function 504 errors
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      contents: [
-        {
-          role: 'user',
-          parts: [{ text: userPrompt }],
-        },
-      ],
-      systemInstruction: {
-        parts: [{ text: systemPrompt }],
-      },
-      generationConfig: {
-        temperature,
-      },
-    }),
-    signal: AbortSignal.timeout(30000),
-  });
-
-  if (!response.ok) {
-    const errText = await response.text();
-    console.error(`[Research Agent] Error from ${googleModel}:`, response.status, errText);
-    if (response.status === 429) {
-      throw new Error('Rate limit exceeded. Please try again in a moment.');
-    }
-    throw new Error(`AI call failed: ${response.status}`);
-  }
-
-  const data = await response.json();
-  const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
-  if (!content) throw new Error('No content in AI response');
-
-  console.log(`[Research Agent] ${googleModel} returned ${content.length} chars`);
-  return content;
-}
-// generateImageNative removed - now using unified-ai-client.ts generateImage()
+// NOTE: Google Direct API is used for Research Agent (runResearchAgent function)
+// because Google Search Grounding (tools: [{ googleSearch: {} }]) is not available
+// via OpenRouter. Professor AI uses OpenRouter via generateText().
 
 function parseJsonFromAI(content: string): any {
   // Extract JSON from markdown code blocks if present
@@ -1127,7 +1072,7 @@ Generate all ${targetSlides} slides now with RICH, EDUCATIONAL content and LAYOU
   //
   // ROUTING (Updated 2026-01-22):
   //   Primary: MODELS.PROFESSOR_AI = 'google/gemini-2.5-flash' (fast, cost-effective)
-  //   Fallback: MODELS.PROFESSOR_AI_FALLBACK = 'google/gemini-2.0-flash-001' (even faster)
+  //   Fallback: MODELS.PROFESSOR_AI_FALLBACK = 'google/gemini-flash-1.5' (even faster)
   //
   const aiResult = await generateText({
     prompt: userPrompt,
@@ -1136,7 +1081,7 @@ Generate all ${targetSlides} slides now with RICH, EDUCATIONAL content and LAYOU
     temperature: 0.7,
     maxTokens: 16000,
     // json: true, // DO NOT USE: prompt expects markdown blocks, parseJsonFromAI handles this
-    fallbacks: [MODELS.PROFESSOR_AI_FALLBACK], // 'google/gemini-2.0-flash-001'
+    fallbacks: [MODELS.PROFESSOR_AI_FALLBACK], // 'google/gemini-flash-1.5'
     logPrefix: '[Professor AI]'
   });
   const result = aiResult.content;

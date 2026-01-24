@@ -18,7 +18,7 @@ const OPENROUTER_API_BASE = 'https://openrouter.ai/api/v1';
 // Expected model IDs from openrouter-client.ts MODELS constant
 const EXPECTED_MODELS = {
   PROFESSOR_AI: 'google/gemini-2.5-flash',
-  PROFESSOR_AI_FALLBACK: 'google/gemini-2.0-flash-001',
+  PROFESSOR_AI_FALLBACK: 'google/gemini-flash-1.5',
   IMAGE: 'google/gemini-2.5-flash-image',
   IMAGE_FREE: 'google/gemini-2.5-flash-image-preview:free',
   REASONING: 'openai/gpt-4.1',
@@ -40,7 +40,7 @@ Deno.test("MODELS.PROFESSOR_AI is correctly defined", () => {
 
 Deno.test("MODELS.PROFESSOR_AI_FALLBACK is correctly defined", () => {
   // Verify the fallback model
-  assertEquals(EXPECTED_MODELS.PROFESSOR_AI_FALLBACK, 'google/gemini-2.0-flash-001');
+  assertEquals(EXPECTED_MODELS.PROFESSOR_AI_FALLBACK, 'google/gemini-flash-1.5');
 });
 
 Deno.test("MODELS.IMAGE is correctly defined (Nano Banana)", () => {
@@ -101,7 +101,7 @@ Deno.test("Request with fallbacks is correctly structured", () => {
   assertEquals(requestBody.route, 'fallback');
   assertEquals(requestBody.models.length, 2);
   assertEquals(requestBody.models[0], 'google/gemini-2.5-flash');
-  assertEquals(requestBody.models[1], 'google/gemini-2.0-flash-001');
+  assertEquals(requestBody.models[1], 'google/gemini-flash-1.5');
 });
 
 Deno.test("Required headers are present for OpenRouter", () => {
