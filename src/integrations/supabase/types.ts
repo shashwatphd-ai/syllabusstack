@@ -1516,6 +1516,186 @@ export type Database = {
         }
         Relationships: []
       }
+      employer_accounts: {
+        Row: {
+          company_domain: string | null
+          company_name: string
+          created_at: string | null
+          id: string
+          is_active: boolean | null
+          monthly_verification_limit: number | null
+          plan: string | null
+          primary_contact_email: string | null
+          primary_contact_user_id: string | null
+          stripe_customer_id: string | null
+          updated_at: string | null
+          verifications_reset_at: string | null
+          verifications_this_month: number | null
+        }
+        Insert: {
+          company_domain?: string | null
+          company_name: string
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          monthly_verification_limit?: number | null
+          plan?: string | null
+          primary_contact_email?: string | null
+          primary_contact_user_id?: string | null
+          stripe_customer_id?: string | null
+          updated_at?: string | null
+          verifications_reset_at?: string | null
+          verifications_this_month?: number | null
+        }
+        Update: {
+          company_domain?: string | null
+          company_name?: string
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          monthly_verification_limit?: number | null
+          plan?: string | null
+          primary_contact_email?: string | null
+          primary_contact_user_id?: string | null
+          stripe_customer_id?: string | null
+          updated_at?: string | null
+          verifications_reset_at?: string | null
+          verifications_this_month?: number | null
+        }
+        Relationships: []
+      }
+      employer_api_keys: {
+        Row: {
+          created_at: string | null
+          employer_account_id: string
+          id: string
+          is_active: boolean | null
+          key_hash: string
+          key_prefix: string | null
+          last_used_at: string | null
+          name: string | null
+          permissions: string[] | null
+          request_count: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          employer_account_id: string
+          id?: string
+          is_active?: boolean | null
+          key_hash: string
+          key_prefix?: string | null
+          last_used_at?: string | null
+          name?: string | null
+          permissions?: string[] | null
+          request_count?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          employer_account_id?: string
+          id?: string
+          is_active?: boolean | null
+          key_hash?: string
+          key_prefix?: string | null
+          last_used_at?: string | null
+          name?: string | null
+          permissions?: string[] | null
+          request_count?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "employer_api_keys_employer_account_id_fkey"
+            columns: ["employer_account_id"]
+            isOneToOne: false
+            referencedRelation: "employer_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      employer_api_requests: {
+        Row: {
+          api_key_id: string
+          created_at: string | null
+          endpoint: string | null
+          id: string
+          request_ip: unknown
+          request_method: string | null
+          response_status: number | null
+          response_time_ms: number | null
+        }
+        Insert: {
+          api_key_id: string
+          created_at?: string | null
+          endpoint?: string | null
+          id?: string
+          request_ip?: unknown
+          request_method?: string | null
+          response_status?: number | null
+          response_time_ms?: number | null
+        }
+        Update: {
+          api_key_id?: string
+          created_at?: string | null
+          endpoint?: string | null
+          id?: string
+          request_ip?: unknown
+          request_method?: string | null
+          response_status?: number | null
+          response_time_ms?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "employer_api_requests_api_key_id_fkey"
+            columns: ["api_key_id"]
+            isOneToOne: false
+            referencedRelation: "employer_api_keys"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      employer_webhooks: {
+        Row: {
+          created_at: string | null
+          employer_account_id: string
+          events: string[] | null
+          failure_count: number | null
+          id: string
+          is_active: boolean | null
+          last_triggered_at: string | null
+          secret: string | null
+          url: string
+        }
+        Insert: {
+          created_at?: string | null
+          employer_account_id: string
+          events?: string[] | null
+          failure_count?: number | null
+          id?: string
+          is_active?: boolean | null
+          last_triggered_at?: string | null
+          secret?: string | null
+          url: string
+        }
+        Update: {
+          created_at?: string | null
+          employer_account_id?: string
+          events?: string[] | null
+          failure_count?: number | null
+          id?: string
+          is_active?: boolean | null
+          last_triggered_at?: string | null
+          secret?: string | null
+          url?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "employer_webhooks_employer_account_id_fkey"
+            columns: ["employer_account_id"]
+            isOneToOne: false
+            referencedRelation: "employer_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       gap_analyses: {
         Row: {
           ai_cost_usd: number | null
@@ -1648,6 +1828,80 @@ export type Database = {
             columns: ["career_match_id"]
             isOneToOne: false
             referencedRelation: "career_matches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      generation_triggers: {
+        Row: {
+          batch_job_id: string | null
+          created_at: string | null
+          enrollment_count: number | null
+          enrollment_threshold: number | null
+          id: string
+          instructor_course_id: string
+          is_triggered: boolean | null
+          learning_objective_id: string | null
+          teaching_unit_id: string | null
+          trigger_type: string
+          triggered_at: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          batch_job_id?: string | null
+          created_at?: string | null
+          enrollment_count?: number | null
+          enrollment_threshold?: number | null
+          id?: string
+          instructor_course_id: string
+          is_triggered?: boolean | null
+          learning_objective_id?: string | null
+          teaching_unit_id?: string | null
+          trigger_type?: string
+          triggered_at?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          batch_job_id?: string | null
+          created_at?: string | null
+          enrollment_count?: number | null
+          enrollment_threshold?: number | null
+          id?: string
+          instructor_course_id?: string
+          is_triggered?: boolean | null
+          learning_objective_id?: string | null
+          teaching_unit_id?: string | null
+          trigger_type?: string
+          triggered_at?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "generation_triggers_batch_job_id_fkey"
+            columns: ["batch_job_id"]
+            isOneToOne: false
+            referencedRelation: "batch_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "generation_triggers_instructor_course_id_fkey"
+            columns: ["instructor_course_id"]
+            isOneToOne: false
+            referencedRelation: "instructor_courses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "generation_triggers_learning_objective_id_fkey"
+            columns: ["learning_objective_id"]
+            isOneToOne: false
+            referencedRelation: "learning_objectives"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "generation_triggers_teaching_unit_id_fkey"
+            columns: ["teaching_unit_id"]
+            isOneToOne: false
+            referencedRelation: "teaching_units"
             referencedColumns: ["id"]
           },
         ]
@@ -2470,6 +2724,148 @@ export type Database = {
         }
         Relationships: []
       }
+      organization_invitations: {
+        Row: {
+          accepted_at: string | null
+          created_at: string | null
+          email: string
+          expires_at: string | null
+          id: string
+          invited_by: string | null
+          organization_id: string
+          role: string | null
+          status: string | null
+          token: string
+        }
+        Insert: {
+          accepted_at?: string | null
+          created_at?: string | null
+          email: string
+          expires_at?: string | null
+          id?: string
+          invited_by?: string | null
+          organization_id: string
+          role?: string | null
+          status?: string | null
+          token?: string
+        }
+        Update: {
+          accepted_at?: string | null
+          created_at?: string | null
+          email?: string
+          expires_at?: string | null
+          id?: string
+          invited_by?: string | null
+          organization_id?: string
+          role?: string | null
+          status?: string | null
+          token?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "organization_invitations_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      organization_members: {
+        Row: {
+          department: string | null
+          id: string
+          is_active: boolean | null
+          joined_at: string | null
+          organization_id: string
+          role: string | null
+          user_id: string
+        }
+        Insert: {
+          department?: string | null
+          id?: string
+          is_active?: boolean | null
+          joined_at?: string | null
+          organization_id: string
+          role?: string | null
+          user_id: string
+        }
+        Update: {
+          department?: string | null
+          id?: string
+          is_active?: boolean | null
+          joined_at?: string | null
+          organization_id?: string
+          role?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "organization_members_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      organizations: {
+        Row: {
+          created_at: string | null
+          custom_branding: Json | null
+          id: string
+          is_active: boolean | null
+          license_end_date: string | null
+          license_start_date: string | null
+          license_tier: string | null
+          name: string
+          seat_limit: number | null
+          seats_used: number | null
+          slug: string | null
+          sso_config: Json | null
+          sso_enabled: boolean | null
+          stripe_customer_id: string | null
+          type: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          custom_branding?: Json | null
+          id?: string
+          is_active?: boolean | null
+          license_end_date?: string | null
+          license_start_date?: string | null
+          license_tier?: string | null
+          name: string
+          seat_limit?: number | null
+          seats_used?: number | null
+          slug?: string | null
+          sso_config?: Json | null
+          sso_enabled?: boolean | null
+          stripe_customer_id?: string | null
+          type?: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          custom_branding?: Json | null
+          id?: string
+          is_active?: boolean | null
+          license_end_date?: string | null
+          license_start_date?: string | null
+          license_tier?: string | null
+          name?: string
+          seat_limit?: number | null
+          seats_used?: number | null
+          slug?: string | null
+          sso_config?: Json | null
+          sso_enabled?: boolean | null
+          stripe_customer_id?: string | null
+          type?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       proctored_sessions: {
         Row: {
           assessment_session_id: string
@@ -2549,6 +2945,7 @@ export type Database = {
           major: string | null
           onboarding_completed: boolean | null
           onboarding_step: number | null
+          organization_id: string | null
           preferences: Json | null
           stripe_customer_id: string | null
           stripe_subscription_id: string | null
@@ -2580,6 +2977,7 @@ export type Database = {
           major?: string | null
           onboarding_completed?: boolean | null
           onboarding_step?: number | null
+          organization_id?: string | null
           preferences?: Json | null
           stripe_customer_id?: string | null
           stripe_subscription_id?: string | null
@@ -2611,6 +3009,7 @@ export type Database = {
           major?: string | null
           onboarding_completed?: boolean | null
           onboarding_step?: number | null
+          organization_id?: string | null
           preferences?: Json | null
           stripe_customer_id?: string | null
           stripe_subscription_id?: string | null
@@ -2636,6 +3035,13 @@ export type Database = {
             columns: ["instructor_verification_id"]
             isOneToOne: false
             referencedRelation: "instructor_verifications"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profiles_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
             referencedColumns: ["id"]
           },
         ]
@@ -3486,6 +3892,10 @@ export type Database = {
       }
     }
     Functions: {
+      accept_organization_invitation: {
+        Args: { invitation_token: string }
+        Returns: Json
+      }
       add_verified_skill_from_course: {
         Args: {
           p_course_id: string
@@ -3530,6 +3940,10 @@ export type Database = {
         Returns: {
           newly_granted: string[]
         }[]
+      }
+      check_generation_trigger: {
+        Args: { p_instructor_course_id: string }
+        Returns: number
       }
       check_tier_limit: {
         Args: { p_limit_type: string; p_user_id: string }
@@ -3578,6 +3992,13 @@ export type Database = {
         }[]
       }
       generate_certificate_number: { Args: never; Returns: string }
+      generate_employer_api_key: {
+        Args: { p_employer_account_id: string; p_name?: string }
+        Returns: {
+          api_key: string
+          key_id: string
+        }[]
+      }
       generate_share_token: { Args: never; Returns: string }
       get_dynamic_synonyms: {
         Args: { p_course_id?: string; p_term: string }
@@ -3649,6 +4070,10 @@ export type Database = {
         Returns: undefined
       }
       increment_cache_hit: { Args: { p_cache_id: string }; Returns: undefined }
+      initialize_generation_triggers: {
+        Args: { p_instructor_course_id: string }
+        Returns: number
+      }
       is_edu_domain: { Args: { email_address: string }; Returns: boolean }
       keyword_similarity: {
         Args: { arr1: string[]; arr2: string[] }

@@ -30,38 +30,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const fetchProfile = async (userId: string) => {
     // Select specific fields, excluding sensitive Stripe data
     const { data, error } = await supabase
-      .from('profiles')
-      .select(`
-        id,
-        user_id,
-        full_name,
-        email,
-        university,
-        major,
-        student_level,
-        graduation_year,
-        avatar_url,
-        onboarding_completed,
-        onboarding_step,
-        last_active_at,
-        preferences,
-        email_preferences,
-        subscription_tier,
-        subscription_status,
-        subscription_started_at,
-        subscription_ends_at,
-        ai_calls_this_month,
-        ai_calls_reset_at,
-        is_instructor_verified,
-        instructor_verification_id,
-        instructor_trust_score,
-        is_identity_verified,
-        identity_verification_id,
-        created_at,
-        updated_at
-      `)
-      .eq('user_id', userId)
-      .single();
+    .from('profiles')
+    .select(`
+      id,
+      user_id,
+      full_name,
+      email,
+      university,
+      major,
+      student_level,
+      graduation_year,
+      avatar_url,
+      onboarding_completed,
+      onboarding_step,
+      last_active_at,
+      preferences,
+      email_preferences,
+      subscription_tier,
+      subscription_status,
+      subscription_started_at,
+      subscription_ends_at,
+      ai_calls_this_month,
+      ai_calls_reset_at,
+      is_instructor_verified,
+      instructor_verification_id,
+      instructor_trust_score,
+      is_identity_verified,
+      identity_verification_id,
+      organization_id,
+      created_at,
+      updated_at
+    `)
+    .eq('user_id', userId)
+    .single();
     
     if (error) {
       console.error('Error fetching profile:', error);

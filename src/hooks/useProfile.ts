@@ -43,6 +43,7 @@ async function fetchProfile(): Promise<Profile | null> {
       instructor_trust_score,
       is_identity_verified,
       identity_verification_id,
+      organization_id,
       created_at,
       updated_at
     `)
