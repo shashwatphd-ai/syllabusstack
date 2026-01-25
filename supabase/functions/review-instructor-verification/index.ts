@@ -34,13 +34,13 @@ serve(async (req) => {
       throw new Error("Unauthorized");
     }
 
-    // Check if reviewer is an admin/instructor
+    // Check if reviewer is an admin
     const { data: reviewerRoles } = await supabaseAdmin
       .from("user_roles")
       .select("role")
       .eq("user_id", user.id);
 
-    const isAdmin = reviewerRoles?.some(r => r.role === 'instructor');
+    const isAdmin = reviewerRoles?.some(r => r.role === 'admin');
     if (!isAdmin) {
       throw new Error("Unauthorized: Admin access required");
     }

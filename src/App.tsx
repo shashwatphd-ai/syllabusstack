@@ -5,6 +5,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { AuthGuard, GuestGuard } from "@/components/auth/AuthGuard";
+import { AdminGuard } from "@/components/auth/AdminGuard";
 import { queryClient } from "@/lib/query-client";
 import { AchievementToastProvider } from "@/components/achievements/AchievementUnlockToast";
 import Index from "./pages/Index";
@@ -119,13 +120,13 @@ const App = () => (
             <Route path="/instructor/quick-setup" element={<AuthGuard><QuickCourseSetupPage /></AuthGuard>} />
             <Route path="/instructor/verification" element={<AuthGuard><InstructorVerificationPage /></AuthGuard>} />
 
-            {/* Admin routes (University tier) */}
-            <Route path="/admin" element={<AuthGuard><AdminDashboard /></AuthGuard>} />
-            <Route path="/admin/users" element={<AuthGuard><UserManagement /></AuthGuard>} />
-            <Route path="/admin/outcomes" element={<AuthGuard><OutcomesReport /></AuthGuard>} />
-            <Route path="/admin/courses" element={<AuthGuard><CourseManagement /></AuthGuard>} />
-            <Route path="/admin/branding" element={<AuthGuard><BrandingSettings /></AuthGuard>} />
-            <Route path="/admin/instructor-review" element={<AuthGuard><InstructorReviewQueue /></AuthGuard>} />
+            {/* Admin routes (requires admin role) */}
+            <Route path="/admin" element={<AdminGuard><AdminDashboard /></AdminGuard>} />
+            <Route path="/admin/users" element={<AdminGuard><UserManagement /></AdminGuard>} />
+            <Route path="/admin/outcomes" element={<AdminGuard><OutcomesReport /></AdminGuard>} />
+            <Route path="/admin/courses" element={<AdminGuard><CourseManagement /></AdminGuard>} />
+            <Route path="/admin/branding" element={<AdminGuard><BrandingSettings /></AdminGuard>} />
+            <Route path="/admin/instructor-review" element={<AdminGuard><InstructorReviewQueue /></AdminGuard>} />
             <Route path="/organization" element={<AuthGuard><OrganizationDashboard /></AuthGuard>} />
             <Route path="/employer" element={<AuthGuard><EmployerDashboard /></AuthGuard>} />
 
