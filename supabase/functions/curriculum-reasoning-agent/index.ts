@@ -307,7 +307,7 @@ serve(async (req) => {
       prerequisites: unit.prerequisites,
       enables: unit.enables,
       target_video_type: unit.target_video_type,
-      target_duration_minutes: unit.target_duration_minutes || 10,
+      target_duration_minutes: Math.round(unit.target_duration_minutes || 10),
       search_queries: unit.search_queries,
       required_concepts: unit.required_concepts,
       avoid_terms: unit.avoid_terms,
