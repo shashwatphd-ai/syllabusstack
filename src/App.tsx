@@ -41,12 +41,14 @@ import UserManagement from "./pages/admin/UserManagement";
 import OutcomesReport from "./pages/admin/OutcomesReport";
 import CourseManagement from "./pages/admin/CourseManagement";
 import BrandingSettings from "./pages/admin/BrandingSettings";
+import OrganizationDashboard from "./pages/admin/OrganizationDashboard";
 // Unified pages (new architecture)
 import LearnPage from "./pages/Learn";
 import CareerPathPage from "./pages/CareerPath";
 // Certificate pages
 import CertificateViewPage from "./pages/certificate/CertificateView";
 import PublicCertificateVerifyPage from "./pages/verify/PublicCertificateVerify";
+import EmployerDashboard from "./pages/employer/EmployerDashboard";
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -122,6 +124,8 @@ const App = () => (
             <Route path="/admin/outcomes" element={<AuthGuard><OutcomesReport /></AuthGuard>} />
             <Route path="/admin/courses" element={<AuthGuard><CourseManagement /></AuthGuard>} />
             <Route path="/admin/branding" element={<AuthGuard><BrandingSettings /></AuthGuard>} />
+            <Route path="/organization" element={<AuthGuard><OrganizationDashboard /></AuthGuard>} />
+            <Route path="/employer" element={<AuthGuard><EmployerDashboard /></AuthGuard>} />
 
             {/* Catch-all */}
             <Route path="*" element={<NotFound />} />
