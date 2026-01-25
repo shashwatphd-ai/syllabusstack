@@ -8,3 +8,5 @@ export { AddVideoByURL } from './AddVideoByURL';
 export { UnifiedLOCard } from './UnifiedLOCard';
 export { UnifiedModuleCard } from './UnifiedModuleCard';
 export { ContentAssistantChat } from './ContentAssistantChat';
+export { InstructorVerificationFlow } from './InstructorVerificationFlow';
+export { InstructorVerificationBadge } from './InstructorVerificationBadge';

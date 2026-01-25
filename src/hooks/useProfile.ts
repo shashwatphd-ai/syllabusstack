@@ -38,6 +38,11 @@ async function fetchProfile(): Promise<Profile | null> {
       subscription_ends_at,
       ai_calls_this_month,
       ai_calls_reset_at,
+      is_instructor_verified,
+      instructor_verification_id,
+      instructor_trust_score,
+      is_identity_verified,
+      identity_verification_id,
       created_at,
       updated_at
     `)

@@ -1652,6 +1652,72 @@ export type Database = {
           },
         ]
       }
+      identity_verifications: {
+        Row: {
+          completed_at: string | null
+          cost_usd: number | null
+          created_at: string | null
+          document_country: string | null
+          document_type: string | null
+          expires_at: string | null
+          failure_reason: string | null
+          id: string
+          liveness_check_passed: boolean | null
+          provider: string
+          provider_inquiry_id: string | null
+          provider_session_token: string | null
+          selfie_match_score: number | null
+          status: string
+          updated_at: string | null
+          user_id: string
+          verified_date_of_birth: string | null
+          verified_full_name: string | null
+          webhook_received_at: string | null
+        }
+        Insert: {
+          completed_at?: string | null
+          cost_usd?: number | null
+          created_at?: string | null
+          document_country?: string | null
+          document_type?: string | null
+          expires_at?: string | null
+          failure_reason?: string | null
+          id?: string
+          liveness_check_passed?: boolean | null
+          provider?: string
+          provider_inquiry_id?: string | null
+          provider_session_token?: string | null
+          selfie_match_score?: number | null
+          status?: string
+          updated_at?: string | null
+          user_id: string
+          verified_date_of_birth?: string | null
+          verified_full_name?: string | null
+          webhook_received_at?: string | null
+        }
+        Update: {
+          completed_at?: string | null
+          cost_usd?: number | null
+          created_at?: string | null
+          document_country?: string | null
+          document_type?: string | null
+          expires_at?: string | null
+          failure_reason?: string | null
+          id?: string
+          liveness_check_passed?: boolean | null
+          provider?: string
+          provider_inquiry_id?: string | null
+          provider_session_token?: string | null
+          selfie_match_score?: number | null
+          status?: string
+          updated_at?: string | null
+          user_id?: string
+          verified_date_of_birth?: string | null
+          verified_full_name?: string | null
+          webhook_received_at?: string | null
+        }
+        Relationships: []
+      }
       image_generation_queue: {
         Row: {
           attempts: number
@@ -1759,6 +1825,111 @@ export type Database = {
           title?: string
           updated_at?: string | null
           verification_threshold?: number | null
+        }
+        Relationships: []
+      }
+      instructor_invite_codes: {
+        Row: {
+          auto_approve: boolean | null
+          code: string
+          created_at: string | null
+          created_by: string | null
+          current_uses: number | null
+          description: string | null
+          expires_at: string | null
+          id: string
+          is_active: boolean | null
+          max_uses: number | null
+          trust_score_bonus: number | null
+        }
+        Insert: {
+          auto_approve?: boolean | null
+          code: string
+          created_at?: string | null
+          created_by?: string | null
+          current_uses?: number | null
+          description?: string | null
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          max_uses?: number | null
+          trust_score_bonus?: number | null
+        }
+        Update: {
+          auto_approve?: boolean | null
+          code?: string
+          created_at?: string | null
+          created_by?: string | null
+          current_uses?: number | null
+          description?: string | null
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          max_uses?: number | null
+          trust_score_bonus?: number | null
+        }
+        Relationships: []
+      }
+      instructor_verifications: {
+        Row: {
+          created_at: string | null
+          department: string | null
+          document_urls: string[] | null
+          edu_domain_verified: boolean | null
+          email_domain: string | null
+          id: string
+          institution_name: string | null
+          linkedin_url: string | null
+          rejection_reason: string | null
+          reviewed_at: string | null
+          reviewer_id: string | null
+          status: string | null
+          submitted_at: string | null
+          title: string | null
+          trust_score: number | null
+          updated_at: string | null
+          user_id: string
+          verification_method: string
+        }
+        Insert: {
+          created_at?: string | null
+          department?: string | null
+          document_urls?: string[] | null
+          edu_domain_verified?: boolean | null
+          email_domain?: string | null
+          id?: string
+          institution_name?: string | null
+          linkedin_url?: string | null
+          rejection_reason?: string | null
+          reviewed_at?: string | null
+          reviewer_id?: string | null
+          status?: string | null
+          submitted_at?: string | null
+          title?: string | null
+          trust_score?: number | null
+          updated_at?: string | null
+          user_id: string
+          verification_method: string
+        }
+        Update: {
+          created_at?: string | null
+          department?: string | null
+          document_urls?: string[] | null
+          edu_domain_verified?: boolean | null
+          email_domain?: string | null
+          id?: string
+          institution_name?: string | null
+          linkedin_url?: string | null
+          rejection_reason?: string | null
+          reviewed_at?: string | null
+          reviewer_id?: string | null
+          status?: string | null
+          submitted_at?: string | null
+          title?: string | null
+          trust_score?: number | null
+          updated_at?: string | null
+          user_id?: string
+          verification_method?: string
         }
         Relationships: []
       }
@@ -2369,6 +2540,11 @@ export type Database = {
           full_name: string | null
           graduation_year: number | null
           id: string
+          identity_verification_id: string | null
+          instructor_trust_score: number | null
+          instructor_verification_id: string | null
+          is_identity_verified: boolean | null
+          is_instructor_verified: boolean | null
           last_active_at: string | null
           major: string | null
           onboarding_completed: boolean | null
@@ -2395,6 +2571,11 @@ export type Database = {
           full_name?: string | null
           graduation_year?: number | null
           id?: string
+          identity_verification_id?: string | null
+          instructor_trust_score?: number | null
+          instructor_verification_id?: string | null
+          is_identity_verified?: boolean | null
+          is_instructor_verified?: boolean | null
           last_active_at?: string | null
           major?: string | null
           onboarding_completed?: boolean | null
@@ -2421,6 +2602,11 @@ export type Database = {
           full_name?: string | null
           graduation_year?: number | null
           id?: string
+          identity_verification_id?: string | null
+          instructor_trust_score?: number | null
+          instructor_verification_id?: string | null
+          is_identity_verified?: boolean | null
+          is_instructor_verified?: boolean | null
           last_active_at?: string | null
           major?: string | null
           onboarding_completed?: boolean | null
@@ -2437,7 +2623,22 @@ export type Database = {
           updated_at?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "profiles_identity_verification_id_fkey"
+            columns: ["identity_verification_id"]
+            isOneToOne: false
+            referencedRelation: "identity_verifications"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profiles_instructor_verification_id_fkey"
+            columns: ["instructor_verification_id"]
+            isOneToOne: false
+            referencedRelation: "instructor_verifications"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       recommendation_course_links: {
         Row: {
@@ -3448,6 +3649,7 @@ export type Database = {
         Returns: undefined
       }
       increment_cache_hit: { Args: { p_cache_id: string }; Returns: undefined }
+      is_edu_domain: { Args: { email_address: string }; Returns: boolean }
       keyword_similarity: {
         Args: { arr1: string[]; arr2: string[] }
         Returns: number
@@ -3486,6 +3688,10 @@ export type Database = {
       track_api_usage: {
         Args: { p_api_name: string; p_units?: number }
         Returns: number
+      }
+      use_invite_code: {
+        Args: { p_code: string; p_user_id: string }
+        Returns: Json
       }
       validate_micro_check_answer: {
         Args: {
