@@ -26,6 +26,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { useEffect, useRef } from 'react';
 
 // ============================================================================
 // TYPES
@@ -233,6 +234,51 @@ export function useSubmitBatchSlides() {
 //
 
 export function useBatchStatus(batchJobId?: string | null) {
+  const queryClient = useQueryClient();
+  const subscriptionRef = useRef<boolean>(false);
+
+  // Set up Realtime subscription for this specific batch job
+  useEffect(() => {
+    if (!batchJobId || subscriptionRef.current) return;
+
+    const channelName = `batch-job-${batchJobId}`;
+    
+    const existingChannels = supabase.getChannels();
+    const existingChannel = existingChannels.find(ch => ch.topic === `realtime:${channelName}`);
+    if (existingChannel) {
+      return;
+    }
+
+    console.log('[Realtime] Setting up batch job subscription for:', batchJobId);
+    subscriptionRef.current = true;
+
+    const channel = supabase
+      .channel(channelName)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'batch_jobs',
+          filter: `id=eq.${batchJobId}`,
+        },
+        (payload) => {
+          console.log('[Realtime] Batch job update:', payload.new);
+          
+          setTimeout(() => {
+            queryClient.invalidateQueries({ queryKey: ['batch-status', batchJobId] });
+          }, 0);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      console.log('[Realtime] Cleaning up batch job subscription');
+      subscriptionRef.current = false;
+      supabase.removeChannel(channel);
+    };
+  }, [batchJobId, queryClient]);
+
   return useQuery({
     queryKey: ['batch-status', batchJobId],
 
@@ -249,23 +295,19 @@ export function useBatchStatus(batchJobId?: string | null) {
       return data;
     },
 
-    // Only enable if we have a batch job ID
     enabled: !!batchJobId,
 
-    // Poll every 30 seconds (more conservative than old 5s queue polling)
-    // Google recommends conservative polling for Batch API
+    // Poll every 10 seconds for responsive progress updates
+    // Realtime subscription handles instant updates; polling is fallback
     refetchInterval: (query) => {
       const data = query.state.data;
-      // Stop polling if job is complete
       if (data?.is_complete) {
         return false;
       }
-      // Poll every 30 seconds while in progress
-      return 30000;
+      return 10000; // 10 seconds for responsive UX
     },
 
-    // Keep data fresh but not too aggressive
-    staleTime: 10000,
+    staleTime: 3000,
   });
 }
 
@@ -282,6 +324,67 @@ export function useBatchStatus(batchJobId?: string | null) {
 //
 
 export function useCourseSlideStatus(instructorCourseId?: string) {
+  const queryClient = useQueryClient();
+  const subscriptionRef = useRef<boolean>(false);
+
+  // Set up Realtime subscription for batch_jobs updates
+  useEffect(() => {
+    if (!instructorCourseId || subscriptionRef.current) return;
+
+    const channelName = `batch-jobs-${instructorCourseId}`;
+    
+    // Check if channel already exists to prevent duplicates
+    const existingChannels = supabase.getChannels();
+    const existingChannel = existingChannels.find(ch => ch.topic === `realtime:${channelName}`);
+    if (existingChannel) {
+      return;
+    }
+
+    console.log('[Realtime] Setting up batch_jobs subscription for:', instructorCourseId);
+    subscriptionRef.current = true;
+
+    const channel = supabase
+      .channel(channelName)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'batch_jobs',
+          filter: `instructor_course_id=eq.${instructorCourseId}`,
+        },
+        (payload) => {
+          console.log('[Realtime] Batch job change:', payload.eventType, payload.new);
+          
+          // Invalidate queries immediately on any change
+          setTimeout(() => {
+            queryClient.invalidateQueries({ 
+              queryKey: ['course-slide-status', instructorCourseId] 
+            });
+            queryClient.invalidateQueries({ 
+              queryKey: ['course-lecture-slides', instructorCourseId] 
+            });
+            
+            // Also invalidate specific batch status if we have an ID
+            if (payload.new && typeof payload.new === 'object' && 'id' in payload.new) {
+              queryClient.invalidateQueries({ 
+                queryKey: ['batch-status', (payload.new as { id: string }).id] 
+              });
+            }
+          }, 0);
+        }
+      )
+      .subscribe((status) => {
+        console.log('[Realtime] Batch subscription status:', status);
+      });
+
+    return () => {
+      console.log('[Realtime] Cleaning up batch_jobs subscription');
+      subscriptionRef.current = false;
+      supabase.removeChannel(channel);
+    };
+  }, [instructorCourseId, queryClient]);
+
   return useQuery({
     queryKey: ['course-slide-status', instructorCourseId],
 
@@ -310,18 +413,19 @@ export function useCourseSlideStatus(instructorCourseId?: string) {
 
     enabled: !!instructorCourseId,
 
-    // Poll every 30 seconds if there's an active batch OR we still have work in-flight.
-    // This makes the UI resilient when Realtime events are delayed/blocked.
+    // Poll every 10 seconds if there's an active batch OR we still have work in-flight.
+    // Faster polling (10s vs 30s) provides more responsive UI during generation.
+    // Realtime subscription handles instant updates; polling is fallback.
     refetchInterval: (query) => {
       const data = query.state.data;
       const hasWorkInFlight = !!data?.active_batch || (data?.batch_pending ?? 0) > 0 || (data?.generating ?? 0) > 0;
       if (hasWorkInFlight) {
-        return 30000; // Conservative polling - aligns with provider recommendations
+        return 10000; // Poll every 10 seconds for responsive UX
       }
       return false;
     },
 
-    staleTime: 5000,
+    staleTime: 3000,
   });
 }
 
