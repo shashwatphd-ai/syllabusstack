@@ -90,7 +90,7 @@ QUALITY MARKERS FOR TEACHING UNITS:
 OUTPUT FORMAT: Return valid JSON only, no markdown or explanations outside the JSON.`;
 
 function buildUserPrompt(lo: LearningObjective, module: ModuleContext | null, course: CourseContext): string {
-  return `TASK: Decompose this learning objective into 3-8 teachable micro-concepts using backward design.
+  return `TASK: Decompose this learning objective into EXACTLY 5 teachable micro-concepts using backward design.
 
 LEARNING OBJECTIVE:
 "${lo.text}"
@@ -272,10 +272,17 @@ serve(async (req) => {
       throw new Error('AI returned no teaching units');
     }
 
+    // ENFORCE MAX 5 TEACHING UNITS PER LO (Phase 1 constraint)
+    if (result.teaching_units.length > 5) {
+      console.log(`[curriculum-reasoning-agent] Truncating ${result.teaching_units.length} units to max 5`);
+      result.teaching_units = result.teaching_units.slice(0, 5);
+    }
+
     // Ensure valid video types
     const validVideoTypes = ['explainer', 'tutorial', 'case_study', 'worked_example', 'lecture', 'demonstration'];
-    result.teaching_units = result.teaching_units.map(unit => ({
+    result.teaching_units = result.teaching_units.map((unit, index) => ({
       ...unit,
+      sequence_order: index + 1, // Ensure proper ordering after potential truncation
       target_video_type: validVideoTypes.includes(unit.target_video_type) 
         ? unit.target_video_type 
         : 'explainer',
