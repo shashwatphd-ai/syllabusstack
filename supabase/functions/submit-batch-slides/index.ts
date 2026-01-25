@@ -843,7 +843,42 @@ serve(async (req) => {
     console.log(`[Batch] Found ${units.length} teaching units for course: ${course.title}`);
 
     // ========================================================================
-    // 3. CHECK FOR EXISTING SLIDES
+    // 3. CHECK FOR ACTIVE BATCH JOBS (DUPLICATE PREVENTION)
+    // ========================================================================
+    //
+    // CRITICAL: Prevent double processing by checking if an active batch 
+    // already exists for this course. Only one batch can run at a time.
+    //
+
+    const { data: activeBatches } = await supabase
+      .from('batch_jobs')
+      .select('id, status, total_requests, succeeded_count, created_at')
+      .eq('instructor_course_id', instructor_course_id)
+      .in('status', ['preparing', 'researching', 'submitting', 'pending', 'running'])
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (activeBatches && activeBatches.length > 0) {
+      const activeBatch = activeBatches[0];
+      console.log(`[Batch] BLOCKED: Active batch ${activeBatch.id} already exists (status: ${activeBatch.status})`);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: `A batch job is already in progress (${activeBatch.status}). Please wait for it to complete.`,
+          existing_batch: {
+            id: activeBatch.id,
+            status: activeBatch.status,
+            total: activeBatch.total_requests,
+            succeeded: activeBatch.succeeded_count,
+            created_at: activeBatch.created_at,
+          },
+        }),
+        { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // ========================================================================
+    // 4. CHECK FOR EXISTING SLIDES
     // ========================================================================
     //
     // Skip units that already have ready/published slides.
@@ -860,8 +895,9 @@ serve(async (req) => {
     // Filter to only units that need generation
     const unitsToProcess = units.filter(unit => {
       const status = existingMap.get(unit.id);
-      // Skip ready, published, or currently generating
-      if (status === 'ready' || status === 'published' || status === 'generating' || status === 'batch_pending') {
+      // Skip ready, published, or currently in any processing state
+      if (status === 'ready' || status === 'published' || status === 'generating' || 
+          status === 'batch_pending' || status === 'preparing') {
         return false;
       }
       return true;
@@ -882,7 +918,7 @@ serve(async (req) => {
     console.log(`[Batch] Processing ${unitsToProcess.length} units (skipping ${units.length - unitsToProcess.length} existing)`);
 
     // ========================================================================
-    // 4. CREATE PLACEHOLDER RECORDS AND RETURN IMMEDIATELY
+    // 5. CREATE PLACEHOLDER RECORDS AND RETURN IMMEDIATELY
     // ========================================================================
     //
     // CRITICAL: Edge functions have a 150s timeout. Research for 78+ units
