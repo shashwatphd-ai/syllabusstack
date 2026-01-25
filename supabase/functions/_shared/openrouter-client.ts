@@ -54,11 +54,12 @@ export const MODELS = {
   PROFESSOR_AI_FALLBACK: 'google/gemini-flash-1.5',  // Fallback: Stable 1.5 Flash if 2.5 fails
 
   // =========================================================================
-  // IMAGE GENERATION - OpenRouter Gemini 2.5 Flash Image ("Nano Banana")
+  // IMAGE GENERATION - OpenRouter Gemini 3 Pro Image ("Nano Banana")
   // Used by: unified-ai-client.ts generateImage()
-  // Cost: ~$0.039 per image (1290 output tokens)
+  // Requires: modalities: ['image', 'text'] in request body
   // =========================================================================
-  IMAGE: 'google/gemini-2.5-flash-image',                    // GA version - production
+  IMAGE: 'google/gemini-3-pro-image-preview',                // Next-gen image model
+  IMAGE_FALLBACK: 'google/gemini-2.5-flash-image',           // Fallback (GA version)
   IMAGE_FREE: 'google/gemini-2.5-flash-image-preview:free',  // Free tier - testing/dev
 
   // =========================================================================
