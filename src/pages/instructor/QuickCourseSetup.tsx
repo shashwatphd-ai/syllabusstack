@@ -1,6 +1,6 @@
-import { useState, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Upload, FileText, Loader2, CheckCircle2, BookOpen, Sparkles, ArrowRight, AlertCircle, Video, Clock } from 'lucide-react';
+import { useState, useRef, useCallback, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Upload, FileText, Loader2, CheckCircle2, BookOpen, Sparkles, ArrowRight, AlertCircle, Video, Clock, CreditCard, Check } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
 import { AppShell } from '@/components/layout/AppShell';
 import { PageContainer } from '@/components/layout/PageContainer';
@@ -12,6 +12,7 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface ProcessingResult {
   course_title?: string;
@@ -57,7 +58,9 @@ const STEP_INFO: Record<Step, { label: string; progress: number; description: st
 
 export default function QuickCourseSetupPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { toast } = useToast();
+  const { profile } = useAuth();
   
   const [step, setStep] = useState<Step>('upload');
   const [file, setFile] = useState<File | null>(null);
@@ -68,8 +71,30 @@ export default function QuickCourseSetupPage() {
   const [createdCourseId, setCreatedCourseId] = useState<string | null>(null);
   const [contentProgress, setContentProgress] = useState({ current: 0, total: 0 });
   const [evaluationBatchJobId, setEvaluationBatchJobId] = useState<string | null>(null);
+  const [paymentPending, setPaymentPending] = useState(false);
 
+  const isPro = profile?.subscription_tier === 'pro' || profile?.subscription_tier === 'university';
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Check for payment success on return from Stripe
+  useEffect(() => {
+    const paymentStatus = searchParams.get('payment');
+    if (paymentStatus === 'success') {
+      toast({
+        title: 'Payment Successful!',
+        description: 'You can now create your course.',
+      });
+      // Clear URL params
+      window.history.replaceState({}, '', '/instructor/quick-setup');
+    } else if (paymentStatus === 'cancelled') {
+      toast({
+        title: 'Payment Cancelled',
+        description: 'Course creation requires a $1 fee for free tier users.',
+        variant: 'destructive',
+      });
+      window.history.replaceState({}, '', '/instructor/quick-setup');
+    }
+  }, [searchParams, toast]);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
@@ -90,6 +115,50 @@ export default function QuickCourseSetupPage() {
     },
     maxFiles: 1,
   });
+
+  const handleCreateCourse = async () => {
+    if (!file) return;
+
+    // Check if payment is required for non-Pro users
+    if (!isPro) {
+      setPaymentPending(true);
+      try {
+        const { data, error } = await supabase.functions.invoke('create-course-payment', {
+          body: {
+            course_title: courseName || file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' '),
+            course_code: courseCode,
+            file_name: file.name,
+          },
+        });
+
+        if (error) throw error;
+        if (data.error) throw new Error(data.error);
+
+        if (data.requires_payment) {
+          // Open Stripe checkout in new tab
+          window.open(data.checkout_url, '_blank');
+          toast({
+            title: 'Payment Required',
+            description: 'Complete the $1 payment to create your course. Return here after payment.',
+          });
+          setPaymentPending(false);
+          return;
+        }
+      } catch (error) {
+        toast({
+          title: 'Error',
+          description: error instanceof Error ? error.message : 'Failed to initiate payment',
+          variant: 'destructive',
+        });
+        setPaymentPending(false);
+        return;
+      }
+      setPaymentPending(false);
+    }
+
+    // Proceed with course creation
+    processEverything();
+  };
 
   const processEverything = async () => {
     if (!file) return;
@@ -411,16 +480,52 @@ export default function QuickCourseSetupPage() {
                     </div>
                   </div>
 
+                  {/* Pricing info */}
+                  <div className="bg-muted/50 rounded-lg p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">Course Creation Fee</span>
+                      {isPro ? (
+                        <Badge variant="secondary" className="gap-1">
+                          <Check className="h-3 w-3" />
+                          Free with Pro
+                        </Badge>
+                      ) : (
+                        <span className="text-lg font-bold">$1.00</span>
+                      )}
+                    </div>
+                    {isPro && (
+                      <p className="text-xs text-muted-foreground flex items-center gap-1">
+                        <Sparkles className="h-3 w-3" />
+                        Unlimited course creation included in your Pro subscription
+                      </p>
+                    )}
+                  </div>
+
                   {/* Create Button */}
                   <Button 
                     size="lg" 
                     className="w-full gap-2"
-                    onClick={processEverything}
-                    disabled={!file}
+                    onClick={handleCreateCourse}
+                    disabled={!file || paymentPending}
                   >
-                    <Sparkles className="h-4 w-4" />
-                    Create Course with AI
-                    <ArrowRight className="h-4 w-4" />
+                    {paymentPending ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Processing...
+                      </>
+                    ) : isPro ? (
+                      <>
+                        <Sparkles className="h-4 w-4" />
+                        Create Course with AI
+                        <ArrowRight className="h-4 w-4" />
+                      </>
+                    ) : (
+                      <>
+                        <CreditCard className="h-4 w-4" />
+                        Pay $1 & Create Course
+                        <ArrowRight className="h-4 w-4" />
+                      </>
+                    )}
                   </Button>
                 </div>
               )}

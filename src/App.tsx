@@ -42,6 +42,7 @@ import OutcomesReport from "./pages/admin/OutcomesReport";
 import CourseManagement from "./pages/admin/CourseManagement";
 import BrandingSettings from "./pages/admin/BrandingSettings";
 import OrganizationDashboard from "./pages/admin/OrganizationDashboard";
+import InstructorReviewQueue from "./pages/admin/InstructorReviewQueue";
 // Unified pages (new architecture)
 import LearnPage from "./pages/Learn";
 import CareerPathPage from "./pages/CareerPath";
@@ -124,6 +125,7 @@ const App = () => (
             <Route path="/admin/outcomes" element={<AuthGuard><OutcomesReport /></AuthGuard>} />
             <Route path="/admin/courses" element={<AuthGuard><CourseManagement /></AuthGuard>} />
             <Route path="/admin/branding" element={<AuthGuard><BrandingSettings /></AuthGuard>} />
+            <Route path="/admin/instructor-review" element={<AuthGuard><InstructorReviewQueue /></AuthGuard>} />
             <Route path="/organization" element={<AuthGuard><OrganizationDashboard /></AuthGuard>} />
             <Route path="/employer" element={<AuthGuard><EmployerDashboard /></AuthGuard>} />
 
