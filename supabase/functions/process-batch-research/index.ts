@@ -5,7 +5,7 @@ import { createVertexAIAuth } from '../_shared/vertex-ai-auth.ts';
 import { createGCSClient } from '../_shared/gcs-client.ts';
 import { createVertexAIBatchClient } from '../_shared/vertex-ai-batch.ts';
 // OpenRouter imports for alternative batch processing (BATCH_PROVIDER=openrouter)
-import { generateText, MODELS, parseJsonResponse } from '../_shared/unified-ai-client.ts';
+import { generateText, searchGrounded, MODELS, parseJsonResponse } from '../_shared/unified-ai-client.ts';
 
 // ============================================================================
 // PROCESS BATCH RESEARCH - Background Research and Batch Slide Generation
@@ -56,8 +56,6 @@ const corsHeaders = {
 //   - 'openrouter': Process sequentially via OpenRouter (default)
 //   - 'vertex': Use Vertex AI Batch Prediction (50% discount)
 const BATCH_PROVIDER = Deno.env.get('BATCH_PROVIDER') || 'openrouter';
-
-const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 const BATCH_MODEL = MODEL_CONFIG.GEMINI_PRO; // Used only for Vertex AI mode
 
 // Research cache configuration
@@ -336,13 +334,13 @@ async function cacheResearch(
 }
 
 // ============================================================================
-// RESEARCH AGENT - Google Search Grounding (with caching)
+// RESEARCH AGENT - Perplexity via OpenRouter (with caching)
 // ============================================================================
 
 async function runResearchAgent(
   unitData: TeachingUnitData,
   domainConfig: any,
-  googleApiKey: string,
+  _googleApiKey: string, // Kept for API compatibility, no longer used
   supabase?: any
 ): Promise<ResearchContext> {
   const searchTerms = `${unitData.title} ${unitData.what_to_teach}`;
@@ -356,14 +354,11 @@ async function runResearchAgent(
     }
   }
   
-  const model = MODEL_CONFIG.GEMINI_FLASH;
-  const url = `${GOOGLE_API_BASE}/models/${model}:generateContent`;
+  // Build research query for Perplexity
+  const query = `Research the topic "${unitData.title}" for a university-level lecture.
 
-  const researchPrompt = `You are a research assistant gathering current, authoritative information for a university lecture.
-
-TOPIC: ${unitData.title}
-CONTEXT: ${unitData.what_to_teach}
 DOMAIN: ${unitData.domain}
+CONTEXT: ${unitData.what_to_teach}
 ${domainConfig?.preferred_sources ? `PREFERRED SOURCES: ${domainConfig.preferred_sources.join(', ')}` : ''}
 
 Research and provide:
@@ -371,72 +366,38 @@ Research and provide:
 2. CURRENT DEVELOPMENTS: 2-3 recent developments or trends (last 2 years)
 3. EXPERT PERSPECTIVES: 1-2 notable expert opinions or theories
 4. STATISTICS: 2-3 relevant statistics with sources
-5. CASE STUDIES: 1-2 real-world examples or applications
-
-Format as JSON:
-{
-  "grounding_sources": [{"title": "...", "url": "...", "snippet": "..."}],
-  "key_facts": ["..."],
-  "current_developments": ["..."],
-  "expert_perspectives": ["..."],
-  "statistics": ["..."],
-  "case_studies": ["..."]
-}`;
+5. CASE STUDIES: 1-2 real-world examples or applications`;
 
   try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': googleApiKey,
-      },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: researchPrompt }] }],
-        generationConfig: { temperature: 0.3, maxOutputTokens: 4096 },
-        tools: [{ googleSearchRetrieval: { dynamicRetrievalConfig: { mode: 'MODE_DYNAMIC' } } }],
-      }),
+    const result = await searchGrounded({
+      query,
+      logPrefix: '[Research Agent]',
     });
 
-    if (!response.ok) {
-      console.warn(`[Research] API error for ${unitData.title}: ${response.status}`);
-      return getEmptyResearchContext(unitData.title);
+    // Transform unified SearchResult to batch ResearchContext format
+    const research: ResearchContext = {
+      grounding_sources: result.grounded_content.map(gc => ({
+        title: gc.source_title,
+        url: gc.source_url,
+        snippet: gc.claim,
+      })),
+      key_facts: result.grounded_content.slice(0, 3).map(gc => gc.claim),
+      current_developments: [],
+      expert_perspectives: [],
+      statistics: result.grounded_content
+        .filter(gc => /\d+%|\d+\s*(billion|million|thousand)/i.test(gc.claim))
+        .map(gc => gc.claim),
+      case_studies: result.visual_descriptions.map(vd => vd.description),
+    };
+
+    // Cache the successful result
+    if (supabase) {
+      await cacheResearch(supabase, searchTerms, domain, research);
     }
 
-    const data = await response.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    console.log(`[Research Agent] ✓ Found ${research.grounding_sources.length} sources for ${unitData.title}`);
+    return research;
 
-    // Extract grounding metadata if available
-    const groundingMeta = data.candidates?.[0]?.groundingMetadata;
-    const sources = groundingMeta?.groundingChunks?.map((chunk: any) => ({
-      title: chunk.web?.title || 'Source',
-      url: chunk.web?.uri || '',
-      snippet: '',
-    })) || [];
-
-    // Parse research response
-    try {
-      const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-      const jsonStr = jsonMatch ? jsonMatch[1].trim() : text.trim();
-      const research = JSON.parse(jsonStr);
-      const result: ResearchContext = {
-        grounding_sources: sources.length > 0 ? sources : research.grounding_sources || [],
-        key_facts: research.key_facts || [],
-        current_developments: research.current_developments || [],
-        expert_perspectives: research.expert_perspectives || [],
-        statistics: research.statistics || [],
-        case_studies: research.case_studies || [],
-      };
-      
-      // Cache the successful result
-      if (supabase) {
-        await cacheResearch(supabase, searchTerms, domain, result);
-      }
-      
-      return result;
-    } catch {
-      const fallback = { ...getEmptyResearchContext(unitData.title), grounding_sources: sources };
-      return fallback;
-    }
   } catch (error) {
     console.warn(`[Research] Error for ${unitData.title}:`, error);
     return getEmptyResearchContext(unitData.title);
