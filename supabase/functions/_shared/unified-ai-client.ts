@@ -287,7 +287,9 @@ export async function generateStructured<T>(request: {
 // ============================================================================
 
 /**
- * Generate an image using OpenRouter's Gemini 2.5 Flash Image model
+ * Generate an image using OpenRouter's Gemini 3 Pro Image model
+ *
+ * Uses modalities: ['image', 'text'] as required by OpenRouter for image output.
  *
  * @param request.prompt - The image generation prompt
  * @param request.aspectRatio - Optional aspect ratio (1:1, 16:9, 9:16, 4:3, 3:4)
@@ -325,15 +327,17 @@ export async function generateImage(request: {
   }
 
   // Select model: free tier for testing, paid for production
+  // Now using Gemini 3 Pro Image Preview for highest quality
   const model = request.useFreeModel
     ? MODELS.IMAGE_FREE    // 'google/gemini-2.5-flash-image-preview:free'
-    : MODELS.IMAGE;        // 'google/gemini-2.5-flash-image'
+    : MODELS.IMAGE;        // 'google/gemini-3-pro-image-preview'
 
   console.log(`${logPrefix} Generating image via OpenRouter (${model})`);
   console.log(`${logPrefix} Prompt: ${request.prompt.substring(0, 100)}...`);
 
   try {
-    // Build request body
+    // Build request body with modalities for image output
+    // CRITICAL: modalities: ['image', 'text'] is REQUIRED for OpenRouter image generation
     const body: Record<string, unknown> = {
       model,
       messages: [
@@ -342,6 +346,7 @@ export async function generateImage(request: {
           content: request.prompt,
         },
       ],
+      modalities: ['image', 'text'],  // Required for image generation output
     };
 
     // Add aspect ratio configuration if specified
