@@ -564,7 +564,13 @@ async function processBatchViaOpenRouter(
     const unit = unitsToProcess[i];
     const slideId = requestMapping[unit.id];
 
-    console.log(`[Batch-OR] [${i + 1}/${unitsToProcess.length}] Processing: ${unit.title}`);
+    if (!slideId) {
+      console.warn(`[Batch-OR] [${i + 1}/${unitsToProcess.length}] No slide ID found for unit ${unit.id}, skipping`);
+      failed++;
+      continue;
+    }
+
+    console.log(`[Batch-OR] [${i + 1}/${unitsToProcess.length}] Processing: ${unit.title} (slideId: ${slideId})`);
 
     let attempt = 0;
     let success = false;
@@ -607,7 +613,7 @@ async function processBatchViaOpenRouter(
           .from('lecture_slides')
           .update({
             slides: slides,
-            status: 'completed',
+            status: 'ready',  // Use 'ready' to match frontend expectations
             generation_provider: 'openrouter',
             generation_model: result.model || MODELS.PROFESSOR_AI,
             completed_at: new Date().toISOString(),
@@ -714,8 +720,9 @@ serve(async (req) => {
       );
     }
 
-    // Only process if in 'preparing' status
-    if (batchJob.status !== 'preparing') {
+    // Only process if in 'preparing' or 'researching' status
+    // 'researching' allows self-continuation after timeout
+    if (batchJob.status !== 'preparing' && batchJob.status !== 'researching') {
       return new Response(
         JSON.stringify({
           success: true,
@@ -726,11 +733,13 @@ serve(async (req) => {
       );
     }
 
-    // Update status to 'researching'
-    await supabase
-      .from('batch_jobs')
-      .update({ status: 'researching' })
-      .eq('id', batch_job_id);
+    // Update status to 'researching' if not already
+    if (batchJob.status === 'preparing') {
+      await supabase
+        .from('batch_jobs')
+        .update({ status: 'researching' })
+        .eq('id', batch_job_id);
+    }
 
     // ========================================================================
     // 2. FETCH TEACHING UNITS FOR THIS BATCH
@@ -963,12 +972,19 @@ serve(async (req) => {
 
     if (BATCH_PROVIDER === 'openrouter') {
       // ====================================================================
-      // OPENROUTER PATH - Process sequentially via OpenRouter
+      // OPENROUTER PATH - Chunked processing with self-continuation
       // ====================================================================
+      //
+      // TIMEOUT SAFETY: Edge functions have ~150s limit. Processing 121 slides
+      // sequentially would timeout. We process CHUNK_SIZE slides per invocation,
+      // then invoke ourselves to continue.
+      //
       console.log(`[Research] Using OpenRouter for batch processing (BATCH_PROVIDER=${BATCH_PROVIDER})`);
 
+      const CHUNK_SIZE = 8; // Process 8 units per invocation (~60s each = ~8 min max)
+
       // Build enriched unit data for OpenRouter processing
-      const unitsToProcess: TeachingUnitData[] = [];
+      const allUnitsToProcess: TeachingUnitData[] = [];
       const slideIdMapping: Record<string, string> = {};
 
       for (const unit of units) {
@@ -979,7 +995,7 @@ serve(async (req) => {
           ...researchData.unitData,
           research_context: researchData.research,
         };
-        unitsToProcess.push(enrichedUnitData);
+        allUnitsToProcess.push(enrichedUnitData);
 
         // Find the slide ID for this unit
         const { data: slideRecord } = await supabase
@@ -994,24 +1010,128 @@ serve(async (req) => {
         }
       }
 
-      // Process via OpenRouter
+      // Filter to only units that still need processing (pending, generating, or batch_pending)
+      const { data: pendingSlides } = await supabase
+        .from('lecture_slides')
+        .select('teaching_unit_id, status')
+        .eq('batch_job_id', batch_job_id)
+        .in('status', ['preparing', 'batch_pending', 'generating', 'pending']);
+
+      const pendingUnitIds = new Set((pendingSlides || []).map(s => s.teaching_unit_id));
+      const unitsStillPending = allUnitsToProcess.filter(u => pendingUnitIds.has(u.id));
+
+      console.log(`[Research] ${unitsStillPending.length}/${allUnitsToProcess.length} units still need processing`);
+
+      if (unitsStillPending.length === 0) {
+        // All done - update batch job
+        const { data: slideStats } = await supabase
+          .from('lecture_slides')
+          .select('status')
+          .eq('batch_job_id', batch_job_id);
+
+        const completed = slideStats?.filter(s => s.status === 'ready' || s.status === 'completed').length || 0;
+        const failed = slideStats?.filter(s => s.status === 'failed').length || 0;
+
+        await supabase
+          .from('batch_jobs')
+          .update({
+            status: failed === 0 ? 'completed' : (completed > 0 ? 'partial' : 'failed'),
+            completed_at: new Date().toISOString(),
+            succeeded_count: completed,
+            failed_count: failed,
+            provider: 'openrouter',
+          })
+          .eq('id', batch_job_id);
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            batch_job_id,
+            provider: 'openrouter',
+            status: 'completed',
+            completed,
+            failed,
+            total: allUnitsToProcess.length,
+            message: `Batch complete: ${completed} succeeded, ${failed} failed`,
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Take only CHUNK_SIZE units for this invocation
+      const chunkToProcess = unitsStillPending.slice(0, CHUNK_SIZE);
+      const remainingCount = unitsStillPending.length - chunkToProcess.length;
+
+      console.log(`[Research] Processing chunk of ${chunkToProcess.length} units (${remainingCount} remaining after this)`);
+
+      // Process this chunk via OpenRouter
       const result = await processBatchViaOpenRouter(
         supabase,
         batch_job_id,
-        unitsToProcess,
+        chunkToProcess,
         slideIdMapping
       );
 
-      // Update batch job record
+      // Update batch job with progress
+      const { data: currentStats } = await supabase
+        .from('lecture_slides')
+        .select('status')
+        .eq('batch_job_id', batch_job_id);
+
+      const completedSoFar = currentStats?.filter(s => s.status === 'ready' || s.status === 'completed').length || 0;
+      const failedSoFar = currentStats?.filter(s => s.status === 'failed').length || 0;
+
       await supabase
         .from('batch_jobs')
         .update({
-          status: result.success ? 'completed' : (result.processed > 0 ? 'partial' : 'failed'),
+          succeeded_count: completedSoFar,
+          failed_count: failedSoFar,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', batch_job_id);
+
+      // Self-continue if more work remains
+      if (remainingCount > 0) {
+        console.log(`[Research] Self-continuing for ${remainingCount} remaining units...`);
+
+        // Fire-and-forget invocation to continue processing
+        const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+        const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+
+        fetch(`${supabaseUrl}/functions/v1/process-batch-research`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${serviceRoleKey}`,
+          },
+          body: JSON.stringify({ batch_job_id }),
+        }).catch(err => {
+          console.error('[Research] Self-continuation failed:', err);
+        });
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            batch_job_id,
+            provider: 'openrouter',
+            status: 'continuing',
+            processed_this_chunk: result.processed,
+            failed_this_chunk: result.failed,
+            completed_total: completedSoFar,
+            remaining: remainingCount,
+            message: `Processed ${result.processed}/${chunkToProcess.length} in this chunk. ${remainingCount} units remaining. Self-continuing...`,
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // This was the final chunk
+      await supabase
+        .from('batch_jobs')
+        .update({
+          status: failedSoFar === 0 ? 'completed' : (completedSoFar > 0 ? 'partial' : 'failed'),
           completed_at: new Date().toISOString(),
           provider: 'openrouter',
-          error_message: result.errors.length > 0
-            ? result.errors.slice(0, 5).join('; ').substring(0, 500)
-            : null,
         })
         .eq('id', batch_job_id);
 
@@ -1020,11 +1140,12 @@ serve(async (req) => {
           success: result.success,
           batch_job_id,
           provider: 'openrouter',
+          status: 'completed',
           processed: result.processed,
           failed: result.failed,
-          total: unitsToProcess.length,
+          total: allUnitsToProcess.length,
           errors: result.errors.slice(0, 10),
-          message: `Batch complete via OpenRouter: ${result.processed} succeeded, ${result.failed} failed`,
+          message: `Batch complete via OpenRouter: ${completedSoFar} succeeded, ${failedSoFar} failed`,
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
