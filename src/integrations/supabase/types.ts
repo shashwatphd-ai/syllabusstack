@@ -1256,6 +1256,44 @@ export type Database = {
           },
         ]
       }
+      course_creation_costs: {
+        Row: {
+          ai_model_used: string | null
+          cost_usd: number
+          created_at: string | null
+          id: string
+          instructor_course_id: string
+          stage: string
+          tokens_used: number | null
+        }
+        Insert: {
+          ai_model_used?: string | null
+          cost_usd?: number
+          created_at?: string | null
+          id?: string
+          instructor_course_id: string
+          stage: string
+          tokens_used?: number | null
+        }
+        Update: {
+          ai_model_used?: string | null
+          cost_usd?: number
+          created_at?: string | null
+          id?: string
+          instructor_course_id?: string
+          stage?: string
+          tokens_used?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "course_creation_costs_instructor_course_id_fkey"
+            columns: ["instructor_course_id"]
+            isOneToOne: false
+            referencedRelation: "instructor_courses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       course_enrollments: {
         Row: {
           certificate_eligible: boolean | null
@@ -1696,6 +1734,53 @@ export type Database = {
           },
         ]
       }
+      enrollment_transactions: {
+        Row: {
+          amount_cents: number
+          completed_at: string | null
+          created_at: string | null
+          currency: string | null
+          enrollment_id: string
+          id: string
+          status: string
+          stripe_checkout_session_id: string | null
+          stripe_payment_intent_id: string | null
+          user_id: string
+        }
+        Insert: {
+          amount_cents: number
+          completed_at?: string | null
+          created_at?: string | null
+          currency?: string | null
+          enrollment_id: string
+          id?: string
+          status?: string
+          stripe_checkout_session_id?: string | null
+          stripe_payment_intent_id?: string | null
+          user_id: string
+        }
+        Update: {
+          amount_cents?: number
+          completed_at?: string | null
+          created_at?: string | null
+          currency?: string | null
+          enrollment_id?: string
+          id?: string
+          status?: string
+          stripe_checkout_session_id?: string | null
+          stripe_payment_intent_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "enrollment_transactions_enrollment_id_fkey"
+            columns: ["enrollment_id"]
+            isOneToOne: false
+            referencedRelation: "course_enrollments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       gap_analyses: {
         Row: {
           ai_cost_usd: number | null
@@ -1828,6 +1913,54 @@ export type Database = {
             columns: ["career_match_id"]
             isOneToOne: false
             referencedRelation: "career_matches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      generation_trigger_checks: {
+        Row: {
+          batch_job_id: string | null
+          checked_at: string | null
+          enrollment_count: number
+          id: string
+          teaching_unit_id: string
+          threshold: number
+          trigger_id: string | null
+          triggered: boolean | null
+        }
+        Insert: {
+          batch_job_id?: string | null
+          checked_at?: string | null
+          enrollment_count: number
+          id?: string
+          teaching_unit_id: string
+          threshold: number
+          trigger_id?: string | null
+          triggered?: boolean | null
+        }
+        Update: {
+          batch_job_id?: string | null
+          checked_at?: string | null
+          enrollment_count?: number
+          id?: string
+          teaching_unit_id?: string
+          threshold?: number
+          trigger_id?: string | null
+          triggered?: boolean | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "generation_trigger_checks_batch_job_id_fkey"
+            columns: ["batch_job_id"]
+            isOneToOne: false
+            referencedRelation: "batch_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "generation_trigger_checks_trigger_id_fkey"
+            columns: ["trigger_id"]
+            isOneToOne: false
+            referencedRelation: "generation_triggers"
             referencedColumns: ["id"]
           },
         ]
