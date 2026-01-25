@@ -43,6 +43,9 @@ import BrandingSettings from "./pages/admin/BrandingSettings";
 // Unified pages (new architecture)
 import LearnPage from "./pages/Learn";
 import CareerPathPage from "./pages/CareerPath";
+// Certificate pages
+import CertificateViewPage from "./pages/certificate/CertificateView";
+import PublicCertificateVerifyPage from "./pages/verify/PublicCertificateVerify";
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -60,6 +63,9 @@ const App = () => (
             <Route path="/resources" element={<ResourcesPage />} />
             <Route path="/legal" element={<LegalPage />} />
             <Route path="/how-it-works" element={<HowItWorksPage />} />
+            <Route path="/universities" element={<UniversitiesPage />} />
+            {/* Public certificate verification */}
+            <Route path="/verify/:shareToken" element={<PublicCertificateVerifyPage />} />
             <Route path="/universities" element={<UniversitiesPage />} />
 
             {/* Auth routes (redirect if logged in) */}
@@ -91,6 +97,9 @@ const App = () => (
             <Route path="/settings" element={<AuthGuard><SettingsPage /></AuthGuard>} />
             <Route path="/billing" element={<AuthGuard><BillingPage /></AuthGuard>} />
             <Route path="/checkout" element={<AuthGuard><CheckoutPage /></AuthGuard>} />
+            <Route path="/usage" element={<AuthGuard><UsagePage /></AuthGuard>} />
+            {/* Certificate viewing */}
+            <Route path="/certificate/:id" element={<AuthGuard><CertificateViewPage /></AuthGuard>} />
             <Route path="/usage" element={<AuthGuard><UsagePage /></AuthGuard>} />
 
             {/* Student learning routes - course detail, objectives, and slides */}

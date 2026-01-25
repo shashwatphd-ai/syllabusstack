@@ -654,6 +654,137 @@ export type Database = {
           },
         ]
       }
+      certificate_verifications: {
+        Row: {
+          certificate_id: string
+          employer_account_id: string | null
+          id: string
+          verified_at: string | null
+          verified_via: string
+          verifier_ip: unknown
+          verifier_user_agent: string | null
+        }
+        Insert: {
+          certificate_id: string
+          employer_account_id?: string | null
+          id?: string
+          verified_at?: string | null
+          verified_via: string
+          verifier_ip?: unknown
+          verifier_user_agent?: string | null
+        }
+        Update: {
+          certificate_id?: string
+          employer_account_id?: string | null
+          id?: string
+          verified_at?: string | null
+          verified_via?: string
+          verifier_ip?: unknown
+          verifier_user_agent?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "certificate_verifications_certificate_id_fkey"
+            columns: ["certificate_id"]
+            isOneToOne: false
+            referencedRelation: "certificates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      certificates: {
+        Row: {
+          amount_paid_cents: number | null
+          certificate_number: string
+          certificate_type: string
+          completion_date: string
+          course_title: string
+          created_at: string | null
+          enrollment_id: string
+          id: string
+          identity_verified: boolean | null
+          institution_name: string | null
+          instructor_course_id: string
+          instructor_name: string | null
+          instructor_verified: boolean | null
+          issued_at: string | null
+          mastery_score: number | null
+          pdf_path: string | null
+          qr_code_data: string | null
+          share_token: string
+          skill_breakdown: Json | null
+          status: string | null
+          stripe_payment_intent_id: string | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          amount_paid_cents?: number | null
+          certificate_number: string
+          certificate_type: string
+          completion_date?: string
+          course_title: string
+          created_at?: string | null
+          enrollment_id: string
+          id?: string
+          identity_verified?: boolean | null
+          institution_name?: string | null
+          instructor_course_id: string
+          instructor_name?: string | null
+          instructor_verified?: boolean | null
+          issued_at?: string | null
+          mastery_score?: number | null
+          pdf_path?: string | null
+          qr_code_data?: string | null
+          share_token: string
+          skill_breakdown?: Json | null
+          status?: string | null
+          stripe_payment_intent_id?: string | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          amount_paid_cents?: number | null
+          certificate_number?: string
+          certificate_type?: string
+          completion_date?: string
+          course_title?: string
+          created_at?: string | null
+          enrollment_id?: string
+          id?: string
+          identity_verified?: boolean | null
+          institution_name?: string | null
+          instructor_course_id?: string
+          instructor_name?: string | null
+          instructor_verified?: boolean | null
+          issued_at?: string | null
+          mastery_score?: number | null
+          pdf_path?: string | null
+          qr_code_data?: string | null
+          share_token?: string
+          skill_breakdown?: Json | null
+          status?: string | null
+          stripe_payment_intent_id?: string | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "certificates_enrollment_id_fkey"
+            columns: ["enrollment_id"]
+            isOneToOne: false
+            referencedRelation: "course_enrollments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "certificates_instructor_course_id_fkey"
+            columns: ["instructor_course_id"]
+            isOneToOne: false
+            referencedRelation: "instructor_courses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       consumption_records: {
         Row: {
           completed_at: string | null
@@ -1127,6 +1258,8 @@ export type Database = {
       }
       course_enrollments: {
         Row: {
+          certificate_eligible: boolean | null
+          certificate_id: string | null
           completed_at: string | null
           enrolled_at: string | null
           id: string
@@ -1135,6 +1268,8 @@ export type Database = {
           student_id: string
         }
         Insert: {
+          certificate_eligible?: boolean | null
+          certificate_id?: string | null
           completed_at?: string | null
           enrolled_at?: string | null
           id?: string
@@ -1143,6 +1278,8 @@ export type Database = {
           student_id: string
         }
         Update: {
+          certificate_eligible?: boolean | null
+          certificate_id?: string | null
           completed_at?: string | null
           enrolled_at?: string | null
           id?: string
@@ -1151,6 +1288,13 @@ export type Database = {
           student_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "course_enrollments_certificate_id_fkey"
+            columns: ["certificate_id"]
+            isOneToOne: false
+            referencedRelation: "certificates"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "course_enrollments_instructor_course_id_fkey"
             columns: ["instructor_course_id"]
@@ -2154,6 +2298,65 @@ export type Database = {
           work_values?: Json | null
         }
         Relationships: []
+      }
+      proctored_sessions: {
+        Row: {
+          assessment_session_id: string
+          browser_focus_losses: number | null
+          copy_paste_attempts: number | null
+          created_at: string | null
+          ended_at: string | null
+          fullscreen_exits: number | null
+          id: string
+          proctoring_passed: boolean | null
+          started_at: string | null
+          tab_switches: number | null
+          user_id: string
+          violation_threshold: number | null
+          webcam_enabled: boolean | null
+          webcam_snapshots_count: number | null
+        }
+        Insert: {
+          assessment_session_id: string
+          browser_focus_losses?: number | null
+          copy_paste_attempts?: number | null
+          created_at?: string | null
+          ended_at?: string | null
+          fullscreen_exits?: number | null
+          id?: string
+          proctoring_passed?: boolean | null
+          started_at?: string | null
+          tab_switches?: number | null
+          user_id: string
+          violation_threshold?: number | null
+          webcam_enabled?: boolean | null
+          webcam_snapshots_count?: number | null
+        }
+        Update: {
+          assessment_session_id?: string
+          browser_focus_losses?: number | null
+          copy_paste_attempts?: number | null
+          created_at?: string | null
+          ended_at?: string | null
+          fullscreen_exits?: number | null
+          id?: string
+          proctoring_passed?: boolean | null
+          started_at?: string | null
+          tab_switches?: number | null
+          user_id?: string
+          violation_threshold?: number | null
+          webcam_enabled?: boolean | null
+          webcam_snapshots_count?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "proctored_sessions_assessment_session_id_fkey"
+            columns: ["assessment_session_id"]
+            isOneToOne: false
+            referencedRelation: "assessment_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       profiles: {
         Row: {
@@ -3173,6 +3376,8 @@ export type Database = {
           similarity_score: number
         }[]
       }
+      generate_certificate_number: { Args: never; Returns: string }
+      generate_share_token: { Args: never; Returns: string }
       get_dynamic_synonyms: {
         Args: { p_course_id?: string; p_term: string }
         Returns: string[]
