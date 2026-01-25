@@ -190,10 +190,11 @@ serve(async (req) => {
         .select('id, teaching_unit_id, status, batch_job_id')
         .eq('instructor_course_id', instructor_course_id);
 
-      // Count statuses
+      // Count statuses - include 'preparing' which is the new pre-research state
       const statusCounts = {
         pending: 0,
         batch_pending: 0,
+        preparing: 0,
         generating: 0,
         ready: 0,
         published: 0,
@@ -206,8 +207,9 @@ serve(async (req) => {
       }
 
       // Find active batch job (if any)
+      // Include 'researching' which is used during process-batch-research phase
       const activeBatch = batchJobs?.find(j =>
-        j.status === 'submitted' || j.status === 'processing' || j.status === 'pending'
+        j.status === 'submitted' || j.status === 'processing' || j.status === 'pending' || j.status === 'researching'
       );
 
       // If there's an active batch and Vertex AI is configured, poll it
@@ -250,13 +252,21 @@ serve(async (req) => {
         }
       }
 
+      // Calculate progress for the active batch
+      let progressPercent = 0;
+      if (activeBatch) {
+        const total = activeBatch.total_requests || 1;
+        const done = (activeBatch.succeeded_count || 0) + (activeBatch.failed_count || 0);
+        progressPercent = Math.round((done / total) * 100);
+      }
+
       return new Response(
         JSON.stringify({
           success: true,
           total_slides: slides?.length || 0,
           ...statusCounts,
-          // Combine pending types for backwards compatibility
-          generating: statusCounts.generating + statusCounts.batch_pending,
+          // Include preparing count in generating for backwards compatibility with frontend
+          generating: statusCounts.generating + statusCounts.batch_pending + statusCounts.preparing,
           active_batch: activeBatch ? {
             id: activeBatch.id,
             status: activeBatch.status,
@@ -264,6 +274,7 @@ serve(async (req) => {
             succeeded: activeBatch.succeeded_count || 0,
             failed: activeBatch.failed_count || 0,
           } : null,
+          progress_percent: progressPercent,
           recent_batches: batchJobs?.slice(0, 3) || [],
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
