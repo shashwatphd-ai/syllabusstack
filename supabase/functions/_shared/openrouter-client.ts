@@ -34,7 +34,23 @@
 const OPENROUTER_API_BASE = 'https://openrouter.ai/api/v1';
 
 // ============================================================================
-// MODEL DEFINITIONS
+// MODEL DEFINITIONS - Optimized for OpenRouter Consolidation (2026-01-25)
+// ============================================================================
+//
+// ALL AI operations now route through OpenRouter for:
+//   - Unified billing and cost tracking
+//   - Automatic fallbacks
+//   - Consistent API format
+//
+// TASK → MODEL MAPPING:
+//   | Task                    | Model                        | Fallback                   |
+//   |-------------------------|------------------------------|----------------------------|
+//   | Slide Content           | google/gemini-3-flash-preview| google/gemini-2.5-flash    |
+//   | Image Generation        | google/gemini-3-pro-image    | google/gemini-2.5-flash-image |
+//   | Research/Grounding      | perplexity/sonar-pro         | perplexity/sonar           |
+//   | Syllabus Parsing        | google/gemini-2.5-flash      | google/gemini-flash-1.5    |
+//   | Curriculum Reasoning    | deepseek/deepseek-r1         | google/gemini-2.5-pro      |
+//   | Fast Extraction         | google/gemini-2.5-flash-lite | openai/gpt-4o-mini         |
 // ============================================================================
 
 /**
@@ -47,53 +63,63 @@ const OPENROUTER_API_BASE = 'https://openrouter.ai/api/v1';
  */
 export const MODELS = {
   // =========================================================================
-  // PROFESSOR AI - Primary models for lecture slide generation
-  // Used by: generate-lecture-slides-v3, process-batch-research (OpenRouter mode)
+  // SLIDE CONTENT GENERATION - Primary text for lecture slides
+  // Used by: generate-lecture-slides-v3, Professor AI
   // =========================================================================
-  PROFESSOR_AI: 'google/gemini-2.5-flash',           // Primary: Fast, cost-effective ($0.15/1M input)
-  PROFESSOR_AI_FALLBACK: 'google/gemini-flash-1.5',  // Fallback: Stable 1.5 Flash if 2.5 fails
+  PROFESSOR_AI: 'google/gemini-3-flash-preview',     // Next-gen: Best quality/speed balance
+  PROFESSOR_AI_FALLBACK: 'google/gemini-2.5-flash',  // Fallback: Stable 2.5 Flash
+  SLIDES: 'google/gemini-3-flash-preview',           // Alias for clarity
 
   // =========================================================================
-  // IMAGE GENERATION - OpenRouter Gemini 3 Pro Image ("Nano Banana")
+  // IMAGE GENERATION - Educational visuals and diagrams
   // Used by: unified-ai-client.ts generateImage()
   // Requires: modalities: ['image', 'text'] in request body
   // =========================================================================
-  IMAGE: 'google/gemini-3-pro-image-preview',                // Next-gen image model
-  IMAGE_FALLBACK: 'google/gemini-2.5-flash-image',           // Fallback (GA version)
+  IMAGE: 'google/gemini-3-pro-image-preview',        // Next-gen image model
+  IMAGE_FALLBACK: 'google/gemini-2.5-flash-image',   // Fallback (GA version)
   IMAGE_FREE: 'google/gemini-2.5-flash-image-preview:free',  // Free tier - testing/dev
 
   // =========================================================================
-  // REASONING - Complex tasks requiring deeper analysis
-  // Used by: curriculum generation, gap analysis, job requirements
+  // RESEARCH & GROUNDING - Web search with citations
+  // Used by: Research Agent (replaces Google Search Grounding)
+  // Perplexity provides search grounding via OpenRouter
   // =========================================================================
-  REASONING: 'openai/gpt-4.1',
-  REASONING_FALLBACK: 'anthropic/claude-sonnet-4',
-  REASONING_CHEAP: 'openai/gpt-4.1:floor',
+  RESEARCH: 'perplexity/sonar-pro',                  // Multi-step reasoning + 2x citations
+  RESEARCH_FALLBACK: 'perplexity/sonar',             // Faster, lighter research
+  RESEARCH_DEEP: 'perplexity/sonar-deep-research',   // Expert research (expensive)
 
   // =========================================================================
-  // FAST - Simple extraction and evaluation tasks
+  // CURRICULUM REASONING - Complex pedagogical decomposition
+  // Used by: curriculum-reasoning-agent, backward design
   // =========================================================================
-  FAST: 'openai/gpt-4o-mini',
-  FAST_CHEAP: 'openai/gpt-4o-mini:floor',
-  FAST_NITRO: 'openai/gpt-4o-mini:nitro',
+  REASONING: 'deepseek/deepseek-r1',                 // Best chain-of-thought reasoning
+  REASONING_FALLBACK: 'google/gemini-2.5-pro',       // Fallback: Gemini Pro
+  REASONING_CHEAP: 'google/gemini-2.5-flash',        // Budget reasoning
 
   // =========================================================================
-  // GOOGLE GEMINI - Direct Gemini model access via OpenRouter
-  // GEMINI_FLASH is now aliased to PROFESSOR_AI for backwards compatibility
+  // SYLLABUS PARSING - Document extraction and analysis
+  // Used by: process-syllabus, parse-syllabus-document
   // =========================================================================
-  GEMINI_FLASH: 'google/gemini-2.5-flash',      // Same as PROFESSOR_AI
-  GEMINI_FLASH_FAST: 'google/gemini-flash-1.5', // Stable 1.5 Flash (same as PROFESSOR_AI_FALLBACK)
-  GEMINI_PRO: 'google/gemini-2.5-pro',          // Pro tier for complex reasoning
+  PARSING: 'google/gemini-2.5-flash',                // Best for multimodal docs
+  PARSING_FALLBACK: 'google/gemini-flash-1.5',       // Fallback: Stable 1.5
 
   // =========================================================================
-  // ANTHROPIC - Alternative high-quality models
+  // FAST EXTRACTION - Simple tasks, high volume
+  // Used by: assessments, evaluations, quick extractions
   // =========================================================================
+  FAST: 'google/gemini-2.5-flash-lite',              // Fastest Gemini, lowest cost
+  FAST_FALLBACK: 'openai/gpt-4o-mini',               // Fallback: OpenAI mini
+  FAST_CHEAP: 'google/gemini-2.5-flash-lite:floor',  // Cheapest routing
+  FAST_NITRO: 'google/gemini-2.5-flash-lite:nitro',  // Fastest routing
+
+  // =========================================================================
+  // LEGACY ALIASES - For backwards compatibility
+  // =========================================================================
+  GEMINI_FLASH: 'google/gemini-2.5-flash',
+  GEMINI_FLASH_FAST: 'google/gemini-flash-1.5',
+  GEMINI_PRO: 'google/gemini-2.5-pro',
   CLAUDE_SONNET: 'anthropic/claude-sonnet-4',
   CLAUDE_HAIKU: 'anthropic/claude-3.5-haiku',
-
-  // =========================================================================
-  // AUTO ROUTING - Let OpenRouter pick best model
-  // =========================================================================
   AUTO: 'openrouter/auto',
 } as const;
 
