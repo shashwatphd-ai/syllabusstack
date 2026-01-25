@@ -885,7 +885,8 @@ async function runProfessorAI(
 
   // Use pre-built brief (with research) if provided, otherwise build from context
   const lectureBrief = preBuiltBrief || buildLectureBrief(context);
-  const targetSlides = Math.max(5, Math.round(context.target_duration_minutes * 1.5));
+  // FIXED: 6 slides per teaching unit for consistent, predictable content generation
+  const targetSlides = 6;
 
   const userPrompt = `${lectureBrief}
 
