@@ -154,3 +154,16 @@ verify_jwt = true
 # Process research and submit to Vertex AI for batch prediction
 # Called by frontend after submit-batch-slides returns
 verify_jwt = false
+
+# Phase 0: Certificate System
+[functions.purchase-certificate]
+# Creates Stripe checkout for $25 Verified / $49 Assessed certificates
+verify_jwt = true
+
+[functions.issue-certificate]
+# Issues certificate after payment or for free completion badges
+verify_jwt = true
+
+[functions.verify-certificate]
+# Public endpoint for certificate verification
+verify_jwt = false
