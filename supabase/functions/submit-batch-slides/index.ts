@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
 import { MODEL_CONFIG } from '../_shared/ai-orchestrator.ts';
+import { searchGrounded } from '../_shared/unified-ai-client.ts';
 
 // ============================================================================
 // SUBMIT BATCH SLIDES - Fast Placeholder Creation
@@ -37,9 +38,6 @@ const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
-
-// Google API base for research agent (still uses Gemini API for search grounding)
-const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 // Model configuration - use orchestrator's MODEL_CONFIG for consistency
 // CRITICAL: Batch MUST use the same model as v3 for quality parity.
@@ -625,35 +623,26 @@ function buildPromptForUnit(unit: TeachingUnitData): string {
 }
 
 // ============================================================================
-// RESEARCH AGENT - Google Search Grounding (Identical to v3)
+// RESEARCH AGENT - Perplexity via OpenRouter (Identical to v3)
 // ============================================================================
 //
-// CRITICAL: This MUST be identical to v3's runResearchAgent for quality parity.
+// CRITICAL: This MUST match v3's runResearchAgent for quality parity.
 // Research grounding provides verified facts, citations, and framework descriptions.
+// Now uses Perplexity via OpenRouter (consolidated architecture).
 //
 
 async function runResearchAgent(
   context: TeachingUnitData,
   domainConfig: DomainConfig | null,
-  googleApiKey: string
+  _googleApiKey: string // Kept for API compatibility, no longer used
 ): Promise<ResearchContext> {
-  console.log('[Research Agent] Starting grounded research for:', context.title);
-
-  if (!googleApiKey) {
-    console.warn('[Research Agent] GOOGLE_CLOUD_API_KEY not configured');
-    return getEmptyResearchContext(context.title);
-  }
+  console.log('[Research Agent] Starting research via OpenRouter Perplexity:', context.title);
 
   // Build dynamic search strategy using domain config
   const trustedSites = domainConfig?.trusted_sites || ['scholar.google.com', '.edu'];
-  const siteFilter = trustedSites
-    .slice(0, 3)
-    .map(s => `site:${s}`)
-    .join(' OR ');
 
-  const researchPrompt = `You are a research assistant gathering verified information for a ${domainConfig?.academic_level || 'university'}-level lecture.
+  const query = `Research the topic "${context.title}" for a ${domainConfig?.academic_level || 'university'}-level lecture.
 
-TOPIC: ${context.title}
 DOMAIN: ${domainConfig?.domain || context.domain}
 WHAT TO TEACH: ${context.what_to_teach}
 
@@ -667,115 +656,23 @@ RESEARCH REQUIREMENTS:
 4. If this involves a framework or model, describe its visual structure exactly
 5. Find recommended readings or resources students should explore
 
-SEARCH STRATEGY:
-- Prioritize sources from: ${trustedSites.join(', ')}
-- Use search queries like: "${context.required_concepts[0] || context.title} ${siteFilter}"
-- AVOID: ${domainConfig?.avoid_sources?.join(', ') || 'blogs, opinion pieces, unreferenced content'}
-
-REQUIRED OUTPUT FORMAT (JSON only, no markdown):
-{
-  "topic": "${context.title}",
-  "grounded_content": [
-    {
-      "claim": "Verified factual statement with specific data",
-      "source_url": "URL from search results",
-      "source_title": "Source name/publication",
-      "confidence": 0.95
-    }
-  ],
-  "recommended_reading": [
-    {
-      "title": "Resource title",
-      "url": "URL",
-      "type": "Academic"
-    }
-  ],
-  "visual_descriptions": [
-    {
-      "framework_name": "e.g., Porter's Five Forces",
-      "description": "Text description of the visual structure",
-      "elements": ["Element 1", "Element 2", "Element 3"]
-    }
-  ]
-}
-
-Search now and return ONLY verified, factually grounded content.`;
+PREFERRED SOURCES: ${trustedSites.join(', ')}
+AVOID: ${domainConfig?.avoid_sources?.join(', ') || 'blogs, opinion pieces, unreferenced content'}`;
 
   try {
-    // Use flash for research (with Google Search grounding) - same as v3
-    const model = MODEL_CONFIG.GEMINI_FLASH;
-    const url = `${GOOGLE_API_BASE}/models/${model}:generateContent`;
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': googleApiKey,
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: researchPrompt }],
-          },
-        ],
-        tools: [{ googleSearch: {} }], // Enable Google Search grounding
-        generationConfig: {
-          temperature: 0.3,
-        },
-      }),
+    const result = await searchGrounded({
+      query,
+      logPrefix: '[Research Agent]',
     });
 
-    if (!response.ok) {
-      if (response.status === 429) {
-        console.warn('[Research Agent] Rate limited, returning empty context');
-        return getEmptyResearchContext(context.title);
-      }
-      console.warn('[Research Agent] Search call failed:', response.status);
-      return getEmptyResearchContext(context.title);
-    }
-
-    const data = await response.json();
-    const content = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-
-    // Extract grounding metadata if available
-    const groundingMetadata = data.candidates?.[0]?.groundingMetadata;
-
-    // Parse the structured response
-    let researchContext: ResearchContext;
-    try {
-      const cleaned = content.replace(/```json?\n?|\n?```/g, '').trim();
-      researchContext = JSON.parse(cleaned);
-    } catch (parseError) {
-      console.warn('[Research Agent] Failed to parse response, using grounding metadata');
-      researchContext = getEmptyResearchContext(context.title);
-    }
-
-    // Enrich with grounding metadata if available (from Google Search tool)
-    if (groundingMetadata?.groundingChunks) {
-      console.log(`[Research Agent] Found ${groundingMetadata.groundingChunks.length} grounding chunks`);
-      const additionalSources = groundingMetadata.groundingChunks.map((chunk: any) => ({
-        claim: chunk.web?.title || 'Additional verified source',
-        source_url: chunk.web?.uri || '',
-        source_title: chunk.web?.title || 'Unknown',
-        confidence: 0.9,
-      }));
-      researchContext.grounded_content = [
-        ...researchContext.grounded_content,
-        ...additionalSources,
-      ];
-      researchContext.raw_grounding_metadata = groundingMetadata;
-    }
-
-    // Also check for web search results in different response format
-    if (groundingMetadata?.webSearchQueries) {
-      console.log(`[Research Agent] Web search queries used: ${groundingMetadata.webSearchQueries.join(', ')}`);
-    }
-
-    console.log(`[Research Agent] Found ${researchContext.grounded_content.length} grounded claims`);
-    console.log(`[Research Agent] Found ${researchContext.visual_descriptions?.length || 0} visual descriptions`);
-    return researchContext;
-
+    console.log(`[Research Agent] ✓ Complete: ${result.grounded_content.length} claims, ${result.recommended_reading.length} readings`);
+    
+    return {
+      topic: result.topic,
+      grounded_content: result.grounded_content,
+      recommended_reading: result.recommended_reading,
+      visual_descriptions: result.visual_descriptions,
+    };
   } catch (error) {
     console.error('[Research Agent] Error:', error);
     return getEmptyResearchContext(context.title);

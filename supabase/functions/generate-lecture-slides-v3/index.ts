@@ -190,25 +190,9 @@ interface TeachingUnitContext {
 //   - MODELS.IMAGE = 'google/gemini-2.5-flash-image'
 //
 
-const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
-
-// Map Lovable model names to Google Cloud model names
-const MODEL_MAP: Record<string, string> = {
-  'google/gemini-2.5-flash': 'gemini-2.5-flash',
-  'google/gemini-2.5-flash-lite': 'gemini-2.5-flash-lite',
-  'google/gemini-2.5-pro': 'gemini-2.5-pro',
-  'google/gemini-3-flash-preview': 'gemini-3-flash-preview',
-  'google/gemini-3-pro-preview': 'gemini-3-pro-preview',
-  'google/gemini-3-pro-image-preview': 'gemini-3-pro-image-preview',
-  'openai/gpt-5.2': 'gemini-3-pro-preview',
-  'openai/gpt-5': 'gemini-3-pro-preview',
-  'openai/gpt-5-mini': 'gemini-3-flash-preview',
-  'openai/gpt-5-nano': 'gemini-2.5-flash-lite',
-};
-
-// NOTE: Google Direct API is used for Research Agent (runResearchAgent function)
-// because Google Search Grounding (tools: [{ googleSearch: {} }]) is not available
-// via OpenRouter. Professor AI uses OpenRouter via generateText().
+// NOTE: All AI operations now route through OpenRouter via unified-ai-client.ts
+// Research uses Perplexity (perplexity/sonar-pro) for web search with citations
+// Professor AI uses google/gemini-3-flash-preview for slide content generation
 
 function parseJsonFromAI(content: string): any {
   // Extract JSON from markdown code blocks if present
@@ -460,223 +444,74 @@ TEACHING UNIT POSITION: ${context.sequence_position} of ${context.total_siblings
 }
 
 // ============================================================================
-// RESEARCH AGENT - Google Search Grounding (Universal Adaptive Engine)
+// RESEARCH AGENT - Perplexity via OpenRouter (Consolidated)
 // ============================================================================
 //
-// PROACTIVE RETRY STRATEGY (Quality-First):
-// We NEVER compromise on research quality. Instead, we retry the SAME
-// comprehensive prompt with increasing timeouts and strategic delays:
+// ARCHITECTURE (2026-01-25 Consolidation):
+//   - Provider: OpenRouter (unified billing)
+//   - Model: perplexity/sonar-pro (web search with citations)
+//   - Fallback: perplexity/sonar (faster, lighter)
 //
-//   - Attempt 1: Full research prompt, 35s timeout
-//   - Attempt 2: Same prompt, 40s timeout, 3s delay (network recovery time)
-//   - Attempt 3: Same prompt, 45s timeout, 5s delay (more recovery time)
+// This replaces the previous Google Direct implementation that used:
+//   - GOOGLE_CLOUD_API_KEY
+//   - googleSearch tool
+//   - Multiple retry attempts
 //
-// WHY THIS WORKS:
-//   - Google Search API slowdowns are often transient (seconds, not minutes)
-//   - A 3-5s delay often allows the API to recover
-//   - Increasing timeouts account for variable network conditions
-//   - Total worst-case: ~130s, but usually succeeds on attempt 1 or 2
-//
-// QUALITY GUARANTEE:
-//   - Every attempt uses the FULL comprehensive research prompt
-//   - No simplified fallbacks - we get full quality or explicit failure
-//   - Explicit logging shows exactly what happened
+// Now delegated to unified-ai-client.ts searchGrounded() function
 // ============================================================================
 
-interface ResearchAttempt {
-  timeoutMs: number;
-  delayBeforeMs: number;
-  attemptLabel: string;
-}
-
-// Retry configuration: same quality prompt, increasing patience
-const RETRY_CONFIG: ResearchAttempt[] = [
-  { timeoutMs: 35000, delayBeforeMs: 0,    attemptLabel: 'initial (35s)' },
-  { timeoutMs: 40000, delayBeforeMs: 3000, attemptLabel: 'retry 1 (40s, after 3s delay)' },
-  { timeoutMs: 45000, delayBeforeMs: 5000, attemptLabel: 'retry 2 (45s, after 5s delay)' },
-];
-
-function buildFullResearchPrompt(
+function buildResearchQuery(
   context: TeachingUnitContext,
   domainConfig: DomainConfig | null
 ): string {
   const trustedSites = domainConfig?.trusted_sites || ['scholar.google.com', '.edu'];
-  const siteFilter = trustedSites.slice(0, 3).map(s => `site:${s}`).join(' OR ');
   const coreConcept = context.required_concepts[0] || context.learning_objective.core_concept || context.title;
 
-  return `You are a research assistant gathering verified information for a ${domainConfig?.academic_level || 'university'}-level lecture.
+  return `Research the topic "${context.title}" for a ${domainConfig?.academic_level || 'university'}-level lecture.
 
-TOPIC: ${context.title}
 DOMAIN: ${domainConfig?.domain || context.domain}
+CORE CONCEPT: ${coreConcept}
 WHAT TO TEACH: ${context.what_to_teach}
 
-REQUIRED CONCEPTS TO RESEARCH:
-${context.required_concepts.map(c => `- ${c}`).join('\n') || '- ' + context.learning_objective.core_concept}
-
-RESEARCH REQUIREMENTS:
+REQUIRED RESEARCH:
 1. Find the CORE DEFINITION of "${context.title}" from authoritative sources
 2. Find 2-3 SPECIFIC EXAMPLES or case studies with real data, names, dates
 3. Find any COMMON MISCONCEPTIONS and their corrections
 4. If this involves a framework or model, describe its visual structure exactly
 5. Find recommended readings or resources students should explore
 
-SEARCH STRATEGY:
-- Prioritize sources from: ${trustedSites.join(', ')}
-- Use search queries like: "${coreConcept} ${siteFilter}"
-- AVOID: ${domainConfig?.avoid_sources?.join(', ') || 'blogs, opinion pieces, unreferenced content'}
+PREFERRED SOURCES: ${trustedSites.join(', ')}
+AVOID: ${domainConfig?.avoid_sources?.join(', ') || 'blogs, opinion pieces, unreferenced content'}
 
-REQUIRED OUTPUT FORMAT (JSON only, no markdown):
-{
-  "topic": "${context.title}",
-  "grounded_content": [
-    {
-      "claim": "Verified factual statement with specific data",
-      "source_url": "URL from search results",
-      "source_title": "Source name/publication",
-      "confidence": 0.95
-    }
-  ],
-  "recommended_reading": [
-    {
-      "title": "Resource title",
-      "url": "URL",
-      "type": "Academic"
-    }
-  ],
-  "visual_descriptions": [
-    {
-      "framework_name": "e.g., Porter's Five Forces",
-      "description": "Text description of the visual structure",
-      "elements": ["Element 1", "Element 2", "Element 3"]
-    }
-  ]
-}
-
-Search now and return ONLY verified, factually grounded content.`;
-}
-
-async function executeResearchAttempt(
-  prompt: string,
-  attempt: ResearchAttempt,
-  attemptNumber: number,
-  apiKey: string
-): Promise<{ success: boolean; data?: any; error?: string; isRateLimited?: boolean }> {
-  const model = MODEL_CONFIG.GEMINI_FLASH;
-  const url = `${GOOGLE_API_BASE}/models/${model}:generateContent`;
-
-  console.log(`[Research Agent] Attempt ${attemptNumber}/3: ${attempt.attemptLabel}`);
-
-  try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': apiKey,
-      },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        tools: [{ googleSearch: {} }],
-        generationConfig: { temperature: 0.3 },
-      }),
-      signal: AbortSignal.timeout(attempt.timeoutMs),
-    });
-
-    if (!response.ok) {
-      const isRateLimited = response.status === 429;
-      return { success: false, error: `HTTP ${response.status}`, isRateLimited };
-    }
-
-    const data = await response.json();
-    return { success: true, data };
-
-  } catch (error) {
-    if (error instanceof Error && error.name === 'TimeoutError') {
-      return { success: false, error: `timeout after ${attempt.timeoutMs}ms` };
-    }
-    return { success: false, error: String(error) };
-  }
+Return verified, factually grounded content with citations.`;
 }
 
 async function runResearchAgent(
   context: TeachingUnitContext,
   domainConfig: DomainConfig | null
 ): Promise<ResearchContext> {
-  console.log('[Research Agent] Starting grounded research for:', context.title);
+  console.log('[Research Agent] Starting research via OpenRouter Perplexity:', context.title);
 
-  const apiKey = Deno.env.get('GOOGLE_CLOUD_API_KEY');
-  if (!apiKey) {
-    console.warn('[Research Agent] GOOGLE_CLOUD_API_KEY not configured');
+  const query = buildResearchQuery(context, domainConfig);
+
+  try {
+    const result = await searchGrounded({
+      query,
+      logPrefix: '[Research Agent]',
+    });
+
+    console.log(`[Research Agent] ✓ Complete: ${result.grounded_content.length} claims, ${result.recommended_reading.length} readings`);
+    
+    return {
+      topic: result.topic,
+      grounded_content: result.grounded_content,
+      recommended_reading: result.recommended_reading,
+      visual_descriptions: result.visual_descriptions,
+    };
+  } catch (error) {
+    console.error('[Research Agent] Error:', error);
     return getEmptyResearchContext(context.title);
   }
-
-  // Build the FULL quality research prompt (same for all attempts)
-  const fullPrompt = buildFullResearchPrompt(context, domainConfig);
-
-  for (let i = 0; i < RETRY_CONFIG.length; i++) {
-    const attempt = RETRY_CONFIG[i];
-
-    // Delay before retry (not on first attempt) - allows API to recover
-    if (attempt.delayBeforeMs > 0) {
-      console.log(`[Research Agent] Waiting ${attempt.delayBeforeMs / 1000}s before retry (API recovery time)...`);
-      await new Promise(resolve => setTimeout(resolve, attempt.delayBeforeMs));
-    }
-
-    const result = await executeResearchAttempt(fullPrompt, attempt, i + 1, apiKey);
-
-    if (result.success && result.data) {
-      // Parse the successful response
-      const content = result.data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      const groundingMetadata = result.data.candidates?.[0]?.groundingMetadata;
-
-      let researchContext: ResearchContext;
-      try {
-        const cleaned = content.replace(/```json?\n?|\n?```/g, '').trim();
-        researchContext = JSON.parse(cleaned);
-      } catch (parseError) {
-        console.warn(`[Research Agent] Attempt ${i + 1}: Failed to parse JSON, using grounding metadata`);
-        researchContext = getEmptyResearchContext(context.title);
-      }
-
-      // Enrich with grounding metadata if available
-      if (groundingMetadata?.groundingChunks) {
-        console.log(`[Research Agent] Found ${groundingMetadata.groundingChunks.length} grounding chunks`);
-        const additionalSources = groundingMetadata.groundingChunks.map((chunk: any) => ({
-          claim: chunk.web?.title || 'Additional verified source',
-          source_url: chunk.web?.uri || '',
-          source_title: chunk.web?.title || 'Unknown',
-          confidence: 0.9,
-        }));
-        researchContext.grounded_content = [
-          ...researchContext.grounded_content,
-          ...additionalSources,
-        ];
-        researchContext.raw_grounding_metadata = groundingMetadata;
-      }
-
-      if (groundingMetadata?.webSearchQueries) {
-        console.log(`[Research Agent] Web search queries: ${groundingMetadata.webSearchQueries.join(', ')}`);
-      }
-
-      // Success! Log and return
-      console.log(`[Research Agent] ✓ Success on attempt ${i + 1} (${attempt.attemptLabel})`);
-      console.log(`[Research Agent] Found ${researchContext.grounded_content.length} grounded claims, ${researchContext.visual_descriptions?.length || 0} visual descriptions`);
-      return researchContext;
-    }
-
-    // Log failure and continue to next attempt
-    console.warn(`[Research Agent] Attempt ${i + 1} failed: ${result.error}`);
-
-    // If rate limited, add extra delay before next attempt
-    if (result.isRateLimited) {
-      console.warn('[Research Agent] Rate limited (429) - adding 5s extra delay');
-      await new Promise(resolve => setTimeout(resolve, 5000));
-    }
-  }
-
-  // All attempts exhausted - this is a hard failure, log prominently
-  console.error(`[Research Agent] ✗ All ${RETRY_CONFIG.length} attempts failed for "${context.title}"`);
-  console.error('[Research Agent] Proceeding without research data - slides will use AI training knowledge only');
-  return getEmptyResearchContext(context.title);
 }
 
 function getEmptyResearchContext(topic: string): ResearchContext {
