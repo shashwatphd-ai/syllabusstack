@@ -111,11 +111,88 @@ async function handleCheckoutComplete(
 ) {
   console.log("Handling checkout.session.completed");
 
-  const userId = session.subscription
+  const productType = session.metadata?.product_type;
+  const userId = session.metadata?.user_id;
+
+  // Handle $1 payment gates
+  if (productType === "course_creation") {
+    console.log(`Course creation payment completed for user ${userId}`);
+    // Course creation is handled on the frontend after redirect
+    // Just log success
+    return;
+  }
+
+  if (productType === "course_enrollment") {
+    console.log(`Course enrollment payment completed for user ${userId}`);
+    const courseId = session.metadata?.instructor_course_id;
+    
+    if (!userId || !courseId) {
+      console.error("Missing user_id or course_id in enrollment metadata");
+      return;
+    }
+
+    // Create the enrollment record
+    const { error: enrollError } = await supabase
+      .from("course_enrollments")
+      .insert({
+        student_id: userId,
+        instructor_course_id: courseId,
+      });
+
+    if (enrollError) {
+      console.error("Failed to create enrollment:", enrollError);
+    } else {
+      console.log(`Enrollment created for user ${userId} in course ${courseId}`);
+    }
+    return;
+  }
+
+  if (productType === "certificate") {
+    console.log(`Certificate purchase completed for user ${userId}`);
+    const enrollmentId = session.metadata?.enrollment_id;
+    const certificateType = session.metadata?.certificate_type;
+    
+    if (!userId || !enrollmentId || !certificateType) {
+      console.error("Missing metadata for certificate purchase");
+      return;
+    }
+
+    // Trigger certificate issuance
+    try {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL");
+      const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+      
+      const response = await fetch(`${supabaseUrl}/functions/v1/issue-certificate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${supabaseKey}`,
+        },
+        body: JSON.stringify({
+          enrollment_id: enrollmentId,
+          certificate_type: certificateType,
+          payment_intent_id: session.payment_intent,
+          amount_paid_cents: session.amount_total,
+        }),
+      });
+
+      if (!response.ok) {
+        console.error("Failed to issue certificate:", await response.text());
+      } else {
+        console.log(`Certificate issued for enrollment ${enrollmentId}`);
+      }
+    } catch (err) {
+      console.error("Error issuing certificate:", err);
+    }
+    return;
+  }
+
+  // Handle subscription checkout (legacy flow)
+  const subscriptionUserId = session.subscription
     ? (await stripe.subscriptions.retrieve(session.subscription as string)).metadata?.supabase_user_id
     : session.metadata?.supabase_user_id;
 
-  if (!userId) {
+  if (!subscriptionUserId) {
     console.error("No user ID found in session metadata");
     return;
   }
@@ -135,9 +212,9 @@ async function handleCheckoutComplete(
           ? new Date(subscription.current_period_end * 1000).toISOString()
           : null,
       })
-      .eq("user_id", userId);
+      .eq("user_id", subscriptionUserId);
 
-    console.log(`Updated user ${userId} to pro tier`);
+    console.log(`Updated user ${subscriptionUserId} to pro tier`);
   }
 }
 
