@@ -250,7 +250,7 @@ export default function TestResultsPage() {
                     <div>
                       <h4 className="font-semibold mb-3">Tools & Methods</h4>
                       <div className="flex flex-wrap gap-2">
-                        {(latestCourse.tools_methods || []).map((tool: string, i: number) => (
+                        {((latestCourse.tools_methods as unknown as string[]) || []).map((tool: string, i: number) => (
                           <Badge key={i} variant="secondary">{tool}</Badge>
                         ))}
                       </div>
