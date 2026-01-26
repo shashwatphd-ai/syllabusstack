@@ -31,6 +31,8 @@ import UniversitiesPage from "./pages/Universities";
 import HowItWorksPage from "./pages/HowItWorks";
 import ForgotPasswordPage from "./pages/ForgotPassword";
 import ResetPasswordPage from "./pages/ResetPassword";
+import PaymentSuccessPage from "./pages/PaymentSuccess";
+import PaymentCancelPage from "./pages/PaymentCancel";
 import InstructorCoursesPage from "./pages/instructor/InstructorCourses";
 import InstructorCourseDetailPage from "./pages/instructor/InstructorCourseDetail";
 import QuickCourseSetupPage from "./pages/instructor/QuickCourseSetup";
@@ -69,6 +71,9 @@ const App = () => (
             <Route path="/legal" element={<LegalPage />} />
             <Route path="/how-it-works" element={<HowItWorksPage />} />
             <Route path="/universities" element={<UniversitiesPage />} />
+            {/* Payment redirect pages */}
+            <Route path="/payment-success" element={<PaymentSuccessPage />} />
+            <Route path="/payment-cancel" element={<PaymentCancelPage />} />
             {/* Public certificate verification */}
             <Route path="/verify/:shareToken" element={<PublicCertificateVerifyPage />} />
 

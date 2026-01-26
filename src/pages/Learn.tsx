@@ -69,6 +69,7 @@ import {
   CheckSquare,
   Download,
   X,
+  Trophy,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useStudentEnrollments } from "@/hooks/useStudentCourses";
@@ -81,6 +82,7 @@ import { EnrollmentDialog } from "@/components/student/EnrollmentDialog";
 import { AddCourseForm } from "@/components/forms";
 import { toast } from "@/hooks/use-toast";
 import { useBulkSelection } from "@/hooks/useBulkSelection";
+import { MyCertificatesList } from "@/components/certificates/MyCertificatesList";
 
 interface SkillProfile {
   skill_name: string;
@@ -727,10 +729,14 @@ export default function LearnPage() {
 
         {/* Main Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="active" className="gap-2">
               <PlayCircle className="h-4 w-4" />
               Active Courses
+            </TabsTrigger>
+            <TabsTrigger value="certificates" className="gap-2">
+              <Trophy className="h-4 w-4" />
+              Certificates
             </TabsTrigger>
             <TabsTrigger value="transcript" className="gap-2">
               <BookOpen className="h-4 w-4" />
@@ -836,6 +842,16 @@ export default function LearnPage() {
                 ))}
               </div>
             )}
+          </TabsContent>
+
+          {/* Certificates Tab */}
+          <TabsContent value="certificates" className="space-y-4">
+            <div className="flex justify-between items-center">
+              <p className="text-sm text-muted-foreground">
+                Your earned credentials and certifications
+              </p>
+            </div>
+            <MyCertificatesList />
           </TabsContent>
 
           {/* My Transcript Tab */}
