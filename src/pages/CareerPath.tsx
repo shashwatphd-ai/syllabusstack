@@ -99,7 +99,8 @@ interface PriorityGap {
   reason: string;
 }
 
-type ReadinessLevel = 'ready' | 'almost_ready' | 'needs_work' | 'significant_gaps';
+// Readiness levels must match HonestAssessment component expectations
+type ReadinessLevel = 'ready_to_apply' | '3_months_away' | '6_months_away' | '1_year_away' | 'needs_significant_development';
 
 export default function CareerPathPage() {
   const [searchParams, setSearchParams] = useSearchParams();
