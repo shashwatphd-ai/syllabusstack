@@ -223,13 +223,15 @@ export default function LearnPage() {
   // Calculate stats - single pass instead of multiple O(n) filters
   const { activeCoursesCount, completedCoursesCount, verifiedSkillsCount, totalSkillsCount } = useMemo(() => {
     let active = 0, completed = 0, verified = 0;
-    enrollments.forEach((e: any) => e.completed_at ? completed++ : active++);
-    skillProfile.forEach(s => { if (s.verified) verified++; });
+    const safeEnrollments = enrollments || [];
+    const safeSkillProfile = skillProfile || [];
+    safeEnrollments.forEach((e: any) => e.completed_at ? completed++ : active++);
+    safeSkillProfile.forEach(s => { if (s.verified) verified++; });
     return {
       activeCoursesCount: active,
       completedCoursesCount: completed,
       verifiedSkillsCount: verified,
-      totalSkillsCount: skillProfile.length
+      totalSkillsCount: safeSkillProfile.length
     };
   }, [enrollments, skillProfile]);
   const transcriptCount = personalCourses.length;
@@ -237,7 +239,7 @@ export default function LearnPage() {
   // Pre-compute skill counts ONCE using Map for O(1) lookups instead of O(n) filter per call
   const skillCountMap = useMemo(() => {
     const map = new Map<string, number>();
-    capabilities.forEach((c: any) => {
+    (capabilities || []).forEach((c: any) => {
       map.set(c.course_id, (map.get(c.course_id) || 0) + 1);
     });
     return map;
@@ -393,7 +395,7 @@ export default function LearnPage() {
 
   // Filter skills by search - memoized to avoid recalculation on every render
   const filteredSkills = useMemo(() =>
-    skillProfile.filter(skill =>
+    (skillProfile || []).filter(skill =>
       skill.skill_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       skill.source_name.toLowerCase().includes(searchQuery.toLowerCase())
     ),
