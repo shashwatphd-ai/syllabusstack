@@ -64,10 +64,7 @@ async function searchCoursesWithFirecrawl(
   
   // Convert to the format expected by the edge function
   const gapsForSearch = gapsToSearchFormat(normalizedGaps);
-  
-  console.log(`[useCourseSearch] Searching courses for ${gapsForSearch.length} gaps:`, 
-    gapsForSearch.map(g => g.gap.slice(0, 40)).join(' | '));
-  
+
   const { data, error } = await supabase.functions.invoke('firecrawl-search-courses', {
     body: { 
       gaps: gapsForSearch, 
@@ -99,7 +96,6 @@ async function searchCoursesWithFirecrawl(
     throw new Error(data.error);
   }
 
-  console.log(`[useCourseSearch] Found ${data?.totalFound || 0} courses`);
   return data;
 }
 

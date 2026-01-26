@@ -267,8 +267,6 @@ export function useCourseLectureSlides(instructorCourseId?: string) {
       return;
     }
     
-    console.log('[Realtime] Setting up lecture_slides subscription for:', instructorCourseId);
-    
     const channel = supabase
       .channel(channelName)
       .on(
@@ -280,33 +278,28 @@ export function useCourseLectureSlides(instructorCourseId?: string) {
           filter: `instructor_course_id=eq.${instructorCourseId}`,
         },
         (payload) => {
-          console.log('[Realtime] Lecture slide change:', payload.eventType, payload.new);
-          
           // Use setTimeout to ensure we're not in a render cycle
           setTimeout(() => {
             // Invalidate queries to refresh the data
-            queryClient.invalidateQueries({ 
-              queryKey: ['course-lecture-slides', instructorCourseId] 
+            queryClient.invalidateQueries({
+              queryKey: ['course-lecture-slides', instructorCourseId]
             });
-            queryClient.invalidateQueries({ 
-              queryKey: ['lecture-queue-status', instructorCourseId] 
+            queryClient.invalidateQueries({
+              queryKey: ['lecture-queue-status', instructorCourseId]
             });
-            
+
             // Also invalidate specific teaching unit query if available
             if (payload.new && typeof payload.new === 'object' && 'teaching_unit_id' in payload.new) {
-              queryClient.invalidateQueries({ 
-                queryKey: ['lecture-slides', (payload.new as any).teaching_unit_id] 
+              queryClient.invalidateQueries({
+                queryKey: ['lecture-slides', (payload.new as { teaching_unit_id: string }).teaching_unit_id]
               });
             }
           }, 0);
         }
       )
-      .subscribe((status) => {
-        console.log('[Realtime] Subscription status:', status);
-      });
-    
+      .subscribe();
+
     return () => {
-      console.log('[Realtime] Cleaning up lecture_slides subscription');
       supabase.removeChannel(channel);
     };
   }, [instructorCourseId, queryClient]);
