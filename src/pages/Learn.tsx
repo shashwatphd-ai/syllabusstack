@@ -72,9 +72,9 @@ import {
   Trophy,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { useStudentEnrollments } from "@/hooks/useStudentCourses";
-import { useCourses, useCreateCourse, useDeleteCourse, useUpdateCourse } from "@/hooks/useCourses";
-import { useCapabilities } from "@/hooks/useCapabilities";
+import { useStudentEnrollments, StudentEnrollment } from "@/hooks/useStudentCourses";
+import { useCourses, useCreateCourse, useDeleteCourse, useUpdateCourse, Course } from "@/hooks/useCourses";
+import { useCapabilities, Capability } from "@/hooks/useCapabilities";
 import { analyzeSyllabus } from "@/services";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -94,6 +94,21 @@ interface SkillProfile {
   evidence_url: string | null;
 }
 
+// API response capability (from analyze-syllabus)
+interface AnalyzedCapability {
+  name: string;
+  category?: string;
+  proficiency_level?: string;
+}
+
+// Fallback capability data from legacy query
+interface LegacyCapabilityRow {
+  name: string;
+  proficiency_level: string;
+  created_at: string;
+  courses: { title: string } | null;
+}
+
 type SortOption = "newest" | "oldest" | "name" | "skills";
 type FilterOption = "all" | "analyzed" | "pending";
 
@@ -101,7 +116,7 @@ type FilterOption = "all" | "analyzed" | "pending";
 type CourseStatus = "completed" | "in_progress" | "planned";
 
 // Helper to get course completion status from the course data
-const getCourseCompletionStatus = (course: any): CourseStatus => {
+const getCourseCompletionStatus = (course: Course): CourseStatus => {
   const grade = course.grade;
   if (grade === "in_progress") return "in_progress";
   if (grade === "planned") return "planned";
@@ -112,7 +127,7 @@ const getCourseCompletionStatus = (course: any): CourseStatus => {
 };
 
 // Helper to get display grade (not the status)
-const getDisplayGrade = (course: any): string | null => {
+const getDisplayGrade = (course: Course): string | null => {
   const grade = course.grade;
   if (!grade || grade === "in_progress" || grade === "planned" || grade === "completed") {
     return null;
@@ -151,7 +166,7 @@ export default function LearnPage() {
   const [bulkDeleteTranscriptOpen, setBulkDeleteTranscriptOpen] = useState(false);
 
   // Edit dialog state
-  const [editingCourse, setEditingCourse] = useState<any | null>(null);
+  const [editingCourse, setEditingCourse] = useState<Course | null>(null);
   const [editForm, setEditForm] = useState({
     title: "",
     code: "",
@@ -164,13 +179,13 @@ export default function LearnPage() {
   const [isEditSaving, setIsEditSaving] = useState(false);
 
   // Delete confirmation state
-  const [deletingCourse, setDeletingCourse] = useState<any | null>(null);
+  const [deletingCourse, setDeletingCourse] = useState<Course | null>(null);
 
   // Status change dialog state
-  const [statusChangeCourse, setStatusChangeCourse] = useState<any | null>(null);
+  const [statusChangeCourse, setStatusChangeCourse] = useState<Course | null>(null);
 
   // Re-analyze state
-  const [reanalyzeCourse, setReanalyzeCourse] = useState<any | null>(null);
+  const [reanalyzeCourse, setReanalyzeCourse] = useState<Course | null>(null);
   const [reanalyzeFile, setReanalyzeFile] = useState<File | null>(null);
   const [isReanalyzing, setIsReanalyzing] = useState(false);
 
@@ -205,7 +220,7 @@ export default function LearnPage() {
           .select("name, proficiency_level, created_at, courses(title)")
           .order("created_at", { ascending: false });
 
-        return (caps || []).map((c: any) => ({
+        return (caps || []).map((c: LegacyCapabilityRow) => ({
           skill_name: c.name,
           proficiency_level: c.proficiency_level,
           source_type: "self_reported",
@@ -225,7 +240,7 @@ export default function LearnPage() {
     let active = 0, completed = 0, verified = 0;
     const safeEnrollments = enrollments || [];
     const safeSkillProfile = skillProfile || [];
-    safeEnrollments.forEach((e: any) => e.completed_at ? completed++ : active++);
+    safeEnrollments.forEach((e: StudentEnrollment) => e.completed_at ? completed++ : active++);
     safeSkillProfile.forEach(s => { if (s.verified) verified++; });
     return {
       activeCoursesCount: active,
@@ -239,7 +254,7 @@ export default function LearnPage() {
   // Pre-compute skill counts ONCE using Map for O(1) lookups instead of O(n) filter per call
   const skillCountMap = useMemo(() => {
     const map = new Map<string, number>();
-    (capabilities || []).forEach((c: any) => {
+    (capabilities || []).forEach((c: Capability) => {
       map.set(c.course_id, (map.get(c.course_id) || 0) + 1);
     });
     return map;
@@ -251,7 +266,7 @@ export default function LearnPage() {
   }, [skillCountMap]);
 
   // Get course status
-  const getCourseStatus = (course: any) => {
+  const getCourseStatus = (course: Course) => {
     if (course.analysis_status === 'completed') return 'analyzed';
     if (course.analysis_status === 'analyzing') return 'analyzing';
     if (course.analysis_status === 'failed') return 'failed';
@@ -326,7 +341,7 @@ export default function LearnPage() {
     handleClearTranscriptSelection();
   };
 
-  const exportSelectedTranscript = (courses: any[]) => {
+  const exportSelectedTranscript = (courses: Course[]) => {
     const ids = selectedTranscriptCourseIds;
     const selected = courses.filter(c => ids.has(c.id));
     if (selected.length === 0) return;
@@ -359,7 +374,7 @@ export default function LearnPage() {
     // Apply search filter
     if (transcriptSearch.trim()) {
       const query = transcriptSearch.toLowerCase();
-      result = result.filter((c: any) =>
+      result = result.filter((c: Course) =>
         c.title.toLowerCase().includes(query) ||
         (c.code && c.code.toLowerCase().includes(query)) ||
         (c.semester && c.semester.toLowerCase().includes(query))
@@ -368,14 +383,14 @@ export default function LearnPage() {
 
     // Apply analysis status filter
     if (filterBy !== "all") {
-      result = result.filter((c: any) => {
+      result = result.filter((c: Course) => {
         const status = getCourseStatus(c);
         return status === filterBy;
       });
     }
 
     // Apply sorting
-    result.sort((a: any, b: any) => {
+    result.sort((a: Course, b: Course) => {
       switch (sortBy) {
         case "newest":
           return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
@@ -455,7 +470,7 @@ export default function LearnPage() {
   };
 
   // Handle edit course
-  const handleEditCourse = (course: any) => {
+  const handleEditCourse = (course: Course) => {
     setEditingCourse(course);
     const displayGrade = getDisplayGrade(course);
     setEditForm({
@@ -514,7 +529,7 @@ export default function LearnPage() {
   };
 
   // Update course status (completion status) - uses hook for proper cache invalidation
-  const handleUpdateCourseStatus = async (course: any, newStatus: CourseStatus, grade?: string) => {
+  const handleUpdateCourseStatus = async (course: Course, newStatus: CourseStatus, grade?: string) => {
     try {
       let gradeValue: string | null = null;
       if (newStatus === 'completed') {
@@ -537,7 +552,7 @@ export default function LearnPage() {
   };
 
   // Quick status change for a course
-  const handleQuickStatusChange = async (course: any, newStatus: CourseStatus) => {
+  const handleQuickStatusChange = async (course: Course, newStatus: CourseStatus) => {
     if (newStatus === 'completed') {
       // Open dialog to optionally enter grade
       setStatusChangeCourse(course);
@@ -552,7 +567,7 @@ export default function LearnPage() {
   };
 
   // Open the re-analyze dialog
-  const handleReanalyzeClick = (course: any) => {
+  const handleReanalyzeClick = (course: Course) => {
     setReanalyzeCourse(course);
     setReanalyzeFile(null);
   };
@@ -603,7 +618,7 @@ export default function LearnPage() {
       // If analysis returned capabilities, also insert them manually
       const capabilities = data.analysis?.capabilities || [];
       if (capabilities.length > 0) {
-        const capabilitiesToInsert = capabilities.map((cap: any) => ({
+        const capabilitiesToInsert = capabilities.map((cap: string | AnalyzedCapability) => ({
           user_id: user.id,
           course_id: reanalyzeCourse.id,
           name: typeof cap === 'string' ? cap : cap.name,
@@ -800,7 +815,7 @@ export default function LearnPage() {
               </Card>
             ) : (
               <div className="grid gap-4 md:grid-cols-2">
-                {enrollments.map((enrollment: any) => (
+                {enrollments.map((enrollment: StudentEnrollment) => (
                   <Card
                     key={enrollment.id}
                     className="cursor-pointer hover:shadow-md transition-shadow"
@@ -1069,7 +1084,7 @@ export default function LearnPage() {
 
                 {/* Course Grid */}
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                  {filteredAndSortedCourses.map((course: any) => {
+                  {filteredAndSortedCourses.map((course: Course) => {
                     const status = getCourseStatus(course);
                     const completionStatus = getCourseCompletionStatus(course);
                     const skillCount = getCourseSkillCount(course.id);

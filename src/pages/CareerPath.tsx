@@ -74,6 +74,33 @@ import { GapsList } from "@/components/analysis/GapsList";
 import { OverlapsList } from "@/components/analysis/OverlapsList";
 import { isPriceFree, countByPriceCategory } from "@/lib/price-utils";
 
+// Typed JSON field interfaces for gap analysis
+interface StrongOverlap {
+  student_capability: string;
+  job_requirement: string;
+  assessment: string;
+}
+
+interface PartialOverlap {
+  area: string;
+  foundation: string;
+  missing: string;
+}
+
+interface CriticalGap {
+  job_requirement: string;
+  student_status: string;
+  impact: string;
+}
+
+interface PriorityGap {
+  gap: string;
+  priority: number;
+  reason: string;
+}
+
+type ReadinessLevel = 'ready' | 'almost_ready' | 'needs_work' | 'significant_gaps';
+
 export default function CareerPathPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -130,10 +157,10 @@ export default function CareerPathPage() {
   };
 
   // Parse gap analysis data
-  const strongOverlaps = (analysis?.strong_overlaps as any[]) || [];
-  const partialOverlaps = (analysis?.partial_overlaps as any[]) || [];
-  const criticalGaps = (analysis?.critical_gaps as any[]) || [];
-  const priorityGaps = (analysis?.priority_gaps as any[]) || [];
+  const strongOverlaps = (analysis?.strong_overlaps as StrongOverlap[] | null) || [];
+  const partialOverlaps = (analysis?.partial_overlaps as PartialOverlap[] | null) || [];
+  const criticalGaps = (analysis?.critical_gaps as CriticalGap[] | null) || [];
+  const priorityGaps = (analysis?.priority_gaps as PriorityGap[] | null) || [];
 
   const overlapsCount = strongOverlaps.length + partialOverlaps.length;
   const gapsCount = criticalGaps.length + priorityGaps.length;
@@ -626,7 +653,7 @@ export default function CareerPathPage() {
                     <HonestAssessment
                       dreamJobTitle={selectedJob?.title || ''}
                       matchScore={matchScore}
-                      readinessLevel={analysis.readiness_level as any}
+                      readinessLevel={analysis.readiness_level as ReadinessLevel}
                       honestAssessment={analysis.honest_assessment || ''}
                       interviewReadiness={analysis.interview_readiness || undefined}
                       jobSuccessPrediction={analysis.job_success_prediction || undefined}

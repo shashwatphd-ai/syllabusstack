@@ -93,8 +93,6 @@ async function refreshAllGapAnalyses() {
 
   if (!dreamJobs || dreamJobs.length === 0) return;
 
-  console.log('[Workflow] Checking gap analyses freshness for', dreamJobs.length, 'dream jobs');
-  
   // Check freshness for all jobs in parallel
   const freshnessChecks = await Promise.all(
     dreamJobs.map(async job => ({
@@ -102,23 +100,17 @@ async function refreshAllGapAnalyses() {
       isFresh: await isAnalysisFresh(job.id, user.id)
     }))
   );
-  
+
   // Filter to only stale analyses
   const staleJobs = freshnessChecks
     .filter(({ isFresh }) => !isFresh)
     .map(({ job }) => job);
-  
-  if (staleJobs.length === 0) {
-    console.log('[Workflow] All analyses are fresh, skipping refresh');
-    return;
-  }
 
-  console.log('[Workflow] Refreshing', staleJobs.length, 'stale analyses in parallel');
-  
+  if (staleJobs.length === 0) return;
+
   // Process stale analyses in parallel with Promise.allSettled (handles partial failures)
   const results = await Promise.allSettled(
     staleJobs.map(async job => {
-      console.log('[Workflow] Refreshing stale analysis for job:', job.id);
       const gapResult = await performGapAnalysis(job.id);
       if (gapResult.gaps && gapResult.gaps.length > 0) {
         await generateRecommendations(job.id, gapResult.gaps);
@@ -126,7 +118,7 @@ async function refreshAllGapAnalyses() {
       return job.id;
     })
   );
-  
+
   // Log any failures
   results.forEach((result, index) => {
     if (result.status === 'rejected') {

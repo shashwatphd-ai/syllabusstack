@@ -100,8 +100,6 @@ export function useAIGeneration() {
   // ==========================================================================
   const generateSlides = useMutation({
     mutationFn: async ({ instructorCourseId, teachingUnitIds }: SlideGenerationRequest) => {
-      console.log(`[AI] Generating slides for ${teachingUnitIds.length} units`);
-
       // Step 1: Create placeholders
       const { data: submitData, error: submitError } = await supabase.functions.invoke(
         'submit-batch-slides',
@@ -155,8 +153,6 @@ export function useAIGeneration() {
   // ==========================================================================
   const generateImages = useMutation({
     mutationFn: async ({ instructorCourseId, lectureSlideIds }: ImageGenerationRequest) => {
-      console.log(`[AI] Triggering image generation for course ${instructorCourseId}`);
-
       const { data, error } = await supabase.functions.invoke('process-batch-images', {
         body: lectureSlideIds
           ? { lecture_slides_ids: lectureSlideIds }
@@ -192,8 +188,6 @@ export function useAIGeneration() {
   // ==========================================================================
   const generateCurriculum = useMutation({
     mutationFn: async ({ careerMatchId, dreamJobId, customization }: CurriculumGenerationRequest) => {
-      console.log('[AI] Generating curriculum');
-
       const { data, error } = await supabase.functions.invoke('generate-curriculum', {
         body: {
           career_match_id: careerMatchId,
@@ -230,8 +224,6 @@ export function useAIGeneration() {
   // ==========================================================================
   const generateAssessment = useMutation({
     mutationFn: async ({ learningObjectiveId, count, difficulty }: AssessmentGenerationRequest) => {
-      console.log(`[AI] Generating assessment for LO ${learningObjectiveId}`);
-
       const { data, error } = await supabase.functions.invoke('generate-assessment-questions', {
         body: {
           learning_objective_id: learningObjectiveId,
@@ -268,8 +260,6 @@ export function useAIGeneration() {
   // ==========================================================================
   const generateText = useMutation({
     mutationFn: async ({ prompt, systemPrompt, options }: TextGenerationRequest) => {
-      console.log('[AI] Generating text via gateway');
-
       const { data, error } = await supabase.functions.invoke('ai-gateway', {
         body: {
           task: 'text',
@@ -300,8 +290,6 @@ export function useAIGeneration() {
   // ==========================================================================
   const generateSingleImage = useMutation({
     mutationFn: async ({ prompt, slideTitle }: { prompt: string; slideTitle?: string }) => {
-      console.log('[AI] Generating single image via gateway');
-
       const { data, error } = await supabase.functions.invoke('ai-gateway', {
         body: {
           task: 'image',

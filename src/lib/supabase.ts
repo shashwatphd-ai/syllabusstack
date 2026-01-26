@@ -1,15 +1,5 @@
-// Supabase client placeholder
-// This file will be populated when Lovable Cloud is enabled
-
-// import { createClient } from '@supabase/supabase-js';
-// import type { Database } from '@/types/database';
-
-// const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-// const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-// export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey);
-
-// Placeholder export for type-safety until Cloud is enabled
+// Supabase client placeholder - used when Lovable Cloud is not enabled
+// For production Supabase client, use: import { supabase } from '@/integrations/supabase/client'
 export const supabase = null;
 
 // Auth helper functions (to be implemented with Supabase)

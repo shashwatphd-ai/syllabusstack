@@ -116,8 +116,6 @@ export function useSubmitBatchSlides() {
       instructorCourseId: string;
       teachingUnitIds: string[];
     }) => {
-      console.log(`[Batch] Submitting ${teachingUnitIds.length} units for batch generation`);
-
       // STEP 1: Create placeholder records (fast)
       const { data: submitData, error: submitError } = await supabase.functions.invoke('submit-batch-slides', {
         body: {
@@ -135,23 +133,11 @@ export function useSubmitBatchSlides() {
         throw new Error(submitData?.error || 'Batch submission failed');
       }
 
-      console.log(`[Batch] Placeholders created, batch_job_id: ${submitData.batch_job_id}`);
-
       // STEP 2: Start research and Vertex AI submission (slow, runs in background)
-      // This call may take 2-5 minutes for large batches
       if (submitData.batch_job_id && submitData.total > 0) {
-        console.log(`[Batch] Starting research for ${submitData.total} units...`);
-
         // Fire and don't wait - let it run in background
-        // The poll-batch-status will track progress
         supabase.functions.invoke('process-batch-research', {
           body: { batch_job_id: submitData.batch_job_id },
-        }).then(({ data: researchData, error: researchError }) => {
-          if (researchError) {
-            console.error('[Batch] Research error:', researchError);
-          } else {
-            console.log('[Batch] Research started:', researchData);
-          }
         }).catch((err) => {
           console.error('[Batch] Research invocation failed:', err);
         });
@@ -249,7 +235,6 @@ export function useBatchStatus(batchJobId?: string | null) {
       return;
     }
 
-    console.log('[Realtime] Setting up batch job subscription for:', batchJobId);
     subscriptionRef.current = true;
 
     const channel = supabase
@@ -263,8 +248,6 @@ export function useBatchStatus(batchJobId?: string | null) {
           filter: `id=eq.${batchJobId}`,
         },
         (payload) => {
-          console.log('[Realtime] Batch job update:', payload.new);
-          
           setTimeout(() => {
             queryClient.invalidateQueries({ queryKey: ['batch-status', batchJobId] });
           }, 0);
@@ -273,7 +256,6 @@ export function useBatchStatus(batchJobId?: string | null) {
       .subscribe();
 
     return () => {
-      console.log('[Realtime] Cleaning up batch job subscription');
       subscriptionRef.current = false;
       supabase.removeChannel(channel);
     };
@@ -340,7 +322,6 @@ export function useCourseSlideStatus(instructorCourseId?: string) {
       return;
     }
 
-    console.log('[Realtime] Setting up batch_jobs subscription for:', instructorCourseId);
     subscriptionRef.current = true;
 
     const channel = supabase
@@ -354,32 +335,27 @@ export function useCourseSlideStatus(instructorCourseId?: string) {
           filter: `instructor_course_id=eq.${instructorCourseId}`,
         },
         (payload) => {
-          console.log('[Realtime] Batch job change:', payload.eventType, payload.new);
-          
           // Invalidate queries immediately on any change
           setTimeout(() => {
-            queryClient.invalidateQueries({ 
-              queryKey: ['course-slide-status', instructorCourseId] 
+            queryClient.invalidateQueries({
+              queryKey: ['course-slide-status', instructorCourseId]
             });
-            queryClient.invalidateQueries({ 
-              queryKey: ['course-lecture-slides', instructorCourseId] 
+            queryClient.invalidateQueries({
+              queryKey: ['course-lecture-slides', instructorCourseId]
             });
-            
+
             // Also invalidate specific batch status if we have an ID
             if (payload.new && typeof payload.new === 'object' && 'id' in payload.new) {
-              queryClient.invalidateQueries({ 
-                queryKey: ['batch-status', (payload.new as { id: string }).id] 
+              queryClient.invalidateQueries({
+                queryKey: ['batch-status', (payload.new as { id: string }).id]
               });
             }
           }, 0);
         }
       )
-      .subscribe((status) => {
-        console.log('[Realtime] Batch subscription status:', status);
-      });
+      .subscribe();
 
     return () => {
-      console.log('[Realtime] Cleaning up batch_jobs subscription');
       subscriptionRef.current = false;
       supabase.removeChannel(channel);
     };
@@ -558,8 +534,6 @@ export function useTriggerImageGeneration() {
 
   return useMutation({
     mutationFn: async ({ instructorCourseId }: { instructorCourseId: string }) => {
-      console.log(`[ImageGen] Triggering image generation for course ${instructorCourseId}`);
-
       const { data, error } = await supabase.functions.invoke('process-batch-images', {
         body: { instructor_course_id: instructorCourseId },
       });
