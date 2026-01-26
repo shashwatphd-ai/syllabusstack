@@ -2956,6 +2956,7 @@ export type Database = {
           seats_used: number | null
           slug: string | null
           sso_config: Json | null
+          sso_domain: string | null
           sso_enabled: boolean | null
           stripe_customer_id: string | null
           type: string
@@ -2974,6 +2975,7 @@ export type Database = {
           seats_used?: number | null
           slug?: string | null
           sso_config?: Json | null
+          sso_domain?: string | null
           sso_enabled?: boolean | null
           stripe_customer_id?: string | null
           type?: string
@@ -2992,6 +2994,7 @@ export type Database = {
           seats_used?: number | null
           slug?: string | null
           sso_config?: Json | null
+          sso_domain?: string | null
           sso_enabled?: boolean | null
           stripe_customer_id?: string | null
           type?: string
