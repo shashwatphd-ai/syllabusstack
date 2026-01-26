@@ -212,6 +212,7 @@ Database:      ███████░░░ 7/10  - Good schema, many migratio
 | Edge Functions Inventory | [api/edge-functions.md](api/edge-functions.md) |
 | Database Schema | [database/schema-erd.md](database/schema-erd.md) |
 | **Instructor Pathway** | [frontend/instructor-pathway-analysis.md](frontend/instructor-pathway-analysis.md) |
+| **Instructor Implementation Plan** | [frontend/instructor-pathway-implementation-plan.md](frontend/instructor-pathway-implementation-plan.md) |
 
 ---
 
