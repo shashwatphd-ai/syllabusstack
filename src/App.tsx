@@ -13,11 +13,8 @@ import NotFound from "./pages/NotFound";
 import Auth from "./pages/Auth";
 import OnboardingPage from "./pages/Onboarding";
 import DashboardPage from "./pages/Dashboard";
-import CoursesPage from "./pages/Courses";
 import CourseDetailPage from "./pages/CourseDetail";
-import DreamJobsPage from "./pages/DreamJobs";
 import DreamJobDetailPage from "./pages/DreamJobDetail";
-import AnalysisPage from "./pages/Analysis";
 import ProfilePage from "./pages/Profile";
 import SettingsPage from "./pages/Settings";
 import BillingPage from "./pages/Billing";
@@ -37,7 +34,7 @@ import InstructorCoursesPage from "./pages/instructor/InstructorCourses";
 import InstructorCourseDetailPage from "./pages/instructor/InstructorCourseDetail";
 import QuickCourseSetupPage from "./pages/instructor/QuickCourseSetup";
 import InstructorVerificationPage from "./pages/instructor/InstructorVerification";
-import { StudentCoursesPage, StudentCourseDetailPage, LearningObjectivePage, AssessmentPage, StudentSlidePage, IdentityVerificationPage } from "./pages/student";
+import { StudentCourseDetailPage, LearningObjectivePage, AssessmentPage, StudentSlidePage, IdentityVerificationPage } from "./pages/student";
 // Admin pages
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import UserManagement from "./pages/admin/UserManagement";
@@ -109,7 +106,6 @@ const App = () => (
             <Route path="/usage" element={<AuthGuard><UsagePage /></AuthGuard>} />
             {/* Certificate viewing */}
             <Route path="/certificate/:id" element={<AuthGuard><CertificateViewPage /></AuthGuard>} />
-            <Route path="/usage" element={<AuthGuard><UsagePage /></AuthGuard>} />
 
             {/* Student learning routes - course detail, objectives, and slides */}
             <Route path="/learn/course/:id" element={<AuthGuard><StudentCourseDetailPage /></AuthGuard>} />
