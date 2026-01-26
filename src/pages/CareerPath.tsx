@@ -219,7 +219,7 @@ export default function CareerPathPage() {
       
       // Map priority gaps - use 'important' as it's a valid importance value
       const priorityGapsMapped = priorityGaps.map(gap => ({
-        requirement: gap.gap || gap.requirement || gap.job_requirement,
+        requirement: gap.gap,
         importance: 'important' as const,
         difficulty: 'moderate' as const,
         time_to_close: gap.reason || '1-3 months',
