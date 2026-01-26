@@ -211,3 +211,38 @@ Database:      ███████░░░ 7/10  - Good schema, many migratio
 | Dependency Audit | [dependencies/audit-report.md](dependencies/audit-report.md) |
 | Edge Functions Inventory | [api/edge-functions.md](api/edge-functions.md) |
 | Database Schema | [database/schema-erd.md](database/schema-erd.md) |
+| **Instructor Pathway** | [frontend/instructor-pathway-analysis.md](frontend/instructor-pathway-analysis.md) |
+
+---
+
+## Instructor Journey Analysis
+
+### Current Flow
+
+```
+Login → Dashboard → (Need instructor role) → Instructor Portal → Quick Setup → Course Detail → Publish
+```
+
+### Key Issues Found
+
+| Issue | Severity | Description |
+|-------|----------|-------------|
+| No instructor signup | High | Users can't self-register as instructors |
+| Verification disconnected | Medium | Verification exists but isn't required |
+| Role-gated navigation | Medium | "Instructor" section hidden from non-instructors |
+| Complex course detail | Medium | 838-line page with 8+ action buttons |
+
+### Instructor Pages
+
+| Page | Route | Lines | Complexity |
+|------|-------|-------|------------|
+| Course List | `/instructor/courses` | 296 | Low |
+| Course Detail | `/instructor/courses/:id` | 838 | High |
+| Quick Setup (AI) | `/instructor/quick-setup` | 677 | Medium |
+| Verification | `/instructor/verification` | 17 | Low |
+
+### Quick Wins
+
+1. **Add "Teach" to main nav** - Make instructor features discoverable for all users
+2. **Add verification prompt** - Guide new instructors to verify before publishing
+3. **Wizard mode for first course** - Reduce cognitive load with step-by-step flow
