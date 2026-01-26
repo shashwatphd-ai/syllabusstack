@@ -2320,6 +2320,54 @@ export type Database = {
         }
         Relationships: []
       }
+      instructor_role_requests: {
+        Row: {
+          id: string
+          user_id: string
+          email: string
+          institution_name: string | null
+          department: string | null
+          title: string | null
+          linkedin_url: string | null
+          status: string
+          reviewed_by: string | null
+          reviewed_at: string | null
+          review_notes: string | null
+          created_at: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          email: string
+          institution_name?: string | null
+          department?: string | null
+          title?: string | null
+          linkedin_url?: string | null
+          status?: string
+          reviewed_by?: string | null
+          reviewed_at?: string | null
+          review_notes?: string | null
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          email?: string
+          institution_name?: string | null
+          department?: string | null
+          title?: string | null
+          linkedin_url?: string | null
+          status?: string
+          reviewed_by?: string | null
+          reviewed_at?: string | null
+          review_notes?: string | null
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       job_requirements: {
         Row: {
           category: string | null
