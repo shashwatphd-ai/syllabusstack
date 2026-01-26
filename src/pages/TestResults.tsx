@@ -352,7 +352,7 @@ export default function TestResultsPage() {
                       <div>
                         <h4 className="font-semibold mb-3">Day-One Capabilities</h4>
                         <div className="space-y-2">
-                          {((latestDreamJob.day_one_capabilities as DayOneCapability[] | null) || []).map((cap, i) => (
+                          {((latestDreamJob.day_one_capabilities as unknown as DayOneCapability[] | null) || []).map((cap, i) => (
                             <div key={i} className="flex items-start gap-2 p-2 bg-muted/30 rounded">
                               <Badge variant={cap.importance === 'critical' ? 'destructive' : 'secondary'} className="shrink-0">
                                 {cap.importance}
@@ -368,7 +368,7 @@ export default function TestResultsPage() {
                       <div>
                         <h4 className="font-semibold mb-3">Differentiators</h4>
                         <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground">
-                          {(latestDreamJob.differentiators as string[]).map((d, i) => (
+                          {((latestDreamJob.differentiators as unknown as string[]) || []).map((d, i) => (
                             <li key={i}>{d}</li>
                           ))}
                         </ul>
@@ -382,7 +382,7 @@ export default function TestResultsPage() {
                           Common Misconceptions
                         </h4>
                         <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground">
-                          {(latestDreamJob.common_misconceptions as string[]).map((m, i) => (
+                          {((latestDreamJob.common_misconceptions as unknown as string[]) || []).map((m, i) => (
                             <li key={i}>{m}</li>
                           ))}
                         </ul>
@@ -428,13 +428,13 @@ export default function TestResultsPage() {
                       </div>
                       <div className="p-4 bg-muted/50 rounded-lg text-center">
                         <span className="text-2xl font-bold text-green-500">
-                          {(latestGapAnalysis.strong_overlaps as StrongOverlap[] | null)?.length || 0}
+                          {(latestGapAnalysis.strong_overlaps as unknown as StrongOverlap[] | null)?.length || 0}
                         </span>
                         <p className="text-sm text-muted-foreground mt-1">Strong Overlaps</p>
                       </div>
                       <div className="p-4 bg-muted/50 rounded-lg text-center">
                         <span className="text-2xl font-bold text-red-500">
-                          {(latestGapAnalysis.critical_gaps as CriticalGap[] | null)?.length || 0}
+                          {(latestGapAnalysis.critical_gaps as unknown as CriticalGap[] | null)?.length || 0}
                         </span>
                         <p className="text-sm text-muted-foreground mt-1">Critical Gaps</p>
                       </div>
@@ -452,7 +452,7 @@ export default function TestResultsPage() {
                           Strong Overlaps
                         </h4>
                         <div className="space-y-2 max-h-48 overflow-y-auto">
-                          {((latestGapAnalysis.strong_overlaps as StrongOverlap[] | null) || []).map((overlap, i) => (
+                          {((latestGapAnalysis.strong_overlaps as unknown as StrongOverlap[] | null) || []).map((overlap, i) => (
                             <div key={i} className="p-3 bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded-lg">
                               <p className="font-medium text-sm">{overlap.job_requirement}</p>
                               <p className="text-xs text-muted-foreground mt-1">
@@ -469,7 +469,7 @@ export default function TestResultsPage() {
                           Critical Gaps
                         </h4>
                         <div className="space-y-2 max-h-48 overflow-y-auto">
-                          {((latestGapAnalysis.critical_gaps as CriticalGap[] | null) || []).map((gap, i) => (
+                          {((latestGapAnalysis.critical_gaps as unknown as CriticalGap[] | null) || []).map((gap, i) => (
                             <div key={i} className="p-3 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-lg">
                               <p className="font-medium text-sm">{gap.job_requirement}</p>
                               <p className="text-xs text-muted-foreground mt-1">
@@ -484,7 +484,7 @@ export default function TestResultsPage() {
                     <div>
                       <h4 className="font-semibold mb-3">Priority Gaps (Action Order)</h4>
                       <div className="space-y-2">
-                        {((latestGapAnalysis.priority_gaps as PriorityGap[] | null) || []).map((gap, i) => (
+                        {((latestGapAnalysis.priority_gaps as unknown as PriorityGap[] | null) || []).map((gap, i) => (
                           <div key={i} className="flex items-start gap-3 p-3 bg-muted/30 rounded-lg">
                             <span className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-bold shrink-0">
                               {gap.priority}

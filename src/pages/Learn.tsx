@@ -349,7 +349,7 @@ export default function LearnPage() {
     const csv = [
       ['Course', 'Code', 'Semester', 'Credits', 'Status', 'Skills'].join(','),
       ...selected.map(c => [
-        `"${(c.title || '').replaceAll('"', '""')}"`,
+        `"${(c.title || '').replace(/"/g, '""')}"`,
         c.code || '',
         c.semester || '',
         c.credits || '',
