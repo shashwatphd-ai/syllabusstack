@@ -7,29 +7,64 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { 
-  CheckCircle, 
-  XCircle, 
-  AlertTriangle, 
-  Target, 
-  BookOpen, 
-  Briefcase, 
+import {
+  CheckCircle,
+  XCircle,
+  AlertTriangle,
+  Target,
+  BookOpen,
+  Briefcase,
   TrendingUp,
   Zap,
   Clock,
   DollarSign,
   Brain,
-  FileText
+  FileText,
+  LucideIcon
 } from "lucide-react";
+import { Tables } from "@/integrations/supabase/types";
+
+// Type aliases for database tables
+type Course = Tables<'courses'>;
+type DreamJob = Tables<'dream_jobs'>;
+type CapabilityRecord = Tables<'capabilities'>;
+type JobRequirement = Tables<'job_requirements'>;
+type GapAnalysis = Tables<'gap_analyses'>;
+type Recommendation = Tables<'recommendations'>;
+type AIUsage = Tables<'ai_usage'>;
+
+// Typed JSON field interfaces
+interface DayOneCapability {
+  requirement: string;
+  importance: 'critical' | 'important' | 'nice_to_have';
+}
+
+interface StrongOverlap {
+  student_capability: string;
+  job_requirement: string;
+  assessment: string;
+}
+
+interface CriticalGap {
+  job_requirement: string;
+  student_status: string;
+  impact: string;
+}
+
+interface PriorityGap {
+  gap: string;
+  priority: number;
+  reason: string;
+}
 
 interface TestData {
-  courses: any[];
-  dreamJobs: any[];
-  capabilities: any[];
-  jobRequirements: any[];
-  gapAnalyses: any[];
-  recommendations: any[];
-  aiUsage: any[];
+  courses: Course[];
+  dreamJobs: DreamJob[];
+  capabilities: CapabilityRecord[];
+  jobRequirements: JobRequirement[];
+  gapAnalyses: GapAnalysis[];
+  recommendations: Recommendation[];
+  aiUsage: AIUsage[];
 }
 
 export default function TestResultsPage() {
@@ -317,7 +352,7 @@ export default function TestResultsPage() {
                       <div>
                         <h4 className="font-semibold mb-3">Day-One Capabilities</h4>
                         <div className="space-y-2">
-                          {(latestDreamJob.day_one_capabilities as any[]).map((cap, i) => (
+                          {((latestDreamJob.day_one_capabilities as DayOneCapability[] | null) || []).map((cap, i) => (
                             <div key={i} className="flex items-start gap-2 p-2 bg-muted/30 rounded">
                               <Badge variant={cap.importance === 'critical' ? 'destructive' : 'secondary'} className="shrink-0">
                                 {cap.importance}
@@ -393,13 +428,13 @@ export default function TestResultsPage() {
                       </div>
                       <div className="p-4 bg-muted/50 rounded-lg text-center">
                         <span className="text-2xl font-bold text-green-500">
-                          {(latestGapAnalysis.strong_overlaps as any[])?.length || 0}
+                          {(latestGapAnalysis.strong_overlaps as StrongOverlap[] | null)?.length || 0}
                         </span>
                         <p className="text-sm text-muted-foreground mt-1">Strong Overlaps</p>
                       </div>
                       <div className="p-4 bg-muted/50 rounded-lg text-center">
                         <span className="text-2xl font-bold text-red-500">
-                          {(latestGapAnalysis.critical_gaps as any[])?.length || 0}
+                          {(latestGapAnalysis.critical_gaps as CriticalGap[] | null)?.length || 0}
                         </span>
                         <p className="text-sm text-muted-foreground mt-1">Critical Gaps</p>
                       </div>
@@ -417,7 +452,7 @@ export default function TestResultsPage() {
                           Strong Overlaps
                         </h4>
                         <div className="space-y-2 max-h-48 overflow-y-auto">
-                          {(latestGapAnalysis.strong_overlaps as any[] || []).map((overlap, i) => (
+                          {((latestGapAnalysis.strong_overlaps as StrongOverlap[] | null) || []).map((overlap, i) => (
                             <div key={i} className="p-3 bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded-lg">
                               <p className="font-medium text-sm">{overlap.job_requirement}</p>
                               <p className="text-xs text-muted-foreground mt-1">
@@ -434,7 +469,7 @@ export default function TestResultsPage() {
                           Critical Gaps
                         </h4>
                         <div className="space-y-2 max-h-48 overflow-y-auto">
-                          {(latestGapAnalysis.critical_gaps as any[] || []).map((gap, i) => (
+                          {((latestGapAnalysis.critical_gaps as CriticalGap[] | null) || []).map((gap, i) => (
                             <div key={i} className="p-3 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-lg">
                               <p className="font-medium text-sm">{gap.job_requirement}</p>
                               <p className="text-xs text-muted-foreground mt-1">
@@ -449,7 +484,7 @@ export default function TestResultsPage() {
                     <div>
                       <h4 className="font-semibold mb-3">Priority Gaps (Action Order)</h4>
                       <div className="space-y-2">
-                        {(latestGapAnalysis.priority_gaps as any[] || []).map((gap, i) => (
+                        {((latestGapAnalysis.priority_gaps as PriorityGap[] | null) || []).map((gap, i) => (
                           <div key={i} className="flex items-start gap-3 p-3 bg-muted/30 rounded-lg">
                             <span className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-bold shrink-0">
                               {gap.priority}
@@ -619,7 +654,7 @@ export default function TestResultsPage() {
   );
 }
 
-function StatCard({ title, value, icon: Icon, color }: { title: string; value: number; icon: any; color: string }) {
+function StatCard({ title, value, icon: Icon, color }: { title: string; value: number; icon: LucideIcon; color: string }) {
   return (
     <Card>
       <CardContent className="p-4">
