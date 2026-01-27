@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
+import { extractSkillsFromLearningObjective, type LearningObjectiveData } from "../_shared/skill-extractor.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -142,11 +143,38 @@ serve(async (req) => {
       throw updateError;
     }
 
-    // Update learning objective verification state if passed
+    // Update learning objective verification state and record verified skills if passed
+    let verifiedSkillsRecorded: string[] = [];
     if (passed) {
+      // Fetch the learning objective details for skill extraction
+      const { data: learningObjective, error: loFetchError } = await supabase
+        .from('learning_objectives')
+        .select(`
+          id,
+          text,
+          core_concept,
+          action_verb,
+          bloom_level,
+          domain,
+          specificity,
+          search_keywords,
+          course_id,
+          module_id,
+          courses!left(id, title),
+          modules!left(id, title, instructor_course_id, instructor_courses(id, title))
+        `)
+        .eq('id', session.learning_objective_id)
+        .eq('user_id', user.id)
+        .single();
+
+      if (loFetchError) {
+        console.error('Error fetching learning objective:', loFetchError);
+      }
+
+      // Update verification state
       const { error: loError } = await supabase
         .from('learning_objectives')
-        .update({ 
+        .update({
           verification_state: 'verified',
           updated_at: completedAt,
         })
@@ -155,9 +183,81 @@ serve(async (req) => {
 
       if (loError) {
         console.error('Error updating learning objective:', loError);
-        // Don't fail the request, just log
       } else {
         console.log(`Updated LO ${session.learning_objective_id} to verified`);
+      }
+
+      // Extract and record verified skills
+      if (learningObjective) {
+        try {
+          // Extract skills from the learning objective
+          const loData: LearningObjectiveData = {
+            id: learningObjective.id,
+            text: learningObjective.text,
+            core_concept: learningObjective.core_concept,
+            action_verb: learningObjective.action_verb,
+            bloom_level: learningObjective.bloom_level,
+            domain: learningObjective.domain,
+            specificity: learningObjective.specificity,
+            search_keywords: learningObjective.search_keywords,
+          };
+
+          const extractedSkills = extractSkillsFromLearningObjective(loData);
+          console.log(`Extracted ${extractedSkills.length} skills from LO:`, extractedSkills.map(s => s.skill_name));
+
+          // Determine source name (course or module title)
+          let sourceName = 'Course Assessment';
+          let sourceId = learningObjective.course_id;
+
+          // Try to get a more specific source name
+          if (learningObjective.modules?.instructor_courses?.title) {
+            sourceName = learningObjective.modules.instructor_courses.title;
+            sourceId = learningObjective.modules.instructor_course_id;
+          } else if (learningObjective.modules?.title) {
+            sourceName = learningObjective.modules.title;
+            sourceId = learningObjective.module_id;
+          } else if (learningObjective.courses?.title) {
+            sourceName = learningObjective.courses.title;
+            sourceId = learningObjective.course_id;
+          }
+
+          // Record each extracted skill
+          for (const skill of extractedSkills) {
+            const { data: verifiedSkill, error: skillError } = await supabase
+              .from('verified_skills')
+              .upsert({
+                user_id: user.id,
+                skill_name: skill.skill_name,
+                proficiency_level: skill.proficiency_level,
+                source_type: 'course_assessment',
+                source_id: sourceId || session.learning_objective_id,
+                source_name: sourceName,
+                verified_at: completedAt,
+                metadata: {
+                  learning_objective_id: session.learning_objective_id,
+                  assessment_session_id: session_id,
+                  score: totalScore,
+                  skill_category: skill.skill_category,
+                  extraction_confidence: skill.confidence,
+                  bloom_level: learningObjective.bloom_level,
+                },
+              }, {
+                onConflict: 'user_id,skill_name,source_type,source_id',
+              })
+              .select()
+              .single();
+
+            if (skillError) {
+              console.error(`Error recording skill "${skill.skill_name}":`, skillError);
+            } else {
+              verifiedSkillsRecorded.push(skill.skill_name);
+              console.log(`Recorded verified skill: ${skill.skill_name} (${skill.proficiency_level})`);
+            }
+          }
+        } catch (skillExtractionError) {
+          console.error('Error extracting/recording skills:', skillExtractionError);
+          // Don't fail the assessment completion, just log the error
+        }
       }
     }
 
@@ -194,6 +294,8 @@ serve(async (req) => {
         evaluation_details: a.evaluation_details,
       })),
       learning_objective_verified: passed,
+      verified_skills: verifiedSkillsRecorded,
+      skills_count: verifiedSkillsRecorded.length,
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
