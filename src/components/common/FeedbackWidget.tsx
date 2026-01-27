@@ -65,8 +65,8 @@ export function FeedbackWidget({
     try {
       const { data: { user } } = await supabase.auth.getUser();
 
-      // Store feedback in database
-      const { error } = await supabase.from('user_feedback').insert({
+      // Store feedback in database (use type bypass for tables not in generated types)
+      const { error } = await (supabase as any).from('user_feedback').insert({
         user_id: user?.id || null,
         type: feedbackType,
         message: message.trim(),
@@ -284,7 +284,7 @@ export function QuickRating({
     try {
       const { data: { user } } = await supabase.auth.getUser();
 
-      await supabase.from('feature_ratings').insert({
+      await (supabase as any).from('feature_ratings').insert({
         user_id: user?.id || null,
         feature,
         rating,
