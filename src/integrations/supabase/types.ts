@@ -2257,6 +2257,54 @@ export type Database = {
         }
         Relationships: []
       }
+      instructor_role_requests: {
+        Row: {
+          created_at: string | null
+          department: string | null
+          email: string
+          id: string
+          institution_name: string | null
+          linkedin_url: string | null
+          review_notes: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string
+          title: string | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          department?: string | null
+          email: string
+          id?: string
+          institution_name?: string | null
+          linkedin_url?: string | null
+          review_notes?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          title?: string | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          department?: string | null
+          email?: string
+          id?: string
+          institution_name?: string | null
+          linkedin_url?: string | null
+          review_notes?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          title?: string | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       instructor_verifications: {
         Row: {
           created_at: string | null
@@ -2317,54 +2365,6 @@ export type Database = {
           updated_at?: string | null
           user_id?: string
           verification_method?: string
-        }
-        Relationships: []
-      }
-      instructor_role_requests: {
-        Row: {
-          id: string
-          user_id: string
-          email: string
-          institution_name: string | null
-          department: string | null
-          title: string | null
-          linkedin_url: string | null
-          status: string
-          reviewed_by: string | null
-          reviewed_at: string | null
-          review_notes: string | null
-          created_at: string | null
-          updated_at: string | null
-        }
-        Insert: {
-          id?: string
-          user_id: string
-          email: string
-          institution_name?: string | null
-          department?: string | null
-          title?: string | null
-          linkedin_url?: string | null
-          status?: string
-          reviewed_by?: string | null
-          reviewed_at?: string | null
-          review_notes?: string | null
-          created_at?: string | null
-          updated_at?: string | null
-        }
-        Update: {
-          id?: string
-          user_id?: string
-          email?: string
-          institution_name?: string | null
-          department?: string | null
-          title?: string | null
-          linkedin_url?: string | null
-          status?: string
-          reviewed_by?: string | null
-          reviewed_at?: string | null
-          review_notes?: string | null
-          created_at?: string | null
-          updated_at?: string | null
         }
         Relationships: []
       }
