@@ -3,6 +3,8 @@ import { AlertCircle, ArrowRight, CheckCircle2, Clock, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
 
 type BannerVariant = 'unverified' | 'pending' | 'approved';
 
@@ -126,16 +128,37 @@ export function VerificationBanner({
 /**
  * useVerificationStatus Hook
  *
- * Returns the current verification status for display in the banner
+ * Returns the current verification status for display in the banner.
+ * Checks both profile verification status and pending requests.
  */
 export function useVerificationStatus(): BannerVariant {
-  const { profile } = useAuth();
+  const { profile, user } = useAuth();
+
+  // Query for pending verification requests
+  const { data: pendingRequest } = useQuery({
+    queryKey: ['instructor-verification-status', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return null;
+
+      const { data } = await supabase
+        .from('instructor_role_requests')
+        .select('status')
+        .eq('user_id', user.id)
+        .single();
+
+      return data;
+    },
+    enabled: !!user?.id && !profile?.is_instructor_verified,
+    staleTime: 30000, // Cache for 30 seconds
+  });
 
   if (profile?.is_instructor_verified) {
     return 'approved';
   }
 
-  // Note: In a real implementation, we'd also check the instructor_role_requests
-  // table for pending status. For now, default to unverified.
+  if (pendingRequest?.status === 'pending') {
+    return 'pending';
+  }
+
   return 'unverified';
 }
