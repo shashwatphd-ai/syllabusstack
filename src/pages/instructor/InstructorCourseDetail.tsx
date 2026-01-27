@@ -1,6 +1,8 @@
 import { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Plus, FileText, Video, CheckCircle2, Clock, AlertCircle, Settings2, Copy, Share2, Loader2, Sparkles, Users, Presentation, RotateCcw, Image } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { VerificationBanner } from '@/components/instructor/VerificationBanner';
 import { AppShell } from '@/components/layout/AppShell';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { Button } from '@/components/ui/button';
@@ -41,6 +43,7 @@ import { supabase } from '@/integrations/supabase/client';
 export default function InstructorCourseDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { profile } = useAuth();
   const queryClient = useQueryClient();
   const { data: course, isLoading: courseLoading } = useInstructorCourse(id);
   const { data: modules, isLoading: modulesLoading, refetch: refetchModules } = useModules(id);
@@ -233,6 +236,15 @@ export default function InstructorCourseDetailPage() {
       return;
     }
 
+    // Show warning if publishing as unverified instructor
+    if (!course?.is_published && !profile?.is_instructor_verified) {
+      toast({
+        title: 'Publishing as Unverified Instructor',
+        description: 'Your course will be published, but you cannot issue certificates until you verify your instructor status.',
+        variant: 'default',
+      });
+    }
+
     await updateCourse.mutateAsync({
       courseId: id,
       updates: { is_published: !course?.is_published }
@@ -261,6 +273,11 @@ export default function InstructorCourseDetailPage() {
   return (
     <AppShell>
       <PageContainer>
+        {/* Verification Banner for unverified instructors */}
+        {!profile?.is_instructor_verified && (
+          <VerificationBanner className="mb-6" />
+        )}
+
         <div className="space-y-6">
           {/* Header */}
           <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
@@ -807,6 +824,19 @@ export default function InstructorCourseDetailPage() {
                       <p className="font-medium text-warning text-sm">Some objectives missing content</p>
                       <p className="text-sm text-muted-foreground mt-1">
                         Not all learning objectives have content matched. Students won't be able to complete objectives without content.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Verification Warning */}
+                {!profile?.is_instructor_verified && (
+                  <div className="flex items-start gap-3 p-4 rounded-lg border border-primary/50 bg-primary/5">
+                    <AlertCircle className="h-5 w-5 text-primary shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-medium text-primary text-sm">Instructor Not Verified</p>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        You can publish your course, but you won't be able to issue certificates until you verify your instructor status.
                       </p>
                     </div>
                   </div>

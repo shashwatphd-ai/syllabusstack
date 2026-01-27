@@ -1,0 +1,76 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4F46E5', 'primaryTextColor': '#fff', 'primaryBorderColor': '#4338CA', 'lineColor': '#6366F1', 'secondaryColor': '#F3F4F6', 'tertiaryColor': '#EEF2FF'}}}%%
+
+flowchart TB
+    subgraph Frontend["Frontend (React 18 + Vite)"]
+        direction TB
+        subgraph Pages["Pages (28+)"]
+            P1[Dashboard]
+            P2[Learn]
+            P3[Career]
+            P4[Admin]
+            P5[Instructor]
+        end
+
+        subgraph Hooks["Custom Hooks (55+)"]
+            H1[useCourses]
+            H2[useAssessment]
+            H3[useRecommendations]
+            H4[useBatchSlides]
+        end
+
+        subgraph Services["Service Layer (7)"]
+            S1[syllabus-service]
+            S2[assessment-service]
+            S3[gap-analysis-service]
+            S4[recommendations-service]
+        end
+
+        subgraph State["State Management"]
+            TQ[TanStack Query]
+            AC[AuthContext]
+        end
+    end
+
+    subgraph Supabase["Supabase Platform"]
+        direction TB
+        subgraph EdgeFunctions["Edge Functions (77)"]
+            EF1[AI Generation - 18]
+            EF2[Search - 8]
+            EF3[Assessment - 7]
+            EF4[Payments - 6]
+            EF5[User/Auth - 9]
+            EF6[Batch - 8]
+            EF7[Utilities - 21]
+        end
+
+        Auth[Supabase Auth]
+        DB[(PostgreSQL<br/>30+ tables)]
+        RT[Realtime]
+    end
+
+    subgraph External["External Services"]
+        Stripe[Stripe Payments]
+        Vertex[Vertex AI Batch]
+        Claude[Claude API]
+        Firecrawl[Firecrawl]
+        YouTube[YouTube API]
+        ONET[O*NET API]
+    end
+
+    Pages --> Hooks
+    Hooks --> Services
+    Hooks --> TQ
+    Services --> EdgeFunctions
+    TQ --> EdgeFunctions
+    AC --> Auth
+
+    EdgeFunctions --> DB
+    EdgeFunctions --> Auth
+    EdgeFunctions --> RT
+
+    EdgeFunctions --> Stripe
+    EdgeFunctions --> Vertex
+    EdgeFunctions --> Claude
+    EdgeFunctions --> Firecrawl
+    EdgeFunctions --> YouTube
+    EdgeFunctions --> ONET

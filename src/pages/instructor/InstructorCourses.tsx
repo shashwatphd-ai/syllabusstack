@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, BookOpen, Users, ChevronRight, MoreVertical, Copy, Trash2 } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { VerificationBanner } from '@/components/instructor/VerificationBanner';
 import { AppShell } from '@/components/layout/AppShell';
 import { PageContainer, PageHeader } from '@/components/layout/PageContainer';
 import { Button } from '@/components/ui/button';
@@ -18,6 +20,7 @@ import { EmptyState } from '@/components/common/EmptyState';
 
 export default function InstructorCoursesPage() {
   const navigate = useNavigate();
+  const { profile } = useAuth();
   const { data: courses, isLoading } = useInstructorCourses();
   const createCourse = useCreateInstructorCourse();
   const deleteCourse = useDeleteInstructorCourse();
@@ -91,6 +94,11 @@ export default function InstructorCoursesPage() {
   return (
     <AppShell>
       <PageContainer>
+        {/* Verification Banner for unverified instructors */}
+        {!profile?.is_instructor_verified && (
+          <VerificationBanner className="mb-6" />
+        )}
+
         <p className="text-muted-foreground mb-4">
           Manage your courses, content, and student progress
         </p>

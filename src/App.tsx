@@ -46,6 +46,8 @@ import InstructorReviewQueue from "./pages/admin/InstructorReviewQueue";
 // Unified pages (new architecture)
 import LearnPage from "./pages/Learn";
 import CareerPathPage from "./pages/CareerPath";
+import TeachPage from "./pages/Teach";
+import BecomeInstructorPage from "./pages/BecomeInstructor";
 // Certificate pages
 import CertificateViewPage from "./pages/certificate/CertificateView";
 import PublicCertificateVerifyPage from "./pages/verify/PublicCertificateVerify";
@@ -86,6 +88,8 @@ const App = () => (
             {/* NEW UNIFIED PAGES */}
             <Route path="/learn" element={<AuthGuard><LearnPage /></AuthGuard>} />
             <Route path="/career" element={<AuthGuard><CareerPathPage /></AuthGuard>} />
+            <Route path="/teach" element={<AuthGuard><TeachPage /></AuthGuard>} />
+            <Route path="/become-instructor" element={<AuthGuard><BecomeInstructorPage /></AuthGuard>} />
 
             {/* LEGACY REDIRECTS - redirect old URLs to new unified pages */}
             <Route path="/courses" element={<Navigate to="/learn?tab=transcript" replace />} />

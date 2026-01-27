@@ -30,6 +30,7 @@ export const mainNavigation: NavItem[] = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, mobileLabel: 'Home' },
   { name: 'My Learning', href: '/learn', icon: GraduationCap, mobileLabel: 'Learn' },
   { name: 'Career Path', href: '/career', icon: Briefcase, mobileLabel: 'Career' },
+  { name: 'Teach', href: '/teach', icon: School, mobileLabel: 'Teach' },
 ];
 
 // Role-specific navigation

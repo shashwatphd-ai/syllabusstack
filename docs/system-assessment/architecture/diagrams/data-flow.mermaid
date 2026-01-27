@@ -1,0 +1,52 @@
+%%{init: {'theme': 'base'}}%%
+
+sequenceDiagram
+    participant U as User
+    participant FE as Frontend (React)
+    participant TQ as TanStack Query
+    participant EF as Edge Function
+    participant DB as PostgreSQL
+    participant AI as AI Service
+
+    Note over U,AI: Standard Data Fetch Pattern
+    U->>FE: Navigate to page
+    FE->>TQ: useQuery hook called
+    TQ->>EF: POST /functions/v1/{function}
+    EF->>DB: Query data
+    DB-->>EF: Return rows
+    EF-->>TQ: JSON response
+    TQ-->>FE: Cached data
+    FE-->>U: Render UI
+
+    Note over U,AI: AI Content Generation (Batch)
+    U->>FE: Request slide generation
+    FE->>EF: POST /submit-batch-slides
+    EF->>AI: Submit to Vertex AI Batch
+    AI-->>EF: Batch job ID
+    EF->>DB: Create batch_jobs record
+    EF-->>FE: Return job ID
+
+    loop Poll every 30s
+        FE->>EF: POST /poll-batch-status
+        EF->>AI: Check batch status
+        AI-->>EF: Processing / Complete
+        EF-->>FE: Status update
+    end
+
+    AI-->>EF: Batch complete callback
+    EF->>DB: Update teaching_units
+    FE->>TQ: Invalidate queries
+    TQ->>EF: Refetch data
+    FE-->>U: Show generated content
+
+    Note over U,AI: Authentication Flow
+    U->>FE: Login with email/password
+    FE->>EF: Supabase Auth
+    EF-->>FE: JWT token
+    FE->>FE: Store in localStorage
+    U->>FE: Access protected page
+    FE->>EF: Request with JWT
+    EF->>EF: Validate JWT
+    EF->>DB: Query with user context
+    DB-->>EF: RLS-filtered data
+    EF-->>FE: Authorized response
