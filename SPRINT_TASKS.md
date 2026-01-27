@@ -8,8 +8,8 @@
 |--------|--------|----------------|
 | Sprint 1 | COMPLETED | 2026-01-27 |
 | Sprint 2 | COMPLETED | 2026-01-27 |
-| Sprint 3 | IN PROGRESS | - |
-| Sprint 4 | Pending | - |
+| Sprint 3 | COMPLETED | 2026-01-27 |
+| Sprint 4 | COMPLETED | 2026-01-27 |
 | Sprint 5 | Pending | - |
 | Sprint 6 | Pending | - |
 | Sprint 7 | Pending | - |

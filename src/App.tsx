@@ -35,6 +35,8 @@ import InstructorCoursesPage from "./pages/instructor/InstructorCourses";
 import InstructorCourseDetailPage from "./pages/instructor/InstructorCourseDetail";
 import QuickCourseSetupPage from "./pages/instructor/QuickCourseSetup";
 import InstructorVerificationPage from "./pages/instructor/InstructorVerification";
+import CourseAnalyticsPage from "./pages/instructor/CourseAnalytics";
+import GradebookPage from "./pages/instructor/Gradebook";
 import { StudentCourseDetailPage, LearningObjectivePage, AssessmentPage, StudentSlidePage, IdentityVerificationPage } from "./pages/student";
 // Admin pages
 import AdminDashboard from "./pages/admin/AdminDashboard";
@@ -132,6 +134,8 @@ const App = () => (
             {/* Instructor routes */}
             <Route path="/instructor/courses" element={<AuthGuard><InstructorCoursesPage /></AuthGuard>} />
             <Route path="/instructor/courses/:id" element={<AuthGuard><InstructorCourseDetailPage /></AuthGuard>} />
+            <Route path="/instructor/courses/:courseId/analytics" element={<AuthGuard><CourseAnalyticsPage /></AuthGuard>} />
+            <Route path="/instructor/courses/:courseId/gradebook" element={<AuthGuard><GradebookPage /></AuthGuard>} />
             <Route path="/instructor/quick-setup" element={<AuthGuard><QuickCourseSetupPage /></AuthGuard>} />
             <Route path="/instructor/verification" element={<AuthGuard><InstructorVerificationPage /></AuthGuard>} />
 
