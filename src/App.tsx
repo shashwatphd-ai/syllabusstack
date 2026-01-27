@@ -61,8 +61,10 @@ import PublicCertificateVerifyPage from "./pages/verify/PublicCertificateVerify"
 import EmployerDashboard from "./pages/employer/EmployerDashboard";
 import EmployerSignupPage from "./pages/employer/EmployerSignup";
 import EmployerApiDocsPage from "./pages/employer/ApiDocs";
+import WebhookSettingsPage from "./pages/employer/WebhookSettings";
 import EmployersPage from "./pages/Employers";
 import HelpCenterPage from "./pages/HelpCenter";
+import HelpArticlePage from "./pages/HelpArticle";
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -81,6 +83,7 @@ const App = () => (
             <Route path="/resources" element={<ResourcesPage />} />
             <Route path="/legal" element={<LegalPage />} />
             <Route path="/help" element={<HelpCenterPage />} />
+            <Route path="/help/article/:articleId" element={<HelpArticlePage />} />
             <Route path="/how-it-works" element={<HowItWorksPage />} />
             <Route path="/universities" element={<UniversitiesPage />} />
             {/* Payment redirect pages */}
@@ -156,6 +159,7 @@ const App = () => (
             <Route path="/employer" element={<AuthGuard><EmployerDashboard /></AuthGuard>} />
             <Route path="/employer/signup" element={<AuthGuard><EmployerSignupPage /></AuthGuard>} />
             <Route path="/employer/api-docs" element={<EmployerApiDocsPage />} />
+            <Route path="/employer/webhooks" element={<AuthGuard><WebhookSettingsPage /></AuthGuard>} />
 
             {/* Catch-all */}
             <Route path="*" element={<NotFound />} />
