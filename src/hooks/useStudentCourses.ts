@@ -372,3 +372,6 @@ export function useLearningObjectiveProgress(learningObjectiveId: string | undef
     enabled: !!learningObjectiveId,
   });
 }
+
+// Alias for backward compatibility
+export { useStudentEnrollments as useStudentCourses };
