@@ -30,6 +30,7 @@ import ForgotPasswordPage from "./pages/ForgotPassword";
 import ResetPasswordPage from "./pages/ResetPassword";
 import PaymentSuccessPage from "./pages/PaymentSuccess";
 import PaymentCancelPage from "./pages/PaymentCancel";
+import LearningPathPage from "./pages/LearningPath";
 import InstructorCoursesPage from "./pages/instructor/InstructorCourses";
 import InstructorCourseDetailPage from "./pages/instructor/InstructorCourseDetail";
 import QuickCourseSetupPage from "./pages/instructor/QuickCourseSetup";
@@ -98,6 +99,7 @@ const App = () => (
             <Route path="/teach" element={<AuthGuard><TeachPage /></AuthGuard>} />
             <Route path="/become-instructor" element={<AuthGuard><BecomeInstructorPage /></AuthGuard>} />
             <Route path="/progress" element={<AuthGuard><ProgressPage /></AuthGuard>} />
+            <Route path="/learning-path" element={<AuthGuard><LearningPathPage /></AuthGuard>} />
 
             {/* LEGACY REDIRECTS - redirect old URLs to new unified pages */}
             <Route path="/courses" element={<Navigate to="/learn?tab=transcript" replace />} />
