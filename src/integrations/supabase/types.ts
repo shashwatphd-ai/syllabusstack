@@ -1076,6 +1076,65 @@ export type Database = {
           },
         ]
       }
+      content_moderation: {
+        Row: {
+          action_taken: string | null
+          content_id: string
+          content_type: string
+          course_id: string | null
+          created_at: string | null
+          details: Json | null
+          flagged_by: string | null
+          id: string
+          reason: string
+          review_notes: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          action_taken?: string | null
+          content_id: string
+          content_type: string
+          course_id?: string | null
+          created_at?: string | null
+          details?: Json | null
+          flagged_by?: string | null
+          id?: string
+          reason: string
+          review_notes?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          action_taken?: string | null
+          content_id?: string
+          content_type?: string
+          course_id?: string | null
+          created_at?: string | null
+          details?: Json | null
+          flagged_by?: string | null
+          id?: string
+          reason?: string
+          review_notes?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "content_moderation_course_id_fkey"
+            columns: ["course_id"]
+            isOneToOne: false
+            referencedRelation: "instructor_courses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       content_ratings: {
         Row: {
           comment: string | null
@@ -3430,6 +3489,36 @@ export type Database = {
           research_content?: Json
           search_terms?: string
           topic_hash?: string
+        }
+        Relationships: []
+      }
+      role_audit_log: {
+        Row: {
+          action: string
+          created_at: string | null
+          id: string
+          performed_by: string
+          reason: string | null
+          role: string
+          user_id: string
+        }
+        Insert: {
+          action: string
+          created_at?: string | null
+          id?: string
+          performed_by: string
+          reason?: string | null
+          role: string
+          user_id: string
+        }
+        Update: {
+          action?: string
+          created_at?: string | null
+          id?: string
+          performed_by?: string
+          reason?: string | null
+          role?: string
+          user_id?: string
         }
         Relationships: []
       }
