@@ -1,0 +1,260 @@
+---
+title: SyllabusStack - Detailed Operational Flow with All Decision Branches
+---
+flowchart TB
+
+%% ============================================
+%% INSTRUCTOR ONBOARDING FLOW
+%% ============================================
+subgraph INST_ONBOARD["III INSTRUCTOR ONBOARDING"]
+    direction TB
+    I_START([Instructor visits SyllabusStack])
+    I_EMAIL{Provides email}
+    I_EDU_CHECK{Is .edu domain?}
+    I_ALT_CHECK{Alternative verification?<br/>LinkedIn + Institution site}
+    I_AFFIL[Submit affiliation details:<br/>• Department<br/>• Title/Position<br/>• University]
+    I_MANUAL_REVIEW{Manual review<br/>by SyllabusStack team}
+    I_VERIFIED[/I Instructor Verified<br/>Trust Score: 100/]
+    I_REJECTED[/I Rejected<br/>Reason logged/]
+    I_RETRY{Retry with<br/>more docs?}
+
+    I_START --> I_EMAIL
+    I_EMAIL --> I_EDU_CHECK
+    I_EDU_CHECK -->|Yes| I_AFFIL
+    I_EDU_CHECK -->|No| I_ALT_CHECK
+    I_ALT_CHECK -->|Acceptable| I_AFFIL
+    I_ALT_CHECK -->|Not acceptable| I_REJECTED
+    I_AFFIL --> I_MANUAL_REVIEW
+    I_MANUAL_REVIEW -->|Approved| I_VERIFIED
+    I_MANUAL_REVIEW -->|Rejected| I_REJECTED
+    I_REJECTED --> I_RETRY
+    I_RETRY -->|Yes| I_AFFIL
+    I_RETRY -->|No| I_EXIT([Exit])
+end
+
+%% ============================================
+%% COURSE CREATION PIPELINE
+%% ============================================
+subgraph COURSE_PIPELINE["I COURSE CREATION PIPELINE"]
+    direction TB
+    C_START([Instructor creates course])
+    C_PAY{Pay $1?}
+    C_UPLOAD[Upload syllabus<br/>PDF, DOCX, or paste text]
+    C_PARSE["STAGE 2: Syllabus Processing<br/>IIIIIIIIIIIIIIIIIIIII<br/>• Extract text via Edge Function<br/>• Generate domain_config<br/>• Identify modules<br/>• Extract learning objectives<br/>Cost: $0.30"]
+    C_PARSE_OK{Parse successful?}
+    C_PARSE_FAIL[/Parsing failed<br/>Manual intervention/]
+    C_DECOMPOSE["STAGE 3: Curriculum Decomposition<br/>IIIIIIIIIIIIIIIIIIIII<br/>• LO → Teaching Units (5 per LO)<br/>• Add pedagogy metadata<br/>• Generate search queries<br/>• Identify prerequisites<br/>• Flag misconceptions<br/>Cost: $0.30"]
+    C_DISCOVER["STAGE 4: Basic Discovery<br/>IIIIIIIIIIIIIIIIIIIII<br/>• Search for top 3-5 videos per unit<br/>• Rule-based filtering only<br/>• NO deep AI evaluation yet<br/>Cost: $0.15"]
+    C_SHELL[/"I Course Shell Created<br/>IIIIIIIIIIIIIIIIIIIII<br/>Status: DRAFT<br/>Total Cost: $0.60<br/>Ready for publishing"/]
+    C_PUBLISH{Instructor<br/>publishes?}
+    C_REVIEW[Instructor reviews & edits]
+    C_LIVE[/"I COURSE LIVE<br/>is_published = true<br/>Enrollment enabled"/]
+
+    C_START --> C_PAY
+    C_PAY -->|Yes| C_UPLOAD
+    C_PAY -->|No| C_EXIT2([Exit])
+    C_UPLOAD --> C_PARSE
+    C_PARSE --> C_PARSE_OK
+    C_PARSE_OK -->|Yes| C_DECOMPOSE
+    C_PARSE_OK -->|No| C_PARSE_FAIL
+    C_PARSE_FAIL --> C_UPLOAD
+    C_DECOMPOSE --> C_DISCOVER
+    C_DISCOVER --> C_SHELL
+    C_SHELL --> C_PUBLISH
+    C_PUBLISH -->|Not yet| C_REVIEW
+    C_REVIEW --> C_PUBLISH
+    C_PUBLISH -->|Yes| C_LIVE
+end
+
+%% ============================================
+%% STUDENT ONBOARDING FLOW
+%% ============================================
+subgraph STUDENT_ONBOARD["III STUDENT ONBOARDING"]
+    direction TB
+    S_START([Student visits SyllabusStack])
+    S_ACCOUNT{Has account?}
+    S_SIGNUP[Create account<br/>Email + Password]
+    S_LOGIN[Login]
+    S_VERIFIED_CHECK{Identity<br/>already verified?}
+    S_IDV["Identity Verification<br/>IIIIIIIIIIIIIIIIIIIII<br/>Provider: Persona/Jumio<br/>• Photo ID upload<br/>• Selfie match<br/>• Liveness check<br/>Cost: ~$0.50"]
+    S_IDV_RESULT{IDV Result}
+    S_VERIFIED[/I Identity Verified<br/>Stored permanently/]
+    S_IDV_FAIL[/I IDV Failed/]
+    S_IDV_RETRY{Retry?}
+
+    S_START --> S_ACCOUNT
+    S_ACCOUNT -->|No| S_SIGNUP --> S_LOGIN
+    S_ACCOUNT -->|Yes| S_LOGIN
+    S_LOGIN --> S_VERIFIED_CHECK
+    S_VERIFIED_CHECK -->|Yes| S_VERIFIED
+    S_VERIFIED_CHECK -->|No| S_IDV
+    S_IDV --> S_IDV_RESULT
+    S_IDV_RESULT -->|Pass| S_VERIFIED
+    S_IDV_RESULT -->|Fail| S_IDV_FAIL
+    S_IDV_FAIL --> S_IDV_RETRY
+    S_IDV_RETRY -->|Yes| S_IDV
+    S_IDV_RETRY -->|No| S_EXIT3([Exit - cannot enroll])
+end
+
+%% ============================================
+%% ENROLLMENT & LEARNING
+%% ============================================
+subgraph ENROLLMENT_FLOW["I ENROLLMENT & LEARNING"]
+    direction TB
+    E_BROWSE[Browse course catalog]
+    E_SELECT[Select course]
+    E_PREVIEW[View course preview:<br/>• Instructor affiliation<br/>• Module outline<br/>• LO summary]
+    E_DECIDE{Enroll?}
+    E_PAY{Pay $1?}
+    E_ENROLLED[/"I ENROLLED<br/>IIIIIIIIIIIIIIIIIIIII<br/>Access granted<br/>Progress tracking starts"/]
+    L_START[Begin learning]
+    L_UNIT[Access teaching unit]
+    L_CONTENT_CHECK{Content<br/>generated?}
+    L_WAIT[/Basic content only<br/>Full slides pending/]
+    L_FULL[/Full content available/]
+    L_PROGRESS[Mark unit complete]
+    L_NEXT{More units?}
+    L_MODULE_DONE{Module complete?}
+    L_COURSE_DONE{Course complete?}
+    L_COMPLETED[/"I COURSE COMPLETED<br/>IIIIIIIIIIIIIIIIIIIII<br/>Completion logged<br/>Tied to verified identity<br/>Timestamp recorded"/]
+
+    E_BROWSE --> E_SELECT --> E_PREVIEW --> E_DECIDE
+    E_DECIDE -->|No| E_BROWSE
+    E_DECIDE -->|Yes| E_PAY
+    E_PAY -->|Yes| E_ENROLLED
+    E_PAY -->|No| E_BROWSE
+    E_ENROLLED --> L_START
+    L_START --> L_UNIT
+    L_UNIT --> L_CONTENT_CHECK
+    L_CONTENT_CHECK -->|No| L_WAIT --> L_PROGRESS
+    L_CONTENT_CHECK -->|Yes| L_FULL --> L_PROGRESS
+    L_PROGRESS --> L_NEXT
+    L_NEXT -->|Yes| L_UNIT
+    L_NEXT -->|No| L_MODULE_DONE
+    L_MODULE_DONE -->|No| L_UNIT
+    L_MODULE_DONE -->|Yes| L_COURSE_DONE
+    L_COURSE_DONE -->|No| L_UNIT
+    L_COURSE_DONE -->|Yes| L_COMPLETED
+end
+
+%% ============================================
+%% PROGRESSIVE GENERATION ENGINE
+%% ============================================
+subgraph PROG_GEN["I PROGRESSIVE GENERATION ENGINE"]
+    direction TB
+    PG_TRIGGER([Trigger Check - runs periodically])
+    PG_ENROLL_CHECK{Course has<br/>≥10 enrollments?}
+    PG_PROGRESS_CHECK{≥5 students<br/>reached Unit N-1?}
+    PG_CREDIT_CHECK{Instructor<br/>spent credits?}
+    PG_QUEUE_MOD["Queue: Generate Module 1 slides<br/>IIIIIIIIIIIIIIIIIIIII<br/>• Research grounding<br/>• Vertex AI batch job<br/>• Cost: ~$0.50/module"]
+    PG_QUEUE_UNIT["Queue: Generate Unit N<br/>IIIIIIIIIIIIIIIIIIIII<br/>• Deep content eval<br/>• Slide generation<br/>• Cost: ~$0.03/unit"]
+    PG_BATCH["STAGE 5: Batch Processing<br/>IIIIIIIIIIIIIIIIIIIII<br/>• Submit to Vertex AI<br/>• Track batch_jobs status<br/>• Poll for completion<br/>• Handle partial failures"]
+    PG_STATUS{Batch status?}
+    PG_COMPLETE[/Content ready<br/>lecture_slides.status = 'ready'/]
+    PG_PARTIAL[/Partial success<br/>Retry failed units/]
+    PG_FAILED[/Batch failed<br/>Alert & manual review/]
+
+    PG_TRIGGER --> PG_ENROLL_CHECK
+    PG_TRIGGER --> PG_PROGRESS_CHECK
+    PG_TRIGGER --> PG_CREDIT_CHECK
+    PG_ENROLL_CHECK -->|Yes & not generated| PG_QUEUE_MOD
+    PG_PROGRESS_CHECK -->|Yes & not generated| PG_QUEUE_UNIT
+    PG_CREDIT_CHECK -->|Yes| PG_QUEUE_UNIT
+    PG_QUEUE_MOD --> PG_BATCH
+    PG_QUEUE_UNIT --> PG_BATCH
+    PG_BATCH --> PG_STATUS
+    PG_STATUS -->|Completed| PG_COMPLETE
+    PG_STATUS -->|Partial| PG_PARTIAL --> PG_BATCH
+    PG_STATUS -->|Failed| PG_FAILED
+    PG_ENROLL_CHECK -->|No or already done| PG_SKIP1([Skip])
+    PG_PROGRESS_CHECK -->|No or already done| PG_SKIP2([Skip])
+    PG_CREDIT_CHECK -->|No| PG_SKIP3([Skip])
+end
+
+%% ============================================
+%% CERTIFICATION & MONETIZATION
+%% ============================================
+subgraph CERTIFICATION["I CERTIFICATION & MONETIZATION"]
+    direction TB
+    CERT_START([Student completed course])
+    CERT_PROMPT{Want certificate?}
+    CERT_FREE_PATH[/"Free Completion Badge<br/>IIIIIIIIIIIIIIIIIIIII<br/>• Basic badge<br/>• No verification seal<br/>• Not employer-recognized<br/>Revenue: $0"/]
+    CERT_BASIC_PATH["Verified Certificate - $25<br/>IIIIIIIIIIIIIIIIIIIII<br/>• Identity-verified learner<br/>• Verified instructor affiliation<br/>• University name displayed<br/>• Shareable link + PDF<br/>• QR code verification"]
+    CERT_PREMIUM_PATH["Assessed Certificate - $49<br/>IIIIIIIIIIIIIIIIIIIII<br/>• All basic features +<br/>• Proctored assessment<br/>• Mastery score<br/>• Detailed skill breakdown"]
+    CERT_ASSESS{Take assessment?}
+    CERT_PROCTOR["Proctored Assessment<br/>IIIIIIIIIIIIIIIIIIIII<br/>• Browser lockdown<br/>• Webcam monitoring<br/>• Time-limited"]
+    CERT_PASS{Pass threshold?}
+    CERT_ISSUED[/"I CERTIFICATE ISSUED<br/>IIIIIIIIIIIIIIIIIIIII<br/>• Unique cert ID<br/>• Blockchain anchor (optional)<br/>• Verification API endpoint"/]
+    CERT_RETRY{Retry assessment?}
+
+    CERT_START --> CERT_PROMPT
+    CERT_PROMPT -->|No| CERT_FREE_PATH
+    CERT_PROMPT -->|Basic $25| CERT_BASIC_PATH --> CERT_ISSUED
+    CERT_PROMPT -->|Premium $49| CERT_PREMIUM_PATH --> CERT_ASSESS
+    CERT_ASSESS -->|Yes| CERT_PROCTOR
+    CERT_PROCTOR --> CERT_PASS
+    CERT_PASS -->|Yes| CERT_ISSUED
+    CERT_PASS -->|No| CERT_RETRY
+    CERT_RETRY -->|Yes| CERT_PROCTOR
+    CERT_RETRY -->|No| CERT_BASIC_PATH
+end
+
+%% ============================================
+%% INSTITUTIONAL LAYER
+%% ============================================
+subgraph INSTITUTIONAL["II INSTITUTIONAL LICENSING"]
+    direction TB
+    INST_INQUIRY([University/Employer inquiry])
+    INST_TIER{License tier?}
+    INST_BASIC["Basic License - $5K/year<br/>IIIIIIIIIIIIIIIIIIIII<br/>• Unlimited instructor seats<br/>• Basic analytics dashboard<br/>• Standard support"]
+    INST_PRO["Pro License - $15K/year<br/>IIIIIIIIIIIIIIIIIIIII<br/>• All Basic features +<br/>• SSO integration<br/>• Cohort management<br/>• Governance controls<br/>• Custom branding"]
+    INST_ENTERPRISE["Enterprise - $50K/year<br/>IIIIIIIIIIIIIIIIIIIII<br/>• All Pro features +<br/>• LMS integration (LTI)<br/>• API access<br/>• Dedicated support<br/>• Custom reporting"]
+
+    INST_INQUIRY --> INST_TIER
+    INST_TIER -->|Basic| INST_BASIC
+    INST_TIER -->|Pro| INST_PRO
+    INST_TIER -->|Enterprise| INST_ENTERPRISE
+end
+
+%% ============================================
+%% EMPLOYER ACCESS
+%% ============================================
+subgraph EMPLOYER["I EMPLOYER ACCESS"]
+    direction TB
+    EMP_INQUIRY([Employer inquiry])
+    EMP_PRODUCT{Product?}
+    EMP_RECRUIT["Recruiting Portal - $500/seat/year<br/>IIIIIIIIIIIIIIIIIIIII<br/>• Browse verified completers<br/>• Filter by skill/course<br/>• Contact candidates"]
+    EMP_API["Skill Verification API - $2K/year<br/>IIIIIIIIIIIIIIIIIIIII<br/>• Query: Did person X complete course Y?<br/>• Returns: verified completion data<br/>• Webhook for new completions"]
+    EMP_BULK["Bulk Training - Custom pricing<br/>IIIIIIIIIIIIIIIIIIIII<br/>• Enroll employees in courses<br/>• Progress dashboards<br/>• Completion reports"]
+
+    EMP_INQUIRY --> EMP_PRODUCT
+    EMP_PRODUCT -->|Recruiting| EMP_RECRUIT
+    EMP_PRODUCT -->|API| EMP_API
+    EMP_PRODUCT -->|Training| EMP_BULK
+end
+
+%% ============================================
+%% CONNECTIONS BETWEEN SUBGRAPHS
+%% ============================================
+I_VERIFIED --> C_START
+C_LIVE --> E_BROWSE
+S_VERIFIED --> E_BROWSE
+E_ENROLLED --> PG_TRIGGER
+L_COMPLETED --> CERT_START
+
+%% ============================================
+%% STYLING
+%% ============================================
+classDef startEnd fill:#0D7377,stroke:#0D7377,color:#fff
+classDef decision fill:#FFFBEB,stroke:#F9A826,color:#1A1A2E
+classDef process fill:#E8ECEF,stroke:#CBD5E0,color:#1A1A2E
+classDef success fill:#E6F7F7,stroke:#0D7377,color:#0D7377
+classDef fail fill:#FFE5E5,stroke:#FF6B6B,color:#FF6B6B
+classDef money fill:#F9A826,stroke:#F9A826,color:#1A1A2E
+classDef output fill:#1A1A2E,stroke:#1A1A2E,color:#fff
+
+class I_START,S_START,C_START,E_BROWSE,PG_TRIGGER,CERT_START,INST_INQUIRY,EMP_INQUIRY startEnd
+class I_EDU_CHECK,I_ALT_CHECK,I_MANUAL_REVIEW,C_PAY,C_PARSE_OK,C_PUBLISH,S_ACCOUNT,S_VERIFIED_CHECK,S_IDV_RESULT,E_DECIDE,E_PAY,L_CONTENT_CHECK,L_NEXT,L_MODULE_DONE,L_COURSE_DONE,PG_ENROLL_CHECK,PG_PROGRESS_CHECK,PG_CREDIT_CHECK,PG_STATUS,CERT_PROMPT,CERT_ASSESS,CERT_PASS,INST_TIER,EMP_PRODUCT decision
+class I_VERIFIED,S_VERIFIED,C_SHELL,C_LIVE,E_ENROLLED,L_COMPLETED,PG_COMPLETE,CERT_ISSUED success
+class I_REJECTED,S_IDV_FAIL,C_PARSE_FAIL,PG_FAILED fail
+class CERT_BASIC_PATH,CERT_PREMIUM_PATH,INST_BASIC,INST_PRO,INST_ENTERPRISE,EMP_RECRUIT,EMP_API,EMP_BULK money
