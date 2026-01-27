@@ -30,6 +30,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
+import { AppRole } from '@/hooks/useUserRoles';
 
 interface UserWithRoles {
   id: string;
@@ -123,7 +124,7 @@ export default function RoleManagementPage() {
 
   // Add role mutation
   const addRole = useMutation({
-    mutationFn: async ({ userId, role, reason }: { userId: string; role: string; reason: string }) => {
+    mutationFn: async ({ userId, role, reason }: { userId: string; role: AppRole; reason: string }) => {
       // Get current roles
       const { data: currentRoles } = await supabase
         .from('user_roles')
@@ -172,7 +173,7 @@ export default function RoleManagementPage() {
 
   // Remove role mutation
   const removeRole = useMutation({
-    mutationFn: async ({ userId, role, reason }: { userId: string; role: string; reason: string }) => {
+    mutationFn: async ({ userId, role, reason }: { userId: string; role: AppRole; reason: string }) => {
       // Get current roles
       const { data: currentRoles } = await supabase
         .from('user_roles')
