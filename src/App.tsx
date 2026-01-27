@@ -8,6 +8,7 @@ import { AuthGuard, GuestGuard } from "@/components/auth/AuthGuard";
 import { AdminGuard } from "@/components/auth/AdminGuard";
 import { queryClient } from "@/lib/query-client";
 import { AchievementToastProvider } from "@/components/achievements/AchievementUnlockToast";
+import { TourProvider } from "@/components/common/ProductTour";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 import Auth from "./pages/Auth";
@@ -73,6 +74,7 @@ const App = () => (
         <Toaster />
         <Sonner />
         <AchievementToastProvider />
+        <TourProvider>
         <BrowserRouter>
           <Routes>
             {/* Public routes */}
@@ -165,6 +167,7 @@ const App = () => (
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
+        </TourProvider>
       </TooltipProvider>
     </AuthProvider>
   </QueryClientProvider>

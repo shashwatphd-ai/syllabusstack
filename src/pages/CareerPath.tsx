@@ -3,7 +3,7 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/layout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { HelpTooltip, FeatureHelp } from "@/components/common/HelpTooltip";
-import { useTour, CAREER_PATH_TOUR } from "@/components/common/ProductTour";
+import { useTour, ProductTour, CAREER_PATH_TOUR } from "@/components/common/ProductTour";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -110,7 +110,7 @@ export default function CareerPathPage() {
   const { toast } = useToast();
 
   // Product tour for career path page
-  const { startTour, TourComponent } = useTour(CAREER_PATH_TOUR);
+  const { startTour } = useTour();
 
   // Get active tab from URL or default to "jobs"
   const activeTab = searchParams.get("tab") || "jobs";
@@ -859,7 +859,7 @@ export default function CareerPathPage() {
         </Tabs>
 
         {/* Tour Component */}
-        <TourComponent />
+        <ProductTour tourId="career-path" steps={CAREER_PATH_TOUR} />
 
         {/* Delete Confirmation Dialog */}
         <AlertDialog open={!!deleteConfirmJob} onOpenChange={() => setDeleteConfirmJob(null)}>
