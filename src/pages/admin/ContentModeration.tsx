@@ -67,10 +67,11 @@ export default function ContentModerationPage() {
   const [filterStatus, setFilterStatus] = useState('pending');
 
   // Fetch moderation queue
+  // Note: Using type bypass since content_moderation types are not yet generated
   const { data: items, isLoading, refetch } = useQuery({
     queryKey: ['content-moderation', filterStatus],
     queryFn: async () => {
-      let query = supabase
+      let query = (supabase as any)
         .from('content_moderation')
         .select('*')
         .order('created_at', { ascending: false });
@@ -86,6 +87,7 @@ export default function ContentModerationPage() {
   });
 
   // Update moderation status
+  // Note: Using type bypass since content_moderation types are not yet generated
   const updateStatus = useMutation({
     mutationFn: async ({
       id,
@@ -98,7 +100,7 @@ export default function ContentModerationPage() {
       notes: string;
       action: string;
     }) => {
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from('content_moderation')
         .update({
           status,

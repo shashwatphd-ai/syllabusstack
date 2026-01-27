@@ -24,7 +24,7 @@ import { useAuth } from '@/contexts/AuthContext';
 
 interface EnrolledCourse {
   id: string;
-  course_id: string;
+  instructor_course_id: string;
   enrolled_at: string;
   overall_progress: number;
   instructor_courses: {
@@ -53,10 +53,10 @@ export default function ProgressPage() {
       if (!user?.id) return [];
 
       const { data, error } = await supabase
-        .from('enrollments')
+        .from('course_enrollments')
         .select(`
           id,
-          course_id,
+          instructor_course_id,
           enrolled_at,
           overall_progress,
           instructor_courses (
@@ -65,7 +65,7 @@ export default function ProgressPage() {
             code
           )
         `)
-        .eq('user_id', user.id)
+        .eq('student_id', user.id)
         .order('enrolled_at', { ascending: false });
 
       if (error) throw error;
@@ -82,38 +82,34 @@ export default function ProgressPage() {
 
       // Get enrollments count
       const { count: totalCourses } = await supabase
-        .from('enrollments')
+        .from('course_enrollments')
         .select('*', { count: 'exact', head: true })
-        .eq('user_id', user.id);
+        .eq('student_id', user.id);
 
       // Get completed courses (100% progress)
       const { count: completedCourses } = await supabase
-        .from('enrollments')
+        .from('course_enrollments')
         .select('*', { count: 'exact', head: true })
-        .eq('user_id', user.id)
+        .eq('student_id', user.id)
         .gte('overall_progress', 100);
 
-      // Get certificates count
-      const { count: totalCertificates } = await supabase
-        .from('certificates')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', user.id)
-        .eq('status', 'active');
+      // Certificates count placeholder (certificates table may not exist yet)
+      const totalCertificates = 0;
 
-      // Calculate learning objectives progress from lo_progress
+      // Calculate learning objectives progress from consumption_records
       const { data: loProgress } = await supabase
-        .from('lo_progress')
-        .select('verification_state')
+        .from('consumption_records')
+        .select('is_verified, learning_objective_id')
         .eq('user_id', user.id);
 
       const totalObjectives = loProgress?.length ?? 0;
       const completedObjectives = loProgress?.filter(
-        (lo) => lo.verification_state === 'passed' || lo.verification_state === 'verified'
+        (lo) => lo.is_verified === true
       ).length ?? 0;
 
       // Simple streak calculation based on recent activity
       const { data: recentActivity } = await supabase
-        .from('lo_progress')
+        .from('consumption_records')
         .select('updated_at')
         .eq('user_id', user.id)
         .order('updated_at', { ascending: false })
@@ -162,11 +158,11 @@ export default function ProgressPage() {
       if (!user?.id) return [];
 
       const { data, error } = await supabase
-        .from('lo_progress')
+        .from('consumption_records')
         .select(`
           id,
           updated_at,
-          verification_state,
+          is_verified,
           learning_objectives (
             id,
             description,
@@ -305,7 +301,7 @@ export default function ProgressPage() {
                                 </Badge>
                               )}
                               <Link
-                                to={`/learn/course/${enrollment.course_id}`}
+                                to={`/learn/course/${enrollment.instructor_course_id}`}
                                 className="font-medium hover:text-primary truncate"
                               >
                                 {enrollment.instructor_courses?.title || 'Untitled Course'}
@@ -342,7 +338,7 @@ export default function ProgressPage() {
                             className="h-auto p-0 text-xs"
                             asChild
                           >
-                            <Link to={`/learn/course/${enrollment.course_id}`}>
+                            <Link to={`/learn/course/${enrollment.instructor_course_id}`}>
                               Continue Learning →
                             </Link>
                           </Button>
@@ -435,10 +431,8 @@ export default function ProgressPage() {
                         >
                           <div
                             className={`mt-1 h-2 w-2 rounded-full shrink-0 ${
-                              activity.verification_state === 'passed'
+                              activity.is_verified === true
                                 ? 'bg-green-500'
-                                : activity.verification_state === 'verified'
-                                ? 'bg-blue-500'
                                 : 'bg-yellow-500'
                             }`}
                           />

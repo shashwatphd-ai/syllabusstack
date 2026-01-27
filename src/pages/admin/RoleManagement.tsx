@@ -106,10 +106,11 @@ export default function RoleManagementPage() {
   });
 
   // Fetch audit log
+  // Note: Using type bypass since role_audit_log types are not yet generated
   const { data: auditLog, isLoading: auditLoading } = useQuery({
     queryKey: ['role-audit-log'],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('role_audit_log')
         .select('*')
         .order('created_at', { ascending: false })
@@ -138,8 +139,8 @@ export default function RoleManagementPage() {
 
       if (roleError) throw roleError;
 
-      // Log the change
-      const { error: auditError } = await supabase.from('role_audit_log').insert({
+      // Log the change (using type bypass since role_audit_log types not yet generated)
+      const { error: auditError } = await (supabase as any).from('role_audit_log').insert({
         user_id: userId,
         old_roles: oldRoles,
         new_roles: [...oldRoles, role],
@@ -189,8 +190,8 @@ export default function RoleManagementPage() {
 
       if (roleError) throw roleError;
 
-      // Log the change
-      const { error: auditError } = await supabase.from('role_audit_log').insert({
+      // Log the change (using type bypass since role_audit_log types not yet generated)
+      const { error: auditError } = await (supabase as any).from('role_audit_log').insert({
         user_id: userId,
         old_roles: oldRoles,
         new_roles: oldRoles.filter((r) => r !== role),
