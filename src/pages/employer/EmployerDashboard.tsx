@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Building2, Key, Activity, Copy, Plus, Shield, Eye, EyeOff, Trash2 } from 'lucide-react';
+import { Building2, Key, Activity, Copy, Plus, Shield, Eye, EyeOff, Trash2, Webhook } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,6 +17,7 @@ import {
   useRevokeApiKey
 } from '@/hooks/useEmployerAccount';
 import { useToast } from '@/hooks/use-toast';
+import { WebhookConfig } from '@/components/employer/WebhookConfig';
 
 export default function EmployerDashboard() {
   const { data: account, isLoading: accountLoading } = useEmployerAccount();
@@ -197,6 +198,10 @@ export default function EmployerDashboard() {
             <Key className="h-4 w-4" />
             API Keys
           </TabsTrigger>
+          <TabsTrigger value="webhooks" className="gap-2">
+            <Webhook className="h-4 w-4" />
+            Webhooks
+          </TabsTrigger>
           <TabsTrigger value="activity" className="gap-2">
             <Activity className="h-4 w-4" />
             Activity Log
@@ -327,6 +332,10 @@ export default function EmployerDashboard() {
               </Card>
             )}
           </div>
+        </TabsContent>
+
+        <TabsContent value="webhooks" className="space-y-4">
+          <WebhookConfig accountId={account.id} />
         </TabsContent>
 
         <TabsContent value="activity" className="space-y-4">

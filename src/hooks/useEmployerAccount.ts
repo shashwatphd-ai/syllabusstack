@@ -209,3 +209,159 @@ export function useRevokeApiKey() {
     },
   });
 }
+
+// Webhook types
+export interface EmployerWebhook {
+  id: string;
+  employer_account_id: string;
+  url: string;
+  events: string[] | null;
+  secret: string | null;
+  is_active: boolean | null;
+  last_triggered_at: string | null;
+  failure_count: number | null;
+  created_at: string | null;
+}
+
+export const WEBHOOK_EVENTS = [
+  { value: 'certificate.issued', label: 'Certificate Issued', description: 'When a new certificate is issued to a student' },
+  { value: 'certificate.revoked', label: 'Certificate Revoked', description: 'When a certificate is revoked' },
+  { value: 'verification.completed', label: 'Verification Completed', description: 'When you verify a certificate via API' },
+] as const;
+
+// Fetch webhooks
+export function useEmployerWebhooks(accountId: string | undefined) {
+  return useQuery({
+    queryKey: ['employer-webhooks', accountId],
+    queryFn: async (): Promise<EmployerWebhook[]> => {
+      if (!accountId) return [];
+
+      const { data, error } = await supabase
+        .from('employer_webhooks')
+        .select('*')
+        .eq('employer_account_id', accountId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!accountId,
+  });
+}
+
+// Create webhook
+export function useCreateWebhook() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async (data: {
+      employer_account_id: string;
+      url: string;
+      events: string[];
+    }) => {
+      // Generate a signing secret
+      const secret = `whsec_${crypto.randomUUID().replace(/-/g, '')}`;
+
+      const { data: webhook, error } = await supabase
+        .from('employer_webhooks')
+        .insert({
+          employer_account_id: data.employer_account_id,
+          url: data.url,
+          events: data.events,
+          secret,
+          is_active: true,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+      return { ...webhook, secret };
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['employer-webhooks', variables.employer_account_id] });
+      toast({
+        title: 'Webhook created',
+        description: 'Your webhook endpoint has been configured.',
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to create webhook',
+        variant: 'destructive',
+      });
+    },
+  });
+}
+
+// Update webhook
+export function useUpdateWebhook() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async (data: {
+      id: string;
+      url?: string;
+      events?: string[];
+      is_active?: boolean;
+    }) => {
+      const { error } = await supabase
+        .from('employer_webhooks')
+        .update({
+          url: data.url,
+          events: data.events,
+          is_active: data.is_active,
+        })
+        .eq('id', data.id);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['employer-webhooks'] });
+      toast({
+        title: 'Webhook updated',
+        description: 'Your webhook settings have been saved.',
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to update webhook',
+        variant: 'destructive',
+      });
+    },
+  });
+}
+
+// Delete webhook
+export function useDeleteWebhook() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async (webhookId: string) => {
+      const { error } = await supabase
+        .from('employer_webhooks')
+        .delete()
+        .eq('id', webhookId);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['employer-webhooks'] });
+      toast({
+        title: 'Webhook deleted',
+        description: 'The webhook endpoint has been removed.',
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to delete webhook',
+        variant: 'destructive',
+      });
+    },
+  });
+}
