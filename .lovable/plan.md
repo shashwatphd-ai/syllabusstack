@@ -1,430 +1,240 @@
 
-# System Assessment & Documentation Framework
 
-## Current System Snapshot
+# Logo Update and Color Scheme Alignment Plan
 
-### Scale Metrics (Verified from Codebase)
-| Category | Count | Details |
-|----------|-------|---------|
-| **Edge Functions** | 76 | Core + batch + webhooks + payment |
-| **Database Tables** | 50+ | As defined in types.ts (4,400 lines) |
-| **Frontend Pages** | 34 | Across 6 route groups |
-| **React Hooks** | 57 | Custom business logic hooks |
-| **Components** | 28+ | Component directories |
-| **Shared Modules** | 22 | `_shared/` utilities |
-| **Test Files** | 6 | Frontend + edge function tests |
-| **Documentation** | 11 | Technical specifications |
+## Overview
 
----
+This plan updates the SyllabusStack logo to match the uploaded brand asset and adjusts the color scheme throughout the application to align with the new logo colors.
 
-## Assessment Methodology
+## Current State Analysis
 
-### 1. Full Architecture Review
+**Current Logo Component** (`src/components/common/Logo.tsx`):
+- Uses a CSS-generated icon with horizontal bars on a coral gradient background
+- Text uses coral accent for "Stack"
+- Colors: coral/orange (#F97316-ish) and indigo (#4F46E5-ish)
 
-**Objective**: Map all system components, data flows, and integration points
+**New Logo Requirements** (from uploaded image):
+- 3D stacked book/layer icon with orange and dark purple colors
+- "Syllabus" in dark indigo/purple
+- "Stack" in orange/amber
+- The icon has a distinctive 3D perspective with interlocking layers
 
-**Scope**:
-```text
-┌─────────────────────────────────────────────────────────────────┐
-│                    ARCHITECTURE LAYERS                           │
-├─────────────────────────────────────────────────────────────────┤
-│  FRONTEND                                                        │
-│  ├── Pages (34): Auth, Dashboard, Learn, Instructor, Admin      │
-│  ├── Hooks (57): Query, mutation, state management              │
-│  ├── Components (28+ dirs): UI, forms, visualizations           │
-│  └── Services: Proctoring, storage, AI generation               │
-├─────────────────────────────────────────────────────────────────┤
-│  BACKEND (Edge Functions)                                        │
-│  ├── AI Pipeline (18): Syllabus, curriculum, slides, assessment │
-│  ├── Content Discovery (8): YouTube, Khan, Firecrawl            │
-│  ├── Payments (7): Stripe checkout, webhook, portal             │
-│  ├── Auth/Trust (8): IDV, instructor verification, SSO          │
-│  ├── Batch Processing (10): Submit, poll, process               │
-│  └── Shared (_shared/22): AI clients, caching, rate limiting    │
-├─────────────────────────────────────────────────────────────────┤
-│  DATA LAYER                                                      │
-│  ├── Tables (50+): Core entities, analytics, certificates       │
-│  ├── Functions (35): RPC, triggers, security definer            │
-│  ├── RLS Policies: Per-table access control                     │
-│  └── Storage Buckets (3): syllabi, lecture-visuals, lecture-audio│
-├─────────────────────────────────────────────────────────────────┤
-│  EXTERNAL INTEGRATIONS                                           │
-│  ├── AI: OpenRouter (Gemini, GPT, DeepSeek), Vertex AI Batch    │
-│  ├── Payments: Stripe (checkout, subscriptions, webhooks)       │
-│  ├── Content: YouTube API, Invidious, Piped, Khan Academy       │
-│  ├── Identity: Persona (IDV), WorkOS (SSO/SAML)                 │
-│  └── Web Scraping: Firecrawl, Jina                              │
-└─────────────────────────────────────────────────────────────────┘
+## Implementation Plan
+
+### Step 1: Copy Logo Image to Project
+
+Copy the uploaded logo to the src/assets folder for proper bundling:
+```
+lov-copy user-uploads://image-133.png src/assets/syllabusstack-logo.png
 ```
 
-**Deliverable**: `ARCHITECTURE_AUDIT.md`
-- System context diagram
-- Component dependency graph
-- Data flow diagrams per feature
-- Integration point inventory
+### Step 2: Update Logo Component
 
----
+**File: `src/components/common/Logo.tsx`**
 
-### 2. Performance Audit
+Replace the CSS-generated icon with the actual logo image:
 
-**Objective**: Identify bottlenecks, optimize response times, reduce costs
-
-**Areas to Assess**:
-
-| Area | Metrics | Tools/Methods |
-|------|---------|---------------|
-| **Database Queries** | Response time, row counts | `EXPLAIN ANALYZE`, slow query logs |
-| **Edge Function Latency** | P50/P95/P99, cold starts | Supabase analytics, custom timing |
-| **AI Pipeline Throughput** | Tokens/sec, batch completion | ai_usage table, batch_jobs table |
-| **Frontend Bundle** | Initial load, chunk sizes | Vite build analysis, Lighthouse |
-| **API Rate Limits** | YouTube quota, OpenRouter limits | api_quota_tracking table |
-
-**Key Queries to Run**:
-```sql
--- Slowest edge functions (last 24h)
-SELECT function_id, AVG(execution_time_ms) as avg_ms
-FROM function_edge_logs
-WHERE timestamp > now() - interval '24 hours'
-GROUP BY function_id ORDER BY avg_ms DESC;
-
--- AI cost by function
-SELECT function_name, SUM(cost_usd) as total_cost
-FROM ai_usage
-WHERE created_at > now() - interval '30 days'
-GROUP BY function_name ORDER BY total_cost DESC;
-```
-
-**Deliverable**: `PERFORMANCE_AUDIT.md`
-- Latency baseline measurements
-- Cost analysis by feature
-- Optimization recommendations with priority
-- Bundle size optimization plan
-
----
-
-### 3. Security Assessment
-
-**Objective**: Identify vulnerabilities, validate access controls, ensure data protection
-
-**Checklist**:
-
-| Category | Items to Verify |
-|----------|----------------|
-| **Authentication** | Email confirmation, password policies, session management |
-| **Authorization** | RLS policies per table, role-based access (`user_roles` table) |
-| **API Security** | JWT validation, CORS config, rate limiting |
-| **Data Protection** | PII handling, Stripe ID exclusion, signed URLs |
-| **Edge Function Security** | Input validation, SQL injection prevention, secret management |
-| **Third-party** | API key rotation, webhook signature verification |
-
-**Current Security Measures (Verified)**:
-- `verify_jwt = true/false` per edge function in config.toml
-- `user_roles` table with `has_role()` security definer function
-- Profile excludes `stripe_customer_id` and `stripe_subscription_id` from client
-- Private storage buckets with signed URL access
-- Proctoring service for assessment integrity
-
-**Deliverable**: `SECURITY_ASSESSMENT.md`
-- RLS policy matrix (table × operation × role)
-- Vulnerability findings with severity
-- Remediation plan with timeline
-- Penetration test recommendations
-
----
-
-### 4. Test Coverage Analysis
-
-**Objective**: Quantify existing coverage, identify gaps, establish testing strategy
-
-**Current Test Inventory**:
-```text
-Frontend Tests:
-├── src/test/setup.ts (test infrastructure)
-├── src/test/factories/ (test data factories)
-├── src/test/mocks/ (Supabase mocks)
-├── src/hooks/useLinkCourseToRecommendation.test.ts
-├── src/hooks/useTeachingUnits.test.ts
-└── vitest.config.ts
-
-Edge Function Tests:
-├── supabase/functions/tests/ai-models-unit.test.ts
-├── supabase/functions/tests/ai-pipeline-e2e.test.ts
-├── supabase/functions/tests/course-lifecycle.test.ts
-└── supabase/functions/_shared/openrouter-client.test.ts
-```
-
-**Coverage Gaps (Estimated)**:
-| Category | Files | Tested | Coverage |
-|----------|-------|--------|----------|
-| Frontend Hooks | 57 | 2 | ~3% |
-| Frontend Components | 100+ | 0 | 0% |
-| Edge Functions | 76 | 4 | ~5% |
-| Database Functions | 35 | 0 | 0% |
-
-**Deliverable**: `TEST_COVERAGE_REPORT.md`
-- Current coverage metrics
-- Critical path testing gaps
-- Test strategy (unit, integration, E2E)
-- Test file templates for each category
-
----
-
-### 5. Dependency Audit
-
-**Objective**: Identify outdated, vulnerable, or unused dependencies
-
-**Current Dependencies** (from package.json):
-- **React Ecosystem**: react@18.3.1, react-router-dom@7.12.0, react-query@5.83.0
-- **UI**: Radix UI (17 packages), Tailwind CSS, lucide-react
-- **Forms**: react-hook-form, @hookform/resolvers, zod
-- **Testing**: vitest@4.0.16, @testing-library/react@16.3.1
-- **Build**: vite@5.4.19, typescript@5.8.3
-
-**Audit Areas**:
-| Check | Tool/Method |
-|-------|-------------|
-| Security vulnerabilities | `npm audit`, Snyk |
-| Outdated packages | `npm outdated` |
-| Unused dependencies | `depcheck` |
-| Bundle impact | `vite-bundle-analyzer` |
-| License compliance | `license-checker` |
-
-**Deliverable**: `DEPENDENCY_AUDIT.md`
-- Vulnerability report with severity
-- Upgrade recommendations
-- Unused package removal list
-- Bundle size impact analysis
-
----
-
-### 6. API/Edge Function Review (76 Functions)
-
-**Objective**: Catalog, categorize, and assess all edge functions
-
-**Categorization**:
-```text
-AI Pipeline (18 functions):
-├── analyze-syllabus, process-syllabus, parse-syllabus-document
-├── curriculum-reasoning-agent, generate-curriculum
-├── generate-lecture-slides-v3, generate-lecture-audio
-├── generate-assessment-questions, generate-micro-checks
-├── gap-analysis, generate-recommendations
-├── content-assistant-chat, ai-gateway
-└── extract-learning-objectives, evaluate-content-batch
-
-Content Discovery (8 functions):
-├── search-youtube-content, search-youtube-manual
-├── search-khan-academy, search-educational-content
-├── firecrawl-search-courses, fetch-video-metadata
-├── add-manual-content, add-instructor-content
-└── global-search, generate-search-context
-
-Batch Processing (10 functions):
-├── submit-batch-slides, submit-batch-curriculum, submit-batch-evaluation
-├── poll-batch-status, poll-batch-curriculum, poll-batch-evaluation
-├── process-batch-research, process-batch-images
-├── process-lecture-queue, cancel-batch-job
-└── trigger-progressive-generation
-
-Payment & Billing (7 functions):
-├── create-checkout-session, create-portal-session
-├── stripe-webhook, get-invoices
-├── purchase-certificate, cancel-subscription
-└── create-course-payment, enroll-in-course
-
-Trust & Identity (8 functions):
-├── verify-instructor-email, review-instructor-verification
-├── use-invite-code, invite-users
-├── initiate-identity-verification, identity-verification-status
-├── idv-webhook, configure-organization-sso
-└── employer-verify-completion
-
-Assessments (6 functions):
-├── start-assessment, submit-assessment-answer, complete-assessment
-├── start-skills-assessment, submit-skills-response, complete-skills-assessment
-└── record-proctor-event
-
-Certificates (3 functions):
-├── issue-certificate, verify-certificate
-└── (generate-certificate-pdf - may be inline)
-
-Career/Jobs (6 functions):
-├── analyze-dream-job, discover-dream-jobs
-├── match-careers, get-onet-occupation
-├── scrape-job-posting, search-jobs
-
-Utility (10+ functions):
-├── get-usage-stats, track-consumption
-├── send-digest-email, auto-link-courses
-├── compare-web-providers, remove-org-user
-└── generate-content-strategy
-```
-
-**Assessment per Function**:
-- [ ] JWT verification status
-- [ ] Input validation
-- [ ] Error handling patterns
-- [ ] Response time benchmarks
-- [ ] Cost attribution
-
-**Deliverable**: `EDGE_FUNCTION_CATALOG.md`
-- Function inventory with categories
-- Authentication requirements matrix
-- Performance baselines
-- Dependency mapping (shared modules)
-- Deprecation candidates
-
----
-
-### 7. Database Schema Analysis
-
-**Objective**: Document schema, relationships, indexes, and optimization opportunities
-
-**Schema Groups** (50+ tables):
-```text
-Core Entities:
-├── profiles, user_roles, user_progress, user_achievements
-├── courses, instructor_courses, modules, learning_objectives
-├── teaching_units, lecture_slides, content, content_matches
-
-Assessments:
-├── assessment_questions, assessment_sessions, assessment_answers
-├── micro_checks, micro_check_results
-├── assessment_item_bank, skill_assessment_responses
-
-Certificates & Trust:
-├── certificates, certificate_verifications
-├── instructor_verifications, instructor_invite_codes
-├── identity_verifications
-
-Organizations:
-├── organizations, organization_members, organization_invitations
-├── employer_accounts, employer_api_keys
-
-AI & Batch:
-├── ai_usage, ai_cache, batch_jobs
-├── generation_triggers, research_cache
-
-Content Discovery:
-├── content_search_cache, content_ratings, content_suggestions
-├── consumption_records, verified_skills
-
-Career:
-├── dream_jobs, gap_analyses, recommendations
-├── recommendation_course_links, capabilities
-├── career_matches, anti_recommendations
-
-Tracking:
-├── api_quota_tracking, api_usage_tracking
-├── tier_limits, proctoring_events
-```
-
-**Analysis Areas**:
-| Area | Method |
-|------|--------|
-| Relationship integrity | FK constraint review |
-| Index optimization | `pg_stat_user_indexes` |
-| Table bloat | `pg_stat_user_tables` |
-| RLS policy coverage | Per-table policy audit |
-| Data volume projections | Row count analysis |
-
-**Deliverable**: `DATABASE_SCHEMA_ANALYSIS.md`
-- Entity-relationship diagram (ERD)
-- Table-by-table documentation
-- Index recommendations
-- RLS policy matrix
-- Migration history summary
-
----
-
-## Deliverables Summary
-
-### Primary Documents (7)
-
-| Document | Purpose | Est. Pages |
-|----------|---------|------------|
-| `ARCHITECTURE_AUDIT.md` | System structure & data flows | 15-20 |
-| `PERFORMANCE_AUDIT.md` | Latency, costs, optimizations | 10-15 |
-| `SECURITY_ASSESSMENT.md` | Vulnerabilities & RLS review | 10-15 |
-| `TEST_COVERAGE_REPORT.md` | Current coverage & test plan | 8-10 |
-| `DEPENDENCY_AUDIT.md` | Package health & upgrades | 5-8 |
-| `EDGE_FUNCTION_CATALOG.md` | 76 functions documented | 20-25 |
-| `DATABASE_SCHEMA_ANALYSIS.md` | 50+ tables with ERD | 15-20 |
-
-### Supporting Artifacts
-
-| Artifact | Format | Description |
-|----------|--------|-------------|
-| System Context Diagram | Mermaid/PNG | High-level architecture |
-| Data Flow Diagrams | Mermaid | Per-feature flows (10-12) |
-| ERD | Mermaid/dbdiagram.io | Full database relationships |
-| RLS Policy Matrix | Table/CSV | Table × Operation × Role |
-| Function Authentication Matrix | Table | JWT requirements per function |
-| Test Coverage Dashboard | JSON/HTML | vitest coverage output |
-| Dependency Graph | HTML | vite-bundle-analyzer output |
-
----
-
-## Execution Timeline
-
-| Week | Focus | Deliverables |
-|------|-------|--------------|
-| **Week 1** | Architecture + Database | ARCHITECTURE_AUDIT.md, DATABASE_SCHEMA_ANALYSIS.md |
-| **Week 2** | Edge Functions + Security | EDGE_FUNCTION_CATALOG.md, SECURITY_ASSESSMENT.md |
-| **Week 3** | Performance + Dependencies | PERFORMANCE_AUDIT.md, DEPENDENCY_AUDIT.md |
-| **Week 4** | Testing + Synthesis | TEST_COVERAGE_REPORT.md, Executive Summary |
-
----
-
-## Immediate Priority: Build Error Resolution
-
-Before comprehensive assessment, these 3 build errors must be fixed:
-
-### Error 1: CareerPath.tsx (Lines 221-222)
 ```typescript
-// Current (broken):
-requirement: gap.gap || gap.requirement || gap.job_requirement
+import { forwardRef } from "react";
+import { cn } from "@/lib/utils";
+import logoImage from "@/assets/syllabusstack-logo.png";
 
-// Fix (use only defined property):
-requirement: gap.gap
+interface LogoProps {
+  size?: "sm" | "md" | "lg" | "xl";
+  variant?: "light" | "dark" | "auto";
+  showText?: boolean;
+  showIcon?: boolean;
+  className?: string;
+}
+
+export const Logo = forwardRef<HTMLDivElement, LogoProps>(
+  ({ size = "md", variant = "auto", showText = true, showIcon = true, className }, ref) => {
+    const sizes = {
+      sm: { icon: "h-8", text: "text-lg", full: "h-8" },
+      md: { icon: "h-10", text: "text-xl", full: "h-10" },
+      lg: { icon: "h-12", text: "text-2xl", full: "h-12" },
+      xl: { icon: "h-16", text: "text-3xl", full: "h-16" },
+    };
+
+    const textColor = {
+      light: "text-white",
+      dark: "text-indigo-900",
+      auto: "text-indigo-900 dark:text-white",
+    };
+
+    const accentColor = {
+      light: "text-amber-400",
+      dark: "text-amber-500",
+      auto: "text-amber-500 dark:text-amber-400",
+    };
+
+    // If showing both icon and text, use the full logo image
+    if (showIcon && showText) {
+      return (
+        <div ref={ref} className={cn("flex items-center", className)}>
+          <img 
+            src={logoImage} 
+            alt="SyllabusStack" 
+            className={cn("object-contain", sizes[size].full)}
+          />
+        </div>
+      );
+    }
+
+    // Icon only mode - crop/show just the icon portion
+    if (showIcon && !showText) {
+      return (
+        <div ref={ref} className={cn("flex items-center", className)}>
+          <img 
+            src={logoImage} 
+            alt="SyllabusStack" 
+            className={cn("object-contain object-left", sizes[size].icon)}
+            style={{ clipPath: 'inset(0 60% 0 0)' }}
+          />
+        </div>
+      );
+    }
+
+    // Text only mode
+    return (
+      <div ref={ref} className={cn("flex items-center", className)}>
+        <span className={cn("font-bold tracking-tight", sizes[size].text, textColor[variant])}>
+          Syllabus<span className={accentColor[variant]}>Stack</span>
+        </span>
+      </div>
+    );
+  }
+);
+
+Logo.displayName = "Logo";
 ```
 
-### Error 2: Learn.tsx (Line 352)
+### Step 3: Update Color Scheme in CSS
+
+**File: `src/index.css`**
+
+Update the color variables to match the logo's purple and orange palette:
+
+**Light Mode Updates (lines 29-31, 41-43, 57, 68-70):**
+```css
+/* Primary - Deep purple/indigo from logo */
+--primary: 262 60% 35%;
+--primary-foreground: 0 0% 100%;
+
+/* Accent - Amber/orange from logo */
+--accent: 38 95% 50%;
+--accent-foreground: 0 0% 100%;
+
+--ring: 262 60% 35%;
+
+/* Updated extended palette to match logo */
+--indigo-900: 262 60% 20%;
+--indigo-800: 262 55% 25%;
+--indigo-700: 262 50% 30%;
+--indigo-600: 262 48% 35%;
+--indigo-500: 262 45% 40%;
+
+/* Amber palette replacing coral */
+--amber-500: 38 92% 50%;
+--amber-400: 38 95% 55%;
+--amber-300: 38 90% 65%;
+```
+
+**Dark Mode Updates (lines 121-122, 130-131, 138, 142-145):**
+```css
+--primary: 38 92% 55%;
+--primary-foreground: 262 60% 15%;
+
+--accent: 262 50% 40%;
+--accent-foreground: 38 92% 55%;
+
+--ring: 38 92% 55%;
+
+--sidebar-background: 262 60% 8%;
+--sidebar-primary: 38 92% 55%;
+--sidebar-primary-foreground: 262 60% 15%;
+--sidebar-accent: 262 45% 35%;
+```
+
+### Step 4: Update Tailwind Config
+
+**File: `tailwind.config.ts`**
+
+Replace `coral` palette with `amber` to match the new logo (lines 107-111):
+
 ```typescript
-// Current (ES2021 required):
-.replaceAll('"', '""')
-
-// Fix (ES5 compatible):
-.replace(/"/g, '""')
+amber: {
+  '300': 'hsl(var(--amber-300))',
+  '400': 'hsl(var(--amber-400))',
+  '500': 'hsl(var(--amber-500))'
+},
 ```
 
-### Error 3: TestResults.tsx (7 locations)
+### Step 5: Update Sidebar Logo
+
+**File: `src/components/layout/Sidebar.tsx`**
+
+Update the inline logo (lines 105-114) to use the Logo component:
+
 ```typescript
-// Current (Json type incompatible):
-(latestCourse.tools_methods || []).map(...)
+import { Logo } from '@/components/common/Logo';
 
-// Fix (safe cast via unknown):
-((latestCourse.tools_methods as unknown as string[]) || []).map(...)
+// Replace the current logo section with:
+<Link to="/dashboard" className="flex items-center gap-2">
+  <Logo 
+    size="sm" 
+    showText={!isCollapsed} 
+    showIcon={true}
+    variant="auto"
+  />
+</Link>
 ```
 
----
+### Step 6: Global Search and Replace
 
-## Technical Notes
+Update all references from `coral-` to `amber-` across the codebase:
 
-### Assessment Agent Capabilities Required
+Files to update:
+- `src/components/common/Logo.tsx` (already done above)
+- `src/components/common/LoadingState.tsx` - update any coral references
+- Any other files using `coral-400`, `coral-500`, etc.
 
-1. **Code Analysis**: Traverse file system, parse TypeScript/SQL
-2. **Database Access**: Query analytics, run EXPLAIN, count rows
-3. **Edge Function Access**: Invoke functions, read logs
-4. **Documentation Generation**: Markdown output, diagram rendering
-5. **Comparison Logic**: Compare code vs. spec (WIREFRAME_SPECIFICATION.md)
+### Step 7: Update Gradient Variables
 
-### Data Sources for Assessment
+**File: `src/index.css`**
 
-| Source | Access Method | Data Type |
-|--------|---------------|-----------|
-| Codebase | lov-view, lov-list-dir | Static analysis |
-| Database | supabase--read-query | Schema, data samples |
-| Logs | supabase--analytics-query | Runtime behavior |
-| Edge Functions | supabase--edge-function-logs | Execution traces |
-| Spec Docs | docs/*.md files | Requirements baseline |
+Update gradient definitions to use new colors (lines 72-76):
+
+```css
+/* Gradients - updated to purple and amber */
+--gradient-hero: linear-gradient(135deg, hsl(262 60% 15%) 0%, hsl(262 50% 25%) 50%, hsl(262 45% 30%) 100%);
+--gradient-accent: linear-gradient(135deg, hsl(38 92% 50%) 0%, hsl(42 90% 55%) 100%);
+--shadow-glow: 0 0 40px hsl(38 92% 50% / 0.25);
+```
+
+## Files to Modify Summary
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/assets/syllabusstack-logo.png` | CREATE | Copy uploaded logo image |
+| `src/components/common/Logo.tsx` | EDIT | Use actual logo image, update colors |
+| `src/index.css` | EDIT | Update color variables (primary, accent, gradients) |
+| `tailwind.config.ts` | EDIT | Replace coral with amber palette |
+| `src/components/layout/Sidebar.tsx` | EDIT | Use Logo component instead of inline |
+
+## Color Palette Reference
+
+From the uploaded logo:
+- **Dark Purple/Indigo**: ~hsl(262, 60%, 35%) - used for "Syllabus" text
+- **Amber/Orange**: ~hsl(38, 92%, 50%) - used for "Stack" text and icon layers
+- **Icon layers**: Gradient from amber to dark purple with 3D perspective
+
+## Visual Result
+
+After implementation:
+- Landing page header will show the new logo
+- Sidebar will display icon-only when collapsed, full logo when expanded
+- All accent colors (buttons, links, highlights) will use amber instead of coral
+- Primary actions will use the deep purple from the logo
+- Overall aesthetic will match the professional purple-orange brand identity
+
