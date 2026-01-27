@@ -230,12 +230,13 @@ async function fetchCourseStats(): Promise<CourseStats> {
 async function fetchSkillsStats(): Promise<SkillsStats> {
   const { data: skills, count } = await supabase
     .from('verified_skills')
-    .select('skill_name, skill_category, verified_at', { count: 'exact' });
+    .select('skill_name, source_type, verified_at', { count: 'exact' });
 
   const skillCounts = new Map<string, { count: number; category: string }>();
   for (const skill of skills || []) {
     const key = skill.skill_name.toLowerCase();
-    const current = skillCounts.get(key) || { count: 0, category: skill.skill_category || 'general' };
+    // Use source_type as category proxy since skill_category doesn't exist
+    const current = skillCounts.get(key) || { count: 0, category: skill.source_type || 'general' };
     current.count++;
     skillCounts.set(key, current);
   }

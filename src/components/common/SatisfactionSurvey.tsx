@@ -90,8 +90,8 @@ export function SatisfactionSurvey({
     try {
       const { data: { user } } = await supabase.auth.getUser();
 
-      // Store survey response
-      const { error } = await supabase.from('satisfaction_surveys').insert({
+      // Store survey response (use type bypass for tables not in generated types)
+      const { error } = await (supabase as any).from('satisfaction_surveys').insert({
         user_id: user?.id || null,
         survey_id: surveyId,
         trigger,

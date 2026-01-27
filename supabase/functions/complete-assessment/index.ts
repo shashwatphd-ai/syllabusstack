@@ -210,14 +210,19 @@ serve(async (req) => {
           let sourceId = learningObjective.course_id;
 
           // Try to get a more specific source name
-          if (learningObjective.modules?.instructor_courses?.title) {
-            sourceName = learningObjective.modules.instructor_courses.title;
-            sourceId = learningObjective.modules.instructor_course_id;
-          } else if (learningObjective.modules?.title) {
-            sourceName = learningObjective.modules.title;
+          // Note: Supabase joins return arrays, so access first element
+          const module = Array.isArray(learningObjective.modules) ? learningObjective.modules[0] : learningObjective.modules;
+          const course = Array.isArray(learningObjective.courses) ? learningObjective.courses[0] : learningObjective.courses;
+          const instructorCourse = module && Array.isArray(module.instructor_courses) ? module.instructor_courses[0] : module?.instructor_courses;
+
+          if (instructorCourse?.title) {
+            sourceName = instructorCourse.title;
+            sourceId = module?.instructor_course_id;
+          } else if (module?.title) {
+            sourceName = module.title;
             sourceId = learningObjective.module_id;
-          } else if (learningObjective.courses?.title) {
-            sourceName = learningObjective.courses.title;
+          } else if (course?.title) {
+            sourceName = course.title;
             sourceId = learningObjective.course_id;
           }
 

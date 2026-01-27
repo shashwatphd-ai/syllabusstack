@@ -17,7 +17,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
-import { useStudentCourses } from '@/hooks/useStudentCourses';
+import { useStudentEnrollments } from '@/hooks/useStudentCourses';
 import { useDreamJobs } from '@/hooks/useDreamJobs';
 import { useRecommendations } from '@/hooks/useRecommendations';
 import { useVerifiedSkills } from '@/hooks/useVerifiedSkills';
@@ -47,7 +47,7 @@ export function LearningPathVisualization({
   compact = false,
   maxItems = 10,
 }: LearningPathVisualizationProps) {
-  const { data: courses = [], isLoading: coursesLoading } = useStudentCourses();
+  const { data: courses = [], isLoading: coursesLoading } = useStudentEnrollments();
   const { data: dreamJobs = [], isLoading: dreamJobsLoading } = useDreamJobs();
   const { data: recommendations = [], isLoading: recsLoading } = useRecommendations(dreamJobId);
   const { data: verifiedSkills = [], isLoading: skillsLoading } = useVerifiedSkills();
@@ -64,12 +64,12 @@ export function LearningPathVisualization({
       nodes.push({
         id: `course-${course.instructor_course_id}`,
         type: 'course',
-        title: course.instructor_courses?.title || 'Untitled Course',
+        title: course.instructor_course?.title || 'Untitled Course',
         status: progress >= 100 ? 'completed' : progress > 0 ? 'in-progress' : 'pending',
         progress,
         link: `/courses/${course.instructor_course_id}`,
         metadata: {
-          code: course.instructor_courses?.code,
+          code: course.instructor_course?.code,
         },
       });
     });
