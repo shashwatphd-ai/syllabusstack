@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Plus, FileText, Video, CheckCircle2, Clock, AlertCircle, Settings2, Copy, Share2, Loader2, Sparkles, Users, Presentation, RotateCcw, Image } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { VerificationBanner } from '@/components/instructor/VerificationBanner';
+import { VerificationBanner, useVerificationStatus } from '@/components/instructor/VerificationBanner';
 import { AppShell } from '@/components/layout/AppShell';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { Button } from '@/components/ui/button';
@@ -44,6 +44,7 @@ export default function InstructorCourseDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { profile } = useAuth();
+  const verificationStatus = useVerificationStatus();
   const queryClient = useQueryClient();
   const { data: course, isLoading: courseLoading } = useInstructorCourse(id);
   const { data: modules, isLoading: modulesLoading, refetch: refetchModules } = useModules(id);
@@ -273,9 +274,9 @@ export default function InstructorCourseDetailPage() {
   return (
     <AppShell>
       <PageContainer>
-        {/* Verification Banner for unverified instructors */}
-        {!profile?.is_instructor_verified && (
-          <VerificationBanner className="mb-6" />
+        {/* Verification Banner for unverified/pending instructors */}
+        {verificationStatus !== 'approved' && (
+          <VerificationBanner variant={verificationStatus} className="mb-6" />
         )}
 
         <div className="space-y-6">

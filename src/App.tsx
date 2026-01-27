@@ -43,15 +43,21 @@ import CourseManagement from "./pages/admin/CourseManagement";
 import BrandingSettings from "./pages/admin/BrandingSettings";
 import OrganizationDashboard from "./pages/admin/OrganizationDashboard";
 import InstructorReviewQueue from "./pages/admin/InstructorReviewQueue";
+import ContentModerationPage from "./pages/admin/ContentModeration";
+import RoleManagementPage from "./pages/admin/RoleManagement";
 // Unified pages (new architecture)
 import LearnPage from "./pages/Learn";
 import CareerPathPage from "./pages/CareerPath";
 import TeachPage from "./pages/Teach";
 import BecomeInstructorPage from "./pages/BecomeInstructor";
+import ProgressPage from "./pages/Progress";
 // Certificate pages
 import CertificateViewPage from "./pages/certificate/CertificateView";
 import PublicCertificateVerifyPage from "./pages/verify/PublicCertificateVerify";
 import EmployerDashboard from "./pages/employer/EmployerDashboard";
+import EmployerSignupPage from "./pages/employer/EmployerSignup";
+import EmployerApiDocsPage from "./pages/employer/ApiDocs";
+import EmployersPage from "./pages/Employers";
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -64,6 +70,7 @@ const App = () => (
           <Routes>
             {/* Public routes */}
             <Route path="/" element={<Index />} />
+            <Route path="/employers" element={<EmployersPage />} />
             <Route path="/scanner" element={<SyllabusScannerPage />} />
             <Route path="/test-results" element={<TestResultsPage />} />
             <Route path="/resources" element={<ResourcesPage />} />
@@ -90,6 +97,7 @@ const App = () => (
             <Route path="/career" element={<AuthGuard><CareerPathPage /></AuthGuard>} />
             <Route path="/teach" element={<AuthGuard><TeachPage /></AuthGuard>} />
             <Route path="/become-instructor" element={<AuthGuard><BecomeInstructorPage /></AuthGuard>} />
+            <Route path="/progress" element={<AuthGuard><ProgressPage /></AuthGuard>} />
 
             {/* LEGACY REDIRECTS - redirect old URLs to new unified pages */}
             <Route path="/courses" element={<Navigate to="/learn?tab=transcript" replace />} />
@@ -132,8 +140,12 @@ const App = () => (
             <Route path="/admin/courses" element={<AdminGuard><CourseManagement /></AdminGuard>} />
             <Route path="/admin/branding" element={<AdminGuard><BrandingSettings /></AdminGuard>} />
             <Route path="/admin/instructor-review" element={<AdminGuard><InstructorReviewQueue /></AdminGuard>} />
+            <Route path="/admin/content-moderation" element={<AdminGuard><ContentModerationPage /></AdminGuard>} />
+            <Route path="/admin/roles" element={<AdminGuard><RoleManagementPage /></AdminGuard>} />
             <Route path="/organization" element={<AuthGuard><OrganizationDashboard /></AuthGuard>} />
             <Route path="/employer" element={<AuthGuard><EmployerDashboard /></AuthGuard>} />
+            <Route path="/employer/signup" element={<AuthGuard><EmployerSignupPage /></AuthGuard>} />
+            <Route path="/employer/api-docs" element={<EmployerApiDocsPage />} />
 
             {/* Catch-all */}
             <Route path="*" element={<NotFound />} />
