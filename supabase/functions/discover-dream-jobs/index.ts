@@ -149,11 +149,72 @@ Based on this profile, suggest 5-8 diverse career paths including:
 
     console.log(`Discovered ${parsed.discoveredJobs?.length || 0} career paths`);
 
+    const discoveredJobs = parsed.discoveredJobs || [];
+
+    // Save discovered careers to database for later review
+    if (discoveredJobs.length > 0) {
+      const discoveryInput = {
+        interests,
+        skills,
+        major,
+        careerGoals,
+        workStyle,
+        timestamp: new Date().toISOString()
+      };
+
+      const careersToInsert = discoveredJobs.map((job: DiscoveredJob) => ({
+        user_id: user.id,
+        title: job.title,
+        description: job.description,
+        why_it_fits: job.whyItFits,
+        salary_range: job.salaryRange,
+        growth_outlook: job.growthOutlook,
+        key_skills: job.keySkills,
+        day_in_life: job.dayInLife,
+        company_types: job.companyTypes,
+        discovery_input: discoveryInput,
+        is_added_to_dream_jobs: false
+      }));
+
+      // Delete previous discoveries to avoid duplicates (keep only latest)
+      await supabase
+        .from('discovered_careers')
+        .delete()
+        .eq('user_id', user.id);
+
+      const { data: savedCareers, error: saveError } = await supabase
+        .from('discovered_careers')
+        .insert(careersToInsert)
+        .select();
+
+      if (saveError) {
+        console.error('Failed to save discovered careers:', saveError);
+        // Don't fail the request - just log the error
+      } else {
+        console.log(`Saved ${savedCareers?.length || 0} discovered careers to database`);
+      }
+
+      // Return saved careers with IDs
+      return new Response(
+        JSON.stringify({
+          success: true,
+          jobs: savedCareers || discoveredJobs.map((job: DiscoveredJob, idx: number) => ({
+            ...job,
+            id: `temp-${idx}` // Temp ID if save failed
+          })),
+          insights: parsed.careerInsights || "",
+          saved: !saveError
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     return new Response(
       JSON.stringify({
         success: true,
-        jobs: parsed.discoveredJobs || [],
+        jobs: [],
         insights: parsed.careerInsights || "",
+        saved: false
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
