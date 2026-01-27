@@ -44,24 +44,45 @@ export function ActionabilityBadge({
   // Don't render badge for generic_action (non-course types)
   if (state === 'generic_action') return null;
   
-  // Special rendering for linked_learning state
+  // Special rendering for linked_learning state with progress bar
   if (state === 'linked_learning' && linkedCourseTitle) {
+    const progress = enrollmentProgress ?? 0;
+    const isComplete = progress >= 100;
+
     return (
       <div className={cn(
-        "flex items-center gap-1.5 text-xs rounded-md px-2 py-1",
-        "bg-indigo-50 text-indigo-700 border border-indigo-200",
+        "flex flex-col gap-1.5 text-xs rounded-md px-2 py-1.5",
+        isComplete
+          ? "bg-green-50 text-green-700 border border-green-200"
+          : "bg-indigo-50 text-indigo-700 border border-indigo-200",
         className
       )}>
-        <GraduationCap className="h-3 w-3" />
-        <span className="truncate max-w-[150px]">{linkedCourseTitle}</span>
-        {enrollmentProgress !== undefined && enrollmentProgress !== null && (
-          <Badge 
-            variant="outline" 
-            className="text-[9px] px-1 py-0 h-4 bg-indigo-100 border-indigo-200 ml-1"
-          >
-            {enrollmentProgress}%
-          </Badge>
-        )}
+        <div className="flex items-center gap-1.5">
+          {isComplete ? (
+            <CheckCircle2 className="h-3 w-3 text-green-600" />
+          ) : (
+            <GraduationCap className="h-3 w-3" />
+          )}
+          <span className="truncate max-w-[150px] font-medium">{linkedCourseTitle}</span>
+        </div>
+        {/* Progress bar */}
+        <div className="flex items-center gap-2 w-full">
+          <div className="flex-1 h-1.5 bg-white/50 rounded-full overflow-hidden">
+            <div
+              className={cn(
+                "h-full rounded-full transition-all duration-300",
+                isComplete ? "bg-green-500" : "bg-indigo-500"
+              )}
+              style={{ width: `${Math.min(progress, 100)}%` }}
+            />
+          </div>
+          <span className={cn(
+            "text-[10px] font-semibold min-w-[32px] text-right",
+            isComplete && "text-green-600"
+          )}>
+            {progress}%
+          </span>
+        </div>
       </div>
     );
   }

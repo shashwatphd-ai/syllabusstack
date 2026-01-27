@@ -175,7 +175,7 @@ export function useUpdateCareerMatch() {
   });
 }
 
-// Hook: Add career match to dream jobs
+// Hook: Add career match to dream jobs (enhanced with O*NET data)
 export function useAddMatchToDreamJobs() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -186,7 +186,25 @@ export function useAddMatchToDreamJobs() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      // Create dream job
+      // Try to use the RPC function that includes O*NET data
+      const { data: rpcResult, error: rpcError } = await supabase
+        .rpc('create_dream_job_from_career_match', {
+          p_user_id: user.id,
+          p_career_match_id: match.id,
+          p_onet_soc_code: match.onet_soc_code,
+          p_occupation_title: match.occupation_title,
+          p_match_score: match.overall_match_score,
+        });
+
+      // If RPC succeeds, return the dream job
+      if (!rpcError && rpcResult) {
+        return rpcResult;
+      }
+
+      // Fallback to manual creation if RPC fails (e.g., function doesn't exist yet)
+      console.warn('RPC create_dream_job_from_career_match failed, using fallback:', rpcError);
+
+      // Create dream job with O*NET metadata
       const { data: dreamJob, error: djError } = await supabase
         .from('dream_jobs')
         .insert([{
@@ -194,6 +212,9 @@ export function useAddMatchToDreamJobs() {
           title: match.occupation_title,
           description: `O*NET occupation: ${match.onet_soc_code}`,
           match_score: match.overall_match_score,
+          onet_soc_code: match.onet_soc_code,
+          source_type: 'career_match',
+          career_match_id: match.id,
         }])
         .select()
         .single();
@@ -203,7 +224,7 @@ export function useAddMatchToDreamJobs() {
       // Update career match with dream_job_id
       const { error: cmError } = await supabase
         .from('career_matches')
-        .update({ 
+        .update({
           dream_job_id: dreamJob.id,
           is_saved: true,
           updated_at: new Date().toISOString(),
@@ -217,10 +238,11 @@ export function useAddMatchToDreamJobs() {
     onSuccess: (dreamJob) => {
       queryClient.invalidateQueries({ queryKey: ['career-matches'] });
       queryClient.invalidateQueries({ queryKey: ['dream-jobs'] });
-      
+      queryClient.invalidateQueries({ queryKey: ['gap-analyses'] });
+
       toast({
         title: 'Added to Dream Jobs!',
-        description: `${dreamJob.title} is now in your dream jobs`,
+        description: `${dreamJob.title} is now in your dream jobs with O*NET data`,
       });
     },
     onError: (error) => {

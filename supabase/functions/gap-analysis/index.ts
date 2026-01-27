@@ -59,7 +59,7 @@ serve(async (req) => {
       logInfo('gap-analysis', 'rate_limit_check', { userId, remaining: rateLimitResult.remaining });
     }
 
-    // Get user's capabilities
+    // Get user's capabilities (self-reported)
     const { data: capabilities, error: capError } = await supabase
       .from("capabilities")
       .select("*");
@@ -68,6 +68,22 @@ serve(async (req) => {
       logError('gap-analysis', new Error(`Failed to fetch capabilities: ${capError.message}`));
       return createErrorResponse('DATABASE_ERROR', corsHeaders, 'Failed to fetch capabilities');
     }
+
+    // Get user's VERIFIED skills (from assessments - higher weight than capabilities)
+    const { data: verifiedSkills, error: vsError } = await supabase
+      .from("verified_skills")
+      .select("*")
+      .eq("user_id", userId);
+
+    if (vsError) {
+      logError('gap-analysis', new Error(`Failed to fetch verified skills: ${vsError.message}`));
+      // Don't fail - verified skills are optional
+    }
+
+    logInfo('gap-analysis', 'verified_skills_fetched', {
+      count: verifiedSkills?.length || 0,
+      skills: (verifiedSkills || []).map((vs: any) => vs.skill_name).slice(0, 10)
+    });
 
     // Get job requirements
     const { data: requirements, error: reqError } = await supabase
@@ -92,9 +108,10 @@ serve(async (req) => {
       return createErrorResponse('DATABASE_ERROR', corsHeaders, 'Failed to fetch dream job');
     }
 
-    logInfo('gap-analysis', 'data_fetched', { 
-      capabilities: capabilities?.length || 0, 
-      requirements: requirements?.length || 0 
+    logInfo('gap-analysis', 'data_fetched', {
+      capabilities: capabilities?.length || 0,
+      verifiedSkills: verifiedSkills?.length || 0,
+      requirements: requirements?.length || 0
     });
 
 
@@ -139,10 +156,18 @@ serve(async (req) => {
         .map(r => r.skill_name)
     };
 
-    // Format capabilities with proficiency info
-    const capabilitiesList = (capabilities || []).map(c => 
-      `- ${c.name} (${c.proficiency_level || 'unknown'} level, category: ${c.category || 'general'})`
+    // Format VERIFIED skills (highest confidence - passed assessments)
+    const verifiedSkillsList = (verifiedSkills || []).map((vs: any) =>
+      `- ${vs.skill_name} [VERIFIED] (${vs.proficiency_level} level, verified via ${vs.source_type}, from: ${vs.source_name || 'assessment'})`
     ).join("\n");
+
+    // Format self-reported capabilities (lower confidence than verified)
+    const capabilitiesList = (capabilities || []).map((c: any) =>
+      `- ${c.name} [SELF-REPORTED] (${c.proficiency_level || 'unknown'} level, category: ${c.category || 'general'})`
+    ).join("\n");
+
+    // Calculate verified skill names for gap identification
+    const verifiedSkillNames = (verifiedSkills || []).map((vs: any) => vs.skill_name.toLowerCase());
 
     // Format requirements with importance
     const requirementsList = (requirements || []).map(r => 
@@ -159,20 +184,22 @@ serve(async (req) => {
 PRE-COMPUTED KEYWORD ANALYSIS (use as baseline, adjust based on deeper understanding):
 - Keyword Match Score: ${preAnalysisContext.keywordMatchScore}%
 - Requirement Coverage: ${preAnalysisContext.coveragePercentage}%
-- Strong Matches (>50% similarity): ${preAnalysisContext.strongMatches.length > 0 
+- VERIFIED Skills Count: ${verifiedSkills?.length || 0} (these are PROVEN competencies)
+- Self-Reported Capabilities Count: ${capabilities?.length || 0} (these are UNPROVEN claims)
+- Strong Matches (>50% similarity): ${preAnalysisContext.strongMatches.length > 0
     ? preAnalysisContext.strongMatches.map(m => `${m.requirement} (matched by: ${m.matchedCapabilities.join(', ')})`).join('; ')
     : 'None'}
 - Partial Matches (20-50% similarity): ${preAnalysisContext.partialMatches.length > 0
     ? preAnalysisContext.partialMatches.map(m => `${m.requirement} (partial match with: ${m.matchedCapabilities.join(', ')})`).join('; ')
     : 'None'}
-- Critical Gaps (no keyword match): ${preAnalysisContext.uncoveredCritical.length > 0 
+- Critical Gaps (no keyword match): ${preAnalysisContext.uncoveredCritical.length > 0
     ? preAnalysisContext.uncoveredCritical.join(', ')
     : 'None detected'}
-- Important Gaps: ${preAnalysisContext.uncoveredImportant.length > 0 
+- Important Gaps: ${preAnalysisContext.uncoveredImportant.length > 0
     ? preAnalysisContext.uncoveredImportant.join(', ')
     : 'None detected'}
 
-Note: This is keyword-based analysis. Use your judgment to refine - some capabilities may transfer even without exact keyword matches.`;
+Note: This is keyword-based analysis. Use your judgment to refine. Give VERIFIED skills higher confidence than self-reported capabilities. A VERIFIED skill matching a job requirement should count more than a self-reported capability.`;
 
     const systemPrompt = `${MASTER_SYSTEM_PROMPT}
 
@@ -184,8 +211,18 @@ DREAM JOB: ${dreamJob.title}
 ${dreamJob.company_type ? `Company Type: ${dreamJob.company_type}` : ""}
 ${dreamJob.description ? `Role Description: ${dreamJob.description}` : ""}
 
-STUDENT'S CURRENT CAPABILITIES:
-${capabilitiesList || "No capabilities recorded yet - student has NOT demonstrated any relevant skills"}
+STUDENT'S VERIFIED SKILLS (HIGH CONFIDENCE - proven through assessments):
+${verifiedSkillsList || "No verified skills yet - student has not passed any assessments"}
+
+STUDENT'S SELF-REPORTED CAPABILITIES (LOWER CONFIDENCE - not yet verified):
+${capabilitiesList || "No capabilities recorded yet"}
+
+IMPORTANT: Verified skills should be weighted MORE heavily than self-reported capabilities.
+- VERIFIED skills = student has PROVEN this competency by passing an assessment
+- SELF-REPORTED = student claims to have this skill but it's unproven
+- When a skill appears in both lists, use the VERIFIED status as the authoritative one
+- If a job requirement matches a VERIFIED skill, count it as a STRONG overlap
+- If a job requirement only matches a SELF-REPORTED capability, count it as a PARTIAL overlap
 
 JOB REQUIREMENTS:
 ${requirementsList || "No requirements analyzed yet"}
@@ -310,7 +347,9 @@ Return your response using the generate_gap_analysis function.`;
       JSON.stringify({
         ...analysis,
         gap_analysis_id: gapAnalysisRecord?.id,
-        keyword_analysis: preAnalysisContext // Include for transparency
+        keyword_analysis: preAnalysisContext, // Include for transparency
+        verified_skills_used: verifiedSkills?.length || 0,
+        self_reported_used: capabilities?.length || 0,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

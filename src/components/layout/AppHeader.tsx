@@ -33,6 +33,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useGlobalSearch } from '@/hooks/useGlobalSearch';
 import { GlobalSearchResults } from '@/components/search/GlobalSearchResults';
 import { useUserRoles } from '@/hooks/useUserRoles';
+import { NotificationBell } from '@/components/common/NotificationBell';
 import { 
   mainNavigation, 
   secondaryNavigation, 
@@ -163,10 +164,8 @@ export function AppHeader({ onMenuClick, showSearch = true, sidebarCollapsed = f
             </Button>
           )}
 
-          {/* Notifications - placeholder for future implementation */}
-          <Button variant="ghost" size="icon" className="relative min-h-11 min-w-11" title="Notifications coming soon">
-            <Bell className="h-5 w-5" />
-          </Button>
+          {/* Notifications */}
+          <NotificationBell className="min-h-11 min-w-11" />
 
           {/* User menu */}
           <DropdownMenu>

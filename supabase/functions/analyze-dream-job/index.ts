@@ -18,7 +18,7 @@ serve(async (req) => {
 
   try {
     const { jobTitle, companyType, location, dreamJobId } = await req.json();
-    
+
     if (!jobTitle) {
       return new Response(
         JSON.stringify({ error: "Job title is required" }),
@@ -28,8 +28,86 @@ serve(async (req) => {
 
     console.log("Analyzing dream job:", jobTitle);
 
-    // Check cache first
     const serviceClient = createServiceClient();
+
+    // If dreamJobId provided, check if it already has O*NET data (from career match)
+    // This skips expensive AI analysis for career-match-derived dream jobs
+    if (dreamJobId) {
+      const authHeader = req.headers.get("Authorization");
+      if (authHeader) {
+        const supabase = createClient(
+          Deno.env.get("SUPABASE_URL") ?? "",
+          Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+          { global: { headers: { Authorization: authHeader } } }
+        );
+
+        const { data: existingJob } = await supabase
+          .from("dream_jobs")
+          .select("onet_soc_code, onet_data, source_type, requirements_keywords")
+          .eq("id", dreamJobId)
+          .single();
+
+        // If dream job has O*NET data from career match, skip AI analysis
+        if (existingJob?.onet_soc_code && existingJob?.source_type === 'career_match') {
+          console.log(`Dream job ${dreamJobId} has O*NET data (${existingJob.onet_soc_code}), skipping AI analysis`);
+
+          const onetData = existingJob.onet_data || {};
+
+          // Extract requirements from O*NET data
+          const requirements = (onetData.required_skills || []).map((skill: any) => ({
+            skill_name: skill.skill,
+            importance: skill.importance === 'high' ? 'critical' : skill.importance === 'medium' ? 'important' : 'nice_to_have',
+            category: 'O*NET Skills'
+          }));
+
+          // Add knowledge requirements
+          const knowledgeReqs = (onetData.required_knowledge || []).map((k: any) => ({
+            skill_name: k.name,
+            importance: k.level > 70 ? 'critical' : k.level > 50 ? 'important' : 'nice_to_have',
+            category: 'O*NET Knowledge'
+          }));
+
+          // Extract day-one capabilities from high-importance skills
+          const dayOneCapabilities = (onetData.required_skills || [])
+            .filter((s: any) => s.importance === 'high')
+            .slice(0, 5)
+            .map((s: any) => ({
+              requirement: s.skill,
+              importance: 'critical'
+            }));
+
+          // Use existing requirements_keywords or generate from O*NET data
+          const requirementsKeywords = existingJob.requirements_keywords ||
+            [...new Set([
+              ...generateKeywordVector(jobTitle),
+              ...generateKeywordVector(onetData.description || ''),
+              ...(onetData.required_skills || []).map((s: any) => s.skill?.toLowerCase()),
+              ...(onetData.required_knowledge || []).map((k: any) => k.name?.toLowerCase())
+            ].filter(Boolean))];
+
+          return new Response(
+            JSON.stringify({
+              requirements: [...requirements, ...knowledgeReqs],
+              description: onetData.description || `O*NET occupation: ${existingJob.onet_soc_code}`,
+              salary_range: onetData.median_wage ? `$${(onetData.median_wage / 1000).toFixed(0)}k median` : null,
+              day_one_capabilities: dayOneCapabilities,
+              differentiators: (onetData.required_abilities || []).slice(0, 3).map((a: any) => ({
+                skill: a.name,
+                why_matters: 'Key ability identified by O*NET'
+              })),
+              common_misconceptions: [],
+              realistic_bar: onetData.education_level || null,
+              keywords_count: requirementsKeywords.length,
+              source: 'onet_data',
+              onet_soc_code: existingJob.onet_soc_code
+            }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+      }
+    }
+
+    // Check cache first (for non-O*NET dream jobs)
     const cacheKey = createJobRequirementsCacheKey(jobTitle, companyType);
     const cachedData = await getCachedResponse(serviceClient, cacheKey);
 

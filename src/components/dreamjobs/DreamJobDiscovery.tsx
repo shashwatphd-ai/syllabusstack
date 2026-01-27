@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm } from '@tanstack/react-form';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Sparkles, Loader2, Plus, ArrowRight, TrendingUp, DollarSign, Briefcase } from 'lucide-react';
+import { Sparkles, Loader2, Plus, ArrowRight, TrendingUp, DollarSign, Briefcase, History, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -11,6 +11,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { queryKeys } from '@/lib/query-keys';
 import { useCreateDreamJob } from '@/hooks/useDreamJobs';
+import { useDiscoveredJobs, useAddDiscoveredToDreamJobs, DiscoveredCareer } from '@/hooks/useDiscoverDreamJobs';
 
 interface DiscoveredJob {
   title: string;
@@ -50,10 +51,14 @@ export function DreamJobDiscovery({ onJobAdded }: DreamJobDiscoveryProps) {
   const [discoveredJobs, setDiscoveredJobs] = useState<DiscoveredJob[]>([]);
   const [insights, setInsights] = useState('');
   const [addingJob, setAddingJob] = useState<string | null>(null);
-  
+
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const createDreamJob = useCreateDreamJob();
+
+  // Fetch previously discovered careers from database
+  const { data: previouslyDiscovered = [], isLoading: loadingPrevious } = useDiscoveredJobs();
+  const addDiscoveredToDreamJobs = useAddDiscoveredToDreamJobs();
 
   const discoverMutation = useMutation({
     mutationFn: discoverJobs,
@@ -116,11 +121,24 @@ export function DreamJobDiscovery({ onJobAdded }: DreamJobDiscoveryProps) {
     }
   };
 
+  const handleAddPreviouslyDiscovered = async (career: DiscoveredCareer) => {
+    setAddingJob(career.id);
+    try {
+      await addDiscoveredToDreamJobs.mutateAsync(career);
+      onJobAdded?.();
+    } finally {
+      setAddingJob(null);
+    }
+  };
+
   const getGrowthColor = (outlook: string): string => {
     if (outlook.toLowerCase().includes('high')) return 'text-green-500';
     if (outlook.toLowerCase().includes('medium')) return 'text-yellow-500';
     return 'text-muted-foreground';
   };
+
+  // Filter out careers already added to dream jobs
+  const availablePreviousDiscoveries = previouslyDiscovered.filter(c => !c.is_added_to_dream_jobs);
 
   return (
     <div className="space-y-6">
@@ -310,6 +328,101 @@ export function DreamJobDiscovery({ onJobAdded }: DreamJobDiscoveryProps) {
             ))}
           </div>
         </div>
+      )}
+
+      {/* Previously Discovered Careers from Database */}
+      {availablePreviousDiscoveries.length > 0 && (
+        <div className="space-y-4">
+          <h3 className="text-lg font-semibold flex items-center gap-2">
+            <History className="h-5 w-5 text-muted-foreground" />
+            Previously Discovered Careers
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            These careers were discovered in your previous sessions
+          </p>
+          <div className="grid gap-4 md:grid-cols-2">
+            {availablePreviousDiscoveries.map((career) => (
+              <Card key={career.id} className="hover:shadow-md transition-shadow border-muted">
+                <CardHeader className="pb-2">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <CardTitle className="text-base">{career.title}</CardTitle>
+                      <CardDescription className="mt-1">{career.description}</CardDescription>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex items-center gap-4 text-sm">
+                    {career.salary_range && (
+                      <span className="flex items-center gap-1">
+                        <DollarSign className="h-3 w-3 text-green-500" />
+                        {career.salary_range}
+                      </span>
+                    )}
+                    {career.growth_outlook && (
+                      <span className={`flex items-center gap-1 ${getGrowthColor(career.growth_outlook)}`}>
+                        <TrendingUp className="h-3 w-3" />
+                        {career.growth_outlook.split(' ')[0]}
+                      </span>
+                    )}
+                  </div>
+
+                  {career.why_it_fits && (
+                    <div className="p-2 rounded-md bg-muted/50 text-sm">
+                      <strong>Why it fits:</strong> {career.why_it_fits}
+                    </div>
+                  )}
+
+                  {career.key_skills && career.key_skills.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {career.key_skills.slice(0, 4).map((skill, i) => (
+                        <Badge key={i} variant="secondary" className="text-xs">
+                          {skill}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+
+                  {career.company_types && career.company_types.length > 0 && (
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <Briefcase className="h-3 w-3" />
+                      {career.company_types.join(', ')}
+                    </div>
+                  )}
+
+                  <Button
+                    size="sm"
+                    className="w-full"
+                    onClick={() => handleAddPreviouslyDiscovered(career)}
+                    disabled={addingJob === career.id}
+                  >
+                    {addingJob === career.id ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        Adding...
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="h-4 w-4 mr-2" />
+                        Add to Dream Jobs
+                      </>
+                    )}
+                  </Button>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Show message if no discoveries */}
+      {discoveredJobs.length === 0 && availablePreviousDiscoveries.length === 0 && !discoverMutation.isPending && (
+        <Card className="p-8 text-center border-dashed">
+          <Sparkles className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
+          <p className="text-muted-foreground">
+            Fill out the form above to discover career paths tailored to your interests and skills
+          </p>
+        </Card>
       )}
     </div>
   );
