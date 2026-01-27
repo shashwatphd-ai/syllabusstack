@@ -225,12 +225,12 @@ export default function RoleManagementPage() {
 
   const handleAddRole = () => {
     if (!selectedUser || !roleToAdd) return;
-    addRole.mutate({ userId: selectedUser.id, role: roleToAdd, reason });
+    addRole.mutate({ userId: selectedUser.id, role: roleToAdd as AppRole, reason });
   };
 
   const handleRemoveRole = () => {
     if (!selectedUser || !roleToRemove) return;
-    removeRole.mutate({ userId: selectedUser.id, role: roleToRemove, reason });
+    removeRole.mutate({ userId: selectedUser.id, role: roleToRemove as AppRole, reason });
   };
 
   return (
