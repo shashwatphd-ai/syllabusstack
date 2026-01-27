@@ -19,14 +19,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Progress } from '@/components/ui/progress';
 import { LearningPathVisualization } from '@/components/student/LearningPathVisualization';
 import { useDreamJobs } from '@/hooks/useDreamJobs';
-import { useStudentCourses } from '@/hooks/useStudentCourses';
+import { useStudentEnrollments } from '@/hooks/useStudentCourses';
 import { useVerifiedSkills } from '@/hooks/useVerifiedSkills';
 import { useRecommendations } from '@/hooks/useRecommendations';
 import { cn } from '@/lib/utils';
 
 export default function LearningPathPage() {
   const { data: dreamJobs = [], isLoading: djLoading } = useDreamJobs();
-  const { data: courses = [], isLoading: coursesLoading } = useStudentCourses();
+  const { data: courses = [], isLoading: coursesLoading } = useStudentEnrollments();
   const { data: verifiedSkills = [], isLoading: skillsLoading } = useVerifiedSkills();
 
   const [selectedDreamJobId, setSelectedDreamJobId] = useState<string | undefined>(
@@ -155,7 +155,7 @@ export default function LearningPathPage() {
                   .map((course) => (
                     <MilestoneItem
                       key={course.id}
-                      title={course.instructor_courses?.title || 'Course'}
+                      title={course.instructor_course?.title || 'Course'}
                       type="Course Completed"
                       date={course.completed_at}
                       isComplete
