@@ -48,6 +48,7 @@ import OrganizationDashboard from "./pages/admin/OrganizationDashboard";
 import InstructorReviewQueue from "./pages/admin/InstructorReviewQueue";
 import ContentModerationPage from "./pages/admin/ContentModeration";
 import RoleManagementPage from "./pages/admin/RoleManagement";
+import SystemHealthPage from "./pages/admin/SystemHealth";
 // Unified pages (new architecture)
 import LearnPage from "./pages/Learn";
 import CareerPathPage from "./pages/CareerPath";
@@ -60,7 +61,10 @@ import PublicCertificateVerifyPage from "./pages/verify/PublicCertificateVerify"
 import EmployerDashboard from "./pages/employer/EmployerDashboard";
 import EmployerSignupPage from "./pages/employer/EmployerSignup";
 import EmployerApiDocsPage from "./pages/employer/ApiDocs";
+import WebhookSettingsPage from "./pages/employer/WebhookSettings";
 import EmployersPage from "./pages/Employers";
+import HelpCenterPage from "./pages/HelpCenter";
+import HelpArticlePage from "./pages/HelpArticle";
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -78,6 +82,8 @@ const App = () => (
             <Route path="/test-results" element={<TestResultsPage />} />
             <Route path="/resources" element={<ResourcesPage />} />
             <Route path="/legal" element={<LegalPage />} />
+            <Route path="/help" element={<HelpCenterPage />} />
+            <Route path="/help/article/:articleId" element={<HelpArticlePage />} />
             <Route path="/how-it-works" element={<HowItWorksPage />} />
             <Route path="/universities" element={<UniversitiesPage />} />
             {/* Payment redirect pages */}
@@ -148,10 +154,12 @@ const App = () => (
             <Route path="/admin/instructor-review" element={<AdminGuard><InstructorReviewQueue /></AdminGuard>} />
             <Route path="/admin/content-moderation" element={<AdminGuard><ContentModerationPage /></AdminGuard>} />
             <Route path="/admin/roles" element={<AdminGuard><RoleManagementPage /></AdminGuard>} />
+            <Route path="/admin/system-health" element={<AdminGuard><SystemHealthPage /></AdminGuard>} />
             <Route path="/organization" element={<AuthGuard><OrganizationDashboard /></AuthGuard>} />
             <Route path="/employer" element={<AuthGuard><EmployerDashboard /></AuthGuard>} />
             <Route path="/employer/signup" element={<AuthGuard><EmployerSignupPage /></AuthGuard>} />
             <Route path="/employer/api-docs" element={<EmployerApiDocsPage />} />
+            <Route path="/employer/webhooks" element={<AuthGuard><WebhookSettingsPage /></AuthGuard>} />
 
             {/* Catch-all */}
             <Route path="*" element={<NotFound />} />

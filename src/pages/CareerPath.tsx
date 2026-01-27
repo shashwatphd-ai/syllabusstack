@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/layout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { HelpTooltip, FeatureHelp } from "@/components/common/HelpTooltip";
+import { useTour, CAREER_PATH_TOUR } from "@/components/common/ProductTour";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -106,6 +108,9 @@ export default function CareerPathPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const { toast } = useToast();
+
+  // Product tour for career path page
+  const { startTour, TourComponent } = useTour(CAREER_PATH_TOUR);
 
   // Get active tab from URL or default to "jobs"
   const activeTab = searchParams.get("tab") || "jobs";
@@ -296,10 +301,12 @@ export default function CareerPathPage() {
                   </SelectContent>
                 </Select>
                 {selectedJob && (
-                  <Badge variant={matchScore >= 60 ? "default" : "secondary"} className="shrink-0 self-start sm:self-auto">
-                    <TrendingUp className="h-3 w-3 mr-1" />
-                    {matchScore}% Match
-                  </Badge>
+                  <HelpTooltip content="Your match score shows how well your current skills align with your dream job requirements. Higher scores mean you're closer to being ready for the role.">
+                    <Badge id="match-score-badge" variant={matchScore >= 60 ? "default" : "secondary"} className="shrink-0 self-start sm:self-auto cursor-help">
+                      <TrendingUp className="h-3 w-3 mr-1" />
+                      {matchScore}% Match
+                    </Badge>
+                  </HelpTooltip>
                 )}
               </div>
             )}
@@ -389,18 +396,18 @@ export default function CareerPathPage() {
 
         {/* Main Tabs - Responsive: hide icons on mobile, shorter labels */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-          <TabsList className="grid w-full grid-cols-4 h-auto">
-            <TabsTrigger value="jobs" className="gap-1 sm:gap-2 py-2 sm:py-2.5 text-xs sm:text-sm">
+          <TabsList id="career-tabs" className="grid w-full grid-cols-4 h-auto">
+            <TabsTrigger id="dream-jobs-tab" value="jobs" className="gap-1 sm:gap-2 py-2 sm:py-2.5 text-xs sm:text-sm">
               <Briefcase className="h-4 w-4 hidden sm:block" />
               <span className="sm:hidden">Jobs</span>
               <span className="hidden sm:inline">Dream Jobs</span>
             </TabsTrigger>
-            <TabsTrigger value="gaps" className="gap-1 sm:gap-2 py-2 sm:py-2.5 text-xs sm:text-sm">
+            <TabsTrigger id="gap-analysis-tab" value="gaps" className="gap-1 sm:gap-2 py-2 sm:py-2.5 text-xs sm:text-sm">
               <Target className="h-4 w-4 hidden sm:block" />
               <span className="sm:hidden">Gaps</span>
               <span className="hidden sm:inline">Gap Analysis</span>
             </TabsTrigger>
-            <TabsTrigger value="actions" className="gap-1 sm:gap-2 py-2 sm:py-2.5 text-xs sm:text-sm">
+            <TabsTrigger id="action-plan-tab" value="actions" className="gap-1 sm:gap-2 py-2 sm:py-2.5 text-xs sm:text-sm">
               <Sparkles className="h-4 w-4 hidden sm:block" />
               <span className="sm:hidden">Actions</span>
               <span className="hidden sm:inline">Action Plan</span>
@@ -850,6 +857,9 @@ export default function CareerPathPage() {
             )}
           </TabsContent>
         </Tabs>
+
+        {/* Tour Component */}
+        <TourComponent />
 
         {/* Delete Confirmation Dialog */}
         <AlertDialog open={!!deleteConfirmJob} onOpenChange={() => setDeleteConfirmJob(null)}>
