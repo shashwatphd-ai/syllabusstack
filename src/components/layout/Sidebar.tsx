@@ -1,12 +1,12 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
-  GraduationCap,
   ChevronLeft,
   LogOut,
   User,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { Logo } from '@/components/common/Logo';
 import {
   Tooltip,
   TooltipContent,
@@ -102,15 +102,13 @@ export function Sidebar({ collapsed = false, onCollapse }: SidebarProps) {
         "h-16 flex items-center border-b border-sidebar-border px-4",
         isCollapsed ? "justify-center" : "justify-between"
       )}>
-        <Link to="/dashboard" className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-sidebar-primary flex items-center justify-center">
-            <GraduationCap className="h-5 w-5 text-sidebar-primary-foreground" />
-          </div>
-          {!isCollapsed && (
-            <span className="text-lg font-bold text-sidebar-foreground">
-              SyllabusStack
-            </span>
-          )}
+        <Link to="/dashboard" className="flex items-center">
+          <Logo 
+            size="sm" 
+            showText={!isCollapsed} 
+            showIcon={true}
+            variant="auto"
+          />
         </Link>
         {!isCollapsed && (
           <Button

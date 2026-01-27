@@ -1,6 +1,7 @@
 import { forwardRef } from "react";
 import { Link } from "react-router-dom";
-import { GraduationCap, Twitter, Linkedin, Mail } from "lucide-react";
+import { Twitter, Linkedin, Mail } from "lucide-react";
+import { Logo } from "@/components/common/Logo";
 
 export const Footer = forwardRef<HTMLElement>(function Footer(_props, ref) {
   return (
@@ -10,12 +11,7 @@ export const Footer = forwardRef<HTMLElement>(function Footer(_props, ref) {
           {/* Brand */}
           <div className="md:col-span-1">
             <Link to="/" className="flex items-center gap-2 mb-4">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-coral-400 to-coral-500 flex items-center justify-center shadow-lg shadow-coral-500/25">
-                <GraduationCap className="w-5 h-5 text-primary-foreground" />
-              </div>
-              <span className="text-xl font-bold text-primary-foreground">
-                Syllabus<span className="text-coral-400">Stack</span>
-              </span>
+              <Logo size="md" variant="light" />
             </Link>
             <p className="text-primary-foreground/50 text-sm mb-4">
               AI-powered career intelligence for students who want honest answers, not empty encouragement.

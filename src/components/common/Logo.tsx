@@ -1,54 +1,69 @@
 import { forwardRef } from "react";
 import { cn } from "@/lib/utils";
+import logoImage from "@/assets/syllabusstack-logo.png";
 
 interface LogoProps {
-  size?: "sm" | "md" | "lg";
+  size?: "sm" | "md" | "lg" | "xl";
   variant?: "light" | "dark" | "auto";
   showText?: boolean;
+  showIcon?: boolean;
   className?: string;
 }
 
 export const Logo = forwardRef<HTMLDivElement, LogoProps>(
-  ({ size = "md", variant = "auto", showText = true, className }, ref) => {
+  ({ size = "md", variant = "auto", showText = true, showIcon = true, className }, ref) => {
     const sizes = {
-      sm: { icon: "w-7 h-7", text: "text-lg", bars: "h-1" },
-      md: { icon: "w-9 h-9", text: "text-xl", bars: "h-1.5" },
-      lg: { icon: "w-12 h-12", text: "text-2xl", bars: "h-2" },
+      sm: { icon: "h-8", text: "text-lg", full: "h-8" },
+      md: { icon: "h-10", text: "text-xl", full: "h-10" },
+      lg: { icon: "h-12", text: "text-2xl", full: "h-12" },
+      xl: { icon: "h-16", text: "text-3xl", full: "h-16" },
     };
 
     const textColor = {
-      light: "text-primary-foreground",
-      dark: "text-foreground",
-      auto: "text-foreground dark:text-primary-foreground",
+      light: "text-white",
+      dark: "text-indigo-900",
+      auto: "text-indigo-900 dark:text-white",
     };
 
     const accentColor = {
-      light: "text-coral-400",
-      dark: "text-coral-500",
-      auto: "text-coral-500 dark:text-coral-400",
+      light: "text-amber-400",
+      dark: "text-amber-500",
+      auto: "text-amber-500 dark:text-amber-400",
     };
 
-    return (
-      <div ref={ref} className={cn("flex items-center gap-2", className)}>
-        {/* Icon - Stacked layers representing syllabi/courses */}
-        <div className={cn(
-          "relative flex flex-col justify-center items-center rounded-xl bg-gradient-to-br from-coral-400 to-coral-500 shadow-lg shadow-coral-500/25",
-          sizes[size].icon
-        )}>
-          {/* Three stacked horizontal bars representing layers */}
-          <div className="flex flex-col gap-0.5 w-3/5">
-            <div className={cn("w-full bg-white/90 rounded-full", sizes[size].bars)} />
-            <div className={cn("w-4/5 bg-white/70 rounded-full", sizes[size].bars)} />
-            <div className={cn("w-3/5 bg-white/50 rounded-full", sizes[size].bars)} />
-          </div>
+    // If showing both icon and text, use the full logo image
+    if (showIcon && showText) {
+      return (
+        <div ref={ref} className={cn("flex items-center", className)}>
+          <img 
+            src={logoImage} 
+            alt="SyllabusStack" 
+            className={cn("object-contain", sizes[size].full)}
+          />
         </div>
+      );
+    }
 
-        {/* Text logo */}
-        {showText && (
-          <span className={cn("font-bold tracking-tight", sizes[size].text, textColor[variant])}>
-            Syllabus<span className={accentColor[variant]}>Stack</span>
-          </span>
-        )}
+    // Icon only mode - crop/show just the icon portion
+    if (showIcon && !showText) {
+      return (
+        <div ref={ref} className={cn("flex items-center", className)}>
+          <img 
+            src={logoImage} 
+            alt="SyllabusStack" 
+            className={cn("object-contain object-left", sizes[size].icon)}
+            style={{ clipPath: 'inset(0 60% 0 0)' }}
+          />
+        </div>
+      );
+    }
+
+    // Text only mode
+    return (
+      <div ref={ref} className={cn("flex items-center", className)}>
+        <span className={cn("font-bold tracking-tight", sizes[size].text, textColor[variant])}>
+          Syllabus<span className={accentColor[variant]}>Stack</span>
+        </span>
       </div>
     );
   }
