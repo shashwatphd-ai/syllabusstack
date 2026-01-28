@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Users, Upload, Download, Search, MoreHorizontal, UserPlus,
@@ -36,6 +36,8 @@ import {
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useSubscription } from '@/hooks/useSubscription';
+import { usePagination } from '@/hooks/usePagination';
+import { Pagination } from '@/components/common/Pagination';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
@@ -132,10 +134,29 @@ export default function UserManagement() {
     },
   });
 
-  const filteredUsers = users?.filter(user =>
-    user.email?.toLowerCase().includes(search.toLowerCase()) ||
-    user.full_name?.toLowerCase().includes(search.toLowerCase())
-  );
+  // Filter users based on search
+  const filteredUsers = useMemo(() => {
+    if (!users) return [];
+    if (!search) return users;
+    const searchLower = search.toLowerCase();
+    return users.filter(user =>
+      user.email?.toLowerCase().includes(searchLower) ||
+      user.full_name?.toLowerCase().includes(searchLower)
+    );
+  }, [users, search]);
+
+  // Paginate filtered users
+  const {
+    paginatedData: paginatedUsers,
+    page,
+    setPage,
+    totalPages,
+    hasNext,
+    hasPrev,
+    startIndex,
+    endIndex,
+    totalItems,
+  } = usePagination(filteredUsers, { pageSize: 20 });
 
   const handleBulkInvite = () => {
     const emails = bulkEmails
@@ -272,7 +293,7 @@ export default function UserManagement() {
               <Skeleton className="h-12 w-full" />
               <Skeleton className="h-12 w-full" />
             </div>
-          ) : !filteredUsers?.length ? (
+          ) : !filteredUsers.length ? (
             <div className="text-center py-12">
               <Users className="h-12 w-12 mx-auto mb-4 text-muted-foreground/50" />
               <p className="text-muted-foreground">No users found</p>
@@ -289,7 +310,7 @@ export default function UserManagement() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredUsers.map((user) => (
+                {paginatedUsers.map((user) => (
                   <TableRow key={user.user_id}>
                     <TableCell>
                       <div>
@@ -342,12 +363,19 @@ export default function UserManagement() {
         </CardContent>
       </Card>
 
-      {/* Stats Footer */}
-      <div className="flex items-center justify-between text-sm text-muted-foreground">
-        <p>
-          Showing {filteredUsers?.length || 0} of {users?.length || 0} users
-        </p>
-      </div>
+      {/* Pagination */}
+      {filteredUsers.length > 0 && (
+        <Pagination
+          page={page}
+          totalPages={totalPages}
+          onPageChange={setPage}
+          hasNext={hasNext}
+          hasPrev={hasPrev}
+          totalItems={totalItems}
+          startIndex={startIndex}
+          endIndex={endIndex}
+        />
+      )}
     </div>
   );
 }

@@ -44,6 +44,61 @@ interface ProfileData {
   studentLevel: string;
 }
 
+/**
+ * Storage key and helpers for onboarding form persistence
+ * Task 3.2 from MASTER_IMPLEMENTATION_PLAN_V2.md
+ */
+const ONBOARDING_STORAGE_KEY = 'syllabusstack_onboarding_state';
+const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+interface SavedOnboardingState {
+  profile: ProfileData;
+  currentStep: OnboardingStep;
+  savedAt: string;
+}
+
+function getSavedOnboardingState(): SavedOnboardingState | null {
+  try {
+    const saved = localStorage.getItem(ONBOARDING_STORAGE_KEY);
+    if (!saved) return null;
+
+    const parsed: SavedOnboardingState = JSON.parse(saved);
+
+    // Check expiration
+    const savedTime = new Date(parsed.savedAt).getTime();
+    if (Date.now() - savedTime > MAX_AGE_MS) {
+      localStorage.removeItem(ONBOARDING_STORAGE_KEY);
+      return null;
+    }
+
+    return parsed;
+  } catch {
+    localStorage.removeItem(ONBOARDING_STORAGE_KEY);
+    return null;
+  }
+}
+
+function saveOnboardingState(profile: ProfileData, currentStep: OnboardingStep) {
+  try {
+    const state: SavedOnboardingState = {
+      profile,
+      currentStep,
+      savedAt: new Date().toISOString(),
+    };
+    localStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(state));
+  } catch (error) {
+    console.warn('Failed to save onboarding state:', error);
+  }
+}
+
+function clearOnboardingState() {
+  try {
+    localStorage.removeItem(ONBOARDING_STORAGE_KEY);
+  } catch {
+    // Ignore errors when clearing
+  }
+}
+
 const steps = [
   { id: 'profile', label: 'Your Profile', icon: User },
   { id: 'courses', label: 'Add Courses', icon: BookOpen },
@@ -73,15 +128,42 @@ export function OnboardingWizard() {
   const [isAIProcessing, setIsAIProcessing] = useState(false);
   const [aiProcessingType, setAIProcessingType] = useState<'syllabus' | 'dreamJob' | 'gap'>('syllabus');
   const [pendingResults, setPendingResults] = useState(getPendingResults());
-  const [profile, setProfile] = useState<ProfileData>({
-    fullName: '',
-    university: '',
-    major: '',
-    graduationYear: '',
-    studentLevel: '',
+  const [profile, setProfile] = useState<ProfileData>(() => {
+    // Initialize from saved state if available
+    const saved = getSavedOnboardingState();
+    return saved?.profile ?? {
+      fullName: '',
+      university: '',
+      major: '',
+      graduationYear: '',
+      studentLevel: '',
+    };
   });
   const [courses, setCourses] = useState<CourseData[]>([]);
   const [dreamJobs, setDreamJobs] = useState<DreamJob[]>([]);
+
+  // Load saved step on mount
+  useEffect(() => {
+    const saved = getSavedOnboardingState();
+    if (saved && saved.currentStep !== 'profile') {
+      // Only restore non-profile steps if profile data exists
+      if (saved.profile.fullName) {
+        setCurrentStep(saved.currentStep);
+        toast({
+          title: 'Welcome back!',
+          description: 'Your progress has been restored.',
+        });
+      }
+    }
+  }, []);
+
+  // Save state when profile or step changes
+  useEffect(() => {
+    // Only save if there's actual data to preserve
+    if (profile.fullName || currentStep !== 'profile') {
+      saveOnboardingState(profile, currentStep);
+    }
+  }, [profile, currentStep]);
 
   // Check for pending results from syllabus scanner
   useEffect(() => {
@@ -153,6 +235,8 @@ export function OnboardingWizard() {
         case 'complete':
           // Mark onboarding as complete and redirect
           await completeOnboarding.mutateAsync();
+          // Clear saved onboarding state on successful completion
+          clearOnboardingState();
           await refreshProfile();
           toast({
             title: "Welcome to SyllabusStack!",
