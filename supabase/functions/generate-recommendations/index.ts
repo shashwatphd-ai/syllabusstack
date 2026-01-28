@@ -4,6 +4,8 @@ import { MASTER_SYSTEM_PROMPT, RECOMMENDATIONS_PROMPT, ANTI_RECOMMENDATIONS_PROM
 import { trackAIUsage, createServiceClient } from "../_shared/ai-cache.ts";
 import { RECOMMENDATIONS_SCHEMA } from "../_shared/schemas.ts";
 import { generateStructured, MODELS } from "../_shared/unified-ai-client.ts";
+import { checkRateLimit, getUserLimits, createRateLimitResponse } from "../_shared/rate-limiter.ts";
+import { logInfo } from "../_shared/error-handler.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -48,6 +50,21 @@ serve(async (req) => {
       );
     }
     const userId = user.id;
+
+    // Check rate limits (Task 2.1.3 from MASTER_IMPLEMENTATION_PLAN_V2.md)
+    const serviceClient = createServiceClient();
+    const userLimits = await getUserLimits(serviceClient, userId);
+    const rateLimitResult = await checkRateLimit(serviceClient, userId, 'generate-recommendations', userLimits);
+
+    if (!rateLimitResult.allowed) {
+      logInfo('generate-recommendations', 'rate_limit_exceeded', {
+        userId,
+        remaining: rateLimitResult.remaining,
+      });
+      return createRateLimitResponse(rateLimitResult, corsHeaders);
+    }
+
+    logInfo('generate-recommendations', 'rate_limit_passed', { userId });
 
     // Get dream job details
     const { data: dreamJob, error: jobError } = await supabase

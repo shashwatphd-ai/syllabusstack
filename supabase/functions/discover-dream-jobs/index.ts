@@ -1,6 +1,9 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
 import { generateText, MODELS, parseJsonResponse } from "../_shared/unified-ai-client.ts";
+import { checkRateLimit, getUserLimits, createRateLimitResponse } from "../_shared/rate-limiter.ts";
+import { logInfo } from "../_shared/error-handler.ts";
+import { createServiceClient } from "../_shared/ai-cache.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -47,6 +50,21 @@ serve(async (req) => {
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+
+    // Check rate limits (Task 2.1.3 from MASTER_IMPLEMENTATION_PLAN_V2.md)
+    const serviceClient = createServiceClient();
+    const userLimits = await getUserLimits(serviceClient, user.id);
+    const rateLimitResult = await checkRateLimit(serviceClient, user.id, 'discover-dream-jobs', userLimits);
+
+    if (!rateLimitResult.allowed) {
+      logInfo('discover-dream-jobs', 'rate_limit_exceeded', {
+        userId: user.id,
+        remaining: rateLimitResult.remaining,
+      });
+      return createRateLimitResponse(rateLimitResult, corsHeaders);
+    }
+
+    logInfo('discover-dream-jobs', 'rate_limit_passed', { userId: user.id });
 
     // Get user's existing capabilities
     const { data: capabilities } = await supabase
