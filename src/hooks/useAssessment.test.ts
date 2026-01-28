@@ -1,10 +1,24 @@
+/**
+ * useAssessment.test.ts
+ *
+ * FIX APPLIED: Mock hoisting issue
+ *
+ * WHY THIS CHANGE:
+ * - Vitest hoists vi.mock() to top of file
+ * - mockSupabase wasn't defined when vi.mock() ran
+ * - Error: "Cannot access 'mockSupabase' before initialization"
+ *
+ * WHAT WAS CHANGED:
+ * - Used vi.hoisted() to ensure mockSupabase is hoisted with vi.mock()
+ * - Import hook AFTER vi.mock() to get mocked version
+ */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
 
-// Mock supabase
-const mockSupabase = {
+// FIX: Use vi.hoisted() for mock to be available when vi.mock() runs
+const mockSupabase = vi.hoisted(() => ({
   auth: {
     getUser: vi.fn(),
   },
@@ -12,7 +26,7 @@ const mockSupabase = {
   functions: {
     invoke: vi.fn(),
   },
-};
+}));
 
 vi.mock('@/integrations/supabase/client', () => ({
   supabase: mockSupabase,
@@ -135,18 +149,29 @@ const setupMock = () => {
   });
 };
 
+/**
+ * FIX APPLIED: Updated tests for React Query disabled behavior
+ *
+ * WHY THIS CHANGE:
+ * - When React Query is disabled (enabled: false), queryFn never runs
+ * - data is undefined, not [] or null
+ *
+ * WHAT WAS CHANGED:
+ * - Updated tests to expect undefined when hook is disabled
+ */
 describe('useAssessmentQuestions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('should return empty when no learning objective id is provided', async () => {
+  it('should return undefined when no learning objective id is provided', async () => {
     const { result } = renderHook(() => useAssessmentQuestions(undefined), {
       wrapper: createWrapper(),
     });
 
+    // When React Query is disabled (no loId), data is undefined
     await waitFor(() => expect(result.current.isLoading).toBe(false));
-    expect(result.current.data).toEqual([]);
+    expect(result.current.data).toBeUndefined();
   });
 
   it('should fetch assessment questions for a learning objective', async () => {
@@ -165,13 +190,14 @@ describe('useActiveSession', () => {
     vi.clearAllMocks();
   });
 
-  it('should return null when no learning objective id is provided', async () => {
+  it('should return undefined when no learning objective id is provided', async () => {
     const { result } = renderHook(() => useActiveSession(undefined), {
       wrapper: createWrapper(),
     });
 
+    // When React Query is disabled (no loId), data is undefined
     await waitFor(() => expect(result.current.isLoading).toBe(false));
-    expect(result.current.data).toBeNull();
+    expect(result.current.data).toBeUndefined();
   });
 });
 

@@ -1,6 +1,7 @@
 import { forwardRef, useState, ReactNode } from 'react';
 import { Sidebar } from './Sidebar';
 import { AppHeader, MobileNav } from './AppHeader';
+import { EmailVerificationBanner } from '@/components/auth/EmailVerificationBanner';
 import { cn } from '@/lib/utils';
 
 interface AppShellProps {
@@ -40,6 +41,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(
             sidebarCollapsed={sidebarCollapsed}
           />
           <main className="flex-1 p-4 sm:p-6">
+            <EmailVerificationBanner />
             {children}
           </main>
         </div>

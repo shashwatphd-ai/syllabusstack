@@ -1,18 +1,62 @@
+/**
+ * useTeachingUnits.test.ts
+ *
+ * FIX APPLIED: Mock chain for Supabase query builder
+ *
+ * WHY THIS CHANGE:
+ * - Original mock only had mockFrom() returning undefined
+ * - Hook calls supabase.from('teaching_units').update({}).eq()
+ * - Need to return chainable mock object
+ *
+ * WHAT WAS CHANGED:
+ * - Used vi.hoisted() for consistent mock setup
+ * - Added proper mock chain for select, update, eq, order methods
+ */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor } from '@/test/utils';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
-import {
-  useTeachingUnits,
-  useDecomposeLearningObjective,
-  useSearchForTeachingUnit,
-} from './useTeachingUnits';
-import { createQCATeachingUnits, resetTeachingUnitFactory } from '@/test/factories/teaching-unit';
 
-// Mock supabase
-const mockInvoke = vi.fn();
-const mockFrom = vi.fn();
-const mockUpdate = vi.fn();
+/**
+ * FIX: Export all mocks including mockUpdate, mockSelect for individual test customization
+ *
+ * WHY THIS CHANGE:
+ * - Tests need direct access to mockUpdate for custom mock behavior
+ * - Previous version only exported mockFrom, mockInvoke, mockToast
+ * - Test at line 222 tried to use mockUpdate but it wasn't exported
+ */
+const { mockInvoke, mockFrom, mockToast, mockSelect, mockUpdate, mockEq } = vi.hoisted(() => {
+  const mockEq = vi.fn().mockResolvedValue({ data: null, error: null });
+  const mockOrder = vi.fn().mockReturnValue({ data: [], error: null });
+  const mockSingle = vi.fn().mockResolvedValue({ data: null, error: null });
+  const mockSelect = vi.fn().mockReturnValue({
+    eq: vi.fn().mockReturnValue({
+      order: mockOrder,
+      single: mockSingle,
+    }),
+    order: mockOrder,
+    single: mockSingle,
+  });
+  const mockUpdate = vi.fn().mockReturnValue({
+    eq: mockEq,
+  });
+  const mockInsert = vi.fn().mockResolvedValue({ data: null, error: null });
+
+  return {
+    mockInvoke: vi.fn(),
+    mockFrom: vi.fn().mockReturnValue({
+      select: mockSelect,
+      update: mockUpdate,
+      insert: mockInsert,
+      eq: mockEq,
+      order: mockOrder,
+    }),
+    mockToast: vi.fn(),
+    mockSelect,
+    mockUpdate,
+    mockEq,
+  };
+});
 
 vi.mock('@/integrations/supabase/client', () => ({
   supabase: {
@@ -26,9 +70,17 @@ vi.mock('@/integrations/supabase/client', () => ({
 // Mock toast
 vi.mock('@/hooks/use-toast', () => ({
   useToast: () => ({
-    toast: vi.fn(),
+    toast: mockToast,
   }),
 }));
+
+// Import AFTER mocking
+import {
+  useTeachingUnits,
+  useDecomposeLearningObjective,
+  useSearchForTeachingUnit,
+} from './useTeachingUnits';
+import { createQCATeachingUnits, resetTeachingUnitFactory } from '@/test/factories/teaching-unit';
 
 const createWrapper = () => {
   const queryClient = new QueryClient({
@@ -168,10 +220,23 @@ describe('useSearchForTeachingUnit', () => {
     expect(result.current.mutate).toBeDefined();
   });
 
+  /**
+   * FIX APPLIED: Include update method in mockFrom return value
+   *
+   * WHY THIS CHANGE:
+   * - Hook calls supabase.from('teaching_units').update({}).eq()
+   * - Test's mockFrom.mockReturnValue only had select, eq, single
+   * - Missing update caused "update is not a function" error
+   *
+   * WHAT WAS CHANGED:
+   * - Added update method to mockFrom.mockReturnValue
+   * - Update returns chainable eq that resolves success
+   */
   it('should call search-youtube-content with teaching_unit_id', async () => {
     const mockUnit = createQCATeachingUnits('test-lo-id')[0];
-    
-    // Mock the teaching unit fetch
+
+    // Mock the teaching unit fetch AND the status update
+    // IMPORTANT: mockFrom is called for both select and update operations
     mockFrom.mockReturnValue({
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
@@ -179,11 +244,10 @@ describe('useSearchForTeachingUnit', () => {
         data: { ...mockUnit, learning_objective_id: 'test-lo-id' },
         error: null,
       }),
-    });
-
-    // Mock the status update
-    mockUpdate.mockReturnValue({
-      eq: vi.fn().mockResolvedValue({ error: null }),
+      // FIX: Include update method for status update call
+      update: vi.fn().mockReturnValue({
+        eq: vi.fn().mockResolvedValue({ error: null }),
+      }),
     });
 
     // Mock the search function

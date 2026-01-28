@@ -249,7 +249,14 @@ export function useEmployerWebhooks(accountId: string | undefined) {
   });
 }
 
-// Create webhook
+/**
+ * Create webhook with server-side secret generation
+ *
+ * SECURITY FIX (Task 2.1.4 from MASTER_IMPLEMENTATION_PLAN_V2.md):
+ * - Previously: Secret generated client-side (insecure - could be intercepted)
+ * - Now: Secret generated server-side in create-webhook edge function
+ * - Secret is only returned once at creation time
+ */
 export function useCreateWebhook() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -260,23 +267,16 @@ export function useCreateWebhook() {
       url: string;
       events: string[];
     }) => {
-      // Generate a signing secret
-      const secret = `whsec_${crypto.randomUUID().replace(/-/g, '')}`;
-
-      const { data: webhook, error } = await supabase
-        .from('employer_webhooks')
-        .insert({
-          employer_account_id: data.employer_account_id,
-          url: data.url,
-          events: data.events,
-          secret,
-          is_active: true,
-        })
-        .select()
-        .single();
+      // Call server-side function for secure secret generation
+      const { data: result, error } = await supabase.functions.invoke('create-webhook', {
+        body: data,
+      });
 
       if (error) throw error;
-      return { ...webhook, secret };
+      if (!result) throw new Error('No response from server');
+
+      // Return webhook with secret (server-generated)
+      return { ...result.webhook, secret: result.secret };
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['employer-webhooks', variables.employer_account_id] });
