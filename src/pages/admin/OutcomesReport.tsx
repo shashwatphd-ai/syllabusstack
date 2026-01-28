@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import html2pdf from 'html2pdf.js';
 import {
   FileText, ArrowLeft, Download, Calendar, TrendingUp,
-  Target, Award, BookOpen, Users, BarChart3
+  Target, Award, BookOpen, Users, BarChart3, Loader2
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -35,6 +36,8 @@ export default function OutcomesReport() {
   const { tier } = useSubscription();
   const navigate = useNavigate();
   const [timeRange, setTimeRange] = useState('30');
+  const [isExporting, setIsExporting] = useState(false);
+  const reportRef = useRef<HTMLDivElement>(null);
 
   if (tier !== 'university') {
     navigate('/dashboard');
@@ -154,9 +157,42 @@ export default function OutcomesReport() {
     },
   });
 
-  const handleExport = () => {
-    // Generate PDF report - placeholder
-    window.print();
+  const handleExport = async () => {
+    if (!reportRef.current || isExporting) return;
+
+    setIsExporting(true);
+    try {
+      const element = reportRef.current;
+      const timeRangeText = {
+        '7': 'Last 7 days',
+        '30': 'Last 30 days',
+        '90': 'Last 90 days',
+        '365': 'Last year',
+      }[timeRange] || timeRange;
+
+      const opt = {
+        margin: [0.5, 0.5, 0.5, 0.5],
+        filename: `outcomes-report-${new Date().toISOString().split('T')[0]}.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: {
+          scale: 2,
+          useCORS: true,
+          letterRendering: true,
+        },
+        jsPDF: {
+          unit: 'in',
+          format: 'letter',
+          orientation: 'portrait',
+        },
+        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
+      };
+
+      await html2pdf().set(opt).from(element).save();
+    } catch (error) {
+      console.error('Failed to export PDF:', error);
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   return (
@@ -187,9 +223,13 @@ export default function OutcomesReport() {
               <SelectItem value="365">Last year</SelectItem>
             </SelectContent>
           </Select>
-          <Button variant="outline" onClick={handleExport}>
-            <Download className="h-4 w-4 mr-2" />
-            Export PDF
+          <Button variant="outline" onClick={handleExport} disabled={isExporting || isLoading}>
+            {isExporting ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4 mr-2" />
+            )}
+            {isExporting ? 'Exporting...' : 'Export PDF'}
           </Button>
         </div>
       </div>
@@ -202,7 +242,17 @@ export default function OutcomesReport() {
           <Skeleton className="h-32" />
         </div>
       ) : (
-        <>
+        <div ref={reportRef} className="space-y-6">
+          {/* PDF Header - only visible in print/export */}
+          <div className="hidden print:block mb-6 pb-4 border-b">
+            <h1 className="text-2xl font-bold">SyllabusStack Outcomes Report</h1>
+            <p className="text-muted-foreground">
+              Generated on {new Date().toLocaleDateString()} | Time range: {
+                { '7': 'Last 7 days', '30': 'Last 30 days', '90': 'Last 90 days', '365': 'Last year' }[timeRange]
+              }
+            </p>
+          </div>
+
           {/* Key Metrics */}
           <div className="grid md:grid-cols-4 gap-6">
             <Card>
@@ -358,7 +408,7 @@ export default function OutcomesReport() {
               </CardContent>
             </Card>
           </div>
-        </>
+        </div>
       )}
     </div>
   );
