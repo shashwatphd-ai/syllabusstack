@@ -1,10 +1,22 @@
+/**
+ * useCareerMatches.test.ts
+ *
+ * FIX APPLIED: Mock hoisting issue
+ *
+ * WHY THIS CHANGE:
+ * - Vitest hoists vi.mock() to top of file
+ * - mockSupabase wasn't defined when vi.mock() ran
+ *
+ * WHAT WAS CHANGED:
+ * - Used vi.hoisted() for mockSupabase
+ */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
 
-// Mock supabase
-const mockSupabase = {
+// FIX: Use vi.hoisted() to ensure mock is available when vi.mock() runs
+const mockSupabase = vi.hoisted(() => ({
   auth: {
     getUser: vi.fn(),
   },
@@ -12,13 +24,13 @@ const mockSupabase = {
   functions: {
     invoke: vi.fn(),
   },
-};
+}));
 
 vi.mock('@/integrations/supabase/client', () => ({
   supabase: mockSupabase,
 }));
 
-// Import after mocking - use actual exports from useCareerMatches
+// Import AFTER mocking - use actual exports from useCareerMatches
 import {
   useMatchCareers,
   useCareerMatches,

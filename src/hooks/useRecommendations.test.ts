@@ -1,10 +1,22 @@
+/**
+ * useRecommendations.test.ts
+ *
+ * FIX APPLIED: Mock hoisting issue
+ *
+ * WHY THIS CHANGE:
+ * - Vitest hoists vi.mock() to top of file
+ * - mockSupabase wasn't defined when vi.mock() ran
+ *
+ * WHAT WAS CHANGED:
+ * - Used vi.hoisted() for mockSupabase
+ */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
 
-// Mock supabase
-const mockSupabase = {
+// FIX: Use vi.hoisted() to ensure mock is available when vi.mock() runs
+const mockSupabase = vi.hoisted(() => ({
   auth: {
     getUser: vi.fn(),
   },
@@ -12,13 +24,13 @@ const mockSupabase = {
   functions: {
     invoke: vi.fn(),
   },
-};
+}));
 
 vi.mock('@/integrations/supabase/client', () => ({
   supabase: mockSupabase,
 }));
 
-// Import after mocking - use actual exports
+// Import AFTER mocking - use actual exports
 import {
   useRecommendations,
   useUpdateRecommendationStatus,
@@ -151,6 +163,16 @@ const setupRecommendationsMock = (recommendations = mockRecommendations) => {
   });
 };
 
+/**
+ * FIX APPLIED: Updated tests for React Query disabled behavior
+ *
+ * WHY THIS CHANGE:
+ * - When React Query is disabled (enabled: false), queryFn never runs
+ * - data is undefined, not the [] that queryFn might return
+ *
+ * WHAT WAS CHANGED:
+ * - Second test: expect undefined when dreamJobId is undefined
+ */
 describe('useRecommendations', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -166,13 +188,14 @@ describe('useRecommendations', () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
   });
 
-  it('should return empty array when no dream job id provided', async () => {
+  it('should return undefined when no dream job id provided', async () => {
     const { result } = renderHook(() => useRecommendations(undefined), {
       wrapper: createWrapper(),
     });
 
+    // When React Query is disabled (no dreamJobId), data is undefined
     await waitFor(() => expect(result.current.isLoading).toBe(false));
-    expect(result.current.data).toEqual([]);
+    expect(result.current.data).toBeUndefined();
   });
 });
 

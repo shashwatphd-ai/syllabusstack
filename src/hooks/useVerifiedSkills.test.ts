@@ -1,7 +1,34 @@
+/**
+ * useVerifiedSkills.test.ts
+ *
+ * FIX APPLIED: Mock hoisting issue
+ *
+ * WHY THIS CHANGE:
+ * - Vitest hoists vi.mock() to top of file
+ * - mockSupabase wasn't defined when vi.mock() ran
+ *
+ * WHAT WAS CHANGED:
+ * - Used vi.hoisted() for mockSupabase
+ * - Moved imports after vi.mock()
+ */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
+
+// FIX: Use vi.hoisted() to ensure mock is available when vi.mock() runs
+const mockSupabase = vi.hoisted(() => ({
+  auth: {
+    getUser: vi.fn(),
+  },
+  from: vi.fn(),
+}));
+
+vi.mock('@/integrations/supabase/client', () => ({
+  supabase: mockSupabase,
+}));
+
+// Import AFTER mocking
 import {
   useVerifiedSkills,
   useVerifiedSkillsByCategory,
@@ -17,18 +44,6 @@ import {
   SOURCE_TYPE_CONFIG,
   type VerifiedSkill,
 } from './useVerifiedSkills';
-
-// Mock supabase
-const mockSupabase = {
-  auth: {
-    getUser: vi.fn(),
-  },
-  from: vi.fn(),
-};
-
-vi.mock('@/integrations/supabase/client', () => ({
-  supabase: mockSupabase,
-}));
 
 // Test data
 const mockVerifiedSkills: VerifiedSkill[] = [

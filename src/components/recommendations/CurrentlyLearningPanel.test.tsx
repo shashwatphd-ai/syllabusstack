@@ -64,8 +64,20 @@ const createMockRecommendation = (overrides: Partial<RecommendationWithLinks> = 
   ...overrides,
 });
 
+/**
+ * FIX: Removed BrowserRouter wrapper
+ *
+ * WHY THIS CHANGE:
+ * - @/test/utils already wraps components in BrowserRouter
+ * - Wrapping again caused: "You cannot render a <Router> inside another <Router>"
+ *
+ * WHAT WAS CHANGED:
+ * - renderWithRouter now just calls render directly
+ * - @/test/utils provides the router context
+ */
 const renderWithRouter = (ui: React.ReactElement) => {
-  return render(<BrowserRouter>{ui}</BrowserRouter>);
+  // @/test/utils already provides BrowserRouter wrapper, no need to double-wrap
+  return render(ui);
 };
 
 describe('CurrentlyLearningPanel', () => {
@@ -75,8 +87,19 @@ describe('CurrentlyLearningPanel', () => {
     vi.clearAllMocks();
   });
 
+  /**
+   * FIX APPLIED: Updated assertion for empty state
+   *
+   * WHY THIS CHANGE:
+   * - @/test/utils wrapper includes Toaster, so container.firstChild is never null
+   * - Component correctly returns null, but Toaster sibling still renders
+   *
+   * WHAT WAS CHANGED:
+   * - Changed to check that "Currently Learning" text is not present
+   * - This correctly verifies the component renders nothing
+   */
   it('renders nothing when no enrollments', () => {
-    const { container } = renderWithRouter(
+    renderWithRouter(
       <CurrentlyLearningPanel
         enrollments={[]}
         recommendations={[]}
@@ -84,7 +107,7 @@ describe('CurrentlyLearningPanel', () => {
       />
     );
 
-    expect(container.firstChild).toBeNull();
+    expect(screen.queryByText('Currently Learning')).not.toBeInTheDocument();
   });
 
   it('renders enrolled courses when enrollments exist', () => {
