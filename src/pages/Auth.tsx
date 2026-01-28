@@ -17,10 +17,30 @@ const loginSchema = z.object({
   password: z.string().min(6, 'Password must be at least 6 characters'),
 });
 
+/**
+ * Password Security Requirements (Task 2.1.2 from MASTER_IMPLEMENTATION_PLAN.md)
+ *
+ * WHY THIS CHANGE:
+ * - Previous: Min 6 characters (insufficient for security)
+ * - Now: Min 8 chars, 1 uppercase, 1 lowercase, 1 number, 1 special char
+ * - Matches OWASP password recommendations
+ *
+ * WHAT WAS CHANGED:
+ * - Added regex validation for password complexity
+ * - Added helpful error messages for each requirement
+ */
+const passwordSchema = z
+  .string()
+  .min(8, 'Password must be at least 8 characters')
+  .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
+  .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
+  .regex(/[0-9]/, 'Password must contain at least one number')
+  .regex(/[^A-Za-z0-9]/, 'Password must contain at least one special character (!@#$%^&*)');
+
 const signupSchema = z.object({
   fullName: z.string().min(2, 'Name must be at least 2 characters'),
   email: z.string().email('Please enter a valid email'),
-  password: z.string().min(6, 'Password must be at least 6 characters'),
+  password: passwordSchema,
   confirmPassword: z.string(),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords don't match",
