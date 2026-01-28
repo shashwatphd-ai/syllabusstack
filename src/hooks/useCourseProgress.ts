@@ -144,6 +144,7 @@ export function useCourseProgress(courseId: string | undefined) {
           completed_at,
           overall_progress,
           certificate_id,
+          last_accessed_at,
           instructor_courses (
             id,
             title
@@ -236,6 +237,14 @@ export function useCourseProgress(courseId: string | undefined) {
         const isModuleComplete = totalCount > 0 && completedCount === totalCount;
         const hasStarted = completedCount > 0;
 
+        // Get actual module completion time from last completed objective
+        const completedObjectiveDates = objProgress
+          .filter(o => o.completedAt)
+          .map(o => new Date(o.completedAt!).getTime());
+        const moduleCompletedAt = isModuleComplete && completedObjectiveDates.length > 0
+          ? new Date(Math.max(...completedObjectiveDates)).toISOString()
+          : null;
+
         return {
           id: `mod-progress-${module.id}`,
           moduleId: module.id,
@@ -246,7 +255,7 @@ export function useCourseProgress(courseId: string | undefined) {
           completedObjectives: completedCount,
           totalObjectives: totalCount,
           percentComplete: totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0,
-          completedAt: isModuleComplete ? new Date().toISOString() : null, // Simplified
+          completedAt: moduleCompletedAt,
         };
       });
 
@@ -282,7 +291,7 @@ export function useCourseProgress(courseId: string | undefined) {
         enrolledAt: enrollment.enrolled_at || new Date().toISOString(),
         startedAt: completedObjectives > 0 ? enrollment.enrolled_at : null,
         completedAt: enrollment.completed_at,
-        lastAccessedAt: null, // Would need last_accessed_at column
+        lastAccessedAt: enrollment.last_accessed_at || null,
         overallProgress: enrollment.overall_progress || 0,
         modules: moduleProgress,
         completedModules,

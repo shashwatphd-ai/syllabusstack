@@ -37,6 +37,50 @@ const VALID_WEBHOOK_EVENTS = [
   'verification.completed',
 ];
 
+/**
+ * SSRF Protection: Block internal/private network URLs
+ * Prevents attackers from using webhooks to probe internal services
+ */
+const BLOCKED_HOSTNAMES = [
+  'localhost',
+  '127.0.0.1',
+  '0.0.0.0',
+  '::1',
+  '[::1]',
+  'metadata.google.internal',
+  'metadata.gcp.internal',
+];
+
+const BLOCKED_IP_PATTERNS = [
+  /^127\./,                    // Loopback
+  /^10\./,                     // Private Class A
+  /^172\.(1[6-9]|2[0-9]|3[0-1])\./, // Private Class B
+  /^192\.168\./,               // Private Class C
+  /^169\.254\./,               // Link-local (AWS/cloud metadata)
+  /^0\./,                      // Current network
+  /^100\.(6[4-9]|[7-9][0-9]|1[0-2][0-9])\./, // Carrier-grade NAT
+  /^fc00:/i,                   // IPv6 unique local
+  /^fe80:/i,                   // IPv6 link-local
+];
+
+function isBlockedUrl(hostname: string): boolean {
+  const lowerHost = hostname.toLowerCase();
+
+  // Check blocked hostnames
+  if (BLOCKED_HOSTNAMES.includes(lowerHost)) {
+    return true;
+  }
+
+  // Check blocked IP patterns
+  for (const pattern of BLOCKED_IP_PATTERNS) {
+    if (pattern.test(lowerHost)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 const handler = async (req: Request): Promise<Response> => {
   const body = await req.json() as CreateWebhookRequest;
   const { employer_account_id, url, events } = body;
@@ -46,13 +90,18 @@ const handler = async (req: Request): Promise<Response> => {
     return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'Missing required fields: employer_account_id, url, and events are required');
   }
 
-  // Validate URL format
+  // Validate URL format and security
   try {
     const parsedUrl = new URL(url);
 
     // Require HTTPS for production security
     if (parsedUrl.protocol !== 'https:') {
       return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'Webhook URL must use HTTPS');
+    }
+
+    // SSRF Protection: Block internal/private network URLs
+    if (isBlockedUrl(parsedUrl.hostname)) {
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'Webhook URL cannot point to internal or private network addresses');
     }
   } catch {
     return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'Invalid webhook URL format');
@@ -146,6 +195,7 @@ const handler = async (req: Request): Promise<Response> => {
     {
       webhook: {
         id: webhook.id,
+        employer_account_id: webhook.employer_account_id,
         url: webhook.url,
         events: webhook.events,
         is_active: webhook.is_active,
