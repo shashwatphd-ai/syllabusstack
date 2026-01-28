@@ -1,7 +1,7 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Loader2, AlertTriangle, X } from 'lucide-react';
+import { Loader2, AlertTriangle, X, RotateCcw } from 'lucide-react';
 import { QuestionCard } from './QuestionCard';
 import { AssessmentProgress } from './AssessmentProgress';
 import { AssessmentResults } from './AssessmentResults';
@@ -13,6 +13,10 @@ import {
   type SessionProgress,
   type PerformanceSummary,
 } from '@/hooks/useAssessment';
+import {
+  useAssessmentAutoSave,
+  type SavedAssessmentState,
+} from '@/hooks/useAssessmentAutoSave';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -63,13 +67,62 @@ export function AssessmentSession({
     }>;
   } | null>(null);
   const [showQuitConfirm, setShowQuitConfirm] = useState(false);
+  const [showRecoveryDialog, setShowRecoveryDialog] = useState(false);
+  const [recoveredState, setRecoveredState] = useState<SavedAssessmentState | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const questionServedAt = useRef<string>(new Date().toISOString());
 
+  // Auto-save hook for progress persistence
+  const { getSavedProgress, saveProgress, clearProgress } = useAssessmentAutoSave(learningObjectiveId);
+
   const startAssessment = useStartAssessment();
   const submitAnswer = useSubmitAssessmentAnswer();
   const completeAssessment = useCompleteAssessment();
+
+  // Check for saved progress on mount
+  useEffect(() => {
+    const saved = getSavedProgress();
+    if (saved && saved.progress.questions_answered > 0) {
+      setRecoveredState(saved);
+      setShowRecoveryDialog(true);
+    }
+  }, [getSavedProgress]);
+
+  // Auto-save progress after each answer
+  useEffect(() => {
+    if (sessionId && questions.length > 0 && progress.questions_answered > 0) {
+      saveProgress({
+        sessionId,
+        questions,
+        currentQuestionIndex,
+        progress,
+        answeredQuestions: Object.fromEntries(answeredQuestions),
+      });
+    }
+  }, [sessionId, questions, currentQuestionIndex, progress, answeredQuestions, saveProgress]);
+
+  // Handle recovering from saved progress
+  const handleRecover = useCallback(() => {
+    if (recoveredState) {
+      setSessionId(recoveredState.sessionId);
+      setQuestions(recoveredState.questions);
+      setCurrentQuestionIndex(recoveredState.currentQuestionIndex);
+      setProgress(recoveredState.progress);
+      setAnsweredQuestions(new Map(Object.entries(recoveredState.answeredQuestions)));
+      setSessionState('active');
+      questionServedAt.current = new Date().toISOString();
+    }
+    setShowRecoveryDialog(false);
+    setRecoveredState(null);
+  }, [recoveredState]);
+
+  // Handle starting fresh (discard saved progress)
+  const handleStartFresh = useCallback(() => {
+    clearProgress();
+    setShowRecoveryDialog(false);
+    setRecoveredState(null);
+  }, [clearProgress]);
 
   const handleStart = useCallback(async () => {
     setSessionState('loading');
@@ -151,6 +204,8 @@ export function AssessmentSession({
           performance: result.performance,
           incorrectAnswers: result.incorrect_answers,
         });
+        // Clear saved progress on successful completion
+        clearProgress();
         setSessionState('completed');
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to complete assessment');
@@ -162,9 +217,11 @@ export function AssessmentSession({
       setCurrentFeedback(null);
       questionServedAt.current = new Date().toISOString();
     }
-  }, [currentQuestionIndex, questions.length, sessionId, completeAssessment]);
+  }, [currentQuestionIndex, questions.length, sessionId, completeAssessment, clearProgress]);
 
   const handleRetry = useCallback(() => {
+    // Clear any saved progress when retrying
+    clearProgress();
     setSessionState('idle');
     setSessionId(null);
     setQuestions([]);
@@ -173,7 +230,7 @@ export function AssessmentSession({
     setCurrentFeedback(null);
     setResults(null);
     setError(null);
-  }, []);
+  }, [clearProgress]);
 
   const currentQuestion = questions[currentQuestionIndex];
 
@@ -299,7 +356,8 @@ export function AssessmentSession({
             <AlertDialogHeader>
               <AlertDialogTitle>Quit Assessment?</AlertDialogTitle>
               <AlertDialogDescription>
-                Your progress will be saved, but you'll need to restart to complete the assessment.
+                Your progress is automatically saved. You can resume this assessment later
+                from where you left off.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -311,6 +369,37 @@ export function AssessmentSession({
           </AlertDialogContent>
         </AlertDialog>
       </div>
+    );
+  }
+
+  // Recovery dialog - shown when saved progress is found
+  if (showRecoveryDialog && recoveredState) {
+    return (
+      <Card>
+        <CardContent className="pt-6 text-center space-y-4">
+          <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
+            <RotateCcw className="h-6 w-6 text-primary" />
+          </div>
+          <h3 className="font-semibold text-lg">Resume Previous Assessment?</h3>
+          <p className="text-muted-foreground text-sm max-w-md mx-auto">
+            {learningObjectiveText}
+          </p>
+          <p className="text-sm">
+            You have saved progress:{' '}
+            <span className="font-medium">{recoveredState.progress.questions_answered}</span> of{' '}
+            <span className="font-medium">{recoveredState.progress.total_questions}</span> questions answered.
+          </p>
+          <div className="flex gap-3 justify-center">
+            <Button variant="outline" onClick={handleStartFresh}>
+              Start Fresh
+            </Button>
+            <Button onClick={handleRecover}>
+              <RotateCcw className="h-4 w-4 mr-2" />
+              Resume
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     );
   }
 
