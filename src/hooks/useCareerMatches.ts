@@ -186,24 +186,6 @@ export function useAddMatchToDreamJobs() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      // Try to use the RPC function that includes O*NET data
-      const { data: rpcResult, error: rpcError } = await supabase
-        .rpc('create_dream_job_from_career_match', {
-          p_user_id: user.id,
-          p_career_match_id: match.id,
-          p_onet_soc_code: match.onet_soc_code,
-          p_occupation_title: match.occupation_title,
-          p_match_score: match.overall_match_score,
-        });
-
-      // If RPC succeeds, return the dream job
-      if (!rpcError && rpcResult) {
-        return rpcResult;
-      }
-
-      // Fallback to manual creation if RPC fails (e.g., function doesn't exist yet)
-      console.warn('RPC create_dream_job_from_career_match failed, using fallback:', rpcError);
-
       // Create dream job with O*NET metadata
       const { data: dreamJob, error: djError } = await supabase
         .from('dream_jobs')
@@ -240,9 +222,13 @@ export function useAddMatchToDreamJobs() {
       queryClient.invalidateQueries({ queryKey: ['dream-jobs'] });
       queryClient.invalidateQueries({ queryKey: ['gap-analyses'] });
 
+      const djTitle = typeof dreamJob === 'object' && dreamJob !== null && 'title' in dreamJob 
+        ? (dreamJob as { title: string }).title 
+        : 'Career Match';
+
       toast({
         title: 'Added to Dream Jobs!',
-        description: `${dreamJob.title} is now in your dream jobs with O*NET data`,
+        description: `${djTitle} is now in your dream jobs with O*NET data`,
       });
     },
     onError: (error) => {

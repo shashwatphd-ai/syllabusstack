@@ -1,41 +1,84 @@
-/**
- * useGapAnalysis.ts
- *
- * PURPOSE: Re-export gap analysis hook from useAnalysis.ts
- *
- * WHY THIS FILE EXISTS:
- * - Test file useGapAnalysis.test.ts imports from './useGapAnalysis'
- * - Actual implementation is in useAnalysis.ts
- * - This redirect maintains expected import path
- * - Part of MASTER_IMPLEMENTATION_PLAN.md Task 1.1.2
- *
- * WHAT THIS DOES:
- * - Re-exports useGapAnalysis hook from useAnalysis.ts
- * - Re-exports SkillGap type for type-safe gap analysis
- * - Provides useGapAnalysisForJob as alias (same functionality)
- *
- * EXPECTED BEHAVIOR:
- * - import { useGapAnalysis, SkillGap } from './useGapAnalysis'
- *   resolves correctly
- * - Tests pass without modifying import paths
- */
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
 
-// Re-export the main hook and type from useAnalysis.ts
-export { useGapAnalysis } from './useAnalysis';
-export type { SkillGap } from './useAnalysis';
+export interface SkillGap {
+  id: string;
+  skillId: string;
+  skillName: string;
+  category: string;
+  currentLevel: string | null;
+  requiredLevel: string;
+  priority: 'critical' | 'high' | 'medium' | 'low';
+  gapScore: number;
+  recommendations: string[];
+}
 
-// Import for re-export as alias
-import { useGapAnalysis as _useGapAnalysis } from './useAnalysis';
+export interface GapAnalysisResult {
+  dreamJobId: string;
+  dreamJobTitle: string;
+  overallMatchScore: number;
+  skillGaps: SkillGap[];
+  strengths: string[];
+  analyzedAt: string;
+}
 
-/**
- * Alias for useGapAnalysis.
- *
- * WHY THIS EXISTS:
- * - Test file imports useGapAnalysisForJob (line 22)
- * - Same functionality as useGapAnalysis
- * - "ForJob" clarifies it analyzes gaps for a specific dream job
- *
- * @param dreamJobId - The dream job to analyze skill gaps for
- * @returns Gap analysis data including skill gaps, match score, recommendations
- */
-export const useGapAnalysisForJob = _useGapAnalysis;
+export function useGapAnalysis(dreamJobId: string | undefined) {
+  return useQuery({
+    queryKey: ['gap-analysis', dreamJobId],
+    queryFn: async (): Promise<GapAnalysisResult | null> => {
+      if (!dreamJobId) return null;
+      
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return null;
+      
+      const { data, error } = await supabase
+        .from('gap_analyses')
+        .select(`
+          id,
+          dream_job_id,
+          match_score,
+          strong_overlaps,
+          critical_gaps,
+          created_at,
+          dream_jobs (
+            id,
+            title
+          )
+        `)
+        .eq('dream_job_id', dreamJobId)
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      
+      if (error || !data) return null;
+      
+      const dreamJob = data.dream_jobs as { id: string; title: string } | null;
+      const criticalGaps = (data.critical_gaps as Array<{ job_requirement: string; student_status: string; impact: string }>) || [];
+      
+      return {
+        dreamJobId: data.dream_job_id,
+        dreamJobTitle: dreamJob?.title || 'Unknown Job',
+        overallMatchScore: data.match_score || 0,
+        skillGaps: criticalGaps.map((gap, index) => ({
+          id: `gap-${index}`,
+          skillId: `skill-${index}`,
+          skillName: gap.job_requirement,
+          category: 'general',
+          currentLevel: gap.student_status,
+          requiredLevel: 'proficient',
+          priority: 'high' as const,
+          gapScore: 50,
+          recommendations: [gap.impact],
+        })),
+        strengths: ((data.strong_overlaps as Array<{ student_capability: string }>) || []).map(o => o.student_capability),
+        analyzedAt: data.created_at,
+      };
+    },
+    enabled: !!dreamJobId,
+  });
+}
+
+export function useGapAnalysisForJob(dreamJobId: string | undefined) {
+  return useGapAnalysis(dreamJobId);
+}

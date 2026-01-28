@@ -104,11 +104,11 @@ export default {
   				'800': 'hsl(var(--indigo-800))',
   				'900': 'hsl(var(--indigo-900))'
   			},
-  			coral: {
-  				'300': 'hsl(var(--coral-300))',
-  				'400': 'hsl(var(--coral-400))',
-  				'500': 'hsl(var(--coral-500))'
-  			},
+			amber: {
+				'300': 'hsl(var(--amber-300))',
+				'400': 'hsl(var(--amber-400))',
+				'500': 'hsl(var(--amber-500))'
+			},
   			sidebar: {
   				DEFAULT: 'hsl(var(--sidebar-background))',
   				foreground: 'hsl(var(--sidebar-foreground))',
