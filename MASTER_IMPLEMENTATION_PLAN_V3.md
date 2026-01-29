@@ -162,6 +162,44 @@ export function DashboardSkeleton() {
 - **Using error-handler.ts:** 7/81 functions (8.6%)
 - **Using rate-limiter:** 10/81 functions (12.3%)
 
+### Task 4.0: CORS Handler Setup (PREREQUISITE - Week 4 Day 1)
+
+**⚠️ IMPORTANT:** This task MUST be completed before starting edge function migration to avoid deploying functions with `Access-Control-Allow-Origin: '*'` security vulnerability.
+
+**File:** `supabase/functions/_shared/cors.ts`
+
+```typescript
+const ALLOWED_ORIGINS = {
+  production: ['https://syllabusstack.com', 'https://app.syllabusstack.com'],
+  staging: ['https://staging.syllabusstack.com'],
+  development: ['http://localhost:5173', 'http://localhost:3000'],
+};
+
+export function getCorsHeaders(req: Request): Record<string, string> {
+  const origin = req.headers.get('Origin') || '';
+  const env = Deno.env.get('ENVIRONMENT') || 'development';
+  const allowed = ALLOWED_ORIGINS[env as keyof typeof ALLOWED_ORIGINS] || ALLOWED_ORIGINS.development;
+
+  const isAllowed = allowed.includes(origin);
+
+  return {
+    'Access-Control-Allow-Origin': isAllowed ? origin : allowed[0],
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+    'Access-Control-Max-Age': '86400',
+  };
+}
+
+export function handleCorsPreFlight(req: Request): Response | null {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: getCorsHeaders(req) });
+  }
+  return null;
+}
+```
+
+**Effort:** 2 hours
+
 ### Task 4.1: Error Handler Migration
 
 **STATUS:** IN PROGRESS (7 done, 74 remaining)
@@ -222,13 +260,14 @@ import {
   withErrorHandling,
   logInfo,
 } from "../_shared/error-handler.ts";
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
 
 const handler = async (req: Request): Promise<Response> => {
+  // Handle CORS preflight (uses environment-based origins)
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
+
+  const corsHeaders = getCorsHeaders(req);
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
   const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
 
@@ -249,8 +288,10 @@ const handler = async (req: Request): Promise<Response> => {
   return createSuccessResponse({ data }, corsHeaders);
 };
 
-serve(withErrorHandling(handler, corsHeaders));
+serve(withErrorHandling(handler, getCorsHeaders));
 ```
+
+**NOTE:** The CORS handler (Task 4.0) must be implemented BEFORE starting this migration to ensure all newly migrated functions use secure, environment-based origins instead of wildcard `'*'`.
 
 **Effort:** 35-40 hours total
 
@@ -443,40 +484,30 @@ Apply validation to all edge functions that accept user input.
 
 ---
 
-## Part 8: CORS Security Hardening (Week 8)
+## Part 8: Security Verification (Week 8)
 
-### Task 8.1: Environment-Based CORS
+### Task 8.1: CORS Handler Verification
 
-**Problem:** All functions use `Access-Control-Allow-Origin: '*'`
+**NOTE:** CORS handler implementation was moved to Task 4.0 (Week 4, Day 1) as a prerequisite before edge function migration. This prevents deploying functions with `Access-Control-Allow-Origin: '*'` vulnerability.
 
-**Solution:** Create shared CORS handler with environment-based origins
+**Week 8 Tasks:**
+- Verify all 81 edge functions use `getCorsHeaders()` from shared module
+- Audit for any hardcoded CORS headers
+- Test CORS behavior in staging environment
+- Document allowed origins in deployment runbook
 
-**File:** `supabase/functions/_shared/cors.ts`
+**Effort:** 3 hours (verification + documentation)
 
-```typescript
-const ALLOWED_ORIGINS = {
-  production: ['https://syllabusstack.com', 'https://app.syllabusstack.com'],
-  staging: ['https://staging.syllabusstack.com'],
-  development: ['http://localhost:5173', 'http://localhost:3000'],
-};
+### Task 8.2: Security Audit Summary
 
-export function getCorsHeaders(req: Request): Record<string, string> {
-  const origin = req.headers.get('Origin') || '';
-  const env = Deno.env.get('ENVIRONMENT') || 'development';
-  const allowed = ALLOWED_ORIGINS[env as keyof typeof ALLOWED_ORIGINS] || ALLOWED_ORIGINS.development;
+Run security verification:
+1. All functions use environment-based CORS
+2. No secrets in client-side code
+3. All user inputs validated
+4. Authorization checks in place
+5. Rate limiting on sensitive endpoints
 
-  const isAllowed = allowed.includes(origin);
-
-  return {
-    'Access-Control-Allow-Origin': isAllowed ? origin : allowed[0],
-    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Max-Age': '86400',
-  };
-}
-```
-
-**Effort:** 6 hours (implementation + migration)
+**Effort:** 4 hours
 
 ---
 
@@ -612,12 +643,13 @@ export function createMockRequest(method: string, body?: unknown, authToken?: st
   });
 }
 
-export function assertSuccessResponse(response: Response) {
+export async function assertSuccessResponse(response: Response) {
   assertEquals(response.status, 200);
   assertExists(response.headers.get('Content-Type'));
 }
 
-export function assertErrorResponse(response: Response, expectedCode: string) {
+export async function assertErrorResponse(response: Response, expectedStatus: number, expectedCode: string) {
+  assertEquals(response.status, expectedStatus);
   const body = await response.json();
   assertEquals(body.code, expectedCode);
 }
@@ -642,21 +674,19 @@ export function assertErrorResponse(response: Response, expectedCode: string) {
 **Test Pattern:**
 ```typescript
 // supabase/functions/tests/start-assessment.test.ts
-import { assertEquals } from "https://deno.land/std@0.168.0/testing/asserts.ts";
-import { createMockRequest } from "./setup.ts";
+import { assertExists } from "https://deno.land/std@0.168.0/testing/asserts.ts";
+import { createMockRequest, assertErrorResponse, assertSuccessResponse } from "./setup.ts";
 
 Deno.test("start-assessment - requires authentication", async () => {
   const req = createMockRequest('POST', { learning_objective_id: 'test-id' });
   const response = await handler(req);
-  assertEquals(response.status, 401);
+  await assertErrorResponse(response, 401, 'UNAUTHORIZED');
 });
 
 Deno.test("start-assessment - validates learning_objective_id", async () => {
   const req = createMockRequest('POST', {}, 'valid-token');
   const response = await handler(req);
-  assertEquals(response.status, 400);
-  const body = await response.json();
-  assertEquals(body.code, 'VALIDATION_ERROR');
+  await assertErrorResponse(response, 400, 'VALIDATION_ERROR');
 });
 
 Deno.test("start-assessment - creates session for valid request", async () => {
@@ -664,7 +694,7 @@ Deno.test("start-assessment - creates session for valid request", async () => {
     learning_objective_id: 'valid-uuid',
   }, 'valid-token');
   const response = await handler(req);
-  assertEquals(response.status, 200);
+  await assertSuccessResponse(response);
   const body = await response.json();
   assertExists(body.session);
 });
@@ -746,13 +776,14 @@ Contents:
 | Loading skeletons | Pending | 4 |
 | **Subtotal Remaining** | | **4** |
 
-### Week 4: Edge Function Migration (Part 1)
+### Week 4: CORS Setup + Edge Function Migration (Part 1)
 | Task | Hours |
 |------|-------|
+| **CORS handler setup (PREREQUISITE)** | 2 |
 | Assessment functions (5) | 6 |
 | Search functions (5) | 6 |
 | AI generation functions (5) | 6 |
-| **Subtotal** | **18** |
+| **Subtotal** | **20** |
 
 ### Week 5: Edge Function Migration (Part 2)
 | Task | Hours |
@@ -778,14 +809,15 @@ Contents:
 | Sprint feature verification | 16 |
 | **Subtotal** | **40** |
 
-### Week 8: Security + Monitoring
+### Week 8: Security Verification + Monitoring
 | Task | Hours |
 |------|-------|
-| CORS hardening | 6 |
+| CORS verification & audit | 3 |
+| Security audit summary | 4 |
 | Sentry integration | 4 |
 | Edge function monitoring | 4 |
 | Alerting rules | 3 |
-| **Subtotal** | **17** |
+| **Subtotal** | **18** |
 
 ### Week 9: Accessibility + Testing (Part 1)
 | Task | Hours |
@@ -814,24 +846,26 @@ Contents:
 |------|-------|-------|
 | 1-2 | Foundation & Security | ✅ 13 (done) |
 | 3 | UX Critical | 4 (remaining) |
-| 4 | Edge Functions (Part 1) | 18 |
+| 4 | CORS Setup + Edge Functions (Part 1) | 20 |
 | 5 | Edge Functions (Part 2) | 24 |
 | 6 | Edge Functions (Part 3) + Cleanup | 43 |
 | 7 | Validation + Features | 40 |
-| 8 | Security + Monitoring | 17 |
+| 8 | Security Verification + Monitoring | 18 |
 | 9 | Accessibility + Testing (Part 1) | 31 |
 | 10 | Testing (Part 2) + Docs | 61 |
-| **Total Remaining** | | **238 hours** |
-| **Total Including Completed** | | **251 hours** |
+| **Total Remaining** | | **241 hours** |
+| **Total Including Completed** | | **254 hours** |
 
 ---
 
 ## Success Criteria
 
-### Week 3-4 Complete (Edge Functions Start)
+### Week 3-4 Complete (CORS + Edge Functions Start)
 - [ ] Loading skeletons on 4 pages
+- [ ] **CORS handler deployed and verified working**
 - [ ] 20+ edge functions using standardized error handling
 - [ ] All assessment functions migrated
+- [ ] All migrated functions using `getCorsHeaders()` (no wildcard `'*'`)
 
 ### Week 5-6 Complete (Edge Functions Done)
 - [ ] 100% edge functions using standardized error handling
@@ -845,8 +879,9 @@ Contents:
 - [ ] All functions using input validation
 - [ ] Sprint 1-6 features verified working
 
-### Week 8 Complete (Security + Monitoring)
-- [ ] CORS hardening deployed
+### Week 8 Complete (Security Verification + Monitoring)
+- [ ] CORS verification complete (all 81 functions audited)
+- [ ] Security audit summary documented
 - [ ] Sentry integration active
 - [ ] Alerting rules configured
 
@@ -861,7 +896,7 @@ Contents:
 - [ ] Rate limiting on AI/auth functions
 - [ ] Authorization verified on all functions
 - [ ] Input validation on all functions
-- [ ] CORS restricted to allowed origins
+- [ ] **CORS using `getCorsHeaders()` (no wildcard origins)**
 - [ ] APM active with alerting
 - [ ] >80% test coverage
 - [ ] WCAG AA compliant
