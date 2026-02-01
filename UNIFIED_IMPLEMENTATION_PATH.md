@@ -52,8 +52,8 @@
 | Metric | Current | Target | Gap |
 |--------|---------|--------|-----|
 | Edge Functions Total | 78 | - | - |
-| Using CORS Handler | 21 (26.9%) | 78 (100%) | 57 functions |
-| Using Error Handler | 21 (26.9%) | 78 (100%) | 57 functions |
+| Using CORS Handler | 27 (34.6%) | 78 (100%) | 51 functions |
+| Using Error Handler | 27 (34.6%) | 78 (100%) | 51 functions |
 | Using Rate Limiter | 10 (12.8%) | ~30 (AI/Auth) | ~20 functions |
 | Loading Skeletons | 4/4 (100%) | ✅ | Complete |
 | Algorithm Foundations | 5/5 (100%) | ✅ | Complete |
@@ -783,6 +783,7 @@ This phase is optional and extends beyond production readiness. See the referenc
 | 2026-02-01 | Claude AI | Zod Validators | 0 | ✅ Created | Created `_shared/validators/index.ts` with 20+ schemas |
 | 2026-02-01 | Claude AI | Weibull Decay | Not integrated | ✅ | Integrated into gap-analysis function |
 | 2026-02-01 | Claude AI | Assessment Logger | Not integrated | ✅ | Integrated into submit-assessment-answer function |
+| 2026-02-01 | Claude AI | CORS Handler Usage | 21 (26.9%) | 27 (34.6%) | Week 5 Day 1: +6 functions (auto-link-courses, enroll-in-course, extract-learning-objectives, parse-syllabus-document, analyze-dream-job, match-careers) |
 | | | | | | |
 
 ---

@@ -1,27 +1,27 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo,
+  logError,
+} from "../_shared/error-handler.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+const handler = async (req: Request): Promise<Response> => {
+  // Handle CORS preflight
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
 
-const logStep = (step: string, details?: any) => {
-  const detailsStr = details ? ` - ${JSON.stringify(details)}` : '';
-  console.log(`[CREATE-COURSE-PAYMENT] ${step}${detailsStr}`);
-};
-
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+  const corsHeaders = getCorsHeaders(req);
 
   try {
-    logStep("Function started");
-    
     const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
-    if (!stripeKey) throw new Error("STRIPE_SECRET_KEY is not set");
+    if (!stripeKey) {
+      return createErrorResponse('CONFIG_ERROR', corsHeaders, 'STRIPE_SECRET_KEY is not set');
+    }
 
     const supabaseClient = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
@@ -29,15 +29,22 @@ serve(async (req) => {
     );
 
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader) throw new Error("No authorization header provided");
+    if (!authHeader?.startsWith("Bearer ")) {
+      return createErrorResponse('UNAUTHORIZED', corsHeaders, 'No authorization header');
+    }
 
     const token = authHeader.replace("Bearer ", "");
     const { data: userData, error: userError } = await supabaseClient.auth.getUser(token);
-    if (userError) throw new Error(`Authentication error: ${userError.message}`);
-    
+    if (userError || !userData.user) {
+      return createErrorResponse('UNAUTHORIZED', corsHeaders, 'Invalid authentication');
+    }
+
     const user = userData.user;
-    if (!user?.email) throw new Error("User not authenticated or email not available");
-    logStep("User authenticated", { userId: user.id, email: user.email });
+    if (!user?.email) {
+      return createErrorResponse('UNAUTHORIZED', corsHeaders, 'User email not available');
+    }
+
+    logInfo('create-course-payment', 'starting', { userId: user.id });
 
     const body = await req.json();
     const { course_title, course_code, file_name, success_url, cancel_url } = body;
@@ -50,22 +57,19 @@ serve(async (req) => {
       .single();
 
     const isPro = profile?.subscription_tier === 'pro' || profile?.subscription_tier === 'university';
-    logStep("Subscription check", { isPro, tier: profile?.subscription_tier });
 
     // If Pro, return immediate success (no payment needed)
     if (isPro) {
-      return new Response(JSON.stringify({ 
+      logInfo('create-course-payment', 'pro_subscriber', { userId: user.id });
+      return createSuccessResponse({
         requires_payment: false,
         message: "Pro subscribers get unlimited course creation"
-      }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 200,
-      });
+      }, corsHeaders);
     }
 
     // Non-Pro users need to pay $1
     const stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
-    
+
     // Get or create Stripe customer
     let customerId = profile?.stripe_customer_id;
     if (!customerId) {
@@ -79,14 +83,13 @@ serve(async (req) => {
         });
         customerId = customer.id;
       }
-      
+
       // Update profile with customer ID
       await supabaseClient
         .from("profiles")
         .update({ stripe_customer_id: customerId })
         .eq("user_id", user.id);
     }
-    logStep("Stripe customer", { customerId });
 
     const appUrl = Deno.env.get("APP_URL") || "https://syllabusstack.lovable.app";
 
@@ -120,23 +123,18 @@ serve(async (req) => {
       allow_promotion_codes: true,
     });
 
-    logStep("Checkout session created", { sessionId: session.id });
+    logInfo('create-course-payment', 'checkout_created', { sessionId: session.id });
 
-    return new Response(JSON.stringify({ 
+    return createSuccessResponse({
       requires_payment: true,
       checkout_url: session.url,
       session_id: session.id,
-    }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-      status: 200,
-    });
+    }, corsHeaders);
 
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    logStep("ERROR", { message: errorMessage });
-    return new Response(JSON.stringify({ error: errorMessage }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-      status: 500,
-    });
+    logError('create-course-payment', error instanceof Error ? error : new Error(String(error)));
+    return createErrorResponse('INTERNAL_ERROR', corsHeaders, error instanceof Error ? error.message : 'Unknown error');
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));
