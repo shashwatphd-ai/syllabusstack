@@ -1,11 +1,14 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
 import Stripe from "https://esm.sh/stripe@14.21.0";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo,
+  logError,
+} from "../_shared/error-handler.ts";
 
 interface PurchaseRequest {
   enrollment_id: string;
@@ -14,10 +17,12 @@ interface PurchaseRequest {
   cancel_url?: string;
 }
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+const handler = async (req: Request): Promise<Response> => {
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
+
+  const corsHeaders = getCorsHeaders(req);
+  logInfo('purchase-certificate', 'starting');
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -25,15 +30,12 @@ serve(async (req) => {
     const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
 
     if (!stripeSecretKey) {
-      throw new Error("Stripe is not configured");
+      return createErrorResponse('INTERNAL_ERROR', corsHeaders, 'Stripe is not configured');
     }
 
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
-      return new Response(
-        JSON.stringify({ error: "Authorization required" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return createErrorResponse('UNAUTHORIZED', corsHeaders, 'Authorization required');
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
@@ -45,26 +47,17 @@ serve(async (req) => {
 
     const { data: { user }, error: authError } = await userClient.auth.getUser();
     if (authError || !user) {
-      return new Response(
-        JSON.stringify({ error: "Invalid authentication" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return createErrorResponse('UNAUTHORIZED', corsHeaders, 'Invalid authentication');
     }
 
     const { enrollment_id, certificate_type, success_url, cancel_url }: PurchaseRequest = await req.json();
 
     if (!enrollment_id || !certificate_type) {
-      return new Response(
-        JSON.stringify({ error: "enrollment_id and certificate_type are required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'enrollment_id and certificate_type are required');
     }
 
     if (!["verified", "assessed"].includes(certificate_type)) {
-      return new Response(
-        JSON.stringify({ error: "certificate_type must be 'verified' or 'assessed'" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, "certificate_type must be 'verified' or 'assessed'");
     }
 
     // Verify enrollment exists and belongs to user
@@ -89,25 +82,16 @@ serve(async (req) => {
       .single();
 
     if (enrollmentError || !enrollment) {
-      return new Response(
-        JSON.stringify({ error: "Enrollment not found" }),
-        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return createErrorResponse('NOT_FOUND', corsHeaders, 'Enrollment not found');
     }
 
     if (enrollment.student_id !== user.id) {
-      return new Response(
-        JSON.stringify({ error: "You can only purchase certificates for your own enrollments" }),
-        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return createErrorResponse('FORBIDDEN', corsHeaders, 'You can only purchase certificates for your own enrollments');
     }
 
     // Check if course is completed (at least 80% progress or completed_at is set)
     if (!enrollment.completed_at && (enrollment.overall_progress || 0) < 80) {
-      return new Response(
-        JSON.stringify({ error: "You must complete at least 80% of the course to purchase a certificate" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'You must complete at least 80% of the course to purchase a certificate');
     }
 
     // Check if certificate already exists
@@ -119,10 +103,7 @@ serve(async (req) => {
       .single();
 
     if (existingCert) {
-      return new Response(
-        JSON.stringify({ error: `You already have a ${existingCert.certificate_type} certificate for this course` }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, `You already have a ${existingCert.certificate_type} certificate for this course`);
     }
 
     const stripe = new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" });
@@ -197,20 +178,19 @@ serve(async (req) => {
       cancel_url: cancel_url || `${appUrl}/student/courses/${enrollment.instructor_course_id}?certificate=cancelled`,
     });
 
-    console.log(`[purchase-certificate] Created checkout session ${session.id} for ${certificate_type} certificate`);
+    logInfo('purchase-certificate', 'complete', {
+      sessionId: session.id,
+      certificateType: certificate_type
+    });
 
-    return new Response(
-      JSON.stringify({ 
-        checkout_url: session.url,
-        session_id: session.id,
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return createSuccessResponse({
+      checkout_url: session.url,
+      session_id: session.id,
+    }, corsHeaders);
   } catch (error) {
-    console.error("[purchase-certificate] Error:", error);
-    return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "An error occurred" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    logError('purchase-certificate', error instanceof Error ? error : new Error(String(error)));
+    return createErrorResponse('INTERNAL_ERROR', corsHeaders, error instanceof Error ? error.message : 'An error occurred');
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));

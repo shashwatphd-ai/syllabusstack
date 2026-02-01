@@ -26,11 +26,14 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
 import { createVertexAIAuth } from '../_shared/vertex-ai-auth.ts';
 import { createGCSClient } from '../_shared/gcs-client.ts';
 import { createVertexAIBatchClient, VertexAIBatchClient } from '../_shared/vertex-ai-batch.ts';
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo,
+  logError,
+} from "../_shared/error-handler.ts";
 
 // ============================================================================
 // CONFIGURATION
@@ -150,14 +153,13 @@ Generate the teaching units now:`;
 // MAIN HANDLER
 // ============================================================================
 
-serve(async (req) => {
+const handler = async (req: Request): Promise<Response> => {
   // Handle CORS preflight
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
 
-  const functionName = '[submit-batch-curriculum]';
-  console.log(`${functionName} Starting...`);
+  const corsHeaders = getCorsHeaders(req);
+  logInfo('submit-batch-curriculum', 'starting');
 
   try {
     // ========================================================================
@@ -165,15 +167,8 @@ serve(async (req) => {
     // ========================================================================
     const enableBatchCurriculum = Deno.env.get('ENABLE_BATCH_CURRICULUM') !== 'false';
     if (!enableBatchCurriculum) {
-      console.log(`${functionName} Feature disabled, returning`);
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: 'Batch curriculum is disabled',
-          fallback: 'Use curriculum-reasoning-agent directly'
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
-      );
+      logInfo('submit-batch-curriculum', 'feature_disabled');
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'Batch curriculum is disabled. Use curriculum-reasoning-agent directly');
     }
 
     // ========================================================================
@@ -181,16 +176,16 @@ serve(async (req) => {
     // ========================================================================
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
-      throw new Error('Missing authorization header');
+      return createErrorResponse('UNAUTHORIZED', corsHeaders, 'Missing authorization header');
     }
 
     const { instructor_course_id, learning_objective_ids } = await req.json();
 
     if (!instructor_course_id) {
-      throw new Error('instructor_course_id is required');
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'instructor_course_id is required');
     }
 
-    console.log(`${functionName} Processing course: ${instructor_course_id}`);
+    logInfo('submit-batch-curriculum', 'processing', { courseId: instructor_course_id });
 
     // Initialize Supabase client
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -448,25 +443,19 @@ serve(async (req) => {
     // ========================================================================
     // STEP 10: Return success
     // ========================================================================
-    return new Response(
-      JSON.stringify({
-        success: true,
-        batch_job_id: batchJobId,
-        total_requests: learningObjectives.length,
-        message: `Batch curriculum job submitted. Call poll-batch-curriculum to check status.`
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    logInfo('submit-batch-curriculum', 'complete', { batchJobId, count: learningObjectives.length });
+
+    return createSuccessResponse({
+      success: true,
+      batch_job_id: batchJobId,
+      total_requests: learningObjectives.length,
+      message: `Batch curriculum job submitted. Call poll-batch-curriculum to check status.`
+    }, corsHeaders);
 
   } catch (error) {
-    console.error(`${functionName} Error:`, error);
-
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error: error instanceof Error ? error.message : String(error)
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
-    );
+    logError('submit-batch-curriculum', error instanceof Error ? error : new Error(String(error)));
+    return createErrorResponse('INTERNAL_ERROR', corsHeaders, error instanceof Error ? error.message : 'Unknown error');
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));

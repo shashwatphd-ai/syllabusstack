@@ -4,6 +4,14 @@ import { MODEL_CONFIG } from '../_shared/ai-orchestrator.ts';
 import { createVertexAIAuth } from '../_shared/vertex-ai-auth.ts';
 import { createGCSClient, GCSClient } from '../_shared/gcs-client.ts';
 import { createVertexAIBatchClient, VertexAIBatchClient } from '../_shared/vertex-ai-batch.ts';
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo,
+  logError,
+} from "../_shared/error-handler.ts";
 // ============================================================================
 // POLL BATCH STATUS - Check and process Vertex AI batch job results
 // ============================================================================
@@ -37,16 +45,12 @@ import { createVertexAIBatchClient, VertexAIBatchClient } from '../_shared/verte
 //
 // ============================================================================
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
-
-serve(async (req) => {
+const handler = async (req: Request): Promise<Response> => {
   // Handle CORS preflight
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
+
+  const corsHeaders = getCorsHeaders(req);
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -80,23 +84,17 @@ serve(async (req) => {
         .single();
 
       if (batchError || !batchJob) {
-        return new Response(
-          JSON.stringify({ success: false, error: 'Batch job not found' }),
-          { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        return createErrorResponse('NOT_FOUND', corsHeaders, 'Batch job not found');
       }
 
       // If already completed, just return the status
       if (['completed', 'failed', 'partial'].includes(batchJob.status)) {
-        return new Response(
-          JSON.stringify({
-            success: true,
-            batch_job: batchJob,
-            is_complete: true,
-            progress_percent: 100,
-          }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        return createSuccessResponse({
+          success: true,
+          batch_job: batchJob,
+          is_complete: true,
+          progress_percent: 100,
+        }, corsHeaders);
       }
 
       // Poll Vertex AI for current status
@@ -281,19 +279,15 @@ serve(async (req) => {
       );
     }
 
-    return new Response(
-      JSON.stringify({ success: false, error: 'batch_job_id or instructor_course_id required' }),
-      { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'batch_job_id or instructor_course_id required');
 
   } catch (error) {
-    console.error('[Poll] Error:', error);
-    return new Response(
-      JSON.stringify({ success: false, error: error instanceof Error ? error.message : 'Unknown error' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    logError('poll-batch-status', error instanceof Error ? error : new Error(String(error)));
+    return createErrorResponse('INTERNAL_ERROR', corsHeaders, error instanceof Error ? error.message : 'Unknown error');
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));
 
 // ============================================================================
 // JSON REPAIR UTILITY

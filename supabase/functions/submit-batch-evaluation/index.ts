@@ -26,11 +26,14 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
 import { createVertexAIAuth } from '../_shared/vertex-ai-auth.ts';
 import { createGCSClient } from '../_shared/gcs-client.ts';
 import { createVertexAIBatchClient, VertexAIBatchClient } from '../_shared/vertex-ai-batch.ts';
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo,
+  logError,
+} from "../_shared/error-handler.ts";
 
 // ============================================================================
 // CONFIGURATION
@@ -539,13 +542,13 @@ Begin your evaluation:`;
 // MAIN HANDLER
 // ============================================================================
 
-serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
+const handler = async (req: Request): Promise<Response> => {
+  // Handle CORS preflight
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
 
-  const functionName = '[submit-batch-evaluation]';
-  console.log(`${functionName} Starting...`);
+  const corsHeaders = getCorsHeaders(req);
+  logInfo('submit-batch-evaluation', 'starting');
 
   try {
     // ========================================================================
@@ -553,15 +556,8 @@ serve(async (req) => {
     // ========================================================================
     const enableBatchEvaluation = Deno.env.get('ENABLE_BATCH_EVALUATION') !== 'false';
     if (!enableBatchEvaluation) {
-      console.log(`${functionName} Feature disabled, returning`);
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: 'Batch evaluation is disabled',
-          fallback: 'Videos will be evaluated individually during content search'
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
-      );
+      logInfo('submit-batch-evaluation', 'feature_disabled');
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'Batch evaluation is disabled. Videos will be evaluated individually.');
     }
 
     // ========================================================================
@@ -569,16 +565,16 @@ serve(async (req) => {
     // ========================================================================
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
-      throw new Error('Missing authorization header');
+      return createErrorResponse('UNAUTHORIZED', corsHeaders, 'Missing authorization header');
     }
 
     const { instructor_course_id, content_match_ids } = await req.json();
 
     if (!instructor_course_id) {
-      throw new Error('instructor_course_id is required');
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'instructor_course_id is required');
     }
 
-    console.log(`${functionName} Processing course: ${instructor_course_id}`);
+    logInfo('submit-batch-evaluation', 'processing', { courseId: instructor_course_id });
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -918,26 +914,20 @@ serve(async (req) => {
     // ========================================================================
     // STEP 9: Return success
     // ========================================================================
-    return new Response(
-      JSON.stringify({
-        success: true,
-        batch_job_id: batchJobId,
-        total_requests: batchLines.length,
-        total_videos: pendingMatches.length,
-        message: `Batch evaluation job submitted. Call poll-batch-evaluation to check status.`
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    logInfo('submit-batch-evaluation', 'complete', { batchJobId, requests: batchLines.length, videos: pendingMatches.length });
+
+    return createSuccessResponse({
+      success: true,
+      batch_job_id: batchJobId,
+      total_requests: batchLines.length,
+      total_videos: pendingMatches.length,
+      message: `Batch evaluation job submitted. Call poll-batch-evaluation to check status.`
+    }, corsHeaders);
 
   } catch (error) {
-    console.error(`${functionName} Error:`, error);
-
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error: error instanceof Error ? error.message : String(error)
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
-    );
+    logError('submit-batch-evaluation', error instanceof Error ? error : new Error(String(error)));
+    return createErrorResponse('INTERNAL_ERROR', corsHeaders, error instanceof Error ? error.message : 'Unknown error');
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));
