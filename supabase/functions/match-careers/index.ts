@@ -15,11 +15,8 @@ import {
   rateLimitResponse,
   ErrorCodes,
 } from "../_shared/skills-pipeline/index.ts";
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import { logInfo, logError } from "../_shared/error-handler.ts";
 
 // Holland RIASEC adjacency for Iachan's M Index
 const HOLLAND_ADJACENCY: Record<string, string[]> = {
@@ -147,10 +144,12 @@ serve(async (req) => {
   const logger = new PipelineLogger('match-careers', requestId);
   const startTime = Date.now();
 
-  // Handle CORS preflight
-  if (req.method === 'OPTIONS') {
-    return corsPreflightResponse();
-  }
+  // Handle CORS preflight with standardized handler
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
+
+  const corsHeaders = getCorsHeaders(req);
+  logInfo('match-careers', 'starting', { requestId });
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;

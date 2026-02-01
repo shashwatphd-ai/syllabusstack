@@ -5,18 +5,24 @@ import { getCachedResponse, setCachedResponse, trackAIUsage, createServiceClient
 import { JOB_REQUIREMENTS_SCHEMA } from "../_shared/schemas.ts";
 import { generateKeywordVector } from "../_shared/ai-orchestrator.ts";
 import { functionCall, MODELS } from "../_shared/openrouter-client.ts";
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo,
+  logError,
+} from "../_shared/error-handler.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+const handler = async (req: Request): Promise<Response> => {
+  // Handle CORS preflight
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+  const corsHeaders = getCorsHeaders(req);
 
   try {
+    logInfo('analyze-dream-job', 'starting');
     const { jobTitle, companyType, location, dreamJobId } = await req.json();
 
     if (!jobTitle) {
@@ -326,24 +332,21 @@ Return your response using the generate_job_requirements function.`;
       }
     }
 
-    return new Response(
-      JSON.stringify({ 
-        requirements, 
-        description, 
-        salary_range: salaryRange,
-        day_one_capabilities: dayOneCapabilities,
-        differentiators,
-        common_misconceptions: commonMisconceptions,
-        realistic_bar: realisticBar,
-        keywords_count: requirementsKeywords.length
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    logInfo('analyze-dream-job', 'complete', { keywordsCount: requirementsKeywords.length });
+    return createSuccessResponse({
+      requirements,
+      description,
+      salary_range: salaryRange,
+      day_one_capabilities: dayOneCapabilities,
+      differentiators,
+      common_misconceptions: commonMisconceptions,
+      realistic_bar: realisticBar,
+      keywords_count: requirementsKeywords.length
+    }, corsHeaders);
   } catch (error) {
-    console.error("Error in analyze-dream-job:", error);
-    return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    logError('analyze-dream-job', error instanceof Error ? error : new Error(String(error)));
+    return createErrorResponse('INTERNAL_ERROR', corsHeaders, error instanceof Error ? error.message : 'Unknown error');
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));
