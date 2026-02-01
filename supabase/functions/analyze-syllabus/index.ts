@@ -6,18 +6,15 @@ import { SYLLABUS_EXTRACTION_SCHEMA } from "../_shared/schemas.ts";
 import { updateCourseKeywords } from "../_shared/similarity.ts";
 import { generateKeywordVector } from "../_shared/ai-orchestrator.ts";
 import { checkRateLimit, getUserLimits, createRateLimitResponse } from "../_shared/rate-limiter.ts";
-import { createErrorResponse, handleAIGatewayError, createSuccessResponse, logInfo, logError } from "../_shared/error-handler.ts";
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import { createErrorResponse, handleAIGatewayError, createSuccessResponse, logInfo, logError, withErrorHandling } from "../_shared/error-handler.ts";
 import { generateStructured, MODELS } from "../_shared/unified-ai-client.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+const handler = async (req: Request): Promise<Response> => {
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+  const corsHeaders = getCorsHeaders(req);
 
   // Store these at function level for access in catch block
   let parsedCourseId: string | undefined;
@@ -247,20 +244,17 @@ Return your response using the extract_syllabus_data function.`;
       }
     }
 
-    return new Response(
-      JSON.stringify({ 
-        capabilities,
-        course_themes: courseThemes,
-        tools_learned: toolsLearned,
-        course_title: courseTitle,
-        course_code: courseCode,
-        semester: semester,
-        credits: credits
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return createSuccessResponse({
+      capabilities,
+      course_themes: courseThemes,
+      tools_learned: toolsLearned,
+      course_title: courseTitle,
+      course_code: courseCode,
+      semester: semester,
+      credits: credits
+    }, corsHeaders);
   } catch (error) {
-    console.error("Error in analyze-syllabus:", error);
+    logError("analyze-syllabus", error instanceof Error ? error : new Error(String(error)), { courseId: parsedCourseId });
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
 
     // Set the course status to failed if we have the context
@@ -274,16 +268,15 @@ Return your response using the extract_syllabus_data function.`;
           })
           .eq("id", parsedCourseId);
       } catch (updateError) {
-        console.error("Failed to update course status to failed:", updateError);
+        logError("analyze-syllabus", updateError instanceof Error ? updateError : new Error(String(updateError)), { action: "update_failed_status" });
       }
     }
 
-    return new Response(
-      JSON.stringify({ error: errorMessage }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return createErrorResponse("INTERNAL_ERROR", corsHeaders, errorMessage);
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));
 
 // Helper function to update aggregated capability profile
 async function updateCapabilityProfile(supabase: any, userId: string) {

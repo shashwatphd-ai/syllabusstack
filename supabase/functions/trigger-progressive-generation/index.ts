@@ -1,24 +1,23 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import { createErrorResponse, createSuccessResponse, logInfo, logError, withErrorHandling } from "../_shared/error-handler.ts";
 
 /**
  * Progressive Generation Trigger
- * 
+ *
  * This function checks enrollment thresholds and triggers content generation
  * when demand reaches the configured threshold (default: 10 students).
- * 
+ *
  * Can be called:
  * 1. Via cron job to check all courses
  * 2. On enrollment to check specific course
  */
-serve(async (req) => {
+const handler = async (req: Request): Promise<Response> => {
+  const corsHeaders = getCorsHeaders(req);
+
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return handleCorsPreFlight(req);
   }
 
   try {
@@ -99,10 +98,9 @@ serve(async (req) => {
     });
 
   } catch (error) {
-    console.error("Error in trigger-progressive-generation:", error);
-    return new Response(JSON.stringify({ error: "Internal server error" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    logError("trigger-progressive-generation", error instanceof Error ? error : new Error(String(error)), { action: "checking_triggers" });
+    return createErrorResponse("INTERNAL_ERROR", corsHeaders, "Internal server error");
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));

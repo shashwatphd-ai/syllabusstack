@@ -1,14 +1,13 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import { createErrorResponse, createSuccessResponse, logInfo, logError, withErrorHandling } from "../_shared/error-handler.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+const handler = async (req: Request): Promise<Response> => {
+  const corsHeaders = getCorsHeaders(req);
 
-serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return handleCorsPreFlight(req);
   }
 
   try {
@@ -105,18 +104,13 @@ serve(async (req) => {
       throw updateError;
     }
 
-    console.log(`Admin ${user.id} removed user ${userId} from organization ${adminProfile.organization_id}`);
+    logInfo("remove-org-user", "user_removed", { adminId: user.id, removedUserId: userId, organizationId: adminProfile.organization_id });
 
-    return new Response(
-      JSON.stringify({ success: true }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return createSuccessResponse({ success: true }, corsHeaders);
   } catch (error: unknown) {
-    console.error("Error removing user:", error);
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return new Response(
-      JSON.stringify({ error: message }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    logError("remove-org-user", error instanceof Error ? error : new Error(String(error)), { action: "remove_user" });
+    return createErrorResponse("INTERNAL_ERROR", corsHeaders, error instanceof Error ? error.message : "Unknown error");
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));

@@ -8,11 +8,14 @@ import {
   getLearnedSynonyms,
 } from "../_shared/dynamic-terms.ts";
 import { generateText, MODELS, parseJsonResponse } from "../_shared/unified-ai-client.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo,
+  logError,
+} from "../_shared/error-handler.ts";
 
 // ========== DOCX Local Extraction (same as parse-syllabus-document) ==========
 function base64ToU8(base64: string): Uint8Array {

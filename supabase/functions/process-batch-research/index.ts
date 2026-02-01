@@ -6,6 +6,14 @@ import { createGCSClient } from '../_shared/gcs-client.ts';
 import { createVertexAIBatchClient } from '../_shared/vertex-ai-batch.ts';
 // OpenRouter imports for alternative batch processing (BATCH_PROVIDER=openrouter)
 import { generateText, searchGrounded, MODELS, parseJsonResponse } from '../_shared/unified-ai-client.ts';
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo,
+  logError,
+} from "../_shared/error-handler.ts";
 
 // ============================================================================
 // PROCESS BATCH RESEARCH - Background Research and Batch Slide Generation
@@ -43,11 +51,6 @@ import { generateText, searchGrounded, MODELS, parseJsonResponse } from '../_sha
 //   - GOOGLE_CLOUD_API_KEY: For research agent (both modes)
 //
 // ============================================================================
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
 
 // ============================================================================
 // BATCH PROVIDER TOGGLE

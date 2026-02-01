@@ -22,11 +22,14 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
 import { createVertexAIAuth } from '../_shared/vertex-ai-auth.ts';
 import { createGCSClient } from '../_shared/gcs-client.ts';
 import { createVertexAIBatchClient, VertexAIBatchClient } from '../_shared/vertex-ai-batch.ts';
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo,
+  logError,
+} from "../_shared/error-handler.ts";
 
 // ============================================================================
 // TYPES
@@ -52,11 +55,11 @@ interface EvaluationResponse {
 // MAIN HANDLER
 // ============================================================================
 
-serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
+const handler = async (req: Request): Promise<Response> => {
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
 
+  const corsHeaders = getCorsHeaders(req);
   const functionName = '[poll-batch-evaluation]';
   console.log(`${functionName} Starting...`);
 
@@ -97,17 +100,14 @@ serve(async (req) => {
     // Already completed?
     if (['completed', 'partial', 'failed'].includes(batchJob.status)) {
       console.log(`${functionName} Job already in terminal state: ${batchJob.status}`);
-      return new Response(
-        JSON.stringify({
-          success: true,
-          status: batchJob.status,
-          succeeded_count: batchJob.succeeded_count || 0,
-          failed_count: batchJob.failed_count || 0,
-          message: `Job already ${batchJob.status}`,
-          is_complete: true
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return createSuccessResponse({
+        success: true,
+        status: batchJob.status,
+        succeeded_count: batchJob.succeeded_count || 0,
+        failed_count: batchJob.failed_count || 0,
+        message: `Job already ${batchJob.status}`,
+        is_complete: true
+      }, corsHeaders);
     }
 
     // ========================================================================
@@ -140,18 +140,15 @@ serve(async (req) => {
         .update({ status: newStatus, updated_at: new Date().toISOString() })
         .eq('id', batch_job_id);
 
-      return new Response(
-        JSON.stringify({
-          success: true,
-          status: newStatus,
-          vertex_state: vertexStatus.state,
-          succeeded_count: 0,
-          failed_count: 0,
-          message: `Job still ${newStatus}, check again later`,
-          is_complete: false
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return createSuccessResponse({
+        success: true,
+        status: newStatus,
+        vertex_state: vertexStatus.state,
+        succeeded_count: 0,
+        failed_count: 0,
+        message: `Job still ${newStatus}, check again later`,
+        is_complete: false
+      }, corsHeaders);
     }
 
     // ========================================================================
@@ -368,33 +365,20 @@ serve(async (req) => {
     // ========================================================================
     // STEP 7: Return result
     // ========================================================================
-    return new Response(
-      JSON.stringify({
-        success: true,
-        status: finalStatus,
-        succeeded_count: succeededCount,
-        failed_count: failedCount,
-        videos_evaluated: videosEvaluated,
-        message: `Processed ${succeededCount + failedCount} requests, evaluated ${videosEvaluated} videos`,
-        is_complete: true
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    return createSuccessResponse({
+      success: true,
+      status: finalStatus,
+      succeeded_count: succeededCount,
+      failed_count: failedCount,
+      videos_evaluated: videosEvaluated,
+      message: `Processed ${succeededCount + failedCount} requests, evaluated ${videosEvaluated} videos`,
+      is_complete: true
+    }, corsHeaders);
 
   } catch (error) {
-    console.error(`${functionName} Error:`, error);
-
-    return new Response(
-      JSON.stringify({
-        success: false,
-        status: 'failed',
-        succeeded_count: 0,
-        failed_count: 0,
-        videos_evaluated: 0,
-        error: error instanceof Error ? error.message : String(error),
-        is_complete: false
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
-    );
+    logError("poll-batch-evaluation", error instanceof Error ? error : new Error(String(error)), { action: "polling" });
+    return createErrorResponse('INTERNAL_ERROR', corsHeaders, error instanceof Error ? error.message : String(error));
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));

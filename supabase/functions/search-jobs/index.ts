@@ -1,9 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import { createErrorResponse, createSuccessResponse, logInfo, logError, withErrorHandling } from "../_shared/error-handler.ts";
 
 /**
  * Search for jobs using Active Jobs DB (RapidAPI)
@@ -15,9 +12,11 @@ const corsHeaders = {
  *   POST /search-jobs
  *   { "title": "Software Engineer", "location": "Remote", "skills": ["python", "react"] }
  */
-serve(async (req) => {
+const handler = async (req: Request): Promise<Response> => {
+  const corsHeaders = getCorsHeaders(req);
+
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return handleCorsPreFlight(req);
   }
 
   try {
@@ -111,16 +110,12 @@ serve(async (req) => {
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
-    console.error("Error in search-jobs:", error);
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error: error instanceof Error ? error.message : "Unknown error",
-      }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    logError("search-jobs", error instanceof Error ? error : new Error(String(error)), { action: "searching" });
+    return createErrorResponse("INTERNAL_ERROR", corsHeaders, error instanceof Error ? error.message : "Unknown error");
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));
 
 /**
  * Extract requirements from various job data formats

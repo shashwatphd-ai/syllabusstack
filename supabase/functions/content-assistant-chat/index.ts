@@ -1,24 +1,25 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { generateText, MODELS } from "../_shared/unified-ai-client.ts";
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo,
+  logError,
+} from "../_shared/error-handler.ts";
 
 serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
+
+  const corsHeaders = getCorsHeaders(req);
 
   try {
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
-      return new Response(JSON.stringify({ error: 'No authorization header' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return createErrorResponse('UNAUTHORIZED', corsHeaders, 'No authorization header');
     }
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -32,10 +33,7 @@ serve(async (req) => {
 
     const { data: { user }, error: authError } = await userClient.auth.getUser();
     if (authError || !user) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return createErrorResponse('UNAUTHORIZED', corsHeaders);
     }
 
     // Use service client for database operations
@@ -46,10 +44,7 @@ serve(async (req) => {
     const { learning_objective_id, message, conversation_history = [] } = await req.json();
 
     if (!learning_objective_id || !message) {
-      return new Response(JSON.stringify({ error: 'learning_objective_id and message are required' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return createErrorResponse('BAD_REQUEST', corsHeaders, 'learning_objective_id and message are required');
     }
 
     // Fetch learning objective details
@@ -60,10 +55,7 @@ serve(async (req) => {
       .single();
 
     if (loError || !lo) {
-      return new Response(JSON.stringify({ error: 'Learning objective not found' }), {
-        status: 404,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return createErrorResponse('NOT_FOUND', corsHeaders, 'Learning objective not found');
     }
 
     // Fetch current content matches
@@ -196,20 +188,14 @@ User: "Show me university content"
         });
     }
 
-    return new Response(JSON.stringify({
+    return createSuccessResponse({
       message: cleanedMessage,
       suggested_search: suggestedSearch,
       conversation_id: existingChat?.id
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    }, corsHeaders);
 
   } catch (error: unknown) {
-    console.error('Error in content-assistant-chat:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return new Response(JSON.stringify({ error: errorMessage }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    logError('content-assistant-chat', error);
+    return createErrorResponse('INTERNAL_ERROR', corsHeaders, error instanceof Error ? error.message : 'Unknown error');
   }
 });

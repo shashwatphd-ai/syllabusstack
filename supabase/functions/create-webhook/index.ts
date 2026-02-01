@@ -18,12 +18,8 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
 import { createErrorResponse, createSuccessResponse, logInfo, withErrorHandling } from "../_shared/error-handler.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
 
 interface CreateWebhookRequest {
   employer_account_id: string;
@@ -82,6 +78,11 @@ function isBlockedUrl(hostname: string): boolean {
 }
 
 const handler = async (req: Request): Promise<Response> => {
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
+
+  const corsHeaders = getCorsHeaders(req);
+
   const body = await req.json() as CreateWebhookRequest;
   const { employer_account_id, url, events } = body;
 
@@ -208,4 +209,4 @@ const handler = async (req: Request): Promise<Response> => {
   );
 };
 
-serve(withErrorHandling(handler, corsHeaders));
+serve(withErrorHandling(handler, getCorsHeaders));

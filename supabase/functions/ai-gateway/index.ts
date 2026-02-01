@@ -35,11 +35,14 @@ import {
   trackAIUsage,
   MODELS,
 } from '../_shared/unified-ai-client.ts';
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo,
+  logError,
+} from "../_shared/error-handler.ts";
 
 // ============================================================================
 // TYPES
@@ -92,10 +95,10 @@ interface GatewayResponse {
 // ============================================================================
 
 serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
 
+  const corsHeaders = getCorsHeaders(req);
   const functionName = '[ai-gateway]';
   const startTime = Date.now();
 
@@ -105,13 +108,7 @@ serve(async (req) => {
     const { task, prompt, system_prompt, options } = body;
 
     if (!task || !prompt) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: 'Missing required fields: task and prompt',
-        } as GatewayResponse),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return createErrorResponse('BAD_REQUEST', corsHeaders, 'Missing required fields: task and prompt');
     }
 
     console.log(`${functionName} Task: ${task}, Prompt length: ${prompt.length}`);

@@ -1,11 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { Resend } from "https://esm.sh/resend@2.0.0?target=deno";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import { createErrorResponse, createSuccessResponse, logInfo, logError, withErrorHandling } from "../_shared/error-handler.ts";
 
 interface DigestData {
   user_email: string;
@@ -53,8 +50,10 @@ const PERSONALIZED_TIPS = [
 ];
 
 const handler = async (req: Request): Promise<Response> => {
+  const corsHeaders = getCorsHeaders(req);
+
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return handleCorsPreFlight(req);
   }
 
   try {
@@ -143,15 +142,8 @@ const handler = async (req: Request): Promise<Response> => {
       }
     );
   } catch (error: unknown) {
-    console.error("Error in send-digest-email function:", error);
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return new Response(
-      JSON.stringify({ error: message }),
-      {
-        status: 500,
-        headers: { "Content-Type": "application/json", ...corsHeaders },
-      }
-    );
+    logError("send-digest-email", error instanceof Error ? error : new Error(String(error)), { action: "sending_digest" });
+    return createErrorResponse("INTERNAL_ERROR", corsHeaders, error instanceof Error ? error.message : "Unknown error");
   }
 };
 
@@ -424,4 +416,4 @@ function generateEnhancedDigestHtml(data: DigestData): string {
   `;
 }
 
-serve(handler);
+serve(withErrorHandling(handler, getCorsHeaders));

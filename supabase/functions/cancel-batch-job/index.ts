@@ -2,25 +2,26 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { VertexAIAuth } from '../_shared/vertex-ai-auth.ts';
 import { VertexAIBatchClient } from '../_shared/vertex-ai-batch.ts';
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo,
+  logError,
+} from "../_shared/error-handler.ts";
 
 serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
+
+  const corsHeaders = getCorsHeaders(req);
 
   try {
     const { job_name } = await req.json();
 
     if (!job_name) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'job_name required' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return createErrorResponse('BAD_REQUEST', corsHeaders, 'job_name required');
     }
 
     console.log(`[Cancel] Cancelling Vertex AI job: ${job_name}`);
@@ -38,16 +39,9 @@ serve(async (req) => {
 
     console.log(`[Cancel] Job cancellation requested successfully`);
 
-    return new Response(
-      JSON.stringify({ success: true, message: 'Job cancellation requested' }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    return createSuccessResponse({ success: true, message: 'Job cancellation requested' }, corsHeaders);
   } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error('[Cancel] Error:', errorMessage);
-    return new Response(
-      JSON.stringify({ success: false, error: errorMessage }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    logError('cancel-batch-job', error);
+    return createErrorResponse('INTERNAL_ERROR', corsHeaders, error instanceof Error ? error.message : String(error));
   }
 });

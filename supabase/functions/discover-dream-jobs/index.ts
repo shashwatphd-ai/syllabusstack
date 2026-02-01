@@ -2,13 +2,9 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
 import { generateText, MODELS, parseJsonResponse } from "../_shared/unified-ai-client.ts";
 import { checkRateLimit, getUserLimits, createRateLimitResponse } from "../_shared/rate-limiter.ts";
-import { logInfo } from "../_shared/error-handler.ts";
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import { createErrorResponse, createSuccessResponse, logInfo, logError, withErrorHandling } from "../_shared/error-handler.ts";
 import { createServiceClient } from "../_shared/ai-cache.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
 
 interface DiscoveredJob {
   title: string;
@@ -21,20 +17,18 @@ interface DiscoveredJob {
   companyTypes: string[];
 }
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+const handler = async (req: Request): Promise<Response> => {
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
+
+  const corsHeaders = getCorsHeaders(req);
 
   try {
     const { interests, skills, major, careerGoals, workStyle } = await req.json();
 
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
-      return new Response(
-        JSON.stringify({ error: "Authorization required" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return createErrorResponse('UNAUTHORIZED', corsHeaders, 'Authorization required');
     }
 
     const supabase = createClient(
@@ -45,10 +39,7 @@ serve(async (req) => {
 
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     if (userError || !user) {
-      return new Response(
-        JSON.stringify({ error: "Failed to authenticate user" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return createErrorResponse('UNAUTHORIZED', corsHeaders, 'Failed to authenticate user');
     }
 
     // Check rate limits (Task 2.1.3 from MASTER_IMPLEMENTATION_PLAN_V2.md)
@@ -213,34 +204,27 @@ Based on this profile, suggest 5-8 diverse career paths including:
       }
 
       // Return saved careers with IDs
-      return new Response(
-        JSON.stringify({
-          success: true,
-          jobs: savedCareers || discoveredJobs.map((job: DiscoveredJob, idx: number) => ({
-            ...job,
-            id: `temp-${idx}` // Temp ID if save failed
-          })),
-          insights: parsed.careerInsights || "",
-          saved: !saveError
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return createSuccessResponse({
+        success: true,
+        jobs: savedCareers || discoveredJobs.map((job: DiscoveredJob, idx: number) => ({
+          ...job,
+          id: `temp-${idx}` // Temp ID if save failed
+        })),
+        insights: parsed.careerInsights || "",
+        saved: !saveError
+      }, corsHeaders);
     }
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        jobs: [],
-        insights: parsed.careerInsights || "",
-        saved: false
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return createSuccessResponse({
+      success: true,
+      jobs: [],
+      insights: parsed.careerInsights || "",
+      saved: false
+    }, corsHeaders);
   } catch (error) {
-    console.error("Error in discover-dream-jobs:", error);
-    return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    logError("discover-dream-jobs", error instanceof Error ? error : new Error(String(error)), { action: "processing" });
+    return createErrorResponse("INTERNAL_ERROR", corsHeaders, error instanceof Error ? error.message : "Unknown error");
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));
