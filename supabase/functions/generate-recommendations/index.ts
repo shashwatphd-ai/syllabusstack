@@ -251,9 +251,9 @@ Return your response using the generate_recommendations function.`;
     }
 
     // Track AI usage
-    const serviceClient = createServiceClient();
+    const usageClient = createServiceClient();
     await trackAIUsage(
-      serviceClient,
+      usageClient,
       userId,
       "generate-recommendations",
       "openrouter/gpt-4o-mini"

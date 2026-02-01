@@ -134,7 +134,7 @@ export function useCourseProgress(courseId: string | undefined) {
       // STEP 2: Fetch enrollment with course details
       // WHY: course_enrollments is the source of truth for enrollment status
       // JOIN: instructor_courses for course title
-      const { data: enrollment, error: enrollmentError } = await supabase
+      const { data: enrollment, error: enrollmentError } = await (supabase as any)
         .from('course_enrollments')
         .select(`
           id,
@@ -144,7 +144,6 @@ export function useCourseProgress(courseId: string | undefined) {
           completed_at,
           overall_progress,
           certificate_id,
-          last_accessed_at,
           instructor_courses (
             id,
             title
@@ -165,7 +164,7 @@ export function useCourseProgress(courseId: string | undefined) {
 
       // STEP 4: Fetch modules for this course
       // WHY: Modules provide the structure for progress tracking
-      const { data: modules } = await supabase
+      const { data: modules } = await (supabase as any)
         .from('course_modules')
         .select(`
           id,
@@ -173,11 +172,11 @@ export function useCourseProgress(courseId: string | undefined) {
           order_index
         `)
         .eq('instructor_course_id', courseId)
-        .order('order_index', { ascending: true });
+        .order('order_index', { ascending: true }) as { data: Array<{ id: string; title: string; order_index: number }> | null };
 
       // STEP 5: Fetch learning objectives for all modules
       // WHY: Objectives are the atomic unit of progress
-      const moduleIds = modules?.map(m => m.id) || [];
+      const moduleIds = (modules || []).map((m: any) => m.id);
       const { data: objectives } = await supabase
         .from('learning_objectives')
         .select(`
@@ -186,7 +185,7 @@ export function useCourseProgress(courseId: string | undefined) {
           module_id,
           order_index
         `)
-        .in('module_id', moduleIds.length > 0 ? moduleIds : ['none']);
+        .in('module_id', moduleIds.length > 0 ? moduleIds : ['none']) as { data: Array<{ id: string; title: string; module_id: string; order_index: number }> | null };
 
       // STEP 6: Fetch assessment sessions for user
       // WHY: Assessment completion determines objective completion
@@ -291,7 +290,7 @@ export function useCourseProgress(courseId: string | undefined) {
         enrolledAt: enrollment.enrolled_at || new Date().toISOString(),
         startedAt: completedObjectives > 0 ? enrollment.enrolled_at : null,
         completedAt: enrollment.completed_at,
-        lastAccessedAt: enrollment.last_accessed_at || null,
+        lastAccessedAt: null, // Column doesn't exist in DB yet
         overallProgress: enrollment.overall_progress || 0,
         modules: moduleProgress,
         completedModules,
@@ -353,7 +352,7 @@ export function useModuleProgress(moduleId: string | undefined) {
       if (!user) return null;
 
       // Fetch module with its objectives
-      const { data: module } = await supabase
+      const { data: module } = await (supabase as any)
         .from('course_modules')
         .select(`
           id,
@@ -366,7 +365,7 @@ export function useModuleProgress(moduleId: string | undefined) {
           )
         `)
         .eq('id', moduleId)
-        .single();
+        .single() as { data: { id: string; title: string; order_index: number; learning_objectives: Array<{ id: string; title: string; order_index: number }> } | null };
 
       if (!module) return null;
 

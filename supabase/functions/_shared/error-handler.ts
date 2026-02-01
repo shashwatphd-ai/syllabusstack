@@ -144,12 +144,19 @@ export function handleAIGatewayError(
 
 /**
  * Wrap an edge function handler with error handling
+ * @param handler - The request handler function
+ * @param corsHeadersOrFn - Either static CORS headers object OR a function that returns headers from request
  */
 export function withErrorHandling(
   handler: (req: Request) => Promise<Response>,
-  corsHeaders: Record<string, string>
+  corsHeadersOrFn: Record<string, string> | ((req: Request) => Record<string, string>)
 ): (req: Request) => Promise<Response> {
   return async (req: Request) => {
+    // Resolve CORS headers - support both static object and function
+    const corsHeaders = typeof corsHeadersOrFn === 'function' 
+      ? corsHeadersOrFn(req) 
+      : corsHeadersOrFn;
+    
     // Handle CORS preflight
     if (req.method === 'OPTIONS') {
       return new Response(null, { headers: corsHeaders });

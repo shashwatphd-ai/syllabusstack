@@ -108,6 +108,8 @@ function parsePostgrestError(error: PostgrestError): APIError {
     type = 'validation';
   } else if (code.startsWith('5') || code.startsWith('54')) {
     type = 'server';
+  } else if (code === 'NETWORK_ERROR' || code === 'TIMEOUT') {
+    type = 'network';
   }
 
   return {
@@ -115,7 +117,7 @@ function parsePostgrestError(error: PostgrestError): APIError {
     message: knownError?.message || error.message,
     code,
     details: error.details || error.hint || undefined,
-    retryable: type === 'server' || type === 'network',
+    retryable: type === 'server' || type === 'network' || type === 'unknown',
     suggestedAction: knownError?.suggestion,
   };
 }

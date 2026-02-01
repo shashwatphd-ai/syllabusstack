@@ -171,20 +171,20 @@ export default function OutcomesReport() {
       }[timeRange] || timeRange;
 
       const opt = {
-        margin: [0.5, 0.5, 0.5, 0.5],
+        margin: [0.5, 0.5, 0.5, 0.5] as [number, number, number, number],
         filename: `outcomes-report-${new Date().toISOString().split('T')[0]}.pdf`,
-        image: { type: 'jpeg', quality: 0.98 },
+        image: { type: 'jpeg' as const, quality: 0.98 },
         html2canvas: {
           scale: 2,
           useCORS: true,
           letterRendering: true,
         },
         jsPDF: {
-          unit: 'in',
-          format: 'letter',
-          orientation: 'portrait',
+          unit: 'in' as const,
+          format: 'letter' as const,
+          orientation: 'portrait' as const,
         },
-        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
+        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] as const },
       };
 
       await html2pdf().set(opt).from(element).save();

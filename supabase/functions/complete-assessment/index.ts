@@ -205,7 +205,8 @@ const handler = async (req: Request): Promise<Response> => {
         // Try to get a more specific source name
         const module = Array.isArray(learningObjective.modules) ? learningObjective.modules[0] : learningObjective.modules;
         const course = Array.isArray(learningObjective.courses) ? learningObjective.courses[0] : learningObjective.courses;
-        const instructorCourse = module && Array.isArray(module.instructor_courses) ? module.instructor_courses[0] : module?.instructor_courses;
+        const instructorCourseRaw = module && Array.isArray(module.instructor_courses) ? module.instructor_courses[0] : module?.instructor_courses;
+        const instructorCourse = Array.isArray(instructorCourseRaw) ? instructorCourseRaw[0] : instructorCourseRaw;
 
         if (instructorCourse?.title) {
           sourceName = instructorCourse.title;
