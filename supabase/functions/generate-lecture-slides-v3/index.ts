@@ -2,11 +2,14 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
 import { MODEL_CONFIG } from '../_shared/ai-orchestrator.ts';
 import { generateText, searchGrounded, MODELS, parseJsonResponse } from '../_shared/unified-ai-client.ts';
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo,
+  logError,
+} from "../_shared/error-handler.ts";
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -974,29 +977,29 @@ async function updateProgress(
 // MAIN HANDLER
 // ============================================================================
 
-serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
+const handler = async (req: Request): Promise<Response> => {
+  // Handle CORS preflight
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
 
+  const corsHeaders = getCorsHeaders(req);
   const startTime = Date.now();
 
+  const {
+    teaching_unit_id,
+    style = 'standard',
+    regenerate = false,
+    // Support explicit user_id for service role calls from queue processor
+    user_id: explicitUserId,
+    _from_queue = false,
+  } = await req.json();
+
+  if (!teaching_unit_id) {
+    return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'teaching_unit_id is required');
+  }
+
   try {
-    const { 
-      teaching_unit_id, 
-      style = 'standard', 
-      regenerate = false,
-      // Support explicit user_id for service role calls from queue processor
-      user_id: explicitUserId,
-      _from_queue = false,
-    } = await req.json();
-    
-    if (!teaching_unit_id) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'teaching_unit_id is required' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    logInfo('generate-lecture-slides-v3', 'starting', { teachingUnitId: teaching_unit_id, fromQueue: _from_queue });
 
     console.log(`[Main] === PROFESSOR AI v3 === Starting for: ${teaching_unit_id}`, {
       fromQueue: _from_queue,
@@ -1280,32 +1283,34 @@ IMPORTANT: Generate a clear, educational diagram. Do NOT generate photos of peop
         .eq('id', slideRecordId);
 
       const duration = Date.now() - startTime;
-      console.log(`[Main] === COMPLETE === ${duration}ms, ${initialSlides.length} slides, ${slidesNeedingVisuals.length} images queued`);
+      logInfo('generate-lecture-slides-v3', 'complete', {
+        slideId: slideRecordId,
+        slideCount: initialSlides.length,
+        imagesQueued: slidesNeedingVisuals.length,
+        durationMs: duration,
+      });
 
-      return new Response(
-        JSON.stringify({
-          success: true,
-          slideId: slideRecordId,
-          slideCount: initialSlides.length,
-          imagesQueued: slidesNeedingVisuals.length,
-          qualityScore: qualityScore,
-          durationMs: duration,
-          version: 3,
-          message: slidesNeedingVisuals.length > 0 
-            ? `Slides ready. ${slidesNeedingVisuals.length} images generating async.`
-            : 'Slides ready. No images needed.',
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return createSuccessResponse({
+        success: true,
+        slideId: slideRecordId,
+        slideCount: initialSlides.length,
+        imagesQueued: slidesNeedingVisuals.length,
+        qualityScore: qualityScore,
+        durationMs: duration,
+        version: 3,
+        message: slidesNeedingVisuals.length > 0
+          ? `Slides ready. ${slidesNeedingVisuals.length} images generating async.`
+          : 'Slides ready. No images needed.',
+      }, corsHeaders);
 
     } catch (agentError) {
-      console.error('[Main] Agent error:', agentError);
-      
-       await supabase
+      logError('generate-lecture-slides-v3', agentError instanceof Error ? agentError : new Error(String(agentError)));
+
+      await supabase
         .from('lecture_slides')
         .update({
           status: 'failed',
-           error_message: getErrorMessage(agentError),
+          error_message: getErrorMessage(agentError),
         })
         .eq('id', slideRecordId);
 
@@ -1313,13 +1318,9 @@ IMPORTANT: Generate a clear, educational diagram. Do NOT generate photos of peop
     }
 
   } catch (error) {
-    console.error('[Main] Fatal error:', error);
-     return new Response(
-       JSON.stringify({
-         success: false,
-         error: getErrorMessage(error),
-       }),
-       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-     );
+    logError('generate-lecture-slides-v3', error instanceof Error ? error : new Error(String(error)));
+    return createErrorResponse('INTERNAL_ERROR', corsHeaders, getErrorMessage(error));
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));
