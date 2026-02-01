@@ -1,11 +1,14 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
 import { generateText, MODELS, parseJsonResponse } from "../_shared/unified-ai-client.ts";
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo,
+  logError,
+} from "../_shared/error-handler.ts";
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
 
 interface SubmitAnswerRequest {
   session_id: string;
@@ -15,209 +18,178 @@ interface SubmitAnswerRequest {
   client_answer_submitted_at: string;
 }
 
-serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+const handler = async (req: Request): Promise<Response> => {
+  // Handle CORS preflight
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
+
+  const corsHeaders = getCorsHeaders(req);
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+  const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+  const openRouterKey = Deno.env.get('OPENROUTER_API_KEY');
+
+  // Server-side timestamp for validation
+  const serverReceivedAt = new Date();
+
+  // Authenticate user with their auth token (not service role)
+  const authHeader = req.headers.get('Authorization');
+  if (!authHeader?.startsWith('Bearer ')) {
+    return createErrorResponse('UNAUTHORIZED', corsHeaders, 'No authorization header');
   }
 
-  try {
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
-    const openRouterKey = Deno.env.get('OPENROUTER_API_KEY');
+  // Create client with user's auth context for proper RLS
+  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+    global: { headers: { Authorization: authHeader } }
+  });
 
-    // Server-side timestamp for validation
-    const serverReceivedAt = new Date();
+  // Validate token and get user
+  const token = authHeader.replace('Bearer ', '');
+  const { data, error: authError } = await supabase.auth.getClaims(token);
 
-    // Authenticate user with their auth token (not service role)
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
-      return new Response(JSON.stringify({ error: 'No authorization header' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+  if (authError || !data?.claims) {
+    return createErrorResponse('UNAUTHORIZED', corsHeaders, 'Invalid authentication token');
+  }
 
-    // Create client with user's auth context for proper RLS
-    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-      global: { headers: { Authorization: authHeader } }
-    });
+  const userId = data.claims.sub as string;
 
-    // Validate token and get user
-    const token = authHeader.replace('Bearer ', '');
-    const { data, error: authError } = await supabase.auth.getClaims(token);
+  const body: SubmitAnswerRequest = await req.json();
+  const {
+    session_id,
+    question_id,
+    user_answer,
+    client_question_served_at,
+    client_answer_submitted_at,
+  } = body;
 
-    if (authError || !data?.claims) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-    
-    const userId = data.claims.sub as string;
-    const user = { id: userId };
+  if (!session_id || !question_id || !user_answer) {
+    return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'session_id, question_id, and user_answer are required');
+  }
 
-    const body: SubmitAnswerRequest = await req.json();
-    const {
-      session_id,
-      question_id,
-      user_answer,
-      client_question_served_at,
-      client_answer_submitted_at,
-    } = body;
+  logInfo('submit-assessment-answer', 'submitting', { sessionId: session_id, questionId: question_id });
 
-    console.log(`Submitting answer for session ${session_id}, question ${question_id}`);
+  // Validate session exists and belongs to user
+  const { data: session, error: sessionError } = await supabase
+    .from('assessment_sessions')
+    .select('*')
+    .eq('id', session_id)
+    .eq('user_id', userId)
+    .single();
 
-    // Validate session exists and belongs to user
-    const { data: session, error: sessionError } = await supabase
+  if (sessionError || !session) {
+    return createErrorResponse('NOT_FOUND', corsHeaders, 'Session not found or access denied');
+  }
+
+  // Validate session is still active
+  if (session.status !== 'in_progress') {
+    return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'Session is no longer active', { session_status: session.status });
+  }
+
+  // Check if session has timed out
+  if (session.timeout_at && new Date(session.timeout_at) < serverReceivedAt) {
+    // Mark session as abandoned
+    await supabase
       .from('assessment_sessions')
-      .select('*')
-      .eq('id', session_id)
-      .eq('user_id', user.id)
-      .single();
+      .update({ status: 'abandoned', completed_at: serverReceivedAt.toISOString() })
+      .eq('id', session_id);
 
-    if (sessionError || !session) {
-      return new Response(JSON.stringify({ error: 'Session not found or access denied' }), {
-        status: 404,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+    return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'Session has timed out', { timeout_at: session.timeout_at });
+  }
+
+  // Validate question is part of this session
+  if (!session.question_ids.includes(question_id)) {
+    return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'Question not part of this session');
+  }
+
+  // Check if question was already answered
+  const { data: existingAnswer } = await supabase
+    .from('assessment_answers')
+    .select('id')
+    .eq('session_id', session_id)
+    .eq('question_id', question_id)
+    .maybeSingle();
+
+  if (existingAnswer) {
+    return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'Question already answered');
+  }
+
+  // Fetch the question
+  const { data: question, error: questionError } = await supabase
+    .from('assessment_questions')
+    .select('*')
+    .eq('id', question_id)
+    .single();
+
+  if (questionError || !question) {
+    return createErrorResponse('NOT_FOUND', corsHeaders, 'Question not found');
+  }
+
+  // Server-side timing validation
+  const clientServed = new Date(client_question_served_at).getTime();
+  const clientSubmitted = new Date(client_answer_submitted_at).getTime();
+  const clientTimeTaken = (clientSubmitted - clientServed) / 1000;
+  const serverTimeTaken = Math.round(clientTimeTaken);
+
+  // Validate timing - check for impossibly fast answers
+  const minTimeSeconds = 2;
+  const maxTimeSeconds = question.time_limit_seconds ? question.time_limit_seconds * 2 : 300;
+
+  const timingFlags: string[] = [];
+  if (clientTimeTaken < minTimeSeconds) {
+    timingFlags.push('suspiciously_fast');
+  }
+  if (clientTimeTaken > maxTimeSeconds) {
+    timingFlags.push('exceeded_time_limit');
+  }
+
+  // Evaluate the answer
+  let isCorrect = false;
+  let evaluationMethod = 'exact_match';
+  let evaluationDetails: Record<string, unknown> = {};
+
+  if (question.question_type === 'mcq') {
+    isCorrect = user_answer.toLowerCase().trim() === question.correct_answer?.toLowerCase().trim();
+    evaluationMethod = 'exact_match';
+    evaluationDetails = {
+      user_answer,
+      correct_answer: question.correct_answer,
+    };
+  } else if (question.question_type === 'true_false') {
+    const normalizedAnswer = user_answer.toLowerCase().trim();
+    const normalizedCorrect = question.correct_answer?.toLowerCase().trim();
+    isCorrect = normalizedAnswer === normalizedCorrect;
+    evaluationMethod = 'exact_match';
+  } else if (question.question_type === 'short_answer') {
+    // Check accepted answers first
+    if (question.accepted_answers && question.accepted_answers.length > 0) {
+      isCorrect = question.accepted_answers.some(
+        (accepted: string) => user_answer.toLowerCase().trim() === accepted.toLowerCase().trim()
+      );
+      evaluationMethod = 'accepted_answers';
     }
 
-    // Validate session is still active
-    if (session.status !== 'in_progress') {
-      return new Response(JSON.stringify({ 
-        error: 'Session is no longer active',
-        session_status: session.status,
-      }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+    // Check required keywords
+    if (!isCorrect && question.required_keywords && question.required_keywords.length > 0) {
+      const userWords = user_answer.toLowerCase().split(/\s+/);
+      const matchedKeywords = question.required_keywords.filter(
+        (keyword: string) => userWords.some((w: string) => w.includes(keyword.toLowerCase()))
+      );
+      const matchRatio = matchedKeywords.length / question.required_keywords.length;
 
-    // Check if session has timed out
-    if (session.timeout_at && new Date(session.timeout_at) < serverReceivedAt) {
-      // Mark session as abandoned
-      await supabase
-        .from('assessment_sessions')
-        .update({ status: 'abandoned', completed_at: serverReceivedAt.toISOString() })
-        .eq('id', session_id);
-
-      return new Response(JSON.stringify({ 
-        error: 'Session has timed out',
-        timeout_at: session.timeout_at,
-      }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    // Validate question is part of this session
-    if (!session.question_ids.includes(question_id)) {
-      return new Response(JSON.stringify({ error: 'Question not part of this session' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    // Check if question was already answered
-    const { data: existingAnswer } = await supabase
-      .from('assessment_answers')
-      .select('id')
-      .eq('session_id', session_id)
-      .eq('question_id', question_id)
-      .maybeSingle();
-
-    if (existingAnswer) {
-      return new Response(JSON.stringify({ error: 'Question already answered' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    // Fetch the question
-    const { data: question, error: questionError } = await supabase
-      .from('assessment_questions')
-      .select('*')
-      .eq('id', question_id)
-      .single();
-
-    if (questionError || !question) {
-      return new Response(JSON.stringify({ error: 'Question not found' }), {
-        status: 404,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    // Server-side timing validation
-    const clientServed = new Date(client_question_served_at).getTime();
-    const clientSubmitted = new Date(client_answer_submitted_at).getTime();
-    const clientTimeTaken = (clientSubmitted - clientServed) / 1000;
-
-    // Calculate server-side time (from question serve to answer receive)
-    // We track when the question was served from the session's question index progression
-    const serverTimeTaken = Math.round(clientTimeTaken); // Use client time as baseline
-
-    // Validate timing - check for impossibly fast answers
-    const minTimeSeconds = 2; // Minimum 2 seconds to read and answer
-    const maxTimeSeconds = question.time_limit_seconds ? question.time_limit_seconds * 2 : 300; // Max 2x time limit or 5 minutes
-
-    let timingFlags: string[] = [];
-    if (clientTimeTaken < minTimeSeconds) {
-      timingFlags.push('suspiciously_fast');
-    }
-    if (clientTimeTaken > maxTimeSeconds) {
-      timingFlags.push('exceeded_time_limit');
-    }
-
-    // Evaluate the answer
-    let isCorrect = false;
-    let evaluationMethod = 'exact_match';
-    let evaluationDetails: Record<string, unknown> = {};
-
-    if (question.question_type === 'mcq') {
-      // For MCQ, exact match with correct answer
-      isCorrect = user_answer.toLowerCase().trim() === question.correct_answer?.toLowerCase().trim();
-      evaluationMethod = 'exact_match';
-      evaluationDetails = {
-        user_answer,
-        correct_answer: question.correct_answer,
-      };
-    } else if (question.question_type === 'true_false') {
-      const normalizedAnswer = user_answer.toLowerCase().trim();
-      const normalizedCorrect = question.correct_answer?.toLowerCase().trim();
-      isCorrect = normalizedAnswer === normalizedCorrect;
-      evaluationMethod = 'exact_match';
-    } else if (question.question_type === 'short_answer') {
-      // Check accepted answers first
-      if (question.accepted_answers && question.accepted_answers.length > 0) {
-        isCorrect = question.accepted_answers.some(
-          (accepted: string) => user_answer.toLowerCase().trim() === accepted.toLowerCase().trim()
-        );
-        evaluationMethod = 'accepted_answers';
+      if (matchRatio >= 0.7) {
+        isCorrect = true;
+        evaluationMethod = 'keyword_match';
+        evaluationDetails = {
+          matched_keywords: matchedKeywords,
+          required_keywords: question.required_keywords,
+          match_ratio: matchRatio,
+        };
       }
+    }
 
-      // Check required keywords
-      if (!isCorrect && question.required_keywords && question.required_keywords.length > 0) {
-        const userWords = user_answer.toLowerCase().split(/\s+/);
-        const matchedKeywords = question.required_keywords.filter(
-          (keyword: string) => userWords.some((w: string) => w.includes(keyword.toLowerCase()))
-        );
-        const matchRatio = matchedKeywords.length / question.required_keywords.length;
-        
-        if (matchRatio >= 0.7) {
-          isCorrect = true;
-          evaluationMethod = 'keyword_match';
-          evaluationDetails = {
-            matched_keywords: matchedKeywords,
-            required_keywords: question.required_keywords,
-            match_ratio: matchRatio,
-          };
-        }
-      }
-
-      // AI evaluation for complex short answers
-      if (!isCorrect && user_answer.length > 10 && openRouterKey) {
-        try {
-          const aiPrompt = `Evaluate if this student answer is correct.
+    // AI evaluation for complex short answers
+    if (!isCorrect && user_answer.length > 10 && openRouterKey) {
+      try {
+        const aiPrompt = `Evaluate if this student answer is correct.
 
 Question: ${question.question_text}
 ${question.scenario_context ? `Context: ${question.scenario_context}` : ''}
@@ -233,106 +205,98 @@ Consider:
 Respond with JSON only:
 {"is_correct": true/false, "confidence": 0.0-1.0, "reasoning": "brief explanation"}`;
 
-          // Call AI via OpenRouter (unified-ai-client)
-          const result = await generateText({
-            prompt: aiPrompt,
-            systemPrompt: 'You are an educational assessment evaluator. Return only valid JSON.',
-            model: MODELS.FAST, // gpt-4o-mini is fast and cost-effective for grading
-            logPrefix: '[submit-assessment-answer]'
-          });
+        const result = await generateText({
+          prompt: aiPrompt,
+          systemPrompt: 'You are an educational assessment evaluator. Return only valid JSON.',
+          model: MODELS.FAST,
+          logPrefix: '[submit-assessment-answer]'
+        });
 
-          if (result.content) {
-            const aiResult = parseJsonResponse<{ is_correct: boolean; confidence: number; reasoning: string }>(result.content);
-            isCorrect = aiResult.is_correct && aiResult.confidence >= 0.7;
-            evaluationMethod = 'ai_evaluation';
-            evaluationDetails = {
-              ...aiResult,
-              user_answer,
-              correct_answer: question.correct_answer,
-            };
-          }
-        } catch (aiError) {
-          console.error('AI evaluation failed:', aiError);
-          // Fall back to keyword matching or mark as needs_review
-          evaluationMethod = 'needs_manual_review';
+        if (result.content) {
+          const aiResult = parseJsonResponse<{ is_correct: boolean; confidence: number; reasoning: string }>(result.content);
+          isCorrect = aiResult.is_correct && aiResult.confidence >= 0.7;
+          evaluationMethod = 'ai_evaluation';
+          evaluationDetails = {
+            ...aiResult,
+            user_answer,
+            correct_answer: question.correct_answer,
+          };
         }
+      } catch (aiError) {
+        logError('submit-assessment-answer', aiError instanceof Error ? aiError : new Error(String(aiError)), { context: 'AI evaluation failed' });
+        evaluationMethod = 'needs_manual_review';
       }
     }
-
-    // Add timing flags to evaluation details
-    if (timingFlags.length > 0) {
-      evaluationDetails.timing_flags = timingFlags;
-    }
-
-    // Save the answer
-    const { data: savedAnswer, error: saveError } = await supabase
-      .from('assessment_answers')
-      .insert({
-        session_id,
-        question_id,
-        user_answer,
-        is_correct: isCorrect,
-        time_taken_seconds: serverTimeTaken,
-        question_served_at: client_question_served_at,
-        answer_submitted_at: client_answer_submitted_at,
-        server_received_at: serverReceivedAt.toISOString(),
-        evaluation_method: evaluationMethod,
-        evaluation_details: evaluationDetails,
-      })
-      .select()
-      .single();
-
-    if (saveError) {
-      console.error('Error saving answer:', saveError);
-      throw saveError;
-    }
-
-    // Update session progress
-    const newQuestionsAnswered = (session.questions_answered || 0) + 1;
-    const newQuestionsCorrect = (session.questions_correct || 0) + (isCorrect ? 1 : 0);
-    const currentQuestionIdx = session.question_ids.indexOf(question_id);
-    const nextQuestionIndex = Math.min(currentQuestionIdx + 1, session.question_ids.length - 1);
-
-    await supabase
-      .from('assessment_sessions')
-      .update({
-        questions_answered: newQuestionsAnswered,
-        questions_correct: newQuestionsCorrect,
-        current_question_index: nextQuestionIndex,
-      })
-      .eq('id', session_id);
-
-    // Check if assessment is complete
-    const isComplete = newQuestionsAnswered >= session.question_ids.length;
-    const currentScore = (newQuestionsCorrect / newQuestionsAnswered) * 100;
-
-    console.log(`Answer saved. Session progress: ${newQuestionsAnswered}/${session.question_ids.length}`);
-
-    return new Response(JSON.stringify({
-      success: true,
-      is_correct: isCorrect,
-      evaluation_method: evaluationMethod,
-      time_taken_seconds: serverTimeTaken,
-      timing_flags: timingFlags,
-      correct_answer: isCorrect ? null : question.correct_answer, // Only reveal if wrong
-      answer_id: savedAnswer?.id,
-      session_progress: {
-        questions_answered: newQuestionsAnswered,
-        questions_correct: newQuestionsCorrect,
-        total_questions: session.question_ids.length,
-        current_score: Math.round(currentScore),
-        is_complete: isComplete,
-      },
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
-
-  } catch (error: unknown) {
-    console.error('Error in submit-assessment-answer:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Failed to submit answer';
-    return new Response(JSON.stringify({ error: errorMessage }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
   }
-});
+
+  // Add timing flags to evaluation details
+  if (timingFlags.length > 0) {
+    evaluationDetails.timing_flags = timingFlags;
+  }
+
+  // Save the answer
+  const { data: savedAnswer, error: saveError } = await supabase
+    .from('assessment_answers')
+    .insert({
+      session_id,
+      question_id,
+      user_answer,
+      is_correct: isCorrect,
+      time_taken_seconds: serverTimeTaken,
+      question_served_at: client_question_served_at,
+      answer_submitted_at: client_answer_submitted_at,
+      server_received_at: serverReceivedAt.toISOString(),
+      evaluation_method: evaluationMethod,
+      evaluation_details: evaluationDetails,
+    })
+    .select()
+    .single();
+
+  if (saveError) {
+    return createErrorResponse('DATABASE_ERROR', corsHeaders, 'Failed to save answer', { details: saveError.message });
+  }
+
+  // Update session progress
+  const newQuestionsAnswered = (session.questions_answered || 0) + 1;
+  const newQuestionsCorrect = (session.questions_correct || 0) + (isCorrect ? 1 : 0);
+  const currentQuestionIdx = session.question_ids.indexOf(question_id);
+  const nextQuestionIndex = Math.min(currentQuestionIdx + 1, session.question_ids.length - 1);
+
+  await supabase
+    .from('assessment_sessions')
+    .update({
+      questions_answered: newQuestionsAnswered,
+      questions_correct: newQuestionsCorrect,
+      current_question_index: nextQuestionIndex,
+    })
+    .eq('id', session_id);
+
+  // Check if assessment is complete
+  const isComplete = newQuestionsAnswered >= session.question_ids.length;
+  const currentScore = (newQuestionsCorrect / newQuestionsAnswered) * 100;
+
+  logInfo('submit-assessment-answer', 'saved', {
+    sessionId: session_id,
+    progress: `${newQuestionsAnswered}/${session.question_ids.length}`,
+    isCorrect
+  });
+
+  return createSuccessResponse({
+    success: true,
+    is_correct: isCorrect,
+    evaluation_method: evaluationMethod,
+    time_taken_seconds: serverTimeTaken,
+    timing_flags: timingFlags,
+    correct_answer: isCorrect ? null : question.correct_answer,
+    answer_id: savedAnswer?.id,
+    session_progress: {
+      questions_answered: newQuestionsAnswered,
+      questions_correct: newQuestionsCorrect,
+      total_questions: session.question_ids.length,
+      current_score: Math.round(currentScore),
+      is_complete: isComplete,
+    },
+  }, corsHeaders);
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));

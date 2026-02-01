@@ -10,3 +10,4 @@ export { UnifiedModuleCard } from './UnifiedModuleCard';
 export { ContentAssistantChat } from './ContentAssistantChat';
 export { InstructorVerificationFlow } from './InstructorVerificationFlow';
 export { InstructorVerificationBadge } from './InstructorVerificationBadge';
+export { InstructorCoursesSkeleton, InstructorCourseCardSkeleton } from './InstructorCoursesSkeleton';

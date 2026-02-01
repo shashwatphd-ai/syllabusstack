@@ -3,7 +3,8 @@
 
 import { ErrorCodes, ValidationError } from './validation.ts';
 
-const corsHeaders = {
+// Default CORS headers (fallback for backward compatibility)
+const defaultCorsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
@@ -33,7 +34,8 @@ export function generateRequestId(): string {
 export function successResponse<T>(
   data: T,
   requestId: string,
-  startTime?: number
+  startTime?: number,
+  corsHeaders?: Record<string, string>
 ): Response {
   const response: ApiResponse<T> = {
     success: true,
@@ -44,10 +46,10 @@ export function successResponse<T>(
       duration_ms: startTime ? Date.now() - startTime : undefined,
     },
   };
-  
+
   return new Response(JSON.stringify(response), {
     status: 200,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    headers: { ...(corsHeaders || defaultCorsHeaders), 'Content-Type': 'application/json' },
   });
 }
 
@@ -57,7 +59,8 @@ export function errorResponse(
   message: string,
   statusCode: number,
   requestId: string,
-  details?: ValidationError[] | Record<string, unknown>
+  details?: ValidationError[] | Record<string, unknown>,
+  corsHeaders?: Record<string, string>
 ): Response {
   const response: ApiResponse = {
     success: false,
@@ -71,26 +74,28 @@ export function errorResponse(
       timestamp: new Date().toISOString(),
     },
   };
-  
+
   console.error(`[${requestId}] Error ${code}: ${message}`, details);
-  
+
   return new Response(JSON.stringify(response), {
     status: statusCode,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    headers: { ...(corsHeaders || defaultCorsHeaders), 'Content-Type': 'application/json' },
   });
 }
 
 // Create validation error response
 export function validationErrorResponse(
   errors: ValidationError[],
-  requestId: string
+  requestId: string,
+  corsHeaders?: Record<string, string>
 ): Response {
   return errorResponse(
     ErrorCodes.VALIDATION_REQUIRED_FIELD,
     'Validation failed',
     400,
     requestId,
-    errors
+    errors,
+    corsHeaders
   );
 }
 
@@ -98,21 +103,25 @@ export function validationErrorResponse(
 export function authErrorResponse(
   code: string,
   message: string,
-  requestId: string
+  requestId: string,
+  corsHeaders?: Record<string, string>
 ): Response {
-  return errorResponse(code, message, 401, requestId);
+  return errorResponse(code, message, 401, requestId, undefined, corsHeaders);
 }
 
 // Create not found response
 export function notFoundResponse(
   resource: string,
-  requestId: string
+  requestId: string,
+  corsHeaders?: Record<string, string>
 ): Response {
   return errorResponse(
     ErrorCodes.RESOURCE_NOT_FOUND,
     `${resource} not found`,
     404,
-    requestId
+    requestId,
+    undefined,
+    corsHeaders
   );
 }
 
@@ -121,7 +130,8 @@ export function rateLimitResponse(
   message: string,
   retryAfter: number,
   requestId: string,
-  remaining?: { hourly: number; daily: number; costBudget: number }
+  remaining?: { hourly: number; daily: number; costBudget: number },
+  corsHeaders?: Record<string, string>
 ): Response {
   const response: ApiResponse = {
     success: false,
@@ -135,11 +145,11 @@ export function rateLimitResponse(
       timestamp: new Date().toISOString(),
     },
   };
-  
+
   return new Response(JSON.stringify(response), {
     status: 429,
     headers: {
-      ...corsHeaders,
+      ...(corsHeaders || defaultCorsHeaders),
       'Content-Type': 'application/json',
       'Retry-After': String(retryAfter),
     },
@@ -149,22 +159,25 @@ export function rateLimitResponse(
 // Create internal error response
 export function internalErrorResponse(
   error: unknown,
-  requestId: string
+  requestId: string,
+  corsHeaders?: Record<string, string>
 ): Response {
   const message = error instanceof Error ? error.message : 'Internal server error';
   console.error(`[${requestId}] Internal error:`, error);
-  
+
   return errorResponse(
     ErrorCodes.INTERNAL_ERROR,
     message,
     500,
-    requestId
+    requestId,
+    undefined,
+    corsHeaders
   );
 }
 
 // Create CORS preflight response
-export function corsPreflightResponse(): Response {
-  return new Response(null, { headers: corsHeaders });
+export function corsPreflightResponse(corsHeaders?: Record<string, string>): Response {
+  return new Response(null, { headers: corsHeaders || defaultCorsHeaders });
 }
 
 // Structured logger for edge functions
@@ -172,29 +185,29 @@ export class PipelineLogger {
   private requestId: string;
   private functionName: string;
   private startTime: number;
-  
+
   constructor(functionName: string, requestId: string) {
     this.requestId = requestId;
     this.functionName = functionName;
     this.startTime = Date.now();
   }
-  
+
   info(message: string, data?: Record<string, unknown>): void {
     console.log(`[${this.requestId}] [${this.functionName}] ${message}`, data ? JSON.stringify(data) : '');
   }
-  
+
   warn(message: string, data?: Record<string, unknown>): void {
     console.warn(`[${this.requestId}] [${this.functionName}] WARN: ${message}`, data ? JSON.stringify(data) : '');
   }
-  
+
   error(message: string, error?: unknown): void {
     console.error(`[${this.requestId}] [${this.functionName}] ERROR: ${message}`, error);
   }
-  
+
   duration(): number {
     return Date.now() - this.startTime;
   }
-  
+
   complete(outcome: 'success' | 'error', data?: Record<string, unknown>): void {
     const duration = this.duration();
     console.log(`[${this.requestId}] [${this.functionName}] COMPLETE: ${outcome} in ${duration}ms`, data ? JSON.stringify(data) : '');
@@ -205,29 +218,32 @@ export class PipelineLogger {
 export async function authenticateRequest(
   req: Request,
   supabase: { auth: { getUser: (token: string) => Promise<{ data: { user: { id: string } | null }; error: Error | null }> } },
-  requestId: string
+  requestId: string,
+  corsHeaders?: Record<string, string>
 ): Promise<{ userId: string } | Response> {
   const authHeader = req.headers.get('Authorization');
-  
+
   if (!authHeader?.startsWith('Bearer ')) {
     return authErrorResponse(
       ErrorCodes.AUTH_MISSING_HEADER,
       'Authorization header is required',
-      requestId
+      requestId,
+      corsHeaders
     );
   }
-  
+
   const token = authHeader.replace('Bearer ', '');
   const { data: authData, error: authError } = await supabase.auth.getUser(token);
-  
+
   if (authError || !authData?.user) {
     return authErrorResponse(
       ErrorCodes.AUTH_INVALID_TOKEN,
       'Invalid or expired token',
-      requestId
+      requestId,
+      corsHeaders
     );
   }
-  
+
   return { userId: authData.user.id };
 }
 

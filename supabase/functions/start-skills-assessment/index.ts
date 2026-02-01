@@ -2,7 +2,6 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
 import {
   validateStartAssessmentRequest,
-  corsPreflightResponse,
   successResponse,
   validationErrorResponse,
   authErrorResponse,
@@ -15,11 +14,7 @@ import {
   rateLimitResponse,
   ErrorCodes,
 } from "../_shared/skills-pipeline/index.ts";
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
 
 interface AssessmentItem {
   id: string;
@@ -36,10 +31,11 @@ serve(async (req) => {
   const logger = new PipelineLogger('start-skills-assessment', requestId);
   const startTime = Date.now();
 
-  // Handle CORS preflight
-  if (req.method === 'OPTIONS') {
-    return corsPreflightResponse();
-  }
+  // Handle CORS preflight with environment-based origins
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
+
+  const corsHeaders = getCorsHeaders(req);
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -56,7 +52,7 @@ serve(async (req) => {
     const validation = validateStartAssessmentRequest(body);
     if (!validation.success) {
       logger.warn('Validation failed', { errors: validation.errors });
-      return validationErrorResponse(validation.errors!, requestId);
+      return validationErrorResponse(validation.errors!, requestId, corsHeaders);
     }
 
     const { session_type } = validation.data!;
@@ -65,28 +61,29 @@ serve(async (req) => {
     // Authenticate user
     const authHeader = req.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
-      return authErrorResponse(ErrorCodes.AUTH_MISSING_HEADER, 'Authorization header required', requestId);
+      return authErrorResponse(ErrorCodes.AUTH_MISSING_HEADER, 'Authorization header required', requestId, corsHeaders);
     }
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey, {
       global: { headers: { Authorization: authHeader } }
     });
 
-    const authResult = await authenticateRequest(req, supabase, requestId);
+    const authResult = await authenticateRequest(req, supabase, requestId, corsHeaders);
     if (authResult instanceof Response) return authResult;
     const { userId } = authResult;
 
     // Check rate limits
     const limits = await getUserLimits(supabase, userId);
     const rateLimitResult = await checkRateLimit(supabase, userId, 'start-skills-assessment', limits);
-    
+
     if (!rateLimitResult.allowed) {
       logger.warn('Rate limit exceeded', { remaining: rateLimitResult.remaining });
       return rateLimitResponse(
         rateLimitResult.reason || 'Rate limit exceeded',
         rateLimitResult.retryAfter || 3600,
         requestId,
-        rateLimitResult.remaining
+        rateLimitResult.remaining,
+        corsHeaders
       );
     }
 
@@ -106,7 +103,7 @@ serve(async (req) => {
 
     if (existingSession) {
       logger.info('Resuming existing session', { sessionId: existingSession.id });
-      
+
       // Get answered question IDs
       const { data: responses } = await supabase
         .from('skills_assessment_responses')
@@ -136,10 +133,10 @@ serve(async (req) => {
       const batchSize = 10;
       const firstBatch = remainingQuestions.slice(0, batchSize);
 
-      logger.complete('success', { 
-        sessionId: existingSession.id, 
-        resumed: true, 
-        questionsRemaining: remainingQuestions.length 
+      logger.complete('success', {
+        sessionId: existingSession.id,
+        resumed: true,
+        questionsRemaining: remainingQuestions.length
       });
 
       return successResponse({
@@ -149,7 +146,7 @@ serve(async (req) => {
         questions_answered: answeredIds.size,
         first_batch: firstBatch,
         is_resumed: true,
-      }, requestId, startTime);
+      }, requestId, startTime, corsHeaders);
     }
 
     // Fetch questions based on session type
@@ -215,10 +212,10 @@ serve(async (req) => {
       questions_answered: 0,
       first_batch: firstBatch,
       is_resumed: false,
-    }, requestId, startTime);
+    }, requestId, startTime, corsHeaders);
 
   } catch (error) {
     logger.error('Unhandled error', error);
-    return internalErrorResponse(error, requestId);
+    return internalErrorResponse(error, requestId, corsHeaders);
   }
 });

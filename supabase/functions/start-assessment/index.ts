@@ -6,11 +6,7 @@ import {
   withErrorHandling,
   logInfo,
 } from "../_shared/error-handler.ts";
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
 
 interface StartAssessmentRequest {
   learning_objective_id: string;
@@ -18,6 +14,11 @@ interface StartAssessmentRequest {
 }
 
 const handler = async (req: Request): Promise<Response> => {
+  // Handle CORS preflight
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
+
+  const corsHeaders = getCorsHeaders(req);
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
   const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
 
@@ -200,4 +201,4 @@ const handler = async (req: Request): Promise<Response> => {
   }, corsHeaders);
 };
 
-serve(withErrorHandling(handler, corsHeaders));
+serve(withErrorHandling(handler, getCorsHeaders));
