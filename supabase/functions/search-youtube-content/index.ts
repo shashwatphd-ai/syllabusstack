@@ -25,14 +25,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Re-import for the actual function signatures we need
-import {
-  createErrorResponse as _createErrorResponse,
-  createSuccessResponse,
-  withErrorHandling,
-  logInfo,
-} from "../_shared/error-handler.ts";
-
 /**
  * UNIFIED EDUCATIONAL CONTENT SEARCH FOR INSTRUCTORS
  *
