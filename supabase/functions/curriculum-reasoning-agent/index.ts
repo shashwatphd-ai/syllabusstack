@@ -1,11 +1,13 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.47.12';
 import { generateText, MODELS, parseJsonResponse } from "../_shared/unified-ai-client.ts";
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { getCorsHeaders } from "../_shared/cors.ts";
+import { 
+  createErrorResponse, 
+  createSuccessResponse, 
+  withErrorHandling, 
+  logInfo 
+} from "../_shared/error-handler.ts";
 
 // Types
 interface LearningObjective {
@@ -202,6 +204,8 @@ async function callAI(systemPrompt: string, userPrompt: string): Promise<Decompo
 }
 
 serve(async (req) => {
+  const corsHeaders = getCorsHeaders(req);
+  
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });

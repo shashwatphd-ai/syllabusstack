@@ -1,18 +1,12 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
-import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import { getCorsHeaders } from "../_shared/cors.ts";
 import {
   createErrorResponse,
   createSuccessResponse,
   withErrorHandling,
   logInfo,
 } from "../_shared/error-handler.ts";
-
-// Legacy compatibility - corsHeaders for backwards compatibility
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
 
 /**
  * UNIFIED EDUCATIONAL CONTENT SEARCH
@@ -394,16 +388,13 @@ function scoreResult(result: ContentResult, queryWords: string[]): number {
   return Math.min(score, 1.0);
 }
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+serve(withErrorHandling(async (req) => {
+  const corsHeaders = getCorsHeaders(req);
+  
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader) {
+    return createErrorResponse('UNAUTHORIZED', corsHeaders, 'No authorization header');
   }
-
-  try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      throw new Error("No authorization header");
-    }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
     const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
@@ -596,24 +587,12 @@ serve(async (req) => {
       }
     }
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        results: topResults,
-        total_found: uniqueResults.length,
-        sources_searched: sources,
-        content_matches: savedMatches,
-        auto_approved_count: savedMatches.filter(m => m.status === "auto_approved").length,
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-
-  } catch (error: unknown) {
-    console.error("Error in search-educational-content:", error);
-    const errorMessage = error instanceof Error ? error.message : "Unknown error";
-    return new Response(
-      JSON.stringify({ error: errorMessage }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-  }
-});
+    return createSuccessResponse({
+      success: true,
+      results: topResults,
+      total_found: uniqueResults.length,
+      sources_searched: sources,
+      content_matches: savedMatches,
+      auto_approved_count: savedMatches.filter(m => m.status === "auto_approved").length,
+    }, corsHeaders);
+}, getCorsHeaders));

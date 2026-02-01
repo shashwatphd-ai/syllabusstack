@@ -2,13 +2,14 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
 import { generateText, MODELS, parseJsonResponse } from "../_shared/unified-ai-client.ts";
 import { checkRateLimit, getUserLimits, createRateLimitResponse } from "../_shared/rate-limiter.ts";
-import { logInfo } from "../_shared/error-handler.ts";
+import { getCorsHeaders } from "../_shared/cors.ts";
+import { 
+  createErrorResponse, 
+  createSuccessResponse, 
+  withErrorHandling, 
+  logInfo 
+} from "../_shared/error-handler.ts";
 import { createServiceClient } from "../_shared/ai-cache.ts";
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
 
 interface GenerateCurriculumRequest {
   career_match_id?: string;
@@ -39,6 +40,8 @@ interface CurriculumSubject {
 }
 
 serve(async (req) => {
+  const corsHeaders = getCorsHeaders(req);
+  
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
