@@ -1,15 +1,20 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.0";
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo,
+  logError,
+} from "../_shared/error-handler.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+const handler = async (req: Request): Promise<Response> => {
+  // Handle CORS preflight
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+  const corsHeaders = getCorsHeaders(req);
 
   try {
     const supabaseAdmin = createClient(
@@ -20,7 +25,7 @@ serve(async (req) => {
     // Verify JWT
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
-      throw new Error("No authorization header");
+      return createErrorResponse('UNAUTHORIZED', corsHeaders, 'No authorization header');
     }
 
     const supabaseClient = createClient(
@@ -31,8 +36,10 @@ serve(async (req) => {
 
     const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
     if (authError || !user) {
-      throw new Error("Unauthorized");
+      return createErrorResponse('UNAUTHORIZED', corsHeaders, 'Invalid authentication');
     }
+
+    logInfo('initiate-identity-verification', 'starting', { userId: user.id });
 
     // Check for existing verified IDV
     const { data: existingVerification } = await supabaseAdmin
@@ -43,13 +50,7 @@ serve(async (req) => {
       .single();
 
     if (existingVerification) {
-      return new Response(
-        JSON.stringify({ 
-          error: "You are already identity verified",
-          verification_id: existingVerification.id
-        }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'You are already identity verified');
     }
 
     // Check for pending verification
@@ -62,15 +63,13 @@ serve(async (req) => {
 
     if (pendingVerification?.provider_session_token) {
       // Return existing session
-      return new Response(
-        JSON.stringify({
-          verification_id: pendingVerification.id,
-          session_token: pendingVerification.provider_session_token,
-          status: pendingVerification.status,
-          message: "Continuing existing verification session",
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      logInfo('initiate-identity-verification', 'returning_existing_session', { verificationId: pendingVerification.id });
+      return createSuccessResponse({
+        verification_id: pendingVerification.id,
+        session_token: pendingVerification.provider_session_token,
+        status: pendingVerification.status,
+        message: "Continuing existing verification session",
+      }, corsHeaders);
     }
 
     // In production, call Persona API to create inquiry
@@ -104,8 +103,8 @@ serve(async (req) => {
 
       if (!personaResponse.ok) {
         const errorText = await personaResponse.text();
-        console.error("Persona API error:", errorText);
-        throw new Error("Failed to create identity verification session");
+        logError('initiate-identity-verification', new Error(`Persona API error: ${errorText}`));
+        return createErrorResponse('INTERNAL_ERROR', corsHeaders, 'Failed to create identity verification session');
       }
 
       const personaData = await personaResponse.json();
@@ -113,7 +112,7 @@ serve(async (req) => {
       inquiryId = personaData.data.id;
     } else {
       // Mock for development - generate demo tokens
-      console.log("[initiate-identity-verification] Running in demo mode without Persona API key");
+      logInfo('initiate-identity-verification', 'demo_mode');
       sessionToken = `demo_session_${crypto.randomUUID()}`;
       inquiryId = `inq_demo_${Date.now()}`;
     }
@@ -133,31 +132,26 @@ serve(async (req) => {
       .single();
 
     if (insertError) {
-      console.error("Error creating verification:", insertError);
-      throw new Error("Failed to create verification record");
+      logError('initiate-identity-verification', new Error(`Error creating verification: ${insertError.message}`));
+      return createErrorResponse('INTERNAL_ERROR', corsHeaders, 'Failed to create verification record');
     }
 
-    console.log(`[initiate-identity-verification] Created IDV session ${verification.id} for user ${user.id}`);
+    logInfo('initiate-identity-verification', 'complete', { verificationId: verification.id, userId: user.id });
 
-    return new Response(
-      JSON.stringify({
-        verification_id: verification.id,
-        session_token: sessionToken,
-        inquiry_id: inquiryId,
-        status: "pending",
-        expires_at: verification.expires_at,
-        message: personaApiKey 
-          ? "Identity verification session created"
-          : "Demo mode: IDV session created (no Persona API key configured)",
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return createSuccessResponse({
+      verification_id: verification.id,
+      session_token: sessionToken,
+      inquiry_id: inquiryId,
+      status: "pending",
+      expires_at: verification.expires_at,
+      message: personaApiKey
+        ? "Identity verification session created"
+        : "Demo mode: IDV session created (no Persona API key configured)",
+    }, corsHeaders);
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Unknown error";
-    console.error("[initiate-identity-verification] Error:", error);
-    return new Response(
-      JSON.stringify({ error: errorMessage }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    logError('initiate-identity-verification', error instanceof Error ? error : new Error(String(error)));
+    return createErrorResponse('INTERNAL_ERROR', corsHeaders, error instanceof Error ? error.message : 'Unknown error');
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));

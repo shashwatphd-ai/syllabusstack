@@ -1,15 +1,20 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.0";
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo,
+  logError,
+} from "../_shared/error-handler.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+const handler = async (req: Request): Promise<Response> => {
+  // Handle CORS preflight
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+  const corsHeaders = getCorsHeaders(req);
 
   try {
     const supabaseAdmin = createClient(
@@ -20,7 +25,7 @@ serve(async (req) => {
     // Verify JWT
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
-      throw new Error("No authorization header");
+      return createErrorResponse('UNAUTHORIZED', corsHeaders, 'No authorization header');
     }
 
     const supabaseClient = createClient(
@@ -31,8 +36,10 @@ serve(async (req) => {
 
     const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
     if (authError || !user) {
-      throw new Error("Unauthorized");
+      return createErrorResponse('UNAUTHORIZED', corsHeaders, 'Invalid authentication');
     }
+
+    logInfo('identity-verification-status', 'starting', { userId: user.id });
 
     // Get the most recent verification for this user
     const { data: verification, error: fetchError } = await supabaseAdmin
@@ -44,18 +51,16 @@ serve(async (req) => {
       .single();
 
     if (fetchError && fetchError.code !== "PGRST116") {
-      console.error("Error fetching verification:", fetchError);
-      throw new Error("Failed to fetch verification status");
+      logError('identity-verification-status', new Error(`Error fetching verification: ${fetchError.message}`));
+      return createErrorResponse('INTERNAL_ERROR', corsHeaders, 'Failed to fetch verification status');
     }
 
     if (!verification) {
-      return new Response(
-        JSON.stringify({
-          status: "none",
-          message: "No identity verification found",
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      logInfo('identity-verification-status', 'no_verification_found', { userId: user.id });
+      return createSuccessResponse({
+        status: "none",
+        message: "No identity verification found",
+      }, corsHeaders);
     }
 
     // Check if expired
@@ -72,28 +77,25 @@ serve(async (req) => {
       }
     }
 
-    return new Response(
-      JSON.stringify({
-        verification_id: verification.id,
-        status: verification.status,
-        provider: verification.provider,
-        verified_name: verification.verified_full_name,
-        document_type: verification.document_type,
-        selfie_match_score: verification.selfie_match_score,
-        liveness_passed: verification.liveness_check_passed,
-        failure_reason: verification.failure_reason,
-        created_at: verification.created_at,
-        completed_at: verification.completed_at,
-        expires_at: verification.expires_at,
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    logInfo('identity-verification-status', 'complete', { verificationId: verification.id, status: verification.status });
+
+    return createSuccessResponse({
+      verification_id: verification.id,
+      status: verification.status,
+      provider: verification.provider,
+      verified_name: verification.verified_full_name,
+      document_type: verification.document_type,
+      selfie_match_score: verification.selfie_match_score,
+      liveness_passed: verification.liveness_check_passed,
+      failure_reason: verification.failure_reason,
+      created_at: verification.created_at,
+      completed_at: verification.completed_at,
+      expires_at: verification.expires_at,
+    }, corsHeaders);
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Unknown error";
-    console.error("[identity-verification-status] Error:", error);
-    return new Response(
-      JSON.stringify({ error: errorMessage }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    logError('identity-verification-status', error instanceof Error ? error : new Error(String(error)));
+    return createErrorResponse('INTERNAL_ERROR', corsHeaders, error instanceof Error ? error.message : 'Unknown error');
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));

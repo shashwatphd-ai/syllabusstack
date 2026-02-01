@@ -1,24 +1,26 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo,
+  logError,
+} from "../_shared/error-handler.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+const handler = async (req: Request): Promise<Response> => {
+  // Handle CORS preflight
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+  const corsHeaders = getCorsHeaders(req);
 
   try {
     // Authenticate user
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return createErrorResponse('UNAUTHORIZED', corsHeaders, 'No authorization header');
     }
 
     const supabase = createClient(
@@ -29,11 +31,10 @@ serve(async (req) => {
 
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     if (userError || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return createErrorResponse('UNAUTHORIZED', corsHeaders, 'Invalid authentication');
     }
+
+    logInfo('invite-users', 'starting', { userId: user.id });
 
     // Check if user is admin
     const supabaseAdmin = createClient(
@@ -48,21 +49,17 @@ serve(async (req) => {
 
     const isAdmin = roles?.some((r: any) => r.role === "admin");
     if (!isAdmin) {
-      return new Response(JSON.stringify({ error: "Admin access required" }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return createErrorResponse('FORBIDDEN', corsHeaders, 'Admin access required');
     }
 
     // Get request body
     const { emails } = await req.json();
 
     if (!emails || !Array.isArray(emails) || emails.length === 0) {
-      return new Response(
-        JSON.stringify({ error: "Emails array is required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'Emails array is required');
     }
+
+    logInfo('invite-users', 'processing', { emailCount: emails.length });
 
     // Get admin's organization
     const { data: adminProfile } = await supabaseAdmin
@@ -117,18 +114,13 @@ serve(async (req) => {
       }
     }
 
-    console.log(`Admin ${user.id} invited users:`, results);
+    logInfo('invite-users', 'complete', { invited: results.invited.length, failed: results.failed.length });
 
-    return new Response(
-      JSON.stringify(results),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return createSuccessResponse(results, corsHeaders);
   } catch (error: unknown) {
-    console.error("Error inviting users:", error);
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return new Response(
-      JSON.stringify({ error: message }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    logError('invite-users', error instanceof Error ? error : new Error(String(error)));
+    return createErrorResponse('INTERNAL_ERROR', corsHeaders, error instanceof Error ? error.message : 'Unknown error');
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));

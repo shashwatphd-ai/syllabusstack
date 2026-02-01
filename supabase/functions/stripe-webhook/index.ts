@@ -1,23 +1,28 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
 import Stripe from "https://esm.sh/stripe@14.14.0?target=deno";
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo,
+  logError,
+} from "../_shared/error-handler.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, stripe-signature",
-};
+const handler = async (req: Request): Promise<Response> => {
+  // Handle CORS preflight
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+  const corsHeaders = getCorsHeaders(req);
 
   try {
     const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
     const webhookSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET");
 
     if (!stripeSecretKey || !webhookSecret) {
-      throw new Error("Stripe configuration is missing");
+      return createErrorResponse('CONFIG_ERROR', corsHeaders, 'Stripe configuration is missing');
     }
 
     const stripe = new Stripe(stripeSecretKey, {
@@ -30,13 +35,12 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
     );
 
+    logInfo('stripe-webhook', 'received');
+
     // Verify webhook signature
     const signature = req.headers.get("stripe-signature");
     if (!signature) {
-      return new Response(JSON.stringify({ error: "No signature" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'No signature');
     }
 
     const body = await req.text();
@@ -45,14 +49,11 @@ serve(async (req) => {
     try {
       event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
     } catch (err) {
-      console.error("Webhook signature verification failed:", err);
-      return new Response(JSON.stringify({ error: "Invalid signature" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      logError('stripe-webhook', err instanceof Error ? err : new Error('Signature verification failed'));
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'Invalid signature');
     }
 
-    console.log(`Processing webhook event: ${event.type}`);
+    logInfo('stripe-webhook', 'processing', { eventType: event.type });
 
     // Handle different event types
     switch (event.type) {
@@ -88,21 +89,18 @@ serve(async (req) => {
       }
 
       default:
-        console.log(`Unhandled event type: ${event.type}`);
+        logInfo('stripe-webhook', 'unhandled_event', { eventType: event.type });
     }
 
-    return new Response(JSON.stringify({ received: true }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    logInfo('stripe-webhook', 'complete', { eventType: event.type });
+    return createSuccessResponse({ received: true }, corsHeaders);
   } catch (error: unknown) {
-    console.error("Webhook error:", error);
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return new Response(
-      JSON.stringify({ error: message }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    logError('stripe-webhook', error instanceof Error ? error : new Error(String(error)));
+    return createErrorResponse('INTERNAL_ERROR', corsHeaders, error instanceof Error ? error.message : 'Unknown error');
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));
 
 async function handleCheckoutComplete(
   supabase: any,
