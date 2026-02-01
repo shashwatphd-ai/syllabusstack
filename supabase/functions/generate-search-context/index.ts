@@ -1,10 +1,12 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { generateStructured, MODELS } from "../_shared/unified-ai-client.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo,
+} from "../_shared/error-handler.ts";
 
 /**
  * AGENTIC SEARCH CONTEXT GENERATOR
@@ -46,23 +48,26 @@ interface SearchContextResponse {
   reasoning: string;
 }
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+const handler = async (req: Request): Promise<Response> => {
+  // CORS preflight
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
+
+  const corsHeaders = getCorsHeaders(req);
+
+  const { learning_objective, module, course } = await req.json() as SearchContextRequest;
+
+  if (!learning_objective?.text) {
+    return createErrorResponse('BAD_REQUEST', corsHeaders, 'learning_objective.text is required');
   }
 
-  try {
+  logInfo('generate-search-context', 'starting', { 
+    loId: learning_objective.id,
+    course: course?.title || 'Unknown',
+    module: module?.title || 'Unknown'
+  });
 
-    const { learning_objective, module, course } = await req.json() as SearchContextRequest;
-
-    if (!learning_objective?.text) {
-      throw new Error("learning_objective.text is required");
-    }
-
-    console.log(`[SEARCH CONTEXT] Generating context for LO: "${learning_objective.text.substring(0, 50)}..."`);
-    console.log(`[SEARCH CONTEXT] Course: ${course?.title || 'Unknown'}, Module: ${module?.title || 'Unknown'}`);
-
-    const systemPrompt = `You are an expert curriculum designer and educational content curator. Your task is to analyze a learning objective and generate highly targeted search queries that will find the BEST educational videos.
+  const systemPrompt = `You are an expert curriculum designer and educational content curator. Your task is to analyze a learning objective and generate highly targeted search queries that will find the BEST educational videos.
 
 CRITICAL INSTRUCTIONS:
 1. Understand the DOMAIN context (e.g., "Strategic Management" means business/MBA content, not education theory)
@@ -78,7 +83,7 @@ Return your analysis as a JSON object with these fields:
 - search_strategy: Brief description of what type of videos to prioritize
 - reasoning: Explain your query generation logic`;
 
-    const userPrompt = `Analyze this learning objective and generate targeted YouTube search queries:
+  const userPrompt = `Analyze this learning objective and generate targeted YouTube search queries:
 
 COURSE: ${course?.title || 'Not specified'}
 ${course?.code ? `COURSE CODE: ${course.code}` : ''}
@@ -96,87 +101,72 @@ ${learning_objective.expected_duration_minutes ? `EXPECTED DURATION: ${learning_
 
 Generate search queries that will find the most relevant educational videos for teaching this specific learning objective within the context of this course and module. Focus on the DOMAIN context - a strategic management course needs business strategy content, not general education videos.`;
 
-    const searchContextSchema = {
-      name: "generate_search_context",
-      description: "Generate targeted search queries for educational content",
-      parameters: {
-        type: "object",
-        properties: {
-          queries: {
-            type: "array",
-            items: { type: "string" },
-            description: "4-6 specific search queries ordered by expected quality"
-          },
-          domain_context: {
-            type: "string",
-            description: "One sentence describing the academic/professional domain"
-          },
-          key_concepts: {
-            type: "array",
-            items: { type: "string" },
-            description: "3-5 core concepts students must understand"
-          },
-          search_strategy: {
-            type: "string",
-            description: "Brief description of what type of videos to prioritize"
-          },
-          reasoning: {
-            type: "string",
-            description: "Explanation of query generation logic"
-          }
+  const searchContextSchema = {
+    name: "generate_search_context",
+    description: "Generate targeted search queries for educational content",
+    parameters: {
+      type: "object",
+      properties: {
+        queries: {
+          type: "array",
+          items: { type: "string" },
+          description: "4-6 specific search queries ordered by expected quality"
         },
-        required: ["queries", "domain_context", "key_concepts", "search_strategy", "reasoning"]
-      }
-    };
-
-    // Use unified AI client for structured function call
-    let result: SearchContextResponse;
-    try {
-      const aiResult = await generateStructured<SearchContextResponse>({
-        prompt: userPrompt,
-        systemPrompt: systemPrompt,
-        schema: searchContextSchema,
-        model: MODELS.FAST,
-        logPrefix: '[SEARCH CONTEXT]',
-      });
-      result = aiResult.data;
-    } catch (aiError) {
-      console.error(`[SEARCH CONTEXT] AI error:`, aiError);
-      
-      // Fallback: generate basic queries without AI
-      const fallbackQueries = generateFallbackQueries(learning_objective, module, course);
-      return new Response(
-        JSON.stringify({
-          queries: fallbackQueries,
-          domain_context: course?.title || "General",
-          key_concepts: [learning_objective.core_concept || learning_objective.text.split(' ').slice(0, 3).join(' ')],
-          search_strategy: "Using keyword-based fallback",
-          reasoning: "AI unavailable, using fallback query generation",
-          fallback: true
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+        domain_context: {
+          type: "string",
+          description: "One sentence describing the academic/professional domain"
+        },
+        key_concepts: {
+          type: "array",
+          items: { type: "string" },
+          description: "3-5 core concepts students must understand"
+        },
+        search_strategy: {
+          type: "string",
+          description: "Brief description of what type of videos to prioritize"
+        },
+        reasoning: {
+          type: "string",
+          description: "Explanation of query generation logic"
+        }
+      },
+      required: ["queries", "domain_context", "key_concepts", "search_strategy", "reasoning"]
     }
+  };
 
-    console.log(`[SEARCH CONTEXT] Generated ${result.queries.length} queries:`);
-    result.queries.forEach((q, i) => console.log(`  ${i + 1}. ${q}`));
-    console.log(`[SEARCH CONTEXT] Domain: ${result.domain_context}`);
-    console.log(`[SEARCH CONTEXT] Strategy: ${result.search_strategy}`);
-
-    return new Response(
-      JSON.stringify(result),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-
-  } catch (error) {
-    console.error("[SEARCH CONTEXT] Error:", error);
-    const errorMessage = error instanceof Error ? error.message : "Unknown error";
-    return new Response(
-      JSON.stringify({ error: errorMessage }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+  // Use unified AI client for structured function call
+  let result: SearchContextResponse;
+  try {
+    const aiResult = await generateStructured<SearchContextResponse>({
+      prompt: userPrompt,
+      systemPrompt: systemPrompt,
+      schema: searchContextSchema,
+      model: MODELS.FAST,
+      logPrefix: '[SEARCH CONTEXT]',
+    });
+    result = aiResult.data;
+  } catch (aiError) {
+    console.error(`[SEARCH CONTEXT] AI error:`, aiError);
+    
+    // Fallback: generate basic queries without AI
+    const fallbackQueries = generateFallbackQueries(learning_objective, module, course);
+    return createSuccessResponse({
+      queries: fallbackQueries,
+      domain_context: course?.title || "General",
+      key_concepts: [learning_objective.core_concept || learning_objective.text.split(' ').slice(0, 3).join(' ')],
+      search_strategy: "Using keyword-based fallback",
+      reasoning: "AI unavailable, using fallback query generation",
+      fallback: true
+    }, corsHeaders);
   }
-});
+
+  logInfo('generate-search-context', 'complete', { 
+    queryCount: result.queries.length,
+    domain: result.domain_context
+  });
+
+  return createSuccessResponse(result, corsHeaders);
+};
 
 /**
  * Fallback query generation when AI is unavailable
@@ -188,7 +178,6 @@ function generateFallbackQueries(
 ): string[] {
   const queries: string[] = [];
   const courseContext = course?.title?.toLowerCase() || '';
-  const moduleContext = module?.title?.toLowerCase() || '';
   const loText = lo.text.toLowerCase();
   
   // Extract meaningful words (filter out common words)
@@ -220,3 +209,5 @@ function generateFallbackQueries(
   
   return queries.filter(q => q.trim().length > 5);
 }
+
+serve(withErrorHandling(handler, getCorsHeaders));

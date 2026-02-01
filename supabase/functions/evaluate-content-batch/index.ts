@@ -1,11 +1,13 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { generateText, MODELS, parseJsonResponse } from "../_shared/unified-ai-client.ts";
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo,
+} from "../_shared/error-handler.ts";
 
 // Bloom's Taxonomy descriptions with weighted scoring guidance
 // Higher levels require more sophisticated content matching
@@ -65,54 +67,52 @@ SCORING CALIBRATION:
 - Below 50: Not Recommended - Off-topic, wrong level, or quality issues
 `;
 
-serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+const handler = async (req: Request): Promise<Response> => {
+  // CORS preflight
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
+
+  const corsHeaders = getCorsHeaders(req);
+
+  const authHeader = req.headers.get('Authorization');
+  if (!authHeader) {
+    return createErrorResponse('UNAUTHORIZED', corsHeaders, 'No authorization header');
   }
 
-  try {
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: 'No authorization header' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+  const { learning_objective, teaching_unit, videos } = await req.json();
 
-    const { learning_objective, teaching_unit, videos } = await req.json();
+  if (!learning_objective || !videos || !Array.isArray(videos)) {
+    return createErrorResponse('BAD_REQUEST', corsHeaders, 'learning_objective and videos array are required');
+  }
 
-    if (!learning_objective || !videos || !Array.isArray(videos)) {
-      return new Response(JSON.stringify({ error: 'learning_objective and videos array are required' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+  // NEW: Check if we have teaching unit context for enhanced evaluation
+  const hasTeachingUnit = teaching_unit && teaching_unit.title;
 
-    // NEW: Check if we have teaching unit context for enhanced evaluation
-    const hasTeachingUnit = teaching_unit && teaching_unit.title;
+  if (videos.length === 0) {
+    return createSuccessResponse({ evaluations: [] }, corsHeaders);
+  }
 
-    if (videos.length === 0) {
-      return new Response(JSON.stringify({ evaluations: [] }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+  logInfo('evaluate-content-batch', 'starting', { 
+    loId: learning_objective.id,
+    teachingUnitId: hasTeachingUnit ? teaching_unit.id : null,
+    videoCount: videos.length
+  });
 
-    const bloomLevel = learning_objective.bloom_level?.toLowerCase() || 'understand';
-    const bloomConfig = BLOOM_EVALUATION_CRITERIA[bloomLevel] || BLOOM_EVALUATION_CRITERIA.understand;
-    const bloomCriteria = bloomConfig.description;
-    const bloomWeight = bloomConfig.weight;
+  const bloomLevel = learning_objective.bloom_level?.toLowerCase() || 'understand';
+  const bloomConfig = BLOOM_EVALUATION_CRITERIA[bloomLevel] || BLOOM_EVALUATION_CRITERIA.understand;
+  const bloomCriteria = bloomConfig.description;
 
-    // Format videos for evaluation (limit to 15 to manage token usage)
-    const videosToEvaluate = videos.slice(0, 15);
-    const videoListText = videosToEvaluate.map((v: any, i: number) => 
-      `${i + 1}. VIDEO_ID: ${v.video_id || v.source_id}
+  // Format videos for evaluation (limit to 15 to manage token usage)
+  const videosToEvaluate = videos.slice(0, 15);
+  const videoListText = videosToEvaluate.map((v: any, i: number) => 
+    `${i + 1}. VIDEO_ID: ${v.video_id || v.source_id}
    Title: ${v.title}
    Channel: ${v.channel_name || 'Unknown'}
    Duration: ${Math.round((v.duration_seconds || 0) / 60)} minutes
    Description: ${(v.description || '').substring(0, 300)}...`
-    ).join('\n\n');
+  ).join('\n\n');
 
-    const systemPrompt = `You are an expert educational content evaluator with deep expertise in instructional design, Bloom's Taxonomy, and Mayer's Multimedia Learning Principles. Your job is to critically assess YouTube videos for their pedagogical fit with specific learning objectives.
+  const systemPrompt = `You are an expert educational content evaluator with deep expertise in instructional design, Bloom's Taxonomy, and Mayer's Multimedia Learning Principles. Your job is to critically assess YouTube videos for their pedagogical fit with specific learning objectives.
 
 ${MAYER_PRINCIPLES}
 
@@ -125,12 +125,12 @@ EVALUATION MINDSET:
 - Consider both content accuracy AND pedagogical effectiveness
 - Flag any red flags that would make content unsuitable`;
 
-    // Build the user prompt - enhanced when teaching unit context is available
-    let userPrompt: string;
-    
-    if (hasTeachingUnit) {
-      // ENHANCED PROMPT: Use teaching unit context for micro-concept evaluation
-      userPrompt = `Evaluate these YouTube videos for THIS SPECIFIC micro-concept within a larger learning objective:
+  // Build the user prompt - enhanced when teaching unit context is available
+  let userPrompt: string;
+  
+  if (hasTeachingUnit) {
+    // ENHANCED PROMPT: Use teaching unit context for micro-concept evaluation
+    userPrompt = `Evaluate these YouTube videos for THIS SPECIFIC micro-concept within a larger learning objective:
 
 TEACHING UNIT: "${teaching_unit.title}"
 WHAT TO TEACH: ${teaching_unit.what_to_teach}
@@ -185,9 +185,9 @@ Return ONLY valid JSON in this exact format:
 }
 
 Note: total_score = (relevance_score * 0.4) + (pedagogy_score * 0.35) + (quality_score * 0.25)`;
-    } else {
-      // STANDARD PROMPT: Original LO-level evaluation (fallback)
-      userPrompt = `Evaluate these YouTube videos for pedagogical fit with this learning objective:
+  } else {
+    // STANDARD PROMPT: Original LO-level evaluation (fallback)
+    userPrompt = `Evaluate these YouTube videos for pedagogical fit with this learning objective:
 
 LEARNING OBJECTIVE: "${learning_objective.text}"
 
@@ -235,70 +235,64 @@ Return ONLY valid JSON in this exact format:
 }
 
 Note: total_score = (relevance_score * 0.4) + (pedagogy_score * 0.35) + (quality_score * 0.25)`;
-    }
-
-    console.log(`Evaluating ${videosToEvaluate.length} videos for LO: ${learning_objective.id}${hasTeachingUnit ? `, Teaching Unit: ${teaching_unit.id}` : ''}`);
-
-    // Call AI via OpenRouter (unified-ai-client)
-    const result = await generateText({
-      prompt: userPrompt,
-      systemPrompt: systemPrompt,
-      model: MODELS.GEMINI_FLASH,
-      temperature: 0.3, // Lower temperature for more consistent scoring
-      logPrefix: '[evaluate-content-batch]'
-    });
-
-    if (!result.content) {
-      throw new Error('No content in AI response');
-    }
-
-    // Type for AI evaluation response
-    interface EvaluationResponse {
-      evaluations: Array<{
-        video_id: string;
-        relevance_score: number;
-        pedagogy_score: number;
-        quality_score: number;
-        total_score: number;
-        reasoning: string;
-        recommendation: string;
-        concern: string | null;
-      }>;
-    }
-
-    // Parse the JSON from AI response
-    let evaluations: EvaluationResponse;
-    try {
-      evaluations = parseJsonResponse(result.content) as EvaluationResponse;
-    } catch (parseError) {
-      console.error('Failed to parse AI evaluation response:', result.content);
-      // Return basic scores if parsing fails
-      evaluations = {
-        evaluations: videosToEvaluate.map((v: any) => ({
-          video_id: v.video_id || v.source_id,
-          relevance_score: 50,
-          pedagogy_score: 50,
-          quality_score: 50,
-          total_score: 50,
-          reasoning: "Unable to evaluate - using default scores",
-          recommendation: "acceptable",
-          concern: null
-        }))
-      };
-    }
-
-    console.log('AI evaluations complete:', evaluations.evaluations?.length);
-
-    return new Response(JSON.stringify(evaluations), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
-
-  } catch (error: unknown) {
-    console.error('Error in evaluate-content-batch:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return new Response(JSON.stringify({ error: errorMessage }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
   }
-});
+
+  console.log(`Evaluating ${videosToEvaluate.length} videos for LO: ${learning_objective.id}${hasTeachingUnit ? `, Teaching Unit: ${teaching_unit.id}` : ''}`);
+
+  // Call AI via OpenRouter (unified-ai-client)
+  const result = await generateText({
+    prompt: userPrompt,
+    systemPrompt: systemPrompt,
+    model: MODELS.GEMINI_FLASH,
+    temperature: 0.3, // Lower temperature for more consistent scoring
+    logPrefix: '[evaluate-content-batch]'
+  });
+
+  if (!result.content) {
+    return createErrorResponse('INTERNAL_ERROR', corsHeaders, 'No content in AI response');
+  }
+
+  // Type for AI evaluation response
+  interface EvaluationResponse {
+    evaluations: Array<{
+      video_id: string;
+      relevance_score: number;
+      pedagogy_score: number;
+      quality_score: number;
+      total_score: number;
+      reasoning: string;
+      recommendation: string;
+      concern: string | null;
+    }>;
+  }
+
+  // Parse the JSON from AI response
+  let evaluations: EvaluationResponse;
+  try {
+    evaluations = parseJsonResponse(result.content) as EvaluationResponse;
+  } catch (parseError) {
+    console.error('Failed to parse AI evaluation response:', result.content);
+    // Return basic scores if parsing fails
+    evaluations = {
+      evaluations: videosToEvaluate.map((v: any) => ({
+        video_id: v.video_id || v.source_id,
+        relevance_score: 50,
+        pedagogy_score: 50,
+        quality_score: 50,
+        total_score: 50,
+        reasoning: "Unable to evaluate - using default scores",
+        recommendation: "acceptable",
+        concern: null
+      }))
+    };
+  }
+
+  logInfo('evaluate-content-batch', 'complete', { 
+    loId: learning_objective.id,
+    evaluationCount: evaluations.evaluations?.length
+  });
+
+  return createSuccessResponse(evaluations, corsHeaders);
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));

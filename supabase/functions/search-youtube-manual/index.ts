@@ -4,11 +4,13 @@ import {
   searchYouTubeOrchestrated,
   YouTubeSearchResult,
 } from "../_shared/youtube-search/index.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo,
+} from "../_shared/error-handler.ts";
 
 /**
  * MANUAL YOUTUBE SEARCH FOR INSTRUCTORS
@@ -30,108 +32,98 @@ interface VideoResult {
   published_at?: string;
 }
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+const handler = async (req: Request): Promise<Response> => {
+  // CORS preflight
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
+
+  const corsHeaders = getCorsHeaders(req);
+
+  // SECURITY: Validate user authentication
+  const authHeader = req.headers.get('Authorization');
+  if (!authHeader) {
+    console.error("[MANUAL SEARCH] Missing Authorization header");
+    return createErrorResponse('UNAUTHORIZED', corsHeaders, 'Missing authentication');
   }
 
-  try {
-    // SECURITY: Validate user authentication
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      console.error("[MANUAL SEARCH] Missing Authorization header");
-      return new Response(
-        JSON.stringify({ error: "Unauthorized: Missing authentication" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+  // Create Supabase client and validate user
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+  const supabaseKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+  const supabase = createClient(supabaseUrl, supabaseKey, {
+    global: { headers: { Authorization: authHeader } }
+  });
 
-    // Create Supabase client and validate user
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_ANON_KEY')!;
-    const supabase = createClient(supabaseUrl, supabaseKey, {
-      global: { headers: { Authorization: authHeader } }
-    });
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) {
+    console.error("[MANUAL SEARCH] Authentication failed:", authError?.message);
+    return createErrorResponse('UNAUTHORIZED', corsHeaders, 'Invalid authentication');
+  }
 
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      console.error("[MANUAL SEARCH] Authentication failed:", authError?.message);
-      return new Response(
-        JSON.stringify({ error: "Unauthorized: Invalid authentication" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+  logInfo('search-youtube-manual', 'authenticated', { userId: user.id });
 
-    console.log(`[MANUAL SEARCH] Authenticated user: ${user.id}`);
+  const { query, use_alternatives = false } = await req.json();
 
-    const { query, use_alternatives = false } = await req.json();
+  if (!query || typeof query !== 'string') {
+    return createErrorResponse('BAD_REQUEST', corsHeaders, 'Query is required');
+  }
 
-    if (!query || typeof query !== 'string') {
-      throw new Error("Query is required");
-    }
+  console.log(`[MANUAL SEARCH] Query: "${query}" (use_alternatives: ${use_alternatives})`);
 
-    console.log(`[MANUAL SEARCH] Query: "${query}" (use_alternatives: ${use_alternatives})`);
+  // Use the orchestrated search
+  const searchResult = await searchYouTubeOrchestrated({
+    query,
+    max_results: 15,
+    min_results: 3,
+    // If use_alternatives is true, we still allow YouTube API as a last resort
+    // The orchestrator tries Firecrawl/Jina/Invidious first anyway
+    allow_youtube_api: true,
+    priority: 'normal',
+    enrich_metadata: true,
+    timeout_ms: 25000,
+  });
 
-    // Use the orchestrated search
-    const searchResult = await searchYouTubeOrchestrated({
-      query,
-      max_results: 15,
-      min_results: 3,
-      // If use_alternatives is true, we still allow YouTube API as a last resort
-      // The orchestrator tries Firecrawl/Jina/Invidious first anyway
-      allow_youtube_api: true,
-      priority: 'normal',
-      enrich_metadata: true,
-      timeout_ms: 25000,
-    });
+  // Convert to VideoResult format
+  const results: VideoResult[] = searchResult.results.map(r => ({
+    video_id: r.video_id,
+    title: r.title,
+    description: r.description?.substring(0, 200) || '',
+    channel_name: r.channel_name,
+    thumbnail_url: r.thumbnail_url,
+    duration_seconds: r.duration_seconds,
+    view_count: r.view_count,
+    published_at: r.published_at,
+  }));
 
-    // Convert to VideoResult format
-    const results: VideoResult[] = searchResult.results.map(r => ({
-      video_id: r.video_id,
-      title: r.title,
-      description: r.description?.substring(0, 200) || '',
-      channel_name: r.channel_name,
-      thumbnail_url: r.thumbnail_url,
-      duration_seconds: r.duration_seconds,
-      view_count: r.view_count,
-      published_at: r.published_at,
-    }));
+  logInfo('search-youtube-manual', 'complete', { 
+    userId: user.id, 
+    resultCount: results.length, 
+    source: searchResult.source 
+  });
 
-    console.log(`[MANUAL SEARCH] Found ${results.length} videos via ${searchResult.source}`);
-    if (searchResult.fallbacks_used.length > 0) {
-      console.log(`[MANUAL SEARCH] Also used: ${searchResult.fallbacks_used.join(', ')}`);
-    }
+  if (searchResult.fallbacks_used.length > 0) {
+    console.log(`[MANUAL SEARCH] Also used: ${searchResult.fallbacks_used.join(', ')}`);
+  }
 
-    // Build response with diagnostic info
-    const response: any = {
-      results,
-      total: results.length,
-      source: searchResult.source,
-      fallbacks_used: searchResult.fallbacks_used,
-      cache_hit: searchResult.cache_hit,
-      time_ms: searchResult.total_time_ms,
+  // Build response with diagnostic info
+  const response: Record<string, unknown> = {
+    results,
+    total: results.length,
+    source: searchResult.source,
+    fallbacks_used: searchResult.fallbacks_used,
+    cache_hit: searchResult.cache_hit,
+    time_ms: searchResult.total_time_ms,
+  };
+
+  // Include debug info when no results found
+  if (results.length === 0 && searchResult.debug) {
+    response.debug = {
+      message: 'No results found. This may be due to search service issues.',
+      ...searchResult.debug,
+      suggestion: 'Try a different search query or wait a few minutes and try again.',
     };
-
-    // Include debug info when no results found
-    if (results.length === 0 && searchResult.debug) {
-      response.debug = {
-        message: 'No results found. This may be due to search service issues.',
-        ...searchResult.debug,
-        suggestion: 'Try a different search query or wait a few minutes and try again.',
-      };
-    }
-
-    return new Response(
-      JSON.stringify(response),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-
-  } catch (error: unknown) {
-    console.error("Error in search-youtube-manual:", error);
-    const errorMessage = error instanceof Error ? error.message : "Unknown error";
-    return new Response(
-      JSON.stringify({ error: errorMessage }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
   }
-});
+
+  return createSuccessResponse(response, corsHeaders);
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));

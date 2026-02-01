@@ -2,11 +2,13 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
 import { checkCache, saveToCache, trackApiUsage } from "../_shared/content-cache.ts";
 import { getWebProvider } from "../_shared/web-provider.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo,
+} from "../_shared/error-handler.ts";
 
 // Khan Academy GraphQL endpoint (internal API - free, no quota)
 const KHAN_GRAPHQL_URL = "https://www.khanacademy.org/api/internal/graphql/ContentForSearchQuery";
