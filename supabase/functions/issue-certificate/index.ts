@@ -1,10 +1,13 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo,
+  logError,
+} from "../_shared/error-handler.ts";
 
 interface IssueCertificateRequest {
   enrollment_id: string;
@@ -14,10 +17,12 @@ interface IssueCertificateRequest {
   skill_breakdown?: Record<string, number>;
 }
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+const handler = async (req: Request): Promise<Response> => {
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
+
+  const corsHeaders = getCorsHeaders(req);
+  logInfo('issue-certificate', 'starting');
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -39,17 +44,11 @@ serve(async (req) => {
       );
       const { data: { user }, error: authError } = await userClient.auth.getUser();
       if (authError || !user) {
-        return new Response(
-          JSON.stringify({ error: "Invalid authentication" }),
-          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+        return createErrorResponse('UNAUTHORIZED', corsHeaders, 'Invalid authentication');
       }
       userId = user.id;
     } else {
-      return new Response(
-        JSON.stringify({ error: "Authorization required" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return createErrorResponse('UNAUTHORIZED', corsHeaders, 'Authorization required');
     }
 
     const { 
@@ -61,10 +60,7 @@ serve(async (req) => {
     }: IssueCertificateRequest = await req.json();
 
     if (!enrollment_id || !certificate_type) {
-      return new Response(
-        JSON.stringify({ error: "enrollment_id and certificate_type are required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'enrollment_id and certificate_type are required');
     }
 
     // Fetch enrollment with course details
@@ -92,18 +88,12 @@ serve(async (req) => {
       .single();
 
     if (enrollmentError || !enrollment) {
-      return new Response(
-        JSON.stringify({ error: "Enrollment not found" }),
-        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return createErrorResponse('NOT_FOUND', corsHeaders, 'Enrollment not found');
     }
 
     // If user call (not service), verify ownership
     if (!isServiceCall && userId !== enrollment.student_id) {
-      return new Response(
-        JSON.stringify({ error: "You can only issue certificates for your own enrollments" }),
-        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return createErrorResponse('FORBIDDEN', corsHeaders, 'You can only issue certificates for your own enrollments');
     }
 
     // Check if certificate already exists for this type
@@ -115,26 +105,17 @@ serve(async (req) => {
       .single();
 
     if (existingCert) {
-      return new Response(
-        JSON.stringify({ error: "Certificate already exists for this enrollment and type" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'Certificate already exists for this enrollment and type');
     }
 
     // For paid certificates, verify payment
     if (certificate_type !== "completion_badge" && !stripe_payment_intent_id && !isServiceCall) {
-      return new Response(
-        JSON.stringify({ error: "Payment required for verified/assessed certificates" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'Payment required for verified/assessed certificates');
     }
 
     // For assessed certificates, require mastery score
     if (certificate_type === "assessed" && mastery_score === undefined) {
-      return new Response(
-        JSON.stringify({ error: "Mastery score required for assessed certificates" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'Mastery score required for assessed certificates');
     }
 
     // Get student profile
@@ -186,11 +167,8 @@ serve(async (req) => {
       .single();
 
     if (insertError) {
-      console.error("[issue-certificate] Insert error:", insertError);
-      return new Response(
-        JSON.stringify({ error: "Failed to create certificate" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      logError('issue-certificate', insertError);
+      return createErrorResponse('INTERNAL_ERROR', corsHeaders, 'Failed to create certificate');
     }
 
     // Update enrollment with certificate reference
@@ -202,35 +180,35 @@ serve(async (req) => {
       })
       .eq("id", enrollment_id);
 
-    console.log(`[issue-certificate] Issued ${certificate_type} certificate ${certNumber} for enrollment ${enrollment_id}`);
+    logInfo('issue-certificate', 'complete', {
+      certificateType: certificate_type,
+      certificateNumber: certNumber,
+      enrollmentId: enrollment_id
+    });
 
     // Generate verification URL
     const appUrl = Deno.env.get("APP_URL") || "https://syllabusstack.lovable.app";
     const verificationUrl = `${appUrl}/verify/${shareToken}`;
 
-    return new Response(
-      JSON.stringify({
-        certificate: {
-          id: certificate.id,
-          certificate_number: certificate.certificate_number,
-          certificate_type: certificate.certificate_type,
-          course_title: certificate.course_title,
-          instructor_name: certificate.instructor_name,
-          completion_date: certificate.completion_date,
-          mastery_score: certificate.mastery_score,
-          identity_verified: certificate.identity_verified,
-          instructor_verified: certificate.instructor_verified,
-          verification_url: verificationUrl,
-          share_token: certificate.share_token,
-        },
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return createSuccessResponse({
+      certificate: {
+        id: certificate.id,
+        certificate_number: certificate.certificate_number,
+        certificate_type: certificate.certificate_type,
+        course_title: certificate.course_title,
+        instructor_name: certificate.instructor_name,
+        completion_date: certificate.completion_date,
+        mastery_score: certificate.mastery_score,
+        identity_verified: certificate.identity_verified,
+        instructor_verified: certificate.instructor_verified,
+        verification_url: verificationUrl,
+        share_token: certificate.share_token,
+      },
+    }, corsHeaders);
   } catch (error) {
-    console.error("[issue-certificate] Error:", error);
-    return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "An error occurred" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    logError('issue-certificate', error instanceof Error ? error : new Error(String(error)));
+    return createErrorResponse('INTERNAL_ERROR', corsHeaders, error instanceof Error ? error.message : 'An error occurred');
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));

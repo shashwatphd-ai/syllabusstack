@@ -1,9 +1,13 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo,
+  logError,
+} from "../_shared/error-handler.ts";
 
 interface EnrollmentWithCourse {
   id: string;
@@ -39,22 +43,20 @@ interface DreamJob {
   requirements_keywords: string[] | null;
 }
 
-Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+const handler = async (req: Request): Promise<Response> => {
+  // Handle CORS preflight
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
+
+  const corsHeaders = getCorsHeaders(req);
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-    
+
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
-      console.error("[auto-link-courses] Missing or invalid authorization header");
-      return new Response(
-        JSON.stringify({ error: "No authorization header" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return createErrorResponse('UNAUTHORIZED', corsHeaders, 'No authorization header');
     }
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey, {
@@ -64,17 +66,13 @@ Deno.serve(async (req) => {
     // Validate user session
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     if (userError || !user) {
-      console.error("[auto-link-courses] User validation failed:", userError?.message || "No user");
-      return new Response(
-        JSON.stringify({ error: "Unauthorized" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return createErrorResponse('UNAUTHORIZED', corsHeaders, 'Invalid authentication');
     }
 
     const body = await req.json();
     const { dreamJobId, instructorCourseId } = body;
 
-    console.log(`[auto-link-courses] Starting for user ${user.id}, dreamJobId: ${dreamJobId}, courseId: ${instructorCourseId}`);
+    logInfo('auto-link-courses', 'starting', { userId: user.id, dreamJobId, courseId: instructorCourseId });
 
     // 1. Get user's enrolled courses
     let enrollmentQuery = supabase
@@ -103,11 +101,8 @@ Deno.serve(async (req) => {
     }
 
     if (!enrollments || enrollments.length === 0) {
-      console.log("[auto-link-courses] No enrollments found");
-      return new Response(
-        JSON.stringify({ suggestedLinks: 0, message: "No enrolled courses found" }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      logInfo('auto-link-courses', 'no_enrollments');
+      return createSuccessResponse({ suggestedLinks: 0, message: "No enrolled courses found" }, corsHeaders);
     }
 
     // 2. Get learning objectives for enrolled courses
@@ -143,11 +138,8 @@ Deno.serve(async (req) => {
     }
 
     if (!recommendations || recommendations.length === 0) {
-      console.log("[auto-link-courses] No pending recommendations found");
-      return new Response(
-        JSON.stringify({ suggestedLinks: 0, message: "No pending recommendations to link" }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      logInfo('auto-link-courses', 'no_recommendations');
+      return createSuccessResponse({ suggestedLinks: 0, message: "No pending recommendations to link" }, corsHeaders);
     }
 
     // 4. Get existing links to avoid duplicates
@@ -277,22 +269,18 @@ Deno.serve(async (req) => {
       }
     }
 
-    console.log(`[auto-link-courses] Created ${linksToInsert.length} suggested links`);
+    logInfo('auto-link-courses', 'complete', { linksCreated: linksToInsert.length });
 
-    return new Response(
-      JSON.stringify({
-        suggestedLinks: linksToInsert.length,
-        message: linksToInsert.length > 0
-          ? `Found ${linksToInsert.length} potential course matches for your recommendations`
-          : "No matching courses found for your recommendations",
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return createSuccessResponse({
+      suggestedLinks: linksToInsert.length,
+      message: linksToInsert.length > 0
+        ? `Found ${linksToInsert.length} potential course matches for your recommendations`
+        : "No matching courses found for your recommendations",
+    }, corsHeaders);
   } catch (error) {
-    console.error("[auto-link-courses] Error:", error);
-    return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    logError('auto-link-courses', error instanceof Error ? error : new Error(String(error)));
+    return createErrorResponse('INTERNAL_ERROR', corsHeaders, error instanceof Error ? error.message : 'Unknown error');
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));

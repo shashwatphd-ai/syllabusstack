@@ -6,31 +6,31 @@ import { GAP_ANALYSIS_SCHEMA } from "../_shared/schemas.ts";
 import { analyzeRequirementCoverage, buildUserCapabilityKeywords } from "../_shared/similarity.ts";
 import { generateKeywordVector, calculateSimilarity } from "../_shared/ai-orchestrator.ts";
 import { checkRateLimit, getUserLimits, createRateLimitResponse } from "../_shared/rate-limiter.ts";
-import { createErrorResponse, logInfo, logError } from "../_shared/error-handler.ts";
+import { createErrorResponse, createSuccessResponse, withErrorHandling, logInfo, logError } from "../_shared/error-handler.ts";
 import { generateStructured, MODELS } from "../_shared/unified-ai-client.ts";
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import { applyDecayToSkills, generateDecaySummary, getSkillsNeedingRetest, type RawSkill } from "../_shared/skill-decay.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+const handler = async (req: Request): Promise<Response> => {
+  // Handle CORS preflight
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+  const corsHeaders = getCorsHeaders(req);
+
+  const { dreamJobId } = await req.json();
+
+  if (!dreamJobId) {
+    return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'Dream job ID is required');
+  }
+
+  const authHeader = req.headers.get("Authorization");
+
+  if (!authHeader) {
+    return createErrorResponse('UNAUTHORIZED', corsHeaders, 'Authorization required');
   }
 
   try {
-    const { dreamJobId } = await req.json();
-    
-    if (!dreamJobId) {
-      return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'Dream job ID is required');
-    }
-
-    const authHeader = req.headers.get("Authorization");
-    
-    if (!authHeader) {
-      return createErrorResponse('UNAUTHORIZED', corsHeaders, 'Authorization required');
-    }
     
     // Authenticated flow - always require valid auth header
     const supabase = createClient(
@@ -83,6 +83,23 @@ serve(async (req) => {
     logInfo('gap-analysis', 'verified_skills_fetched', {
       count: verifiedSkills?.length || 0,
       skills: (verifiedSkills || []).map((vs: any) => vs.skill_name).slice(0, 10)
+    });
+
+    // Apply Weibull decay to verified skills
+    const rawSkillsForDecay: RawSkill[] = (verifiedSkills || []).map((vs: any) => ({
+      skill_name: vs.skill_name,
+      proficiency_level: vs.proficiency_level || 'intermediate',
+      verified_at: vs.verified_at || vs.created_at,
+      source_type: vs.source_type || 'assessment',
+    }));
+    const decayedSkills = applyDecayToSkills(rawSkillsForDecay);
+    const skillsNeedingRetest = getSkillsNeedingRetest(decayedSkills);
+    const decaySummary = generateDecaySummary(decayedSkills);
+
+    logInfo('gap-analysis', 'decay_applied', {
+      totalSkills: decayedSkills.length,
+      needingRetest: skillsNeedingRetest.length,
+      downgradedCount: decayedSkills.filter(s => s.effective_level !== s.base_level).length,
     });
 
     // Get job requirements
@@ -156,10 +173,14 @@ serve(async (req) => {
         .map(r => r.skill_name)
     };
 
-    // Format VERIFIED skills (highest confidence - passed assessments)
-    const verifiedSkillsList = (verifiedSkills || []).map((vs: any) =>
-      `- ${vs.skill_name} [VERIFIED] (${vs.proficiency_level} level, verified via ${vs.source_type}, from: ${vs.source_name || 'assessment'})`
-    ).join("\n");
+    // Format VERIFIED skills with decay information (highest confidence - passed assessments)
+    const verifiedSkillsList = decayedSkills.map((ds) => {
+      const decayStatus = ds.effective_level !== ds.base_level
+        ? ` [DECAYED: ${ds.base_level} → ${ds.effective_level}]`
+        : '';
+      const retestNote = ds.needs_retest ? ' [NEEDS RETEST]' : '';
+      return `- ${ds.skill_name} [VERIFIED] (${ds.effective_level} level, ${Math.round(ds.survival_probability * 100)}% fresh, ${ds.days_since_verification} days ago)${decayStatus}${retestNote}`;
+    }).join("\n");
 
     // Format self-reported capabilities (lower confidence than verified)
     const capabilitiesList = (capabilities || []).map((c: any) =>
@@ -199,7 +220,12 @@ PRE-COMPUTED KEYWORD ANALYSIS (use as baseline, adjust based on deeper understan
     ? preAnalysisContext.uncoveredImportant.join(', ')
     : 'None detected'}
 
-Note: This is keyword-based analysis. Use your judgment to refine. Give VERIFIED skills higher confidence than self-reported capabilities. A VERIFIED skill matching a job requirement should count more than a self-reported capability.`;
+SKILL FRESHNESS (Weibull Decay Model):
+${decaySummary || '- All skills are fresh and current'}
+${skillsNeedingRetest.length > 0 ? `\nSKILLS NEEDING RETEST (${skillsNeedingRetest.length}):
+${skillsNeedingRetest.slice(0, 5).map(s => `- ${s.skill_name}: ${Math.round(s.survival_probability * 100)}% retained`).join('\n')}` : ''}
+
+Note: This is keyword-based analysis with skill decay applied. Use your judgment to refine. Give VERIFIED skills higher confidence than self-reported capabilities. Skills marked DECAYED or NEEDS RETEST should be weighted lower as they may be outdated.`;
 
     const systemPrompt = `${MASTER_SYSTEM_PROMPT}
 
@@ -341,23 +367,34 @@ Return your response using the generate_gap_analysis function.`;
       "openrouter/gpt-4o-mini"
     );
 
-    console.log(`Gap analysis complete. Match score: ${analysis.match_score}%`);
+    logInfo('gap-analysis', 'complete', {
+      matchScore: analysis.match_score,
+      gapAnalysisId: gapAnalysisRecord?.id,
+      skillsNeedingRetest: skillsNeedingRetest.length,
+    });
 
-    return new Response(
-      JSON.stringify({
-        ...analysis,
-        gap_analysis_id: gapAnalysisRecord?.id,
-        keyword_analysis: preAnalysisContext, // Include for transparency
-        verified_skills_used: verifiedSkills?.length || 0,
-        self_reported_used: capabilities?.length || 0,
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return createSuccessResponse({
+      ...analysis,
+      gap_analysis_id: gapAnalysisRecord?.id,
+      keyword_analysis: preAnalysisContext, // Include for transparency
+      verified_skills_used: verifiedSkills?.length || 0,
+      self_reported_used: capabilities?.length || 0,
+      // Include decay analysis in response
+      skill_decay: {
+        skills_needing_retest: skillsNeedingRetest.map(s => ({
+          skill_name: s.skill_name,
+          survival_probability: Math.round(s.survival_probability * 100),
+          days_since_verification: s.days_since_verification,
+          effective_level: s.effective_level,
+          base_level: s.base_level,
+        })),
+        total_decayed: decayedSkills.filter(s => s.effective_level !== s.base_level).length,
+      },
+    }, corsHeaders);
   } catch (error) {
-    console.error("Error in gap-analysis:", error);
-    return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    logError('gap-analysis', error instanceof Error ? error : new Error(String(error)));
+    return createErrorResponse('INTERNAL_ERROR', corsHeaders, error instanceof Error ? error.message : 'Unknown error');
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));

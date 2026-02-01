@@ -1,27 +1,34 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo,
+  logError,
+} from "../_shared/error-handler.ts";
 
 const logStep = (step: string, details?: any) => {
   const detailsStr = details ? ` - ${JSON.stringify(details)}` : '';
   console.log(`[ENROLL-IN-COURSE] ${step}${detailsStr}`);
 };
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+const handler = async (req: Request): Promise<Response> => {
+  // Handle CORS preflight
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
+
+  const corsHeaders = getCorsHeaders(req);
 
   try {
-    logStep("Function started");
-    
+    logInfo('enroll-in-course', 'starting');
+
     const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
-    if (!stripeKey) throw new Error("STRIPE_SECRET_KEY is not set");
+    if (!stripeKey) {
+      return createErrorResponse('CONFIG_ERROR', corsHeaders, 'STRIPE_SECRET_KEY is not set');
+    }
 
     const supabaseClient = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
@@ -71,14 +78,11 @@ serve(async (req) => {
       .maybeSingle();
 
     if (existing) {
-      return new Response(JSON.stringify({ 
+      return createSuccessResponse({
         already_enrolled: true,
         enrollment_id: existing.id,
         course,
-      }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 200,
-      });
+      }, corsHeaders);
     }
 
     // Check subscription tier
@@ -103,17 +107,14 @@ serve(async (req) => {
         .single();
 
       if (enrollError) throw enrollError;
-      logStep("Pro enrollment created", { enrollmentId: enrollment.id });
+      logInfo('enroll-in-course', 'pro_enrolled', { enrollmentId: enrollment.id });
 
-      return new Response(JSON.stringify({ 
+      return createSuccessResponse({
         requires_payment: false,
         enrolled: true,
         enrollment_id: enrollment.id,
         course,
-      }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 200,
-      });
+      }, corsHeaders);
     }
 
     // Non-Pro users need to pay $1
@@ -172,24 +173,19 @@ serve(async (req) => {
       allow_promotion_codes: true,
     });
 
-    logStep("Checkout session created", { sessionId: session.id });
+    logInfo('enroll-in-course', 'checkout_created', { sessionId: session.id });
 
-    return new Response(JSON.stringify({ 
+    return createSuccessResponse({
       requires_payment: true,
       checkout_url: session.url,
       session_id: session.id,
       course,
-    }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-      status: 200,
-    });
+    }, corsHeaders);
 
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    logStep("ERROR", { message: errorMessage });
-    return new Response(JSON.stringify({ error: errorMessage }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-      status: 500,
-    });
+    logError('enroll-in-course', error instanceof Error ? error : new Error(String(error)));
+    return createErrorResponse('INTERNAL_ERROR', corsHeaders, error instanceof Error ? error.message : 'Unknown error');
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));

@@ -1,11 +1,14 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
 import { unzipSync, strFromU8 } from "https://esm.sh/fflate@0.8.2?target=deno";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo,
+  logError,
+} from "../_shared/error-handler.ts";
 
 /**
  * Parse Syllabus Document
@@ -66,15 +69,17 @@ function extractDocxTextFromBase64(base64Content: string): string {
 }
 
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+const handler = async (req: Request): Promise<Response> => {
+  // Handle CORS preflight
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
+
+  const corsHeaders = getCorsHeaders(req);
 
   try {
     const GOOGLE_CLOUD_API_KEY = Deno.env.get("GOOGLE_CLOUD_API_KEY");
     if (!GOOGLE_CLOUD_API_KEY) {
-      throw new Error("GOOGLE_CLOUD_API_KEY is not configured");
+      return createErrorResponse('CONFIG_ERROR', corsHeaders, 'GOOGLE_CLOUD_API_KEY is not configured');
     }
 
     const { document_base64, document_url, course_id, file_name, isPublicScan } = await req.json();
@@ -400,23 +405,20 @@ Do NOT summarize - extract the complete text content.`;
 
     const analysisResult = await analyzeResponse.json();
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        extracted_text: extractedText,
-        text_length: extractedText.length,
-        analysis: analysisResult,
-        message: "Document parsed and analyzed successfully"
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    logInfo('parse-syllabus-document', 'complete', { textLength: extractedText.length });
+
+    return createSuccessResponse({
+      success: true,
+      extracted_text: extractedText,
+      text_length: extractedText.length,
+      analysis: analysisResult,
+      message: "Document parsed and analyzed successfully"
+    }, corsHeaders);
 
   } catch (error: unknown) {
-    console.error("Error in parse-syllabus-document:", error);
-    const errorMessage = error instanceof Error ? error.message : "Unknown error";
-    return new Response(
-      JSON.stringify({ error: errorMessage }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    logError('parse-syllabus-document', error instanceof Error ? error : new Error(String(error)));
+    return createErrorResponse('INTERNAL_ERROR', corsHeaders, error instanceof Error ? error.message : 'Unknown error');
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));

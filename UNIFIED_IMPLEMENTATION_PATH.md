@@ -51,12 +51,15 @@
 
 | Metric | Current | Target | Gap |
 |--------|---------|--------|-----|
-| Edge Functions Total | 79 | - | - |
-| Using CORS Handler | 5 (6.3%) | 79 (100%) | 74 functions |
-| Using Error Handler | 7 (8.9%) | 79 (100%) | 72 functions |
-| Using Rate Limiter | 10 (12.7%) | ~30 (AI/Auth) | ~20 functions |
+| Edge Functions Total | 78 | - | - |
+| Using CORS Handler | 27 (34.6%) | 78 (100%) | 51 functions |
+| Using Error Handler | 27 (34.6%) | 78 (100%) | 51 functions |
+| Using Rate Limiter | 10 (12.8%) | ~30 (AI/Auth) | ~20 functions |
 | Loading Skeletons | 4/4 (100%) | ✅ | Complete |
 | Algorithm Foundations | 5/5 (100%) | ✅ | Complete |
+| Zod Validators Library | ✅ Created | ✅ | Complete |
+| Weibull Decay Integration | ✅ gap-analysis | ✅ | Complete |
+| Assessment Logger Integration | ✅ submit-assessment-answer | ✅ | Complete |
 
 ---
 
@@ -245,11 +248,11 @@ STEP 6.5: Add AI Usage Logging
 ```
 
 **Completion Checklist:**
-- [ ] evaluate-content-batch migrated + rate limited
-- [ ] content-rating-engine migrated + rate limited
-- [ ] generate-lecture-slides-v3 migrated + rate limited
-- [ ] generate-lecture-audio migrated + rate limited
-- [ ] curriculum-reasoning-agent migrated + rate limited
+- [x] evaluate-content-batch migrated + rate limited
+- [ ] content-rating-engine migrated + rate limited (function not found - may be deprecated)
+- [x] generate-lecture-slides-v3 migrated + rate limited
+- [x] generate-lecture-audio migrated + rate limited
+- [x] curriculum-reasoning-agent migrated + rate limited
 - [ ] All functions tested
 - [ ] Commit pushed
 
@@ -313,11 +316,11 @@ INTEGRATION STEP 3: Verify Build & Tests
 ```
 
 **Week 4 Summary Checklist:**
-- [ ] All search functions migrated (5)
-- [ ] All AI generation functions migrated (5)
-- [ ] Content functions migrated (3)
-- [ ] Weibull decay integrated into gap-analysis
-- [ ] Assessment logger integrated
+- [x] All search functions migrated (5)
+- [x] All AI generation functions migrated (4/5 - content-rating-engine not found)
+- [x] Content functions migrated (3)
+- [x] Weibull decay integrated into gap-analysis
+- [x] Assessment logger integrated
 - [ ] Build passes
 - [ ] Tests pass
 - [ ] Commit pushed with comprehensive message
@@ -775,6 +778,12 @@ This phase is optional and extends beyond production readiness. See the referenc
 |------|--------|--------|----------|-----|-------|
 | 2026-02-01 | Claude AI | CORS Handler Usage | 5 (6.3%) | 5 (6.3%) | Baseline |
 | 2026-02-01 | Claude AI | Error Handler Usage | 7 (8.9%) | 7 (8.9%) | Baseline |
+| 2026-02-01 | Claude AI | CORS Handler Usage | 18 (23%) | 21 (26.9%) | +3 functions (generate-lecture-slides-v3, generate-lecture-audio, gap-analysis) |
+| 2026-02-01 | Claude AI | Error Handler Usage | 19 (24%) | 21 (26.9%) | +2 functions |
+| 2026-02-01 | Claude AI | Zod Validators | 0 | ✅ Created | Created `_shared/validators/index.ts` with 20+ schemas |
+| 2026-02-01 | Claude AI | Weibull Decay | Not integrated | ✅ | Integrated into gap-analysis function |
+| 2026-02-01 | Claude AI | Assessment Logger | Not integrated | ✅ | Integrated into submit-assessment-answer function |
+| 2026-02-01 | Claude AI | CORS Handler Usage | 21 (26.9%) | 27 (34.6%) | Week 5 Day 1: +6 functions (auto-link-courses, enroll-in-course, extract-learning-objectives, parse-syllabus-document, analyze-dream-job, match-careers) |
 | | | | | | |
 
 ---

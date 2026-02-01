@@ -1,10 +1,13 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo,
+  logError,
+} from "../_shared/error-handler.ts";
 
 interface UsageStats {
   totalCalls: number;
@@ -45,18 +48,17 @@ interface UsageStats {
   };
 }
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+const handler = async (req: Request): Promise<Response> => {
+  // Handle CORS preflight
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
+
+  const corsHeaders = getCorsHeaders(req);
 
   try {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
-      return new Response(
-        JSON.stringify({ error: "Authorization required" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return createErrorResponse('UNAUTHORIZED', corsHeaders, 'Authorization required');
     }
 
     const supabase = createClient(
@@ -68,10 +70,7 @@ serve(async (req) => {
     // Get user from auth
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     if (userError || !user) {
-      return new Response(
-        JSON.stringify({ error: "Invalid authentication" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return createErrorResponse('UNAUTHORIZED', corsHeaders, 'Invalid authentication');
     }
 
     // Parse query parameters
@@ -80,7 +79,7 @@ serve(async (req) => {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
 
-    console.log(`Fetching usage stats for user ${user.id}, last ${days} days`);
+    logInfo('get-usage-stats', 'starting', { userId: user.id, days });
 
     // Fetch AI usage data
     const { data: usageData, error: usageError } = await supabase
@@ -91,7 +90,7 @@ serve(async (req) => {
       .order("created_at", { ascending: false });
 
     if (usageError) {
-      console.error("Error fetching usage data:", usageError);
+      logError('get-usage-stats', new Error(`Failed to fetch usage data: ${usageError.message}`));
       throw new Error("Failed to fetch usage data");
     }
 
@@ -198,25 +197,25 @@ serve(async (req) => {
 
     if (!cacheError && cacheData) {
       stats.cacheStats.totalEntries = cacheData.length;
-      
+
       const now = new Date();
       let validEntries = 0;
-      
+
       for (const entry of cacheData) {
         // Count by type
         if (!stats.cacheStats.entriesByType[entry.cache_type]) {
           stats.cacheStats.entriesByType[entry.cache_type] = 0;
         }
         stats.cacheStats.entriesByType[entry.cache_type]++;
-        
+
         // Check if still valid
         if (!entry.expires_at || new Date(entry.expires_at) > now) {
           validEntries++;
         }
       }
-      
+
       // Estimate hit rate based on valid entries vs total calls
-      stats.cacheStats.hitRate = stats.totalCalls > 0 
+      stats.cacheStats.hitRate = stats.totalCalls > 0
         ? Math.min(100, (validEntries / stats.totalCalls) * 100)
         : 0;
     }
@@ -224,8 +223,8 @@ serve(async (req) => {
     // Add summary metrics
     const summary = {
       averageCostPerCall: stats.totalCalls > 0 ? stats.totalCost / stats.totalCalls : 0,
-      averageTokensPerCall: stats.totalCalls > 0 
-        ? (stats.totalInputTokens + stats.totalOutputTokens) / stats.totalCalls 
+      averageTokensPerCall: stats.totalCalls > 0
+        ? (stats.totalInputTokens + stats.totalOutputTokens) / stats.totalCalls
         : 0,
       mostUsedFunction: Object.entries(stats.byFunction)
         .sort((a, b) => b[1].calls - a[1].calls)[0]?.[0] || null,
@@ -234,17 +233,13 @@ serve(async (req) => {
       projectedMonthlyCost: stats.totalCost * (30 / days),
     };
 
-    console.log(`Usage stats calculated: ${stats.totalCalls} calls, $${stats.totalCost.toFixed(4)} total`);
+    logInfo('get-usage-stats', 'complete', { totalCalls: stats.totalCalls, totalCost: stats.totalCost.toFixed(4) });
 
-    return new Response(
-      JSON.stringify({ ...stats, summary }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return createSuccessResponse({ ...stats, summary }, corsHeaders);
   } catch (error) {
-    console.error("Error in get-usage-stats:", error);
-    return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    logError('get-usage-stats', error instanceof Error ? error : new Error(String(error)));
+    return createErrorResponse('INTERNAL_ERROR', corsHeaders, error instanceof Error ? error.message : 'Unknown error');
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));

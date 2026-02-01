@@ -1,15 +1,20 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.0";
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo,
+  logError,
+} from "../_shared/error-handler.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, persona-signature",
-};
+const handler = async (req: Request): Promise<Response> => {
+  // Handle CORS preflight
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+  const corsHeaders = getCorsHeaders(req);
 
   try {
     const supabaseAdmin = createClient(
@@ -20,17 +25,19 @@ serve(async (req) => {
     const body = await req.text();
     const webhookSecret = Deno.env.get("PERSONA_WEBHOOK_SECRET");
 
+    logInfo('idv-webhook', 'received');
+
     // Verify webhook signature if secret is configured
     if (webhookSecret) {
       const signature = req.headers.get("persona-signature");
       if (!signature) {
-        console.error("Missing Persona signature");
-        return new Response("Unauthorized", { status: 401 });
+        logError('idv-webhook', new Error('Missing Persona signature'));
+        return createErrorResponse('UNAUTHORIZED', corsHeaders, 'Missing Persona signature');
       }
 
       // In production, verify HMAC signature
       // For now, log and continue
-      console.log("[idv-webhook] Received webhook with signature");
+      logInfo('idv-webhook', 'signature_present');
     }
 
     const payload = JSON.parse(body);
@@ -38,10 +45,8 @@ serve(async (req) => {
     const inquiryData = payload.data?.attributes?.payload?.data;
     
     if (!inquiryData) {
-      console.log("[idv-webhook] No inquiry data in webhook payload");
-      return new Response(JSON.stringify({ received: true }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      logInfo('idv-webhook', 'no_inquiry_data');
+      return createSuccessResponse({ received: true }, corsHeaders);
     }
 
     const inquiryId = inquiryData.id;
@@ -49,7 +54,7 @@ serve(async (req) => {
     const referenceId = inquiryAttributes["reference-id"]; // This is the user_id
     const status = inquiryAttributes.status;
 
-    console.log(`[idv-webhook] Event: ${eventType}, Inquiry: ${inquiryId}, Status: ${status}`);
+    logInfo('idv-webhook', 'processing', { eventType, inquiryId, status });
 
     // Find the verification record
     const { data: verification, error: findError } = await supabaseAdmin
@@ -59,11 +64,8 @@ serve(async (req) => {
       .single();
 
     if (findError || !verification) {
-      console.error("[idv-webhook] Verification not found for inquiry:", inquiryId);
-      return new Response(JSON.stringify({ error: "Verification not found" }), {
-        status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      logError('idv-webhook', new Error(`Verification not found for inquiry: ${inquiryId}`));
+      return createErrorResponse('NOT_FOUND', corsHeaders, 'Verification not found');
     }
 
     // Map Persona status to our status
@@ -136,7 +138,7 @@ serve(async (req) => {
       .eq("id", verification.id);
 
     if (updateError) {
-      console.error("[idv-webhook] Error updating verification:", updateError);
+      logError('idv-webhook', new Error(`Error updating verification: ${updateError.message}`));
     }
 
     // If verified, update the user's profile
@@ -150,26 +152,22 @@ serve(async (req) => {
         .eq("user_id", verification.user_id);
 
       if (profileError) {
-        console.error("[idv-webhook] Error updating profile:", profileError);
+        logError('idv-webhook', new Error(`Error updating profile: ${profileError.message}`));
       }
 
-      console.log(`[idv-webhook] User ${verification.user_id} identity verified`);
+      logInfo('idv-webhook', 'user_verified', { userId: verification.user_id });
     }
 
-    return new Response(
-      JSON.stringify({ 
-        received: true, 
-        verification_id: verification.id,
-        new_status: newStatus,
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    logInfo('idv-webhook', 'complete', { verificationId: verification.id, newStatus });
+    return createSuccessResponse({
+      received: true,
+      verification_id: verification.id,
+      new_status: newStatus,
+    }, corsHeaders);
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Unknown error";
-    console.error("[idv-webhook] Error:", error);
-    return new Response(
-      JSON.stringify({ error: errorMessage }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    logError('idv-webhook', error instanceof Error ? error : new Error(String(error)));
+    return createErrorResponse('INTERNAL_ERROR', corsHeaders, error instanceof Error ? error.message : 'Unknown error');
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));

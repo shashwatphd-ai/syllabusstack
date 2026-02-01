@@ -9,6 +9,7 @@ import {
   logError,
 } from "../_shared/error-handler.ts";
 import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import { logAssessmentResponse } from "../_shared/assessment-logger.ts";
 
 interface SubmitAnswerRequest {
   session_id: string;
@@ -270,6 +271,21 @@ Respond with JSON only:
       current_question_index: nextQuestionIndex,
     })
     .eq('id', session_id);
+
+  // Log response for IRT calibration (non-blocking)
+  logAssessmentResponse(supabase, {
+    session_id,
+    question_id,
+    user_id: userId,
+    skill_name: question.skill_name || session.skill_name || 'unknown',
+    is_correct: isCorrect,
+    response_time_ms: serverTimeTaken * 1000,
+    bloom_level: question.bloom_level,
+    estimated_difficulty: question.difficulty,
+  }).catch((err) => {
+    // Non-blocking - just log the error
+    logError('submit-assessment-answer', new Error(`Assessment logging failed: ${err}`));
+  });
 
   // Check if assessment is complete
   const isComplete = newQuestionsAnswered >= session.question_ids.length;

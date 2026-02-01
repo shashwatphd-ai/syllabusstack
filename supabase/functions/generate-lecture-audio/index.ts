@@ -3,11 +3,14 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0";
 import { generateNarration, needsNarration } from "../_shared/ai-narrator.ts";
 import { transformToSSML, isSSML } from "../_shared/ssml-transformer.ts";
 import { mapAudioSegments, extractContentBlocks } from "../_shared/segment-mapper.ts";
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo,
+  logError,
+} from "../_shared/error-handler.ts";
 
 interface SlideWithAudio {
   order: number;
@@ -64,34 +67,28 @@ function generateSimpleFallback(slide: SlideWithAudio): string {
   return parts.join(' ');
 }
 
-serve(async (req) => {
+const handler = async (req: Request): Promise<Response> => {
   // Handle CORS preflight
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
+
+  const corsHeaders = getCorsHeaders(req);
+
+  // Neural2 voices are more natural than WaveNet at same price ($16/1M chars)
+  // Options: Neural2-A (female), Neural2-D (male), Neural2-F (female), Neural2-J (male)
+  const { slideId, voice = 'en-US-Neural2-D', enableSSML = true, enableSegmentMapping = true } = await req.json();
+
+  if (!slideId) {
+    return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'slideId is required');
+  }
+
+  const GOOGLE_CLOUD_API_KEY = Deno.env.get('GOOGLE_CLOUD_API_KEY');
+  if (!GOOGLE_CLOUD_API_KEY) {
+    return createErrorResponse('CONFIG_ERROR', corsHeaders, 'GOOGLE_CLOUD_API_KEY not configured');
   }
 
   try {
-    // Neural2 voices are more natural than WaveNet at same price ($16/1M chars)
-    // Options: Neural2-A (female), Neural2-D (male), Neural2-F (female), Neural2-J (male)
-    const { slideId, voice = 'en-US-Neural2-D', enableSSML = true, enableSegmentMapping = true } = await req.json();
-
-    if (!slideId) {
-      return new Response(
-        JSON.stringify({ error: 'slideId is required' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    const GOOGLE_CLOUD_API_KEY = Deno.env.get('GOOGLE_CLOUD_API_KEY');
-    if (!GOOGLE_CLOUD_API_KEY) {
-      return new Response(
-        JSON.stringify({ error: 'GOOGLE_CLOUD_API_KEY not configured' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // GOOGLE_CLOUD_API_KEY is used for AI narration and SSML features
-    // (already checked above)
+    logInfo('generate-lecture-audio', 'starting', { slideId, voice, enableSSML, enableSegmentMapping });
 
     // Create Supabase client with service role
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -327,43 +324,39 @@ serve(async (req) => {
 
     const slidesWithAudio = updatedSlides.filter(s => s.audio_url).length;
     const slidesWithSegments = updatedSlides.filter(s => s.audio_segment_map?.length).length;
-    console.log(`Audio generation complete: ${slidesWithAudio}/${slides.length} slides with audio, ${slidesWithSegments} with segment maps`);
+    logInfo('generate-lecture-audio', 'complete', {
+      slideId,
+      slidesWithAudio,
+      slidesWithSegments,
+      totalSlides: slides.length,
+      totalDurationSeconds,
+    });
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        slidesWithAudio,
-        slidesWithSegments,
-        totalSlides: slides.length,
-        totalDurationSeconds,
-        message: `Generated audio for ${slidesWithAudio} slides with ${slidesWithSegments} segment maps`
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    return createSuccessResponse({
+      success: true,
+      slidesWithAudio,
+      slidesWithSegments,
+      totalSlides: slides.length,
+      totalDurationSeconds,
+      message: `Generated audio for ${slidesWithAudio} slides with ${slidesWithSegments} segment maps`
+    }, corsHeaders);
 
   } catch (error) {
-    console.error('Generate lecture audio error:', error);
+    logError('generate-lecture-audio', error instanceof Error ? error : new Error(String(error)));
 
     // Try to update status to failed
     try {
-      const { slideId } = await req.clone().json().catch(() => ({}));
-      if (slideId) {
-        const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-        const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-        const supabase = createClient(supabaseUrl, supabaseServiceKey);
-        await supabase
-          .from('lecture_slides')
-          .update({ audio_status: 'failed' })
-          .eq('id', slideId);
-      }
+      const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+      const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+      await supabase
+        .from('lecture_slides')
+        .update({ audio_status: 'failed' })
+        .eq('id', slideId);
     } catch {}
 
-    return new Response(
-      JSON.stringify({ 
-        error: error instanceof Error ? error.message : 'Unknown error',
-        success: false
-      }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    return createErrorResponse('INTERNAL_ERROR', corsHeaders, error instanceof Error ? error.message : 'Unknown error');
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));

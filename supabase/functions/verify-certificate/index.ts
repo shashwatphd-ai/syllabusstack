@@ -1,20 +1,25 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo,
+  logError,
+} from "../_shared/error-handler.ts";
 
 interface VerifyRequest {
   share_token?: string;
   certificate_number?: string;
 }
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+const handler = async (req: Request): Promise<Response> => {
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
+
+  const corsHeaders = getCorsHeaders(req);
+  logInfo('verify-certificate', 'starting');
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -25,10 +30,7 @@ serve(async (req) => {
     const { share_token, certificate_number }: VerifyRequest = await req.json();
 
     if (!share_token && !certificate_number) {
-      return new Response(
-        JSON.stringify({ error: "share_token or certificate_number is required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'share_token or certificate_number is required');
     }
 
     // Build query based on provided identifier
@@ -60,27 +62,15 @@ serve(async (req) => {
     const { data: certificate, error } = await query.single();
 
     if (error || !certificate) {
-      return new Response(
-        JSON.stringify({ 
-          valid: false, 
-          error: "Certificate not found" 
-        }),
-        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return createErrorResponse('NOT_FOUND', corsHeaders, 'Certificate not found');
     }
 
     // Check certificate status
     if (certificate.status !== "active") {
-      return new Response(
-        JSON.stringify({
-          valid: false,
-          status: certificate.status,
-          error: certificate.status === "revoked" 
-            ? "This certificate has been revoked" 
-            : "This certificate has expired",
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      const errorMessage = certificate.status === "revoked"
+        ? "This certificate has been revoked"
+        : "This certificate has expired";
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, errorMessage);
     }
 
     // Get holder name (first name + last initial for privacy)
@@ -144,37 +134,30 @@ serve(async (req) => {
       assessed: "Assessed Mastery",
     };
 
-    console.log(`[verify-certificate] Verified certificate ${certificate.certificate_number}`);
+    logInfo('verify-certificate', 'complete', { certificateNumber: certificate.certificate_number });
 
-    return new Response(
-      JSON.stringify({
-        valid: true,
-        certificate: {
-          certificate_number: certificate.certificate_number,
-          certificate_type: certificate.certificate_type,
-          tier_label: tierLabels[certificate.certificate_type as keyof typeof tierLabels],
-          holder_name: holderName,
-          course_title: certificate.course_title,
-          instructor_name: certificate.instructor_name,
-          institution_name: certificate.institution_name,
-          completion_date: certificate.completion_date,
-          mastery_score: certificate.mastery_score,
-          skill_breakdown: certificate.skill_breakdown,
-          issued_at: certificate.issued_at,
-        },
-        trust_indicators: trustIndicators,
-        verification_timestamp: new Date().toISOString(),
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return createSuccessResponse({
+      valid: true,
+      certificate: {
+        certificate_number: certificate.certificate_number,
+        certificate_type: certificate.certificate_type,
+        tier_label: tierLabels[certificate.certificate_type as keyof typeof tierLabels],
+        holder_name: holderName,
+        course_title: certificate.course_title,
+        instructor_name: certificate.instructor_name,
+        institution_name: certificate.institution_name,
+        completion_date: certificate.completion_date,
+        mastery_score: certificate.mastery_score,
+        skill_breakdown: certificate.skill_breakdown,
+        issued_at: certificate.issued_at,
+      },
+      trust_indicators: trustIndicators,
+      verification_timestamp: new Date().toISOString(),
+    }, corsHeaders);
   } catch (error) {
-    console.error("[verify-certificate] Error:", error);
-    return new Response(
-      JSON.stringify({ 
-        valid: false, 
-        error: error instanceof Error ? error.message : "Verification failed" 
-      }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    logError('verify-certificate', error instanceof Error ? error : new Error(String(error)));
+    return createErrorResponse('INTERNAL_ERROR', corsHeaders, error instanceof Error ? error.message : 'Verification failed');
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));
