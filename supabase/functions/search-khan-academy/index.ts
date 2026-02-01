@@ -8,6 +8,7 @@ import {
   createSuccessResponse,
   withErrorHandling,
   logInfo,
+  logError,
 } from "../_shared/error-handler.ts";
 
 // Khan Academy GraphQL endpoint (internal API - free, no quota)
@@ -400,17 +401,17 @@ function calculateSemanticSimilarity(videoText: string, searchTerms: string[]): 
   return Math.min(matchCount / Math.max(searchTerms.length, 1), 1.0);
 }
 
-serve(async (req) => {
+const handler = async (req: Request): Promise<Response> => {
+  // Handle CORS preflight
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
+
   const corsHeaders = getCorsHeaders(req);
-  
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
 
   try {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
-      throw new Error("No authorization header");
+      return createErrorResponse('UNAUTHORIZED', corsHeaders, 'No authorization header');
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
@@ -422,7 +423,7 @@ serve(async (req) => {
 
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
     if (userError || !user) {
-      throw new Error("Unauthorized");
+      return createErrorResponse('UNAUTHORIZED', corsHeaders, 'Invalid authentication');
     }
 
     const {
@@ -435,10 +436,10 @@ serve(async (req) => {
     } = await req.json();
 
     if (!learning_objective_id || !core_concept) {
-      throw new Error("learning_objective_id and core_concept are required");
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'learning_objective_id and core_concept are required');
     }
 
-    console.log(`Searching Khan Academy for: ${core_concept}`);
+    logInfo('search-khan-academy', 'starting', { loId: learning_objective_id, concept: core_concept });
 
     // Build search concept for caching
     const searchConcept = lo_text || core_concept;
@@ -816,11 +817,9 @@ serve(async (req) => {
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error: unknown) {
-    console.error("Error in search-khan-academy:", error);
-    const errorMessage = error instanceof Error ? error.message : "Unknown error";
-    return new Response(
-      JSON.stringify({ error: errorMessage }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    logError('search-khan-academy', error instanceof Error ? error : new Error(String(error)));
+    return createErrorResponse('INTERNAL_ERROR', corsHeaders, error instanceof Error ? error.message : 'Unknown error');
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));

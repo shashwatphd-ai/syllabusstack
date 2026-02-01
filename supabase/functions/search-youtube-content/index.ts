@@ -17,13 +17,9 @@ import {
   createSuccessResponse,
   withErrorHandling,
   logInfo,
+  logError,
 } from "../_shared/error-handler.ts";
 
-// Legacy compatibility - corsHeaders will be set per-request in handler
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
 
 /**
  * UNIFIED EDUCATIONAL CONTENT SEARCH FOR INSTRUCTORS
@@ -283,15 +279,17 @@ function calculateTotalScore(scores: ScoredContent['scores'], hasAI: boolean): n
 // MAIN HANDLER
 // ============================================================================
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+const handler = async (req: Request): Promise<Response> => {
+  // Handle CORS preflight
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
+
+  const corsHeaders = getCorsHeaders(req);
 
   try {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
-      throw new Error("No authorization header");
+      return createErrorResponse('UNAUTHORIZED', corsHeaders, 'No authorization header');
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
@@ -303,7 +301,7 @@ serve(async (req) => {
 
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
     if (userError || !user) {
-      throw new Error("Unauthorized");
+      return createErrorResponse('UNAUTHORIZED', corsHeaders, 'Invalid authentication');
     }
 
     const { 
@@ -321,8 +319,10 @@ serve(async (req) => {
     } = await req.json();
     
     if (!learning_objective_id) {
-      throw new Error("learning_objective_id is required");
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'learning_objective_id is required');
     }
+
+    logInfo('search-youtube-content', 'starting', { loId: learning_objective_id });
 
     // =========================================================================
     // STEP 0.1: Fetch LO data from DB if not provided (CRITICAL for AI evaluation)
@@ -344,8 +344,8 @@ serve(async (req) => {
         .single();
       
       if (loError || !loData) {
-        console.error('[FALLBACK] Failed to fetch LO data:', loError?.message);
-        throw new Error('Learning objective not found');
+        logError('search-youtube-content', new Error(`Failed to fetch LO data: ${loError?.message}`));
+        return createErrorResponse('NOT_FOUND', corsHeaders, 'Learning objective not found');
       }
       
       effectiveLoText = loData.text;
@@ -1140,11 +1140,9 @@ serve(async (req) => {
     );
 
   } catch (error: unknown) {
-    console.error("Error in search-youtube-content:", error);
-    const errorMessage = error instanceof Error ? error.message : "Unknown error";
-    return new Response(
-      JSON.stringify({ error: errorMessage }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    logError('search-youtube-content', error instanceof Error ? error : new Error(String(error)));
+    return createErrorResponse('INTERNAL_ERROR', corsHeaders, error instanceof Error ? error.message : 'Unknown error');
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));

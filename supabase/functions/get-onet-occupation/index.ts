@@ -1,20 +1,25 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo,
+  logError,
+} from "../_shared/error-handler.ts";
 
 interface GetOccupationRequest {
   soc_code: string;
   force_refresh?: boolean;
 }
 
-serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
+const handler = async (req: Request): Promise<Response> => {
+  // Handle CORS preflight
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
+
+  const corsHeaders = getCorsHeaders(req);
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -27,13 +32,10 @@ serve(async (req) => {
     const { soc_code, force_refresh = false } = body;
 
     if (!soc_code) {
-      return new Response(JSON.stringify({ error: 'SOC code is required' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'SOC code is required');
     }
 
-    console.log(`Fetching occupation: ${soc_code}, force_refresh: ${force_refresh}`);
+    logInfo('get-onet-occupation', 'fetching', { socCode: soc_code, forceRefresh: force_refresh });
 
     // Check cache first (unless force refresh)
     if (!force_refresh) {
@@ -49,14 +51,12 @@ serve(async (req) => {
         const thirtyDays = 30 * 24 * 60 * 60 * 1000;
 
         if (cacheAge < thirtyDays) {
-          console.log(`Returning cached data for ${soc_code}`);
-          return new Response(JSON.stringify({
+          logInfo('get-onet-occupation', 'cache_hit', { socCode: soc_code });
+          return createSuccessResponse({
             success: true,
             occupation: cached,
             source: 'cache',
-          }), {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
+          }, corsHeaders);
         }
       }
     }
@@ -74,27 +74,20 @@ serve(async (req) => {
         .maybeSingle();
 
       if (fallback) {
-        return new Response(JSON.stringify({
+        logInfo('get-onet-occupation', 'cache_fallback', { socCode: soc_code });
+        return createSuccessResponse({
           success: true,
           occupation: fallback,
           source: 'cache_fallback',
           note: 'O*NET API credentials not configured',
-        }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+        }, corsHeaders);
       }
 
-      return new Response(JSON.stringify({
-        error: 'Occupation not found and O*NET API credentials not configured',
-        soc_code,
-      }), {
-        status: 404,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return createErrorResponse('NOT_FOUND', corsHeaders, 'Occupation not found and O*NET API credentials not configured');
     }
 
     // Fetch from O*NET Web Services API
-    console.log(`Fetching from O*NET API: ${soc_code}`);
+    logInfo('get-onet-occupation', 'fetching_from_api', { socCode: soc_code });
     
     const onetBaseUrl = 'https://services.onetcenter.org/ws';
     const authHeader = 'Basic ' + btoa(`${onetUsername}:${onetPassword}`);
@@ -108,8 +101,8 @@ serve(async (req) => {
     });
 
     if (!summaryResponse.ok) {
-      console.error(`O*NET API error: ${summaryResponse.status}`);
-      
+      logError('get-onet-occupation', new Error(`O*NET API error: ${summaryResponse.status}`));
+
       // Return cached if available
       const { data: fallback } = await supabase
         .from('onet_occupations')
@@ -118,22 +111,14 @@ serve(async (req) => {
         .maybeSingle();
 
       if (fallback) {
-        return new Response(JSON.stringify({
+        return createSuccessResponse({
           success: true,
           occupation: fallback,
           source: 'cache_api_error',
-        }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+        }, corsHeaders);
       }
 
-      return new Response(JSON.stringify({
-        error: 'Occupation not found in O*NET',
-        soc_code,
-      }), {
-        status: 404,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return createErrorResponse('NOT_FOUND', corsHeaders, 'Occupation not found in O*NET');
     }
 
     const summaryData = await summaryResponse.json();
@@ -205,25 +190,21 @@ serve(async (req) => {
       .single();
 
     if (upsertError) {
-      console.error('Error caching occupation:', upsertError);
+      logError('get-onet-occupation', new Error(`Error caching occupation: ${upsertError.message}`));
     }
 
-    console.log(`Cached occupation ${soc_code} from O*NET API`);
+    logInfo('get-onet-occupation', 'complete', { socCode: soc_code, source: 'onet_api' });
 
-    return new Response(JSON.stringify({
+    return createSuccessResponse({
       success: true,
       occupation: upserted || occupationRecord,
       source: 'onet_api',
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    }, corsHeaders);
 
   } catch (error: unknown) {
-    console.error('Error in get-onet-occupation:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Failed to get occupation';
-    return new Response(JSON.stringify({ error: errorMessage }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    logError('get-onet-occupation', error instanceof Error ? error : new Error(String(error)));
+    return createErrorResponse('INTERNAL_ERROR', corsHeaders, error instanceof Error ? error.message : 'Failed to get occupation');
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));
