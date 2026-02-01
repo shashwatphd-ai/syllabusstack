@@ -1,8 +1,8 @@
 # Master Implementation Plan V3: Complete Production Readiness Roadmap
 
-**Date:** 2026-01-29
-**Version:** 3.0
-**Source Documents:** MASTER_IMPLEMENTATION_PLAN.md, MASTER_IMPLEMENTATION_PLAN_V2.md, Production Readiness Audit
+**Date:** 2026-01-31
+**Version:** 3.1
+**Source Documents:** MASTER_IMPLEMENTATION_PLAN.md, MASTER_IMPLEMENTATION_PLAN_V2.md, Production Readiness Audit, ALGORITHM_UPGRADE_PLAN.md
 **Verified Against:** Actual codebase state (build, tests, edge function analysis)
 
 ---
@@ -14,6 +14,28 @@ This comprehensive plan consolidates all previous planning documents and extends
 - Deep codebase analysis findings
 - Extended roadmap for full production readiness
 - Accurate effort estimates based on verified complexity
+- **NEW: Patentable algorithm foundations for core IP protection**
+
+### Algorithm Upgrade Foundation (Prerequisite - ✅ IMPLEMENTED)
+
+Before proceeding with production hardening, the core algorithms have been upgraded to establish patentable IP. See `ALGORITHM_UPGRADE_PLAN.md` for full details.
+
+| Algorithm | Previous | Upgraded | Patent Claim |
+|-----------|----------|----------|--------------|
+| Skill Matching | Jaccard similarity (1901) | Semantic embeddings | Career-outcome trained embedding space |
+| Assessment | Bloom's taxonomy mapping | IRT 2PL Adaptive | Real-time recalibration + Fisher-optimal selection |
+| Course Linking | Keyword overlap | Skill Transfer Graph | GNN with transfer coefficients |
+| Skill Freshness | Timestamp only | Weibull Decay | Category-specific empirical parameters |
+| Course Selection | AI prioritized | NSGA-II Multi-objective | Pareto-optimal learning paths |
+
+**Files Implemented:**
+- `supabase/migrations/20260131100000_algorithm_data_collection.sql` - Data infrastructure
+- `supabase/functions/_shared/skill-decay.ts` - Weibull decay model
+- `supabase/functions/_shared/irt-engine.ts` - IRT adaptive assessment
+- `supabase/functions/_shared/skill-graph.ts` - Skill relationship graph
+- `supabase/functions/_shared/course-optimizer.ts` - NSGA-II optimizer
+- `supabase/functions/_shared/assessment-logger.ts` - Response logging for IRT
+- `src/hooks/usePlacementOutcomes.ts` - Placement outcome tracking
 
 ### Current State (Verified 2026-01-29)
 
@@ -49,6 +71,20 @@ This comprehensive plan consolidates all previous planning documents and extends
 | 3.7.1 PDF Export Fix | ✅ DONE | 3373d0c | html2pdf.js integration |
 | 4.1 start-assessment Standardization | ✅ DONE | 3373d0c | Error handling pattern |
 | 5.1 Remove Unused Code | ✅ DONE | 3373d0c | useWorkflows, workflows/, useProgressiveGeneration |
+| **Algorithm Upgrades** | ✅ DONE | (pending) | Patentable IP foundation |
+
+---
+
+### Algorithm Upgrade Tasks (✅ COMPLETED 2026-01-31)
+
+| Task | Status | Details |
+|------|--------|---------|
+| Data Collection Infrastructure | ✅ Done | DB migration for IRT, decay, outcomes |
+| Weibull Skill Decay | ✅ Done | Category-specific decay parameters |
+| IRT Adaptive Assessment | ✅ Done | 2PL model with MLE estimation |
+| Skill Relationship Graph | ✅ Done | Transfer coefficients, message passing |
+| NSGA-II Course Optimizer | ✅ Done | Pareto-optimal learning paths |
+| Placement Outcome Tracking | ✅ Done | Frontend hook for data collection |
 
 ---
 
