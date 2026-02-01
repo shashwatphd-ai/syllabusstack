@@ -11,11 +11,27 @@ import {
   toYouTubeVideoArray,
   YouTubeSearchResult,
 } from "../_shared/youtube-search/index.ts";
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo,
+} from "../_shared/error-handler.ts";
 
+// Legacy compatibility - corsHeaders will be set per-request in handler
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+// Re-import for the actual function signatures we need
+import {
+  createErrorResponse as _createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo,
+} from "../_shared/error-handler.ts";
 
 /**
  * UNIFIED EDUCATIONAL CONTENT SEARCH FOR INSTRUCTORS

@@ -1,11 +1,13 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { generateText, MODELS, parseJsonResponse } from "../_shared/unified-ai-client.ts";
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo,
+} from "../_shared/error-handler.ts";
 
 // Bloom's Taxonomy descriptions for AI context
 const BLOOM_DESCRIPTIONS: Record<string, { action: string; videoTypes: string; focus: string }> = {
@@ -41,80 +43,77 @@ const BLOOM_DESCRIPTIONS: Record<string, { action: string; videoTypes: string; f
   }
 };
 
-serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+const handler = async (req: Request): Promise<Response> => {
+  // CORS preflight
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
+
+  const corsHeaders = getCorsHeaders(req);
+
+  const authHeader = req.headers.get('Authorization');
+  if (!authHeader) {
+    return createErrorResponse('UNAUTHORIZED', corsHeaders, 'No authorization header');
   }
 
-  try {
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: 'No authorization header' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+  const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+  const supabase = createClient(supabaseUrl, supabaseKey);
 
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
+  const { learning_objective } = await req.json();
 
-    const { learning_objective } = await req.json();
+  if (!learning_objective) {
+    return createErrorResponse('BAD_REQUEST', corsHeaders, 'learning_objective is required');
+  }
 
-    if (!learning_objective) {
-      return new Response(JSON.stringify({ error: 'learning_objective is required' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+  const {
+    id: loId,
+    text: loText,
+    bloom_level: bloomLevel,
+    core_concept: coreConcept,
+    domain,
+    action_verb: actionVerb,
+    search_keywords: searchKeywords,
+    expected_duration_minutes: expectedDuration,
+  } = learning_objective;
 
-    const {
-      id: loId,
-      text: loText,
-      bloom_level: bloomLevel,
-      core_concept: coreConcept,
-      domain,
-      action_verb: actionVerb,
-      search_keywords: searchKeywords,
-      expected_duration_minutes: expectedDuration,
-    } = learning_objective;
+  logInfo('generate-content-strategy', 'starting', { loId });
 
-    // Phase 5: Enhanced module and course context for better search relevance
-    let moduleContext = "";
-    let courseContext = "";
+  // Phase 5: Enhanced module and course context for better search relevance
+  let moduleContext = "";
+  let courseContext = "";
+  
+  if (learning_objective.module_id) {
+    const { data: module } = await supabase
+      .from('modules')
+      .select('title, description, instructor_course_id')
+      .eq('id', learning_objective.module_id)
+      .single();
     
-    if (learning_objective.module_id) {
-      const { data: module } = await supabase
-        .from('modules')
-        .select('title, description, instructor_course_id')
-        .eq('id', learning_objective.module_id)
-        .single();
+    if (module) {
+      moduleContext = `MODULE: "${module.title}"${module.description ? `\nModule Description: ${module.description}` : ''}`;
       
-      if (module) {
-        moduleContext = `MODULE: "${module.title}"${module.description ? `\nModule Description: ${module.description}` : ''}`;
+      // Also fetch course context
+      if (module.instructor_course_id) {
+        const { data: course } = await supabase
+          .from('instructor_courses')
+          .select('title, description')
+          .eq('id', module.instructor_course_id)
+          .single();
         
-        // Also fetch course context
-        if (module.instructor_course_id) {
-          const { data: course } = await supabase
-            .from('instructor_courses')
-            .select('title, description')
-            .eq('id', module.instructor_course_id)
-            .single();
-          
-          if (course) {
-            courseContext = `COURSE: "${course.title}"${course.description ? `\nCourse Description: ${course.description}` : ''}`;
-          }
+        if (course) {
+          courseContext = `COURSE: "${course.title}"${course.description ? `\nCourse Description: ${course.description}` : ''}`;
         }
       }
     }
+  }
 
-    const bloomInfo = BLOOM_DESCRIPTIONS[bloomLevel?.toLowerCase() || 'understand'];
+  const bloomInfo = BLOOM_DESCRIPTIONS[bloomLevel?.toLowerCase() || 'understand'];
 
-    const systemPrompt = `You are an expert educational content curator specializing in finding YouTube videos that match specific learning objectives. You understand Bloom's Taxonomy deeply and know what types of videos help students achieve different cognitive levels.
+  const systemPrompt = `You are an expert educational content curator specializing in finding YouTube videos that match specific learning objectives. You understand Bloom's Taxonomy deeply and know what types of videos help students achieve different cognitive levels.
 
 Your goal is to generate optimal YouTube search queries that will find videos matching the pedagogical requirements of the learning objective.`;
 
-    const userPrompt = `Generate YouTube search strategies for this learning objective. CRITICAL: Searches must be SPECIFIC to the module and course context - avoid generic queries.
+  const userPrompt = `Generate YouTube search strategies for this learning objective. CRITICAL: Searches must be SPECIFIC to the module and course context - avoid generic queries.
 
 ${courseContext ? `${courseContext}\n` : ''}${moduleContext ? `${moduleContext}\n` : ''}
 
@@ -156,73 +155,67 @@ Return ONLY valid JSON in this exact format:
   ]
 }`;
 
-    console.log('Calling OpenRouter for content strategy generation...');
+  console.log('Calling OpenRouter for content strategy generation...');
 
-    // Use unified AI client for text generation
-    let strategies;
-    try {
-      const result = await generateText({
-        prompt: userPrompt,
-        systemPrompt: systemPrompt,
-        model: MODELS.FAST,
-        temperature: 0.7,
-        fallbacks: [MODELS.GEMINI_FLASH],
-        logPrefix: '[generate-content-strategy]'
-      });
-
-      strategies = parseJsonResponse<{ strategies: any[] }>(result.content);
-    } catch (parseError) {
-      console.error('Failed to parse AI response, using fallback');
-      // Fallback to basic strategies if AI parsing fails
-      strategies = {
-        strategies: [
-          { query: `${coreConcept} ${bloomLevel} tutorial`, rationale: "Basic concept + level query", expected_video_type: "tutorial", priority: 1 },
-          { query: `${coreConcept} explained`, rationale: "Simple explanation query", expected_video_type: "explanation", priority: 2 },
-          { query: `how to ${actionVerb} ${coreConcept}`, rationale: "Action-focused query", expected_video_type: "tutorial", priority: 3 },
-          { query: `${coreConcept} course lecture`, rationale: "Academic content query", expected_video_type: "lecture", priority: 4 },
-          { query: `${coreConcept} for beginners`, rationale: "Beginner-friendly content", expected_video_type: "explanation", priority: 5 },
-          { query: `${domain} ${coreConcept} examples`, rationale: "Domain-specific examples", expected_video_type: "demonstration", priority: 6 },
-        ]
-      };
-    }
-
-    // Store strategies in database
-    if (strategies.strategies && loId) {
-      const strategiesToInsert = strategies.strategies.map((s: any) => ({
-        learning_objective_id: loId,
-        query: s.query,
-        rationale: s.rationale,
-        expected_video_type: s.expected_video_type,
-        priority: s.priority,
-      }));
-
-      // Delete old strategies first
-      await supabase
-        .from('content_search_strategies')
-        .delete()
-        .eq('learning_objective_id', loId);
-
-      const { error: insertError } = await supabase
-        .from('content_search_strategies')
-        .insert(strategiesToInsert);
-
-      if (insertError) {
-        console.error('Failed to store strategies:', insertError);
-      }
-    }
-
-    console.log('Generated strategies:', strategies);
-
-    return new Response(JSON.stringify(strategies), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  // Use unified AI client for text generation
+  let strategies;
+  try {
+    const result = await generateText({
+      prompt: userPrompt,
+      systemPrompt: systemPrompt,
+      model: MODELS.FAST,
+      temperature: 0.7,
+      fallbacks: [MODELS.GEMINI_FLASH],
+      logPrefix: '[generate-content-strategy]'
     });
 
-  } catch (error: unknown) {
-    console.error('Error in generate-content-strategy:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return new Response(JSON.stringify({ error: errorMessage }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    strategies = parseJsonResponse<{ strategies: any[] }>(result.content);
+  } catch (parseError) {
+    console.error('Failed to parse AI response, using fallback');
+    // Fallback to basic strategies if AI parsing fails
+    strategies = {
+      strategies: [
+        { query: `${coreConcept} ${bloomLevel} tutorial`, rationale: "Basic concept + level query", expected_video_type: "tutorial", priority: 1 },
+        { query: `${coreConcept} explained`, rationale: "Simple explanation query", expected_video_type: "explanation", priority: 2 },
+        { query: `how to ${actionVerb} ${coreConcept}`, rationale: "Action-focused query", expected_video_type: "tutorial", priority: 3 },
+        { query: `${coreConcept} course lecture`, rationale: "Academic content query", expected_video_type: "lecture", priority: 4 },
+        { query: `${coreConcept} for beginners`, rationale: "Beginner-friendly content", expected_video_type: "explanation", priority: 5 },
+        { query: `${domain} ${coreConcept} examples`, rationale: "Domain-specific examples", expected_video_type: "demonstration", priority: 6 },
+      ]
+    };
   }
-});
+
+  // Store strategies in database
+  if (strategies.strategies && loId) {
+    const strategiesToInsert = strategies.strategies.map((s: any) => ({
+      learning_objective_id: loId,
+      query: s.query,
+      rationale: s.rationale,
+      expected_video_type: s.expected_video_type,
+      priority: s.priority,
+    }));
+
+    // Delete old strategies first
+    await supabase
+      .from('content_search_strategies')
+      .delete()
+      .eq('learning_objective_id', loId);
+
+    const { error: insertError } = await supabase
+      .from('content_search_strategies')
+      .insert(strategiesToInsert);
+
+    if (insertError) {
+      console.error('Failed to store strategies:', insertError);
+    }
+  }
+
+  logInfo('generate-content-strategy', 'complete', { 
+    loId, 
+    strategyCount: strategies.strategies?.length || 0 
+  });
+
+  return createSuccessResponse(strategies, corsHeaders);
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));
