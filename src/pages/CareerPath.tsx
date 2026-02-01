@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/layout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { HelpTooltip, FeatureHelp } from "@/components/common/HelpTooltip";
 import { useTour, ProductTour, CAREER_PATH_TOUR } from "@/components/common/ProductTour";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -301,12 +302,19 @@ export default function CareerPathPage() {
                   </SelectContent>
                 </Select>
                 {selectedJob && (
-                  <HelpTooltip content="Your match score shows how well your current skills align with your dream job requirements. Higher scores mean you're closer to being ready for the role.">
-                    <Badge id="match-score-badge" variant={matchScore >= 60 ? "default" : "secondary"} className="shrink-0 self-start sm:self-auto cursor-help">
-                      <TrendingUp className="h-3 w-3 mr-1" />
-                      {matchScore}% Match
-                    </Badge>
-                  </HelpTooltip>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Badge id="match-score-badge" variant={matchScore >= 60 ? "default" : "secondary"} className="shrink-0 self-start sm:self-auto cursor-help">
+                          <TrendingUp className="h-3 w-3 mr-1" />
+                          {matchScore}% Match
+                        </Badge>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="max-w-xs">Your match score shows how well your current skills align with your dream job requirements. Higher scores mean you're closer to being ready for the role.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 )}
               </div>
             )}

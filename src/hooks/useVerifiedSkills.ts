@@ -322,15 +322,15 @@ export function useAddVerifiedSkill() {
 
       const { data, error } = await supabase
         .from('verified_skills')
-        .insert({
+        .insert([{
           user_id: user.id,
           skill_name: skillName,
           proficiency_level: proficiencyLevel,
           source_type: sourceType,
           source_name: sourceName || null,
           evidence_url: evidenceUrl || null,
-          metadata: metadata || {},
-        })
+          metadata: (metadata || {}) as unknown as import('@/integrations/supabase/types').Json,
+        }])
         .select()
         .single();
 

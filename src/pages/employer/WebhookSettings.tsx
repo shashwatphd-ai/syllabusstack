@@ -55,7 +55,8 @@ export default function WebhookSettings() {
   }
 
   const activeWebhooks = webhooks.filter(w => w.is_active);
-  const totalDeliveries = webhooks.reduce((sum, w) => sum + (w.delivery_count || 0), 0);
+  // Note: delivery_count doesn't exist in the schema - use 0 for now
+  const totalDeliveries = 0;
   const failedWebhooks = webhooks.filter(w => (w.failure_count || 0) > 0);
 
   return (

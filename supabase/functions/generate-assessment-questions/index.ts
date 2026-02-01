@@ -244,9 +244,9 @@ For short answer questions, include keywords that indicate correct understanding
     }
 
     // Track AI usage
-    const serviceClient = createServiceClient();
+    const usageClient = createServiceClient();
     await trackAIUsage(
-      serviceClient,
+      usageClient,
       user.id,
       "generate-assessment-questions",
       "openrouter/gpt-4o-mini"
