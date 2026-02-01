@@ -98,9 +98,8 @@ function calculateEngagementScore(
 const handler = async (req: Request): Promise<Response> => {
   const corsHeaders = getCorsHeaders(req);
 
-  if (req.method === "OPTIONS") {
-    return handleCorsPreFlight(req);
-  }
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
 
   try {
     const authHeader = req.headers.get("Authorization");
