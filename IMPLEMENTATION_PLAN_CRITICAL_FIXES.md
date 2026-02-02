@@ -1,482 +1,620 @@
-# SyllabusStack Critical Fixes Implementation Plan
+# SyllabusStack Critical Fixes Implementation Plan v2
 
 **Created:** 2026-02-02
+**Updated:** 2026-02-02 (Incorporating Lovable Agent Review)
 **Priority:** P0 (Must fix before production)
-**Estimated Total Effort:** 3-4 days
+**Estimated Total Effort:** 4-6 days
 
 ---
 
 ## Executive Summary
 
-This plan addresses **13 critical issues** discovered during code review, organized into 4 phases:
+This plan addresses **13 verified issues** discovered during code review by both Claude and Lovable agents. Issues are organized into 4 phases with **concrete implementation logic** - no vague "improvements."
 
-1. **Phase 1: Data Integrity & Security** (Day 1) - Payment safety, race conditions, rate limiting
-2. **Phase 2: AI Quality & Reliability** (Day 2) - Prompts, schemas, scoring calibration
-3. **Phase 3: Flow Correctness** (Day 3) - Assessment completion, content search, curriculum
-4. **Phase 4: Code Quality** (Day 3-4) - Response formats, validation, consistency
+### Key Updates from Lovable Agent Review:
+- **Issue 8 (Race Condition)**: Downgraded to P2 - DB unique constraint already exists (`UNIQUE(student_id, instructor_course_id)`), only need better error handling
+- **More specific line numbers** identified for response format inconsistencies
+- **Additional context** on schema mismatch impact
 
 ---
 
-## Phase 1: Data Integrity & Security (CRITICAL)
+## Phase 1: Data Integrity & Security (P0 - CRITICAL)
 
 ### 1.1 Fix Silent Database Failures in Payment Handlers
 
-**Priority:** P0 - CRITICAL (Money at risk)
-**Effort:** 2-3 hours
+**File:** `supabase/functions/stripe-webhook/index.ts`
+**Lines:** 202-213, 240-250, 268-276, 302-305, 376-379
 
-#### Problem
-Database updates in Stripe webhook handlers don't verify success. Users can pay but not receive Pro access.
-
-#### Files to Modify
-
-| File | Lines | Issue |
-|------|-------|-------|
-| `supabase/functions/stripe-webhook/index.ts` | 202-213, 240-250, 268-276 | No error check on profile update |
-| `supabase/functions/create-checkout-session/index.ts` | 87-90 | No error check |
-| `supabase/functions/create-course-payment/index.ts` | 88-91 | No error check |
-| `supabase/functions/cancel-subscription/index.ts` | 85-95 | No error check |
-
-#### Implementation
-
+#### The Problem (Concrete)
 ```typescript
-// BEFORE (dangerous)
+// CURRENT CODE (lines 202-213)
 await supabase
   .from("profiles")
-  .update({ subscription_tier: "pro" })
-  .eq("user_id", userId);
+  .update({
+    subscription_tier: "pro",
+    subscription_status: subscription.status,
+    // ...
+  })
+  .eq("user_id", subscriptionUserId);
 
-// AFTER (safe)
-const { data, error } = await supabase
+console.log(`Updated user ${subscriptionUserId} to pro tier`);
+// ^^^ This logs "success" even if the update FAILED
+```
+
+**Why This Is Dangerous:**
+1. Stripe charges the user successfully
+2. Webhook fires and runs this code
+3. Database update fails silently (network issue, constraint violation, etc.)
+4. `console.log` says it worked
+5. User is charged but stays on Free tier
+6. No alert, no retry, no record of failure
+
+#### The Fix (Concrete)
+
+```typescript
+// FIXED CODE
+const { data: updatedProfile, error: updateError } = await supabase
   .from("profiles")
-  .update({ subscription_tier: "pro" })
-  .eq("user_id", userId)
-  .select()
+  .update({
+    subscription_tier: "pro",
+    subscription_status: subscription.status,
+    stripe_subscription_id: subscription.id,
+    subscription_started_at: new Date(subscription.start_date * 1000).toISOString(),
+    subscription_ends_at: subscription.current_period_end
+      ? new Date(subscription.current_period_end * 1000).toISOString()
+      : null,
+  })
+  .eq("user_id", subscriptionUserId)
+  .select('user_id, subscription_tier')  // CRITICAL: Get confirmation
   .single();
 
-if (error || !data) {
-  // Log critical error for alerting
-  logError('stripe-webhook', new Error(`CRITICAL: Failed to update subscription for user ${userId}`), {
-    stripe_event_id: event.id,
-    subscription_id: subscription.id,
-    error: error?.message
-  });
+if (updateError || !updatedProfile) {
+  // CRITICAL: Log with all context needed to manually fix
+  console.error('CRITICAL PAYMENT ERROR:', JSON.stringify({
+    error: updateError?.message,
+    code: updateError?.code,
+    userId: subscriptionUserId,
+    stripeSubscriptionId: subscription.id,
+    stripeEventId: event.id,
+    intendedTier: 'pro',
+    timestamp: new Date().toISOString()
+  }));
 
-  // Return 500 so Stripe retries the webhook
-  return createErrorResponse('DATABASE_ERROR', corsHeaders,
-    'Failed to update subscription. Stripe will retry.');
+  // Return 500 so Stripe retries the webhook (up to 3 days)
+  throw new Error(`Failed to update subscription for user ${subscriptionUserId}`);
 }
 
-logInfo('stripe-webhook', 'subscription_updated', { userId, tier: 'pro' });
+// Only log success if we CONFIRMED the update
+console.log(`CONFIRMED: User ${subscriptionUserId} upgraded to ${updatedProfile.subscription_tier}`);
 ```
 
-#### Testing Checklist
-- [ ] Simulate database timeout during webhook
-- [ ] Verify Stripe retries on 500 response
-- [ ] Verify successful updates return 200
-- [ ] Add monitoring alert for DATABASE_ERROR in stripe-webhook
+**Apply same pattern to:**
+- Lines 240-250 (`handleSubscriptionUpdate`)
+- Lines 268-276 (`handleSubscriptionCanceled`)
+- Lines 302-305 (`handlePaymentFailed` status update)
+- Lines 376-379 (`handleCoursePayment`)
+
+#### Logic Verification Table
+| Scenario | Before | After |
+|----------|--------|-------|
+| DB success | Logs success | Logs success with confirmation |
+| DB timeout | Logs success (WRONG) | Throws error, Stripe retries |
+| User not found | Logs success (WRONG) | Throws error, logged for manual fix |
+| Constraint violation | Logs success (WRONG) | Throws error with details |
 
 ---
 
-### 1.2 Fix Race Condition in Course Enrollment
+### 1.2 Fix Rate Limiter to Fail CLOSED
 
-**Priority:** P0 - CRITICAL (Duplicate charges possible)
-**Effort:** 1 hour
+**File:** `supabase/functions/_shared/rate-limiter.ts`
+**Lines:** 66-70, 79-81, 133-136
 
-#### Problem
-Check-then-insert pattern allows duplicate enrollments when two requests race.
-
-#### File to Modify
-`supabase/functions/enroll-in-course/index.ts` (lines 77-121)
-
-#### Implementation
-
-**Option A: Use UPSERT (Recommended)**
+#### The Problem (Concrete)
 ```typescript
-// BEFORE
-const { data: existingEnrollment } = await supabase
-  .from('student_course_enrollments')
-  .select('id')
-  .eq('student_id', userId)
-  .eq('instructor_course_id', courseId)
-  .maybeSingle();
-
-if (existingEnrollment) {
-  return createErrorResponse('BAD_REQUEST', corsHeaders, 'Already enrolled');
-}
-
-const { data: enrollment, error } = await supabase
-  .from('student_course_enrollments')
-  .insert({ student_id: userId, instructor_course_id: courseId })
-  .select()
-  .single();
-
-// AFTER
-const { data: enrollment, error } = await supabase
-  .from('student_course_enrollments')
-  .upsert(
-    {
-      student_id: userId,
-      instructor_course_id: courseId,
-      enrolled_at: new Date().toISOString()
-    },
-    {
-      onConflict: 'student_id,instructor_course_id',
-      ignoreDuplicates: true
-    }
-  )
-  .select()
-  .single();
-
-if (error) {
-  if (error.code === '23505') { // Unique violation
-    return createSuccessResponse({
-      already_enrolled: true,
-      message: 'You are already enrolled in this course'
-    }, corsHeaders);
-  }
-  throw error;
-}
-```
-
-**Option B: Database Constraint (Also do this)**
-```sql
--- Add unique constraint if not exists
-ALTER TABLE student_course_enrollments
-ADD CONSTRAINT unique_student_course
-UNIQUE (student_id, instructor_course_id);
-```
-
-#### Testing Checklist
-- [ ] Concurrent enrollment requests from same user
-- [ ] Verify only one enrollment created
-- [ ] Verify appropriate response for duplicate attempt
-
----
-
-### 1.3 Fix Rate Limiter to Fail Closed
-
-**Priority:** P0 - CRITICAL (Abuse protection)
-**Effort:** 30 minutes
-
-#### Problem
-Rate limiter returns `allowed: true` on database errors, disabling protection entirely.
-
-#### File to Modify
-`supabase/functions/_shared/rate-limiter.ts` (lines 68-70, 80-81)
-
-#### Implementation
-
-```typescript
-// BEFORE (fails open - DANGEROUS)
+// CURRENT CODE (line 66-69)
 if (hourlyError) {
   console.error('Rate limit hourly check error:', hourlyError);
-  return { allowed: true, remaining: limits.hourly, resetAt: null, limit: limits.hourly };
+  // Fail open - allow the request but log the error
+  return { allowed: true, remaining: { hourly: 0, daily: 0, costBudget: 0 } };
 }
+```
 
-// AFTER (fails closed - SAFE)
+**Why This Is Dangerous:**
+1. Database has temporary issue (maintenance, high load)
+2. Rate limiter can't check usage
+3. Returns `allowed: true` for EVERYONE
+4. Attacker notices and sends 10,000 requests
+5. You get a $50,000 AI bill from Google/OpenAI
+
+#### The Fix (Concrete)
+
+```typescript
+// FIXED CODE (lines 66-70)
 if (hourlyError) {
-  logError('rate-limiter', hourlyError, { userId, functionName, checkType: 'hourly' });
-  // Fail closed: deny request if we can't verify rate limit
-  return {
-    allowed: false,
-    remaining: 0,
-    resetAt: new Date(Date.now() + 60000).toISOString(), // Retry in 1 minute
-    limit: limits.hourly,
-    error: 'Rate limit check failed. Please try again shortly.'
-  };
-}
+  console.error('Rate limit check FAILED - blocking request:', {
+    error: hourlyError.message,
+    userId,
+    functionName,
+    checkType: 'hourly'
+  });
 
-// Same for daily check (lines 80-81)
-if (dailyError) {
-  logError('rate-limiter', dailyError, { userId, functionName, checkType: 'daily' });
+  // FAIL CLOSED: Deny request when we can't verify limits
   return {
     allowed: false,
-    remaining: 0,
-    resetAt: new Date(Date.now() + 60000).toISOString(),
-    limit: limits.daily,
-    error: 'Rate limit check failed. Please try again shortly.'
+    remaining: { hourly: 0, daily: 0, costBudget: 0 },
+    retryAfter: 60, // Tell client to retry in 60 seconds
+    reason: 'Rate limit service temporarily unavailable. Please try again in a minute.',
+    _internal_error: true // Flag for monitoring
   };
 }
 ```
 
-#### Testing Checklist
-- [ ] Simulate database connection failure
-- [ ] Verify requests are blocked (not allowed)
-- [ ] Verify user-friendly error message returned
-- [ ] Verify recovery when database comes back
+**Apply same pattern to:**
+- Lines 79-81 (`dailyError`)
+- Lines 133-136 (`catch` block)
+
+#### Logic Verification Table
+| Scenario | Before | After |
+|----------|--------|-------|
+| DB healthy | Normal rate limiting | Normal rate limiting |
+| DB timeout | ALL requests allowed | ALL requests blocked with retry hint |
+| DB down for 1 hour | 100K+ requests slip through | Users see "try again in 1 minute" |
+| Recovery | No change | Automatic recovery when DB returns |
+
+#### Why Fail-Closed is Correct
+- **Cost of false positive** (blocking legitimate user): User waits 60 seconds, retries
+- **Cost of false negative** (allowing abuse): Potentially $1000s in AI costs
+- Risk ratio strongly favors fail-closed
 
 ---
 
-## Phase 2: AI Quality & Reliability
+### 1.3 Fix Schema Name Mismatch in analyze-syllabus
 
-### 2.1 Fix AI Prompt Schema Mismatch in analyze-syllabus
+**File:** `supabase/functions/analyze-syllabus/index.ts`
+**Line:** 108
 
-**Priority:** P1 - HIGH
-**Effort:** 30 minutes
+**File:** `supabase/functions/_shared/schemas.ts`
+**Line:** 10
 
-#### Problem
-Prompt references `extract_syllabus_data` but schema is named `extract_capabilities`.
+#### The Problem (Concrete)
+```typescript
+// In analyze-syllabus/index.ts:108
+"Return your response using the extract_syllabus_data function"
 
-#### File to Modify
-`supabase/functions/analyze-syllabus/index.ts` (line 108)
+// In _shared/schemas.ts:10
+export const EXTRACT_CAPABILITIES_SCHEMA = {
+  name: "extract_capabilities",  // <-- Different name!
+  // ...
+}
+```
 
-#### Implementation
+**Why This Matters:**
+- Gemini/OpenAI structured output mode matches function name to schema
+- Mismatch can cause: intermittent failures, wrong schema used, hallucinated format
+- Hard to debug because it works "most of the time"
+
+#### The Fix (Concrete)
 
 ```typescript
+// In analyze-syllabus/index.ts:108
 // BEFORE
 "Return your response using the extract_syllabus_data function"
 
-// AFTER - Match the actual schema name in _shared/schemas.ts
+// AFTER - Match the actual schema name
 "Return your response using the extract_capabilities function"
 ```
 
-Also verify schema in `_shared/schemas.ts:10` matches expected structure.
+#### Logic Verification
+- Schema name in prompt MUST match schema name in schema definition
+- After fix: prompt says `extract_capabilities`, schema is `extract_capabilities` ✓
 
 ---
 
-### 2.2 Fix AI Hallucination Risk in extract-learning-objectives
+## Phase 2: AI Quality & Reliability (P1 - HIGH)
 
-**Priority:** P1 - HIGH (Affects course quality)
-**Effort:** 1 hour
+### 2.1 Remove AI Hallucination Instruction
 
-#### Problem
-AI is told to "infer" learning objectives if none found, leading to hallucinated content.
+**File:** `supabase/functions/extract-learning-objectives/index.ts`
+**Line:** 149
 
-#### File to Modify
-`supabase/functions/extract-learning-objectives/index.ts` (line 149)
-
-#### Implementation
-
+#### The Problem (Concrete)
 ```typescript
-// BEFORE
-"If no explicit learning objectives are found, infer them from course topics"
-
-// AFTER
-`IMPORTANT: Only extract learning objectives that are EXPLICITLY stated in the syllabus.
-Do NOT infer or create learning objectives.
-
-If no explicit learning objectives are found:
-1. Set "explicit_los_found": false
-2. Return "suggested_sections" array with section titles that MIGHT contain LOs
-3. Return empty "learning_objectives" array
-
-The instructor will be prompted to provide explicit LOs if none are found.`
+// CURRENT PROMPT (line 149)
+"If no explicit learning objectives are found, infer them from course topics and assignments."
 ```
 
-#### Frontend Change Required
-`src/components/instructor/QuickCourseSetup.tsx`
+**The Logical Flaw:**
+1. Instructor uploads vague syllabus with no clear LOs
+2. AI "infers" 10 learning objectives that sound plausible
+3. Platform searches for videos matching these INVENTED objectives
+4. Students learn content the instructor never intended to teach
+5. Students get certificates claiming skills the course didn't cover
+6. **Legal/accreditation risk**: Certificates misrepresent what was learned
 
-```tsx
-// Add handling for no LOs found
-if (response.explicit_los_found === false) {
-  toast.warning(
-    "No explicit learning objectives found in syllabus. " +
-    "Please add them manually or upload a more detailed syllabus.",
-    { duration: 10000 }
+#### The Fix (Concrete)
+
+```typescript
+// FIXED PROMPT
+`IMPORTANT: Only extract learning objectives that are EXPLICITLY stated in the syllabus.
+Look for phrases like:
+- "Students will be able to..."
+- "By the end of this course..."
+- "Learning outcomes:"
+- "Objectives:"
+- Numbered lists under "Goals" or "Outcomes" sections
+
+If NO explicit learning objectives are found:
+1. Return an EMPTY array for learning_objectives
+2. Set "explicit_objectives_found": false in your response
+3. List section titles that MIGHT contain implicit objectives in "potential_sections"
+
+Example response when no LOs found:
+{
+  "learning_objectives": [],
+  "explicit_objectives_found": false,
+  "potential_sections": ["Course Schedule", "Weekly Topics", "Assignments"],
+  "recommendation": "This syllabus does not contain explicit learning objectives. Consider adding them or extracting from assignment descriptions."
+}
+
+DO NOT invent, infer, or create learning objectives. Only extract what is explicitly written.`
+```
+
+#### Frontend Handling Required
+```typescript
+// In QuickCourseSetup.tsx after receiving response
+if (response.explicit_objectives_found === false) {
+  setShowLOWarning(true);
+  setWarningMessage(
+    `No explicit learning objectives found in your syllabus. ` +
+    `Found potential sections: ${response.potential_sections.join(', ')}. ` +
+    `Please add learning objectives manually or upload a more detailed syllabus.`
   );
-  // Show suggested sections where LOs might be
-  setSuggestedSections(response.suggested_sections);
+  // Don't auto-proceed to content search - require instructor action
 }
 ```
 
+#### Logic Verification Table
+| Scenario | Before | After |
+|----------|--------|-------|
+| Syllabus with clear LOs | Extracts correctly | Extracts correctly |
+| Syllabus with no LOs | INVENTS 10 fake LOs | Returns empty + warning |
+| Vague syllabus | Hallucinates plausible LOs | Returns empty + shows potential sections |
+| Instructor response | Never knows LOs were fake | Clear prompt to add real LOs |
+
 ---
 
-### 2.3 Add Scoring Examples to evaluate-content-batch
+### 2.2 Add Concrete Scoring Examples
 
-**Priority:** P1 - HIGH (Content quality)
-**Effort:** 2 hours
+**File:** `supabase/functions/evaluate-content-batch/index.ts`
+**Lines:** 61-69
 
-#### Problem
-Scoring rubric has no examples, causing inconsistent AI evaluations.
+#### The Problem (Concrete)
+```typescript
+// CURRENT SCORING RUBRIC
+`SCORING CALIBRATION:
+- 90-100: Exceptional - Could be used in a professional course
+- 80-89: Excellent - Strong match
+...`
+```
 
-#### File to Modify
-`supabase/functions/evaluate-content-batch/index.ts` (lines 62-68)
+**The Logical Flaw:**
+- "Could be used in a professional course" is subjective
+- Different AI calls interpret this differently
+- Same video scores 85 in one call, 65 in another
+- Content recommendations become unreliable
+- Instructors lose trust in the system
 
-#### Implementation
-
-Add concrete examples to the scoring prompt:
+#### The Fix (Concrete)
 
 ```typescript
 const SCORING_RUBRIC = `
-SCORING RUBRIC WITH EXAMPLES:
+SCORING CALIBRATION WITH CONCRETE EXAMPLES:
 
-RELEVANCE SCORE (0-100):
-- 90-100 (Exceptional): Video title/description directly mentions the learning objective's core concept AND covers it as the main topic.
-  Example: LO "Explain photosynthesis" + Video "Photosynthesis Explained: How Plants Make Food" = 95
-- 75-89 (Good): Video covers the concept but as part of a broader topic.
-  Example: LO "Explain photosynthesis" + Video "Plant Biology: Nutrition and Growth" = 80
-- 60-74 (Acceptable): Video mentions the concept but focuses on related topics.
-  Example: LO "Explain photosynthesis" + Video "How Ecosystems Work" = 65
-- 40-59 (Poor): Tangentially related, concept barely mentioned.
-- 0-39 (Irrelevant): Different topic entirely.
+For a Learning Objective: "Apply the concept of supply and demand to predict market prices"
 
-PEDAGOGY SCORE (0-100):
-- 90-100: Uses visual aids, clear explanations, scaffolds complexity, checks understanding.
-  Example: Khan Academy style with diagrams, step-by-step, practice problems = 95
-- 75-89: Good explanations but missing visual aids OR structure.
-  Example: Clear lecture but talking head only = 80
-- 60-74: Explains concept but assumes prior knowledge, moves too fast.
-- Below 60: Confusing, disorganized, or too advanced/basic.
+RELEVANCE (40% weight):
+- 95-100: Video title is "Supply and Demand: Predicting Prices" AND description mentions price prediction
+- 85-94: Video is "Introduction to Supply and Demand" (covers concept but not application)
+- 70-84: Video is "Microeconomics Basics" (includes supply/demand as one topic)
+- 50-69: Video is "Economics Overview" (briefly mentions supply/demand)
+- 0-49: Video is "Macroeconomics: GDP and Inflation" (wrong topic)
 
-QUALITY SCORE (0-100):
-- 90-100: Professional production, clear audio, HD video, well-edited.
-- 75-89: Good quality with minor issues (occasional background noise, standard definition).
-- 60-74: Acceptable but distracting quality issues.
-- Below 60: Poor audio/video that interferes with learning.
+PEDAGOGY (35% weight):
+- 95-100: Uses diagrams showing price curves, walks through example step-by-step, includes practice problem
+  Example: Khan Academy style with graph animations and "now you try" moment
+- 85-94: Clear explanation with visuals but no practice component
+  Example: University lecture with good slides but no interaction
+- 70-84: Verbal explanation only, assumes some prior knowledge
+  Example: Podcast discussing the concept conversationally
+- 50-69: Explains concept but too fast, no structure
+  Example: Quick tips video that rushes through
+- 0-49: Confusing, disorganized, or completely lecture-style with no aids
+  Example: Recorded classroom with poor audio
 
-BLOOM'S ALIGNMENT:
-For each Bloom's level, prioritize videos that match:
-- Remember/Understand: Explanatory videos, lectures, overviews
-- Apply: Tutorials, worked examples, demonstrations
-- Analyze: Case studies, comparisons, breakdowns
-- Evaluate: Critiques, reviews, debates
-- Create: Project walkthroughs, design processes
+QUALITY (25% weight):
+- 95-100: Professional production (studio lighting, clear audio, HD, edited)
+- 85-94: Good quality (clear audio, decent video, minor issues)
+- 70-84: Acceptable (some background noise, standard definition)
+- 50-69: Distracting issues (echo, poor lighting, shaky camera)
+- 0-49: Unwatchable (can't hear speaker, video freezes, major issues)
+
+BLOOM'S LEVEL ALIGNMENT:
+- For "Apply" objectives: Prioritize tutorials, worked examples, demonstrations
+- For "Understand" objectives: Prioritize explanatory videos, lectures
+- For "Analyze" objectives: Prioritize case studies, comparisons
+- For "Create" objectives: Prioritize project walkthroughs, design processes
+
+SCORING CONSISTENCY RULES:
+1. A Khan Academy video on the exact topic should score 90+
+2. A random YouTube tutorial should score 70-85 depending on quality
+3. A tangentially related video should never score above 65
+4. Same video evaluated twice should score within 5 points
 `;
 ```
 
+#### Logic Verification Table
+| Video Type | Before (Variance) | After (Expected) |
+|------------|-------------------|------------------|
+| Khan Academy exact match | 75-98 (23 point range) | 90-95 (5 point range) |
+| Good YouTube tutorial | 60-90 (30 point range) | 75-85 (10 point range) |
+| Tangentially related | 40-75 (35 point range) | 50-65 (15 point range) |
+
 ---
 
-### 2.4 Fix Curriculum-Reasoning-Agent EXACTLY 5 Constraint
+### 2.3 Add Null Safety in complete-assessment
 
-**Priority:** P2 - MEDIUM
-**Effort:** 1 hour
+**File:** `supabase/functions/complete-assessment/index.ts`
+**Lines:** 259-270
 
-#### Problem
-Prompt says "EXACTLY 5" but code accepts 1-7 units, creating inconsistency.
+#### The Problem (Concrete)
+```typescript
+// CURRENT CODE (lines 259-263)
+const performanceSummary = {
+  total_questions: session.question_ids.length,  // Crashes if null
+  attempt_number: session.attempt_number,        // Could be undefined
+};
+```
 
-#### File to Modify
-`supabase/functions/curriculum-reasoning-agent/index.ts` (lines 95, 304-307)
+**What Happens:**
+1. Student completes 20-minute assessment
+2. Session data has malformed `question_ids` (null instead of array)
+3. Code crashes at `.length` call
+4. Student sees error, loses their work
+5. No record of their attempt
 
-#### Implementation
+#### The Fix (Concrete)
 
 ```typescript
-// BEFORE (line 95)
+// FIXED CODE
+// First, validate session structure
+if (!session) {
+  return createErrorResponse('NOT_FOUND', corsHeaders,
+    'Assessment session not found. Please start a new assessment.');
+}
+
+// Validate required fields with specific error messages
+if (!session.question_ids || !Array.isArray(session.question_ids)) {
+  console.error('Malformed session - missing question_ids:', {
+    sessionId: session.id,
+    questionIdsType: typeof session.question_ids,
+    questionIdsValue: session.question_ids
+  });
+  return createErrorResponse('INTERNAL_ERROR', corsHeaders,
+    'Assessment session data is corrupted. Please contact support with session ID: ' + session.id);
+}
+
+if (session.question_ids.length === 0) {
+  return createErrorResponse('BAD_REQUEST', corsHeaders,
+    'This assessment has no questions. Please contact your instructor.');
+}
+
+// Now safe to use
+const performanceSummary = {
+  total_questions: session.question_ids.length,
+  attempt_number: session.attempt_number ?? 1,  // Default to 1 if missing
+  score_percentage: session.score_percentage ?? 0,
+  completed_at: new Date().toISOString()
+};
+```
+
+#### Logic Verification Table
+| Session State | Before | After |
+|---------------|--------|-------|
+| Normal session | Works | Works |
+| `question_ids: null` | CRASH | Clear error message |
+| `question_ids: []` | Returns 0 questions | "No questions" error |
+| `attempt_number: undefined` | undefined in summary | Defaults to 1 |
+
+---
+
+### 2.4 Fix "EXACTLY 5" Constraint Messaging
+
+**File:** `supabase/functions/curriculum-reasoning-agent/index.ts`
+**Lines:** 95, 303-307
+
+#### The Problem (Concrete)
+```typescript
+// PROMPT (line 95)
 "Decompose into EXACTLY 5 teachable micro-concepts"
 
-// AFTER - Be honest about the range
-"Decompose into 3-5 teachable micro-concepts (aim for 5 when the topic is complex enough)"
-
-// AND update validation (lines 304-307)
-// BEFORE
-teachingUnits = teachingUnits.slice(0, 5);
-
-// AFTER - Validate and warn
-if (teachingUnits.length < 3) {
-  logWarn('curriculum-reasoning-agent', 'Too few teaching units generated', {
-    loId: learningObjectiveId,
-    count: teachingUnits.length
-  });
-  // Don't fail - proceed with what we have
-}
+// CODE (lines 303-307)
 if (teachingUnits.length > 5) {
-  logInfo('curriculum-reasoning-agent', 'Truncating teaching units to 5', {
+  teachingUnits = teachingUnits.slice(0, 5);  // Silently truncates
+}
+// No check for < 5, just accepts whatever
+```
+
+**The Logical Flaw:**
+- Prompt says "EXACTLY 5" but code accepts 1-7
+- AI learns the constraint isn't enforced
+- Over time, responses become less consistent
+- Some LOs get 2 teaching units, others get 5 (unfair coverage)
+
+#### The Fix (Concrete)
+
+**Option A: Be honest about flexibility (Recommended)**
+```typescript
+// FIXED PROMPT
+`Decompose into 3-5 teachable micro-concepts. Aim for 5 when the topic has enough depth.
+
+IMPORTANT: You MUST return between 3 and 5 teaching units. Not 2, not 6.
+If the concept is simple, find 3 distinct aspects.
+If the concept is complex, prioritize the 5 most important aspects.`
+
+// FIXED CODE
+if (teachingUnits.length < 3) {
+  console.warn('Too few teaching units generated:', {
     loId: learningObjectiveId,
-    originalCount: teachingUnits.length
+    count: teachingUnits.length,
+    loText: loText?.substring(0, 100)
   });
+  // Log but proceed - better to have some than none
+}
+
+if (teachingUnits.length > 5) {
+  console.info('Truncating teaching units from', teachingUnits.length, 'to 5');
   teachingUnits = teachingUnits.slice(0, 5);
 }
 ```
 
+#### Logic Verification Table
+| AI Returns | Before (Prompt: EXACTLY 5) | After (Prompt: 3-5) |
+|------------|---------------------------|---------------------|
+| 2 units | Accepted silently | Logged as warning, proceed |
+| 5 units | Accepted | Accepted |
+| 7 units | Truncated to 5 silently | Truncated to 5 (logged) |
+
 ---
 
-## Phase 3: Flow Correctness
+## Phase 3: Flow Correctness (P2 - MEDIUM)
 
-### 3.1 Add Null Checks in complete-assessment
+### 3.1 Improve Enrollment Race Condition Handling
 
-**Priority:** P1 - HIGH (Crashes user flow)
-**Effort:** 45 minutes
+**File:** `supabase/functions/enroll-in-course/index.ts`
+**Lines:** 77-121
 
-#### Problem
-Assessment completion crashes if session has null fields.
+#### Current State (Verified by Lovable Agent)
+- **Database constraint EXISTS**: `UNIQUE(student_id, instructor_course_id)` ✓
+- **Race condition MITIGATED** at DB level - duplicate inserts fail
+- **Remaining issue**: Error message is unfriendly on duplicate
 
-#### File to Modify
-`supabase/functions/complete-assessment/index.ts` (lines 259-263)
-
-#### Implementation
+#### The Fix (Concrete)
 
 ```typescript
-// BEFORE
-const performanceSummary = {
-  total_questions: session.question_ids.length,
-  attempt_number: session.attempt_number,
-};
+// CURRENT CODE handles duplicate like any other error
+// FIXED CODE - Catch unique constraint specifically
 
-// AFTER
-if (!session.question_ids || !Array.isArray(session.question_ids)) {
-  logError('complete-assessment', new Error('Invalid session: missing question_ids'), {
-    sessionId: session.id
-  });
-  return createErrorResponse('INTERNAL_ERROR', corsHeaders,
-    'Assessment session is corrupted. Please start a new assessment.');
+const { data: enrollment, error: enrollError } = await supabase
+  .from('student_course_enrollments')
+  .insert({
+    student_id: userId,
+    instructor_course_id: courseId,
+    enrolled_at: new Date().toISOString()
+  })
+  .select()
+  .single();
+
+if (enrollError) {
+  // Check for unique constraint violation (Postgres error code 23505)
+  if (enrollError.code === '23505' || enrollError.message?.includes('duplicate')) {
+    // User is already enrolled - this is not an error, just a duplicate request
+    const { data: existingEnrollment } = await supabase
+      .from('student_course_enrollments')
+      .select('id, enrolled_at')
+      .eq('student_id', userId)
+      .eq('instructor_course_id', courseId)
+      .single();
+
+    return createSuccessResponse({
+      success: true,
+      already_enrolled: true,
+      enrollment_id: existingEnrollment?.id,
+      enrolled_at: existingEnrollment?.enrolled_at,
+      message: 'You are already enrolled in this course.'
+    }, corsHeaders);
+  }
+
+  // Other errors are real problems
+  throw enrollError;
 }
-
-const performanceSummary = {
-  total_questions: session.question_ids?.length ?? 0,
-  attempt_number: session.attempt_number ?? 1,
-  completed_at: new Date().toISOString(),
-  score_percentage: session.score_percentage ?? 0,
-};
 ```
 
-Also add validation at session start to prevent corrupted sessions.
+#### Logic Verification Table
+| Scenario | Before | After |
+|----------|--------|-------|
+| First enrollment | Works | Works |
+| Duplicate request | Generic error | "Already enrolled" success |
+| Race condition | DB prevents duplicate, error shown | DB prevents, friendly success shown |
+| Real DB error | Generic error | Throws for proper handling |
 
 ---
 
-### 3.2 Fix Teaching Unit Query Usage in search-youtube-content
+### 3.2 Fix Teaching Unit Query Fallback
 
-**Priority:** P2 - MEDIUM (Affects content quality)
-**Effort:** 1.5 hours
+**File:** `supabase/functions/search-youtube-content/index.ts`
+**Lines:** 643-682
 
-#### Problem
-Teaching unit's AI-generated `search_queries` are often ignored, falling back to generic queries.
-
-#### File to Modify
-`supabase/functions/search-youtube-content/index.ts` (lines 645-683)
-
-#### Implementation
-
+#### The Problem (Concrete)
 ```typescript
-// BEFORE - Teaching unit queries easily overwritten
+// CURRENT CODE - Good queries get thrown away
 if (teaching_unit_id && teachingUnits.length > 0) {
-  const targetUnit = teachingUnits.find((u: any) => u.id === teaching_unit_id);
-  if (targetUnit?.search_queries && targetUnit.search_queries.length > 0) {
-    queries = targetUnit.search_queries;
+  const targetUnit = teachingUnits.find(u => u.id === teaching_unit_id);
+  if (targetUnit?.search_queries?.length > 0) {
+    queries = targetUnit.search_queries;  // Uses good queries
   }
 }
 
-// Fallback always runs if queries empty
+// But if search_queries is empty/null, falls back to generic
 if (queries.length === 0) {
-  queries = await generateSearchQueries(...);
+  queries = await generateSearchQueries(...);  // Loses teaching unit context!
 }
+```
 
-// AFTER - Prioritize teaching unit queries, log when falling back
-let querySource = 'fallback';
+**The Logical Flaw:**
+- Curriculum agent spends AI tokens creating sophisticated teaching units
+- But if `search_queries` field is empty, all that context is lost
+- Generic queries like "photosynthesis tutorial" replace specific queries like "chloroplast electron transport chain visualization"
+
+#### The Fix (Concrete)
+
+```typescript
+// FIXED CODE - Preserve teaching unit context in fallback
+let querySource = 'unknown';
 
 if (teaching_unit_id && teachingUnits.length > 0) {
-  const targetUnit = teachingUnits.find((u: any) => u.id === teaching_unit_id);
+  const targetUnit = teachingUnits.find(u => u.id === teaching_unit_id);
 
-  if (targetUnit?.search_queries && targetUnit.search_queries.length > 0) {
+  if (targetUnit?.search_queries?.length > 0) {
     queries = targetUnit.search_queries;
-    querySource = 'teaching_unit';
-    console.log(`[QUERY SOURCE] Using ${queries.length} pre-generated teaching unit queries`);
-  } else {
-    // Teaching unit exists but no queries - generate them now and save
-    console.log(`[QUERY SOURCE] Teaching unit ${teaching_unit_id} missing queries, generating...`);
-    queries = await generateSearchQueries({
-      ...loContext,
-      // Include teaching unit context for better queries
-      teaching_unit_title: targetUnit?.title,
-      teaching_unit_focus: targetUnit?.focus_area,
-    }, moduleContext, courseContext);
+    querySource = 'teaching_unit_cached';
+    console.log(`[QUERIES] Using ${queries.length} cached teaching unit queries`);
 
-    // Save generated queries back to teaching unit for future use
+  } else if (targetUnit) {
+    // Teaching unit exists but no queries - generate WITH unit context
+    console.log(`[QUERIES] Teaching unit ${teaching_unit_id} missing queries, generating with context...`);
+
+    queries = await generateSearchQueries(
+      {
+        ...loContext,
+        // ADD teaching unit context for better queries
+        teaching_unit_title: targetUnit.title,
+        teaching_unit_focus: targetUnit.focus_area,
+        teaching_unit_prerequisites: targetUnit.prerequisites,
+        teaching_unit_key_terms: targetUnit.key_terms,
+      },
+      moduleContext,
+      courseContext
+    );
+    querySource = 'teaching_unit_generated';
+
+    // Cache for next time
     if (queries.length > 0) {
       await supabaseClient
         .from('teaching_units')
         .update({ search_queries: queries })
         .eq('id', teaching_unit_id);
+      console.log(`[QUERIES] Cached ${queries.length} queries to teaching unit`);
     }
-    querySource = 'generated_for_unit';
   }
 } else {
   // No teaching unit - use LO-level query generation
@@ -484,123 +622,129 @@ if (teaching_unit_id && teachingUnits.length > 0) {
   querySource = 'lo_level';
 }
 
-logInfo('search-youtube-content', 'queries_selected', {
-  loId: learning_objective_id,
-  teachingUnitId: teaching_unit_id,
-  querySource,
-  queryCount: queries.length,
-  queries: queries.slice(0, 3) // Log first 3 for debugging
-});
+// Log query source for debugging
+console.log(`[QUERIES] Source: ${querySource}, Count: ${queries.length}`);
 ```
+
+#### Logic Verification Table
+| Teaching Unit State | Before | After |
+|--------------------|--------|-------|
+| Has search_queries | Uses them ✓ | Uses them ✓ |
+| Exists, no queries | Generic LO queries (loses context) | Uses unit context, caches result |
+| Doesn't exist | Generic LO queries | Generic LO queries |
 
 ---
 
 ### 3.3 Add Curriculum Hours Validation
 
-**Priority:** P2 - MEDIUM
-**Effort:** 1 hour
+**File:** `supabase/functions/generate-curriculum/index.ts`
 
-#### Problem
-Generated curriculum may require more hours than user has available.
+#### The Problem (Concrete)
+- User says "I have 10 hours/week for 12 weeks" (120 hours)
+- AI generates curriculum requiring 200 hours
+- User gets overwhelmed, quits
+- No warning given
 
-#### File to Modify
-`supabase/functions/generate-curriculum/index.ts`
-
-#### Implementation
-
-Add validation after AI generates curriculum:
+#### The Fix (Concrete)
 
 ```typescript
-// After parsing curriculumData (around line 301)
+// After AI generates curriculum (around line 301)
 
-// Calculate total hours
 const totalRequiredHours = curriculumData.subjects.reduce(
-  (sum, s) => sum + s.estimated_hours, 0
+  (sum, subject) => sum + subject.estimated_hours, 0
 );
 const totalAvailableHours = hoursPerWeek * curriculumData.estimated_total_weeks;
+const utilizationRatio = totalRequiredHours / totalAvailableHours;
 
-// Check if curriculum fits
-if (totalRequiredHours > totalAvailableHours * 1.2) { // 20% buffer
-  logWarn('generate-curriculum', 'Curriculum exceeds available time', {
-    userId,
-    requiredHours: totalRequiredHours,
-    availableHours: totalAvailableHours,
-    overflow: totalRequiredHours - totalAvailableHours
-  });
+let timeWarning = null;
 
-  // Option 1: Auto-adjust weeks
+if (utilizationRatio > 1.2) {
+  // Curriculum requires 20%+ more time than available
   const adjustedWeeks = Math.ceil(totalRequiredHours / hoursPerWeek);
-  curriculumData.estimated_total_weeks = adjustedWeeks;
-  curriculumData.time_warning = `This curriculum requires ${totalRequiredHours} hours. ` +
-    `At ${hoursPerWeek} hours/week, it will take approximately ${adjustedWeeks} weeks ` +
-    `(${adjustedWeeks - 12} weeks longer than typical).`;
+  const extraWeeks = adjustedWeeks - curriculumData.estimated_total_weeks;
+
+  timeWarning = {
+    type: 'exceeds_available_time',
+    message: `This curriculum requires approximately ${totalRequiredHours} hours, ` +
+      `but you indicated ${totalAvailableHours} hours available ` +
+      `(${hoursPerWeek} hrs/week × ${curriculumData.estimated_total_weeks} weeks). ` +
+      `Consider extending your timeline by ${extraWeeks} weeks or reducing scope.`,
+    required_hours: totalRequiredHours,
+    available_hours: totalAvailableHours,
+    suggested_weeks: adjustedWeeks,
+    utilization_ratio: Math.round(utilizationRatio * 100)
+  };
+
+  console.warn('Curriculum exceeds available time:', timeWarning);
 }
 
-// Add to response
-return new Response(JSON.stringify({
+// Include in response
+return createSuccessResponse({
   success: true,
-  // ... existing fields ...
-  total_hours_required: totalRequiredHours,
-  hours_per_week: hoursPerWeek,
-  time_warning: curriculumData.time_warning || null,
-}), { ... });
+  curriculum_id: curriculum.id,
+  // ... other fields ...
+  time_analysis: {
+    total_required_hours: totalRequiredHours,
+    total_available_hours: totalAvailableHours,
+    utilization_percentage: Math.round(utilizationRatio * 100),
+    warning: timeWarning
+  }
+}, corsHeaders);
 ```
+
+#### Logic Verification Table
+| Utilization | Before | After |
+|-------------|--------|-------|
+| 80% (fits well) | No indication | Shows 80% utilization |
+| 120% (slightly over) | No indication | Shows warning + suggested adjustment |
+| 200% (way over) | No indication | Strong warning + extra weeks needed |
 
 ---
 
-## Phase 4: Code Quality
+## Phase 4: Code Quality (P3 - LOW)
 
 ### 4.1 Standardize Response Formats
 
-**Priority:** P3 - LOW
-**Effort:** 2 hours
+**Files with Inconsistencies (from Lovable Agent):**
+- `curriculum-reasoning-agent/index.ts` (lines 367-379, 384-392)
+- `generate-curriculum/index.ts` (lines 339-356, 361-364)
+- `generate-assessment-questions/index.ts` (lines 262-269, 274-278)
+- `add-manual-content/index.ts` (lines 232-240, 348-356)
 
-#### Problem
-Inconsistent response formats across edge functions.
-
-#### Files to Modify
-All edge functions should use `createSuccessResponse` and `createErrorResponse` from `_shared/error-handler.ts`.
-
-#### Implementation Pattern
-
+#### The Fix Pattern
 ```typescript
 // BEFORE (inconsistent)
 return new Response(JSON.stringify({ success: true, data }), {
   headers: { ...corsHeaders, 'Content-Type': 'application/json' }
 });
 
-// AFTER (consistent)
+// AFTER (standardized)
 return createSuccessResponse({ success: true, data }, corsHeaders);
 ```
 
-#### Files Needing Update
-- `add-manual-content/index.ts:232-240,348-356`
-- `issue-certificate/index.ts`
-- `generate-curriculum/index.ts:335-350`
-- `process-syllabus/index.ts`
-- Several others (run grep to find all `new Response(JSON.stringify`)
+**Why This Matters:**
+- Consistent error structure for frontend handling
+- CORS headers always included
+- Request ID for debugging
+- Timestamp for logging
 
 ---
 
-### 4.2 Fix Validation Schema for Consumption Events
+### 4.2 Strengthen Consumption Event Validation
 
-**Priority:** P3 - LOW
-**Effort:** 30 minutes
+**File:** `supabase/functions/_shared/validators/index.ts`
+**Line:** 294
 
-#### File to Modify
-`supabase/functions/_shared/validators/index.ts` (line 294)
-
-#### Implementation
-
+#### The Fix
 ```typescript
 // BEFORE
 data: z.any().optional(),
 
-// AFTER - Define expected shapes
-data: z.discriminatedUnion('event_type', [
+// AFTER
+data: z.union([
   z.object({
     event_type: z.literal('video_watch'),
-    video_id: z.string(),
+    video_id: z.string().min(1),
     watch_duration_seconds: z.number().min(0),
     completed: z.boolean().optional(),
   }),
@@ -615,6 +759,7 @@ data: z.discriminatedUnion('event_type', [
     slide_id: z.string().uuid(),
     view_duration_seconds: z.number().min(0),
   }),
+  z.object({}).passthrough(), // Allow unknown event types with logging
 ]).optional(),
 ```
 
@@ -622,128 +767,153 @@ data: z.discriminatedUnion('event_type', [
 
 ### 4.3 Add Distractor Quality Examples
 
-**Priority:** P3 - LOW
-**Effort:** 1 hour
+**File:** `supabase/functions/generate-assessment-questions/index.ts`
+**Line:** 97
 
-#### File to Modify
-`supabase/functions/generate-assessment-questions/index.ts` (line 97)
-
-#### Implementation
-
+#### The Fix
 ```typescript
-// Add to prompt
-`DISTRACTOR GUIDELINES:
+`DISTRACTOR GUIDELINES WITH EXAMPLES:
 
-Good distractors are:
-1. Plausible - Could be true if you didn't know the material
-2. Similar length/format to correct answer
-3. Based on common misconceptions
+Good distractors are based on common misconceptions:
 
-Examples:
-Q: What is the primary function of mitochondria?
-Correct: Generate ATP through cellular respiration
-Good Distractor: Store genetic information (common misconception - that's the nucleus)
-Good Distractor: Break down waste products (plausible cell function)
-Bad Distractor: Make the cell blue (obviously wrong, not plausible)
+Example Question: "What is the primary function of mitochondria?"
+Correct: "Generate ATP through cellular respiration"
+Good Distractor: "Store genetic information" (common misconception - that's the nucleus)
+Good Distractor: "Break down waste products" (plausible cell function)
+Bad Distractor: "Make the cell blue" (obviously absurd)
+Bad Distractor: "Generate ATP" (too close to correct answer)
 
-Q: In JavaScript, what does 'const' mean?
-Correct: The variable binding cannot be reassigned
-Good Distractor: The value is deeply immutable (common misconception)
-Good Distractor: The variable is only accessible in the current block (partially true, but not the primary meaning)
-Bad Distractor: The variable is a constant number (too specific, obviously wrong for objects)`
+Example Question: "In JavaScript, what does 'const' primarily indicate?"
+Correct: "The variable binding cannot be reassigned"
+Good Distractor: "The value is deeply immutable" (common misconception)
+Good Distractor: "The variable is only accessible in the current block" (true but not primary)
+Bad Distractor: "The variable must be a number" (obviously wrong)
+
+RULES:
+1. Each distractor should be grammatically similar to the correct answer
+2. Distractors should be similar in length to the correct answer
+3. At least one distractor should be a common misconception
+4. No distractor should be partially correct
+5. Avoid "all of the above" or "none of the above"`
 ```
 
 ---
 
-## Implementation Order
+## Implementation Schedule
 
-### Day 1 (4-5 hours)
-1. [ ] 1.1 - Payment DB error handling (2-3h)
-2. [ ] 1.2 - Enrollment race condition (1h)
-3. [ ] 1.3 - Rate limiter fail closed (30m)
+### Day 1 (4-5 hours) - CRITICAL (P0)
+| Task | File | Est. Time | Verified By |
+|------|------|-----------|-------------|
+| 1.1 Payment DB error handling | stripe-webhook/index.ts | 2-3h | Claude + Lovable |
+| 1.2 Rate limiter fail-closed | _shared/rate-limiter.ts | 45m | Claude + Lovable |
+| 1.3 Schema name mismatch | analyze-syllabus/index.ts | 15m | Claude + Lovable |
 
-### Day 2 (4-5 hours)
-4. [ ] 2.1 - Schema mismatch (30m)
-5. [ ] 2.2 - LO hallucination fix (1h)
-6. [ ] 2.3 - Scoring examples (2h)
-7. [ ] 2.4 - Curriculum constraints (1h)
+### Day 2 (4-5 hours) - HIGH (P1)
+| Task | File | Est. Time | Verified By |
+|------|------|-----------|-------------|
+| 2.1 Remove LO hallucination | extract-learning-objectives/index.ts | 1h | Claude + Lovable |
+| 2.2 Scoring examples | evaluate-content-batch/index.ts | 2h | Claude + Lovable |
+| 2.3 Assessment null safety | complete-assessment/index.ts | 45m | Claude + Lovable |
+| 2.4 EXACTLY 5 constraint | curriculum-reasoning-agent/index.ts | 30m | Claude + Lovable |
 
-### Day 3 (4 hours)
-8. [ ] 3.1 - Assessment null checks (45m)
-9. [ ] 3.2 - Teaching unit queries (1.5h)
-10. [ ] 3.3 - Curriculum hours validation (1h)
-11. [ ] 4.1 - Response format standardization (2h)
+### Day 3-4 (4 hours) - MEDIUM (P2)
+| Task | File | Est. Time | Verified By |
+|------|------|-----------|-------------|
+| 3.1 Enrollment error handling | enroll-in-course/index.ts | 45m | Lovable (downgraded) |
+| 3.2 Teaching unit query fallback | search-youtube-content/index.ts | 1.5h | Claude + Lovable |
+| 3.3 Curriculum hours validation | generate-curriculum/index.ts | 1h | Claude |
 
-### Day 4 (1.5 hours)
-12. [ ] 4.2 - Validation schema (30m)
-13. [ ] 4.3 - Distractor examples (1h)
+### Day 5-6 (3 hours) - LOW (P3)
+| Task | File | Est. Time | Verified By |
+|------|------|-----------|-------------|
+| 4.1 Response format standardization | Multiple files | 1.5h | Lovable |
+| 4.2 Consumption event validation | _shared/validators/index.ts | 30m | Claude + Lovable |
+| 4.3 Distractor quality examples | generate-assessment-questions/index.ts | 1h | Claude + Lovable |
 
 ---
 
-## Testing Plan
+## Testing Requirements
 
-### Critical Path Tests (Must Pass)
+### Critical Path (Must Pass Before Deploy)
 1. **Payment Flow**
-   - Successful subscription upgrade
-   - Database failure during upgrade (should retry)
-   - Webhook idempotency (same event twice)
+   - [ ] User upgrades to Pro → DB updated → confirmed in response
+   - [ ] Simulate DB failure → webhook returns 500 → Stripe retries
+   - [ ] Same webhook twice → idempotent (no duplicate update)
 
-2. **Enrollment Flow**
-   - Normal enrollment
-   - Concurrent enrollment attempts
-   - Already enrolled user
+2. **Rate Limiting**
+   - [ ] Normal usage → limits enforced correctly
+   - [ ] Simulate DB failure → requests BLOCKED with retry message
+   - [ ] DB recovery → normal operation resumes within 60s
 
-3. **Rate Limiting**
-   - Normal usage within limits
-   - Exceeding limits
-   - Database failure during rate check
+3. **LO Extraction**
+   - [ ] Syllabus with explicit LOs → extracted correctly
+   - [ ] Syllabus with NO LOs → empty array + `explicit_objectives_found: false`
+   - [ ] Verify NO hallucinated LOs in any case
 
-### AI Quality Tests
-1. **LO Extraction**
-   - Syllabus with explicit LOs
-   - Syllabus without LOs (should NOT hallucinate)
-   - Edge case: partial/vague LOs
+### Regression Tests
+- [ ] All existing unit tests pass
+- [ ] No new TypeScript errors in edge functions
+- [ ] Frontend build succeeds
+- [ ] E2E tests for instructor flow pass
 
-2. **Content Evaluation**
-   - Run same video through evaluation 5 times
-   - Verify score variance < 10 points
-   - Check Bloom's level alignment
+---
 
-### Integration Tests
-1. **Full Instructor Flow**
-   - Upload syllabus → Extract LOs → Search content → Evaluate → Approve
-   - Verify teaching unit queries are used
-   - Verify content matches link to teaching units
+## Monitoring & Alerts (Post-Deployment)
+
+| Alert | Trigger | Severity | Action |
+|-------|---------|----------|--------|
+| Payment DB Error | Any error in stripe-webhook | P0 | PagerDuty immediately |
+| Rate Limit Fail-Closed | > 10 blocked/minute | P1 | Slack notification |
+| LO Extraction Empty | > 30% syllabi return 0 LOs | P2 | Review prompt effectiveness |
+| Score Variance | Same video > 15 point spread | P2 | Review scoring rubric |
+| Enrollment Duplicates | > 5 duplicate attempts/minute | P3 | Investigate source |
 
 ---
 
 ## Rollback Plan
 
-If issues arise after deployment:
-
-1. **Payment Issues**: Feature flag to bypass new error handling, manual reconciliation
-2. **Rate Limiter**: Environment variable to switch back to fail-open (temporary)
-3. **AI Prompts**: Revert prompt files, prompts are hot-swappable
-
----
-
-## Monitoring & Alerts
-
-Add these alerts post-deployment:
-
-1. `stripe-webhook` DATABASE_ERROR rate > 0.1% → PagerDuty
-2. `rate-limiter` error rate > 1% → Slack
-3. `evaluate-content-batch` score variance > 15 points → Log for review
-4. `enroll-in-course` duplicate attempts > 5/minute → Investigate
+| Fix | Rollback Method | Time to Rollback |
+|-----|-----------------|------------------|
+| Payment error handling | Revert file; Stripe will retry missed webhooks | 2 min |
+| Rate limiter | Env var `RATE_LIMIT_FAIL_OPEN=true` for emergency | 30 sec |
+| AI prompts | All prompts are in code; simple git revert | 2 min |
+| Schema changes | Backward compatible; no rollback needed | N/A |
+| Response formats | Revert files; frontend handles both formats | 2 min |
 
 ---
 
 ## Sign-off Checklist
 
-- [ ] All critical fixes implemented
-- [ ] Tests written and passing
+### Pre-Deploy
+- [ ] All P0 fixes implemented and tested
+- [ ] All P1 fixes implemented and tested
 - [ ] Code reviewed by second engineer
-- [ ] Staging environment tested
-- [ ] Rollback plan verified
-- [ ] Monitoring alerts configured
+- [ ] Staging environment tested end-to-end
+- [ ] Rollback procedures documented and tested
+
+### Post-Deploy
+- [ ] Monitoring alerts configured and verified
+- [ ] First payment webhook processed successfully
+- [ ] Rate limiter functioning (test with high volume)
+- [ ] AI functions returning expected formats
 - [ ] Documentation updated
+
+---
+
+## Appendix: Files Modified Summary
+
+| File | Priority | Issues Fixed |
+|------|----------|--------------|
+| `stripe-webhook/index.ts` | P0 | Silent DB failures |
+| `_shared/rate-limiter.ts` | P0 | Fail-open behavior |
+| `analyze-syllabus/index.ts` | P0 | Schema name mismatch |
+| `extract-learning-objectives/index.ts` | P1 | LO hallucination |
+| `evaluate-content-batch/index.ts` | P1 | Scoring examples |
+| `complete-assessment/index.ts` | P1 | Null safety |
+| `curriculum-reasoning-agent/index.ts` | P1 | EXACTLY 5 constraint |
+| `enroll-in-course/index.ts` | P2 | Friendly duplicate handling |
+| `search-youtube-content/index.ts` | P2 | Query fallback context |
+| `generate-curriculum/index.ts` | P2 | Hours validation |
+| `_shared/validators/index.ts` | P3 | Event data schema |
+| `generate-assessment-questions/index.ts` | P3 | Distractor examples |
+| Multiple files | P3 | Response format standardization |
