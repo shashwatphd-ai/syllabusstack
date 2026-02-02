@@ -105,6 +105,7 @@ export function AppHeader({ onMenuClick, showSearch = true, sidebarCollapsed = f
             size="icon"
             onClick={onMenuClick}
             className="lg:hidden min-h-11 min-w-11"
+            aria-label="Open navigation menu"
           >
             <Menu className="h-5 w-5" />
           </Button>
@@ -159,6 +160,7 @@ export function AppHeader({ onMenuClick, showSearch = true, sidebarCollapsed = f
               size="icon"
               onClick={() => setSearchOpen(!searchOpen)}
               className="md:hidden min-h-11 min-w-11"
+              aria-label={searchOpen ? "Close search" : "Open search"}
             >
               {searchOpen ? <X className="h-5 w-5" /> : <Search className="h-5 w-5" />}
             </Button>

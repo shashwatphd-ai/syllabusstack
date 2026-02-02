@@ -9,10 +9,7 @@ import {
   logError,
 } from "../_shared/error-handler.ts";
 import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
-
-interface CompleteAssessmentRequest {
-  session_id: string;
-}
+import { validateRequest, completeAssessmentSchema } from "../_shared/validators/index.ts";
 
 // Verification threshold - 70% to pass
 const PASSING_THRESHOLD = 70;
@@ -50,12 +47,12 @@ const handler = async (req: Request): Promise<Response> => {
 
   const userId = data.claims.sub as string;
 
-  const body: CompleteAssessmentRequest = await req.json();
-  const { session_id } = body;
-
-  if (!session_id) {
-    return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'session_id is required');
+  const body = await req.json();
+  const validation = validateRequest(completeAssessmentSchema, body);
+  if (!validation.success) {
+    return createErrorResponse('VALIDATION_ERROR', corsHeaders, validation.errors.join(', '));
   }
+  const { session_id } = validation.data;
 
   logInfo('complete-assessment', 'completing', { sessionId: session_id });
 

@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.0";
 import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
 import { createErrorResponse, createSuccessResponse, logInfo, logError, withErrorHandling } from "../_shared/error-handler.ts";
+import { validateRequest, verifyInstructorEmailSchema } from "../_shared/validators/index.ts";
 
 // Common .edu domains that should auto-approve
 const TRUSTED_EDU_DOMAINS = [
@@ -74,7 +75,12 @@ const handler = async (req: Request): Promise<Response> => {
       throw new Error("Unauthorized");
     }
 
-    const { email, institution_name, department, title, linkedin_url, document_urls } = await req.json();
+    const body = await req.json();
+    const validation = validateRequest(verifyInstructorEmailSchema, body);
+    if (!validation.success) {
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, validation.errors.join(', '));
+    }
+    const { email, institution_name, department, title, linkedin_url, document_urls } = validation.data;
 
     // Check if user already has a verification request
     const { data: existingVerification } = await supabaseAdmin

@@ -282,11 +282,12 @@ export default function InstructorCourseDetailPage() {
         <div className="space-y-6">
           {/* Header */}
           <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
-            <Button 
-              variant="ghost" 
+            <Button
+              variant="ghost"
               size="icon"
               className="self-start shrink-0"
               onClick={() => navigate('/instructor/courses')}
+              aria-label="Back to courses"
             >
               <ArrowLeft className="h-5 w-5" />
             </Button>
@@ -316,7 +317,7 @@ export default function InstructorCourseDetailPage() {
                 )}
                 {course.is_published ? 'Unpublish' : 'Publish'}
               </Button>
-              <Button variant="outline" size="icon" className="h-9 w-9">
+              <Button variant="outline" size="icon" className="h-9 w-9" aria-label="Course settings">
                 <Settings2 className="h-4 w-4" />
               </Button>
             </div>

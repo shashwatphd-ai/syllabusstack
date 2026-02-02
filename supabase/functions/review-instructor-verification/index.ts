@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.0";
 import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
 import { createErrorResponse, createSuccessResponse, logInfo, logError, withErrorHandling } from "../_shared/error-handler.ts";
+import { validateRequest, reviewInstructorVerificationSchema } from "../_shared/validators/index.ts";
 
 const handler = async (req: Request): Promise<Response> => {
   const corsHeaders = getCorsHeaders(req);
@@ -43,15 +44,12 @@ const handler = async (req: Request): Promise<Response> => {
       throw new Error("Unauthorized: Admin access required");
     }
 
-    const { verification_id, action, rejection_reason, trust_score_adjustment } = await req.json();
-
-    if (!verification_id || !action) {
-      throw new Error("verification_id and action are required");
+    const body = await req.json();
+    const validation = validateRequest(reviewInstructorVerificationSchema, body);
+    if (!validation.success) {
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, validation.errors.join(', '));
     }
-
-    if (!['approve', 'reject'].includes(action)) {
-      throw new Error("action must be 'approve' or 'reject'");
-    }
+    const { verification_id, action, rejection_reason, trust_score_adjustment } = validation.data;
 
     // Get the verification request
     const { data: verification, error: verificationError } = await supabaseAdmin

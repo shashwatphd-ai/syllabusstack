@@ -70,7 +70,7 @@ export default function BrandingSettings() {
     <div className="container mx-auto p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" asChild>
+        <Button variant="ghost" size="icon" asChild aria-label="Back to admin dashboard">
           <Link to="/admin">
             <ArrowLeft className="h-5 w-5" />
           </Link>

@@ -4,6 +4,7 @@ import { getWebProvider } from "../_shared/web-provider.ts";
 import { generateText, MODELS } from "../_shared/unified-ai-client.ts";
 import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
 import { createErrorResponse, createSuccessResponse, logInfo, logError, withErrorHandling } from "../_shared/error-handler.ts";
+import { validateRequest, scrapeJobPostingSchema } from "../_shared/validators/index.ts";
 
 interface JobPostingData {
   title: string;
@@ -24,14 +25,12 @@ const handler = async (req: Request): Promise<Response> => {
   if (preflightResponse) return preflightResponse;
 
   try {
-    const { url } = await req.json();
-
-    if (!url) {
-      return new Response(
-        JSON.stringify({ error: "URL is required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    const body = await req.json();
+    const validation = validateRequest(scrapeJobPostingSchema, body);
+    if (!validation.success) {
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, validation.errors.join(', '));
     }
+    const { url } = validation.data;
 
     // Validate URL format
     let jobUrl: URL;

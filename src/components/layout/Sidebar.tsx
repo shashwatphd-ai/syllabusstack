@@ -116,6 +116,7 @@ export function Sidebar({ collapsed = false, onCollapse }: SidebarProps) {
             size="icon"
             onClick={handleCollapse}
             className="text-sidebar-foreground opacity-70 hover:opacity-100 hover:bg-sidebar-accent"
+            aria-label="Collapse sidebar"
           >
             <ChevronLeft className="h-4 w-4" />
           </Button>
@@ -130,6 +131,7 @@ export function Sidebar({ collapsed = false, onCollapse }: SidebarProps) {
             size="icon"
             onClick={handleCollapse}
             className="w-full text-sidebar-foreground opacity-70 hover:opacity-100 hover:bg-sidebar-accent"
+            aria-label="Expand sidebar"
           >
             <ChevronLeft className="h-4 w-4 rotate-180" />
           </Button>
@@ -212,6 +214,7 @@ export function Sidebar({ collapsed = false, onCollapse }: SidebarProps) {
                   size="icon"
                   onClick={handleLogout}
                   className="text-sidebar-foreground opacity-70 hover:opacity-100 hover:bg-sidebar-accent"
+                  aria-label="Sign out"
                 >
                   <LogOut className="h-4 w-4" />
                 </Button>

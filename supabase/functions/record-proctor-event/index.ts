@@ -8,6 +8,7 @@ import {
   logInfo,
   logError,
 } from "../_shared/error-handler.ts";
+import { validateRequest, recordProctorEventSchema } from "../_shared/validators/index.ts";
 
 /**
  * Record Proctor Event
@@ -45,33 +46,11 @@ serve(async (req) => {
     }
 
     const body = await req.json();
-    const { 
-      assessment_session_id, 
-      event_type, 
-      details 
-    } = body;
-
-    if (!assessment_session_id || !event_type) {
-      return new Response(
-        JSON.stringify({ error: "Missing required fields: assessment_session_id, event_type" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    const validation = validateRequest(recordProctorEventSchema, body);
+    if (!validation.success) {
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, validation.errors.join(', '));
     }
-
-    // Validate event type
-    const validTypes = [
-      "fullscreen_exit", 
-      "tab_switch", 
-      "copy_paste", 
-      "keyboard_shortcut", 
-      "focus_loss"
-    ];
-    if (!validTypes.includes(event_type)) {
-      return new Response(
-        JSON.stringify({ error: `Invalid event_type. Must be one of: ${validTypes.join(", ")}` }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    const { assessment_session_id, event_type, details } = validation.data;
 
     // Get or create proctored session record
     let { data: proctoredSession, error: fetchError } = await supabaseAdmin

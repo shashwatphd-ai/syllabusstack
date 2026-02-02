@@ -189,7 +189,7 @@ export function ContentAssistantChat({
             disabled={isLoading}
             className="flex-1"
           />
-          <Button type="submit" size="icon" disabled={isLoading || !input.trim()}>
+          <Button type="submit" size="icon" disabled={isLoading || !input.trim()} aria-label="Send message">
             <Send className="h-4 w-4" />
           </Button>
         </form>

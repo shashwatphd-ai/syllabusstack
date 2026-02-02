@@ -2,18 +2,13 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
 import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
 import { createErrorResponse, createSuccessResponse, logInfo, logError, withErrorHandling } from "../_shared/error-handler.ts";
+import { validateRequest, sendStudentMessageSchema } from "../_shared/validators/index.ts";
 
 const logStep = (step: string, details?: any) => {
   const detailsStr = details ? ` - ${JSON.stringify(details)}` : '';
   console.log(`[SEND-STUDENT-MESSAGE] ${step}${detailsStr}`);
 };
 
-interface SendMessageRequest {
-  student_ids: string[];
-  course_id: string;
-  message: string;
-  subject?: string;
-}
 
 const handler = async (req: Request): Promise<Response> => {
   const corsHeaders = getCorsHeaders(req);
@@ -47,22 +42,15 @@ const handler = async (req: Request): Promise<Response> => {
     if (!user) throw new Error("User not authenticated");
     logStep("User authenticated", { userId: user.id });
 
-    // Parse request body
-    const body: SendMessageRequest = await req.json();
-    const { student_ids, course_id, message, subject } = body;
+    // Parse and validate request body
+    const body = await req.json();
+    const validation = validateRequest(sendStudentMessageSchema, body);
+    if (!validation.success) {
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, validation.errors.join(', '));
+    }
+    const { student_ids, course_id, message, subject } = validation.data;
 
-    if (!student_ids || student_ids.length === 0) {
-      throw new Error("At least one student ID is required");
-    }
-    if (!course_id) throw new Error("Course ID is required");
-    if (!message || message.trim().length === 0) {
-      throw new Error("Message is required");
-    }
-    if (message.length > 1000) {
-      throw new Error("Message is too long (max 1000 characters)");
-    }
-
-    logStep("Request parsed", {
+    logStep("Request validated", {
       studentCount: student_ids.length,
       courseId: course_id,
       messageLength: message.length

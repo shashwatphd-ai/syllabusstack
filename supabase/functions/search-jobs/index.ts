@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
 import { createErrorResponse, createSuccessResponse, logInfo, logError, withErrorHandling } from "../_shared/error-handler.ts";
+import { validateRequest, searchJobsSchema } from "../_shared/validators/index.ts";
 
 /**
  * Search for jobs using Active Jobs DB (RapidAPI)
@@ -19,14 +20,12 @@ const handler = async (req: Request): Promise<Response> => {
   if (preflightResponse) return preflightResponse;
 
   try {
-    const { title, location, skills, limit = 20 } = await req.json();
-
-    if (!title) {
-      return new Response(
-        JSON.stringify({ success: false, error: "Job title is required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    const body = await req.json();
+    const validation = validateRequest(searchJobsSchema, body);
+    if (!validation.success) {
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, validation.errors.join(', '));
     }
+    const { title, location, skills, limit } = validation.data;
 
     const RAPIDAPI_KEY = Deno.env.get("RAPIDAPI_KEY");
 

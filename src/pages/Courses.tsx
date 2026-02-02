@@ -861,6 +861,7 @@ export default function CoursesPage() {
                     size="icon"
                     onClick={enterSelectionMode}
                     title="Select multiple courses"
+                    aria-label="Enter selection mode to select multiple courses"
                   >
                     <CheckSquare className="h-4 w-4" />
                   </Button>

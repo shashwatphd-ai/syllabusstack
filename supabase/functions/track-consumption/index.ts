@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
 import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
 import { createErrorResponse, createSuccessResponse, logInfo, logError, withErrorHandling } from "../_shared/error-handler.ts";
+import { validateRequest, trackConsumptionSchema } from "../_shared/validators/index.ts";
 
 interface WatchedSegment {
   start: number;
@@ -118,18 +119,19 @@ const handler = async (req: Request): Promise<Response> => {
       throw new Error("Unauthorized");
     }
 
-    const { 
-      content_id, 
-      learning_objective_id, 
+    const body = await req.json();
+    const validation = validateRequest(trackConsumptionSchema, body);
+    if (!validation.success) {
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, validation.errors.join(', '));
+    }
+    const {
+      content_id,
+      learning_objective_id,
       event,
       current_segments,
       total_duration,
       micro_check_results,
-    } = await req.json();
-    
-    if (!content_id) {
-      throw new Error("content_id is required");
-    }
+    } = validation.data;
 
     console.log(`Processing consumption event for content: ${content_id}, event type: ${event?.type}`);
 
