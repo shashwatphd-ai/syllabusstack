@@ -8,6 +8,7 @@ import {
   withErrorHandling,
   logInfo,
 } from "../_shared/error-handler.ts";
+import { checkRateLimit, getUserLimits, createRateLimitResponse } from "../_shared/rate-limiter.ts";
 
 // Bloom's Taxonomy descriptions with weighted scoring guidance
 // Higher levels require more sophisticated content matching
@@ -77,6 +78,26 @@ const handler = async (req: Request): Promise<Response> => {
   const authHeader = req.headers.get('Authorization');
   if (!authHeader) {
     return createErrorResponse('UNAUTHORIZED', corsHeaders, 'No authorization header');
+  }
+
+  // Authenticate user and check rate limit
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+  const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+  const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
+
+  const { data: { user }, error: authError } = await serviceClient.auth.getUser(
+    authHeader.replace('Bearer ', '')
+  );
+
+  if (authError || !user) {
+    return createErrorResponse('UNAUTHORIZED', corsHeaders, 'Invalid authentication');
+  }
+
+  // Rate limit check
+  const limits = await getUserLimits(serviceClient, user.id);
+  const rateLimitResult = await checkRateLimit(serviceClient, user.id, 'evaluate-content-batch', limits);
+  if (!rateLimitResult.allowed) {
+    return createRateLimitResponse(rateLimitResult, corsHeaders);
   }
 
   const { learning_objective, teaching_unit, videos } = await req.json();

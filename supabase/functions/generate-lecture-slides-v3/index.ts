@@ -10,6 +10,7 @@ import {
   logInfo,
   logError,
 } from "../_shared/error-handler.ts";
+import { checkRateLimit, getUserLimits, createRateLimitResponse } from "../_shared/rate-limiter.ts";
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -1035,6 +1036,15 @@ const handler = async (req: Request): Promise<Response> => {
     
     // For queue calls without a user, we proceed but ownership checks in fetchTeachingUnitContext
     // will be skipped (it already handles null userId gracefully)
+
+    // Rate limit check (only if user is authenticated and not a service role call)
+    if (userId && !isServiceRoleCall) {
+      const limits = await getUserLimits(supabase, userId);
+      const rateLimitResult = await checkRateLimit(supabase, userId, 'generate-lecture-slides-v3', limits);
+      if (!rateLimitResult.allowed) {
+        return createRateLimitResponse(rateLimitResult, corsHeaders);
+      }
+    }
 
     // PHASE 1: Fetch complete context
     console.log('[Main] === PHASE 1: CONTEXT GATHERING ===');

@@ -9,6 +9,7 @@ import {
   logInfo,
   logError,
 } from "../_shared/error-handler.ts";
+import { checkRateLimit, getUserLimits, createRateLimitResponse } from "../_shared/rate-limiter.ts";
 
 serve(async (req) => {
   const preflightResponse = handleCorsPreFlight(req);
@@ -38,6 +39,13 @@ serve(async (req) => {
 
     // Use service client for database operations
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Rate limit check
+    const limits = await getUserLimits(supabase, user.id);
+    const rateLimitResult = await checkRateLimit(supabase, user.id, 'content-assistant-chat', limits);
+    if (!rateLimitResult.allowed) {
+      return createRateLimitResponse(rateLimitResult, corsHeaders);
+    }
     
     // Note: Now using unified-ai-client which handles API keys internally
 

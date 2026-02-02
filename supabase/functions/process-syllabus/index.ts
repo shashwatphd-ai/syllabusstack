@@ -16,6 +16,7 @@ import {
   logInfo,
   logError,
 } from "../_shared/error-handler.ts";
+import { checkRateLimit, getUserLimits, createRateLimitResponse } from "../_shared/rate-limiter.ts";
 
 // ========== DOCX Local Extraction (same as parse-syllabus-document) ==========
 function base64ToU8(base64: string): Uint8Array {
@@ -268,6 +269,14 @@ serve(async (req: Request) => {
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
     if (userError || !user) {
       throw new Error("Unauthorized");
+    }
+
+    // Rate limit check
+    const serviceClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const limits = await getUserLimits(serviceClient, user.id);
+    const rateLimitResult = await checkRateLimit(serviceClient, user.id, 'process-syllabus', limits);
+    if (!rateLimitResult.allowed) {
+      return createRateLimitResponse(rateLimitResult, corsHeaders);
     }
 
     const { document_base64, document_url, instructor_course_id, file_name } = await req.json();

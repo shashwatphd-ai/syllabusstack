@@ -43,6 +43,7 @@ import {
   logInfo,
   logError,
 } from "../_shared/error-handler.ts";
+import { checkRateLimit, getUserLimits, createRateLimitResponse } from "../_shared/rate-limiter.ts";
 
 // ============================================================================
 // TYPES
@@ -130,6 +131,15 @@ serve(async (req) => {
         userId = user?.id || null;
       } catch {
         // Continue without user ID
+      }
+    }
+
+    // Rate limit check (only if user is authenticated)
+    if (userId) {
+      const limits = await getUserLimits(supabase, userId);
+      const rateLimitResult = await checkRateLimit(supabase, userId, 'ai-gateway', limits);
+      if (!rateLimitResult.allowed) {
+        return createRateLimitResponse(rateLimitResult, corsHeaders);
       }
     }
 

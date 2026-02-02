@@ -2,12 +2,13 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.47.12';
 import { generateText, MODELS, parseJsonResponse } from "../_shared/unified-ai-client.ts";
 import { getCorsHeaders } from "../_shared/cors.ts";
-import { 
-  createErrorResponse, 
-  createSuccessResponse, 
-  withErrorHandling, 
-  logInfo 
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo
 } from "../_shared/error-handler.ts";
+import { checkRateLimit, getUserLimits, createRateLimitResponse } from "../_shared/rate-limiter.ts";
 
 // Types
 interface LearningObjective {
@@ -215,6 +216,30 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Get user ID from auth header if present
+    let userId: string | null = null;
+    const authHeader = req.headers.get('Authorization');
+    if (authHeader) {
+      try {
+        const token = authHeader.replace('Bearer ', '');
+        if (token !== supabaseServiceKey) {
+          const { data: { user } } = await supabase.auth.getUser(token);
+          userId = user?.id || null;
+        }
+      } catch {
+        // Continue without user ID
+      }
+    }
+
+    // Rate limit check (only if user is authenticated)
+    if (userId) {
+      const limits = await getUserLimits(supabase, userId);
+      const rateLimitResult = await checkRateLimit(supabase, userId, 'curriculum-reasoning-agent', limits);
+      if (!rateLimitResult.allowed) {
+        return createRateLimitResponse(rateLimitResult, corsHeaders);
+      }
+    }
 
     const { learning_objective_id } = await req.json() as DecomposeRequest;
 

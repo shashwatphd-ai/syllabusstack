@@ -11,6 +11,7 @@ import {
 import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
 import { logAssessmentResponse } from "../_shared/assessment-logger.ts";
 import { validateRequest, assessmentAnswerSchema } from "../_shared/validators/index.ts";
+import { checkRateLimit, getUserLimits, createRateLimitResponse } from "../_shared/rate-limiter.ts";
 
 const handler = async (req: Request): Promise<Response> => {
   // Handle CORS preflight
@@ -45,6 +46,14 @@ const handler = async (req: Request): Promise<Response> => {
   }
 
   const userId = data.claims.sub as string;
+
+  // Rate limit check
+  const serviceClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  const limits = await getUserLimits(serviceClient, userId);
+  const rateLimitResult = await checkRateLimit(serviceClient, userId, 'submit-assessment-answer', limits);
+  if (!rateLimitResult.allowed) {
+    return createRateLimitResponse(rateLimitResult, corsHeaders);
+  }
 
   // Validate request body with Zod schema
   const body = await req.json();
