@@ -1,6 +1,7 @@
 import { forwardRef } from "react";
 import { cn } from "@/lib/utils";
-import logoImage from "@/assets/syllabusstack-logo.png";
+import logoImage from "@/assets/syllabusstack-logo.svg";
+import faviconIcon from "@/assets/syllabusstack-icon.svg";
 
 interface LogoProps {
   size?: "sm" | "md" | "lg" | "xl";
@@ -44,15 +45,14 @@ export const Logo = forwardRef<HTMLDivElement, LogoProps>(
       );
     }
 
-    // Icon only mode - crop/show just the icon portion
+    // Icon only mode - use the dedicated icon SVG
     if (showIcon && !showText) {
       return (
         <div ref={ref} className={cn("flex items-center", className)}>
-          <img 
-            src={logoImage} 
-            alt="SyllabusStack" 
-            className={cn("object-contain object-left", sizes[size].icon)}
-            style={{ clipPath: 'inset(0 60% 0 0)' }}
+          <img
+            src={faviconIcon}
+            alt="SyllabusStack"
+            className={cn("object-contain", sizes[size].icon)}
           />
         </div>
       );
