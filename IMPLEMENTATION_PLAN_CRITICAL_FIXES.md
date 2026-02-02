@@ -212,74 +212,91 @@ export const EXTRACT_CAPABILITIES_SCHEMA = {
 
 ## Phase 2: AI Quality & Reliability (P1 - HIGH)
 
-### 2.1 Remove AI Hallucination Instruction
+### 2.1 Smart LO Extraction with Transparency (REVISED)
 
 **File:** `supabase/functions/extract-learning-objectives/index.ts`
-**Line:** 149
+**Lines:** 118-208, 222-385
 
-#### The Problem (Concrete)
-```typescript
-// CURRENT PROMPT (line 149)
-"If no explicit learning objectives are found, infer them from course topics and assignments."
-```
+#### The Original Problem
+The original code said "infer them from course topics" but lacked:
+1. Distinction between explicit and inferred LOs
+2. Source text showing what content the inference was based on
+3. Confidence levels for each LO
+4. Instructor review workflow for inferred LOs
 
-**The Logical Flaw:**
-1. Instructor uploads vague syllabus with no clear LOs
-2. AI "infers" 10 learning objectives that sound plausible
-3. Platform searches for videos matching these INVENTED objectives
-4. Students learn content the instructor never intended to teach
-5. Students get certificates claiming skills the course didn't cover
-6. **Legal/accreditation risk**: Certificates misrepresent what was learned
+#### The Smart Fix (Using AI Intelligently)
 
-#### The Fix (Concrete)
+**Approach: Extract BOTH explicit and inferred LOs with full transparency**
 
 ```typescript
-// FIXED PROMPT
-`IMPORTANT: Only extract learning objectives that are EXPLICITLY stated in the syllabus.
-Look for phrases like:
-- "Students will be able to..."
-- "By the end of this course..."
-- "Learning outcomes:"
-- "Objectives:"
-- Numbered lists under "Goals" or "Outcomes" sections
+// SMART EXTRACTION PROMPT
+const userPrompt = `Analyze this syllabus and extract ALL learning objectives - both explicit and inferred:
 
-If NO explicit learning objectives are found:
-1. Return an EMPTY array for learning_objectives
-2. Set "explicit_objectives_found": false in your response
-3. List section titles that MIGHT contain implicit objectives in "potential_sections"
+EXTRACTION STRATEGY:
 
-Example response when no LOs found:
+1. EXPLICIT OBJECTIVES (source_type: "explicit", confidence: "high")
+   Look for clearly stated objectives like "Students will be able to..."
+
+2. INFERRED FROM TOPICS (source_type: "inferred_from_topics", confidence: "medium")
+   "Week 3: Supply and Demand" → "Understand supply and demand principles"
+
+3. INFERRED FROM ASSIGNMENTS (source_type: "inferred_from_assignments", confidence: "medium")
+   "Midterm: Case study analysis" → "Analyze real-world case studies"
+
+4. INFERRED FROM READINGS (source_type: "inferred_from_readings", confidence: "low")
+   "Required: Chapter 5 - Neural Networks" → "Understand neural network architecture"
+
+CRITICAL: Every inferred objective MUST include source_text showing the EXACT syllabus text.
+
+Return JSON:
 {
-  "learning_objectives": [],
-  "explicit_objectives_found": false,
-  "potential_sections": ["Course Schedule", "Weekly Topics", "Assignments"],
-  "recommendation": "This syllabus does not contain explicit learning objectives. Consider adding them or extracting from assignment descriptions."
-}
-
-DO NOT invent, infer, or create learning objectives. Only extract what is explicitly written.`
+  "explicit_objectives": [...],
+  "inferred_objectives": [...],
+  "extraction_summary": { ... }
+}`;
 ```
 
-#### Frontend Handling Required
+**Interface Updates:**
 ```typescript
-// In QuickCourseSetup.tsx after receiving response
-if (response.explicit_objectives_found === false) {
-  setShowLOWarning(true);
-  setWarningMessage(
-    `No explicit learning objectives found in your syllabus. ` +
-    `Found potential sections: ${response.potential_sections.join(', ')}. ` +
-    `Please add learning objectives manually or upload a more detailed syllabus.`
-  );
-  // Don't auto-proceed to content search - require instructor action
+interface LearningObjective {
+  // ... existing fields ...
+  source_type: 'explicit' | 'inferred_from_topics' | 'inferred_from_assignments' | 'inferred_from_readings';
+  source_text: string;  // The actual syllabus text this came from
+  confidence: 'high' | 'medium' | 'low';
 }
+```
+
+**Database Updates:**
+```typescript
+// Explicit LOs are auto-approved
+approval_status: isAutoApproved ? 'approved' : 'pending_review'
+```
+
+**Response Format:**
+```typescript
+return {
+  explicit_objectives: savedExplicitLOs,      // Auto-approved
+  inferred_objectives: savedInferredLOs,      // Pending review
+  learning_objectives: [...all...],           // Backwards compatible
+  review_required: savedInferredLOs.length > 0,
+  review_message: "Found X explicit and Y inferred objectives. Please review inferred objectives."
+};
 ```
 
 #### Logic Verification Table
-| Scenario | Before | After |
-|----------|--------|-------|
-| Syllabus with clear LOs | Extracts correctly | Extracts correctly |
-| Syllabus with no LOs | INVENTS 10 fake LOs | Returns empty + warning |
-| Vague syllabus | Hallucinates plausible LOs | Returns empty + shows potential sections |
-| Instructor response | Never knows LOs were fake | Clear prompt to add real LOs |
+| Scenario | Before | Smart Fix |
+|----------|--------|-----------|
+| Syllabus with explicit LOs | Extracts correctly | Extracts with source_type="explicit" |
+| Syllabus with only topics | INVENTED fake LOs | Infers with source_text showing "Week 3: Topic X" |
+| Syllabus with assignments | No context | Infers with source_type="inferred_from_assignments" |
+| Instructor visibility | Unknown if real or fake | Clear separation + review workflow |
+| Content search | Uses potentially wrong LOs | Uses approved LOs only |
+
+#### Why This Is Better
+1. **Intelligent**: Uses AI to extract implicit knowledge from course structure
+2. **Transparent**: Every inference shows its source text
+3. **Controllable**: Instructors review/approve inferred LOs
+4. **Accurate**: Content search only uses approved objectives
 
 ---
 
