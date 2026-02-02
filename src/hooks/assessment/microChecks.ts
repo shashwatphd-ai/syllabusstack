@@ -98,7 +98,7 @@ export async function validateMicroCheckAnswer(
   });
 
   if (error) throw error;
-  return data as ValidateMicroCheckResponse;
+  return data as unknown as ValidateMicroCheckResponse;
 }
 
 // Fetch micro-check results for a consumption record
@@ -122,7 +122,7 @@ export function useMicroCheckResults(consumptionRecordId?: string) {
         .order('created_at', { ascending: true });
 
       if (error) throw error;
-      return data as MicroCheckResult[];
+      return data as unknown as MicroCheckResult[];
     },
     enabled: !!consumptionRecordId,
   });

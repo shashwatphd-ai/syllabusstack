@@ -158,7 +158,7 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     const now = new Date().toISOString();
-    const consumptionEvent: ConsumptionEvent = event;
+    const consumptionEvent = event;
 
     if (!record) {
       // Create new record

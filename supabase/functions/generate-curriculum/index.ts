@@ -105,7 +105,7 @@ serve(async (req) => {
     console.log(`Generating curriculum for user: ${userId}, career_match_id: ${career_match_id}, dream_job_id: ${dream_job_id}`);
 
     // Gather context - either from career_match or dream_job
-    let targetOccupation: string;
+    let targetOccupation = '';
     let skillGaps: Array<{ skill: string; gap: number }> = [];
     let skillProfile: Record<string, unknown> | null = null;
     let occupationDetails: Record<string, unknown> | null = null;
@@ -181,7 +181,11 @@ serve(async (req) => {
         }));
       }
     }
-    // Note: Zod validation ensures at least one of career_match_id or dream_job_id is provided
+
+    // Guard against empty targetOccupation (shouldn't happen due to Zod validation, but TypeScript needs this)
+    if (!targetOccupation) {
+      return createErrorResponse('BAD_REQUEST', corsHeaders, 'Either career_match_id or dream_job_id is required');
+    }
 
     // Build AI prompt
     const hoursPerWeek = customizations.hours_per_week || 10;

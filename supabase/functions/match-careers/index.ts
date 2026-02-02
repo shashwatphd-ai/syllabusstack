@@ -166,7 +166,10 @@ serve(async (req) => {
     const validation = validateRequest(matchCareersSchema, body);
     if (!validation.success) {
       logger.warn('Validation failed', { errors: validation.errors });
-      return validationErrorResponse(validation.errors.map(e => ({ field: e.split(':')[0], message: e })), requestId);
+      return validationErrorResponse(
+        validation.errors.map(e => ({ code: 'VALIDATION_ERROR', field: e.split(':')[0], message: e })), 
+        requestId
+      );
     }
 
     const { limit, filters } = validation.data;

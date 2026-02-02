@@ -79,6 +79,7 @@ export interface MicroCheck {
   options: unknown;
   trigger_time_seconds: number;
   rewind_target_seconds: number | null;
+  time_limit_seconds: number | null;
 }
 
 export interface MicroCheckResult {

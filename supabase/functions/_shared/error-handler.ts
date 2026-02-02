@@ -21,7 +21,8 @@ export type ErrorCode =
   | 'AI_GATEWAY_ERROR'
   | 'DATABASE_ERROR'
   | 'INTERNAL_ERROR'
-  | 'SERVICE_UNAVAILABLE';
+  | 'SERVICE_UNAVAILABLE'
+  | 'CONFIG_ERROR';
 
 export interface ErrorConfig {
   code: ErrorCode;
@@ -41,7 +42,8 @@ export const ERRORS: Record<ErrorCode, ErrorConfig> = {
   AI_GATEWAY_ERROR: { code: 'AI_GATEWAY_ERROR', status: 502, message: 'AI service temporarily unavailable' },
   DATABASE_ERROR: { code: 'DATABASE_ERROR', status: 500, message: 'Database operation failed' },
   INTERNAL_ERROR: { code: 'INTERNAL_ERROR', status: 500, message: 'Internal server error' },
-  SERVICE_UNAVAILABLE: { code: 'SERVICE_UNAVAILABLE', status: 503, message: 'Service temporarily unavailable' }
+  SERVICE_UNAVAILABLE: { code: 'SERVICE_UNAVAILABLE', status: 503, message: 'Service temporarily unavailable' },
+  CONFIG_ERROR: { code: 'CONFIG_ERROR', status: 500, message: 'Server configuration error' }
 };
 
 /**
