@@ -34,10 +34,10 @@ serve(async (req) => {
   const logger = new PipelineLogger('submit-skills-response', requestId);
   const startTime = Date.now();
 
-  // Handle CORS preflight
-  if (req.method === 'OPTIONS') {
-    return corsPreflightResponse();
-  }
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
+
+  const corsHeaders = getCorsHeaders(req);
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;

@@ -10,14 +10,7 @@ import {
 } from "../_shared/error-handler.ts";
 import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
 import { logAssessmentResponse } from "../_shared/assessment-logger.ts";
-
-interface SubmitAnswerRequest {
-  session_id: string;
-  question_id: string;
-  user_answer: string;
-  client_question_served_at: string;
-  client_answer_submitted_at: string;
-}
+import { validateRequest, assessmentAnswerSchema } from "../_shared/validators/index.ts";
 
 const handler = async (req: Request): Promise<Response> => {
   // Handle CORS preflight
@@ -53,18 +46,19 @@ const handler = async (req: Request): Promise<Response> => {
 
   const userId = data.claims.sub as string;
 
-  const body: SubmitAnswerRequest = await req.json();
+  // Validate request body with Zod schema
+  const body = await req.json();
+  const validation = validateRequest(assessmentAnswerSchema, body);
+  if (!validation.success) {
+    return createErrorResponse('VALIDATION_ERROR', corsHeaders, validation.errors.join(', '));
+  }
   const {
     session_id,
     question_id,
     user_answer,
     client_question_served_at,
     client_answer_submitted_at,
-  } = body;
-
-  if (!session_id || !question_id || !user_answer) {
-    return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'session_id, question_id, and user_answer are required');
-  }
+  } = validation.data;
 
   logInfo('submit-assessment-answer', 'submitting', { sessionId: session_id, questionId: question_id });
 

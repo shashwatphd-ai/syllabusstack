@@ -10,6 +10,7 @@ import { createErrorResponse, createSuccessResponse, withErrorHandling, logInfo,
 import { generateStructured, MODELS } from "../_shared/unified-ai-client.ts";
 import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
 import { applyDecayToSkills, generateDecaySummary, getSkillsNeedingRetest, type RawSkill } from "../_shared/skill-decay.ts";
+import { validateRequest, gapAnalysisSchema } from "../_shared/validators/index.ts";
 
 const handler = async (req: Request): Promise<Response> => {
   // Handle CORS preflight
@@ -18,11 +19,13 @@ const handler = async (req: Request): Promise<Response> => {
 
   const corsHeaders = getCorsHeaders(req);
 
-  const { dreamJobId } = await req.json();
-
-  if (!dreamJobId) {
-    return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'Dream job ID is required');
+  // Validate request body with Zod schema
+  const body = await req.json();
+  const validation = validateRequest(gapAnalysisSchema, body);
+  if (!validation.success) {
+    return createErrorResponse('VALIDATION_ERROR', corsHeaders, validation.errors.join(', '));
   }
+  const { dreamJobId } = validation.data;
 
   const authHeader = req.headers.get("Authorization");
 

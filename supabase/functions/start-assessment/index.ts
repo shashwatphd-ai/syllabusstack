@@ -7,11 +7,7 @@ import {
   logInfo,
 } from "../_shared/error-handler.ts";
 import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
-
-interface StartAssessmentRequest {
-  learning_objective_id: string;
-  num_questions?: number;
-}
+import { validateRequest, assessmentStartSchema } from "../_shared/validators/index.ts";
 
 const handler = async (req: Request): Promise<Response> => {
   // Handle CORS preflight
@@ -43,12 +39,13 @@ const handler = async (req: Request): Promise<Response> => {
 
   const userId = data.claims.sub as string;
 
-  const body: StartAssessmentRequest = await req.json();
-  const { learning_objective_id, num_questions = 5 } = body;
-
-  if (!learning_objective_id) {
-    return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'learning_objective_id is required');
+  // Validate request body with Zod schema
+  const body = await req.json();
+  const validation = validateRequest(assessmentStartSchema, body);
+  if (!validation.success) {
+    return createErrorResponse('VALIDATION_ERROR', corsHeaders, validation.errors.join(', '));
   }
+  const { learning_objective_id, num_questions } = validation.data;
 
   logInfo('start-assessment', 'starting', { userId, learningObjectiveId: learning_objective_id });
 

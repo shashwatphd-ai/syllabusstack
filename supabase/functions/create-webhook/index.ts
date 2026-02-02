@@ -20,12 +20,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
 import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
 import { createErrorResponse, createSuccessResponse, logInfo, withErrorHandling } from "../_shared/error-handler.ts";
-
-interface CreateWebhookRequest {
-  employer_account_id: string;
-  url: string;
-  events: string[];
-}
+import { validateRequest, webhookCreateSchema } from "../_shared/validators/index.ts";
 
 const VALID_WEBHOOK_EVENTS = [
   'certificate.issued',
@@ -83,10 +78,15 @@ const handler = async (req: Request): Promise<Response> => {
 
   const corsHeaders = getCorsHeaders(req);
 
-  const body = await req.json() as CreateWebhookRequest;
-  const { employer_account_id, url, events } = body;
+  // Validate request body with Zod schema
+  const body = await req.json();
+  const validation = validateRequest(webhookCreateSchema, body);
+  if (!validation.success) {
+    return createErrorResponse('VALIDATION_ERROR', corsHeaders, validation.errors.join(', '));
+  }
+  const { employer_account_id, url, events } = validation.data;
 
-  // Validate required fields
+  // Note: Zod schema already validates required fields and HTTPS requirement
   if (!employer_account_id || !url || !events?.length) {
     return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'Missing required fields: employer_account_id, url, and events are required');
   }
