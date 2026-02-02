@@ -548,6 +548,7 @@ const handler = async (req: Request): Promise<Response> => {
   if (preflightResponse) return preflightResponse;
 
   const corsHeaders = getCorsHeaders(req);
+  const fnName = '[submit-batch-evaluation]';
   logInfo('submit-batch-evaluation', 'starting');
 
   try {
@@ -608,7 +609,7 @@ const handler = async (req: Request): Promise<Response> => {
       throw new Error('Not authorized to modify this course');
     }
 
-    console.log(`${functionName} Course verified: ${course.title}`);
+    console.log(`${fnName} Course verified: ${course.title}`);
 
     // ========================================================================
     // STEP 3: Fetch content_matches with full context
@@ -678,7 +679,7 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     if (!pendingMatches || pendingMatches.length === 0) {
-      console.log(`${functionName} No content matches need evaluation`);
+      console.log(`${fnName} No content matches need evaluation`);
       return new Response(
         JSON.stringify({
           success: true,
@@ -690,11 +691,11 @@ const handler = async (req: Request): Promise<Response> => {
       );
     }
 
-    console.log(`${functionName} Found ${pendingMatches.length} videos to evaluate`);
+    console.log(`${fnName} Found ${pendingMatches.length} videos to evaluate`);
 
     // Check minimum batch size
     if (pendingMatches.length < BATCH_CONFIG.MIN_BATCH_SIZE) {
-      console.log(`${functionName} Below minimum batch size, use sync evaluation`);
+      console.log(`${fnName} Below minimum batch size, use sync evaluation`);
       return new Response(
         JSON.stringify({
           success: false,
@@ -708,7 +709,7 @@ const handler = async (req: Request): Promise<Response> => {
     // ========================================================================
     // STEP 4: Group by LO/teaching unit and build batch requests
     // ========================================================================
-    console.log(`${functionName} Building batch requests...`);
+    console.log(`${fnName} Building batch requests...`);
 
     // Group matches by LO + teaching unit for efficient prompting
     const groupedMatches = new Map<string, ContentMatchWithContext[]>();
@@ -804,7 +805,7 @@ const handler = async (req: Request): Promise<Response> => {
       }
     }
 
-    console.log(`${functionName} Built ${batchLines.length} requests for ${pendingMatches.length} videos`);
+    console.log(`${fnName} Built ${batchLines.length} requests for ${pendingMatches.length} videos`);
 
     // ========================================================================
     // STEP 5: Create batch_jobs record
@@ -828,7 +829,7 @@ const handler = async (req: Request): Promise<Response> => {
       throw new Error(`Failed to create batch job record: ${insertJobError.message}`);
     }
 
-    console.log(`${functionName} Created batch job: ${batchJobId}`);
+    console.log(`${fnName} Created batch job: ${batchJobId}`);
 
     // ========================================================================
     // STEP 6: Upload JSONL to GCS
@@ -850,7 +851,7 @@ const handler = async (req: Request): Promise<Response> => {
 
     try {
       const gcsUri = await gcsClient.uploadJsonl(inputPath, batchLines);
-      console.log(`${functionName} Uploaded to GCS: ${gcsUri}`);
+      console.log(`${fnName} Uploaded to GCS: ${gcsUri}`);
     } catch (gcsError) {
       await supabase
         .from('batch_jobs')
@@ -873,7 +874,7 @@ const handler = async (req: Request): Promise<Response> => {
         outputUriPrefix: `gs://${bucketName}/${BATCH_CONFIG.GCS_PREFIX}/${batchJobId}/output/`
       });
 
-      console.log(`${functionName} Created Vertex AI job: ${batchJob.name}`);
+      console.log(`${fnName} Created Vertex AI job: ${batchJob.name}`);
 
       await supabase
         .from('batch_jobs')
@@ -887,7 +888,7 @@ const handler = async (req: Request): Promise<Response> => {
       try {
         await gcsClient.deleteFile(inputPath);
       } catch (cleanupError) {
-        console.warn(`${functionName} Failed to cleanup GCS file:`, cleanupError);
+        console.warn(`${fnName} Failed to cleanup GCS file:`, cleanupError);
       }
       await supabase
         .from('batch_jobs')
@@ -909,7 +910,7 @@ const handler = async (req: Request): Promise<Response> => {
       .update({ evaluation_batch_job_id: batchJobId })
       .in('id', matchIds);
 
-    console.log(`${functionName} Updated ${matchIds.length} content matches`);
+    console.log(`${fnName} Updated ${matchIds.length} content matches`);
 
     // ========================================================================
     // STEP 9: Return success

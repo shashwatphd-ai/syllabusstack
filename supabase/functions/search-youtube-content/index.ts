@@ -657,10 +657,10 @@ const handler = async (req: Request): Promise<Response> => {
         queries = await generateSearchQueries(
           {
             id: learning_objective_id,
-            text: effectiveLoText,
-            core_concept: effectiveCoreConcept,
+            text: effectiveLoText || '',
+            core_concept: effectiveCoreConcept || '',
             action_verb: effectiveSearchKeywords?.[0] || '',
-            bloom_level: effectiveBloomLevel,
+            bloom_level: effectiveBloomLevel || 'understand',
             domain: effectiveDomain || 'other',
             specificity: 'intermediate',
             search_keywords: effectiveSearchKeywords || [],
@@ -1059,7 +1059,8 @@ const handler = async (req: Request): Promise<Response> => {
     // STEP 8: Supplement with Khan Academy if needed
     // =========================================================================
     let khanMatches: any[] = [];
-    if (sources.includes('khan_academy') && savedMatches.length < 3) {
+    const sourcesValue = sources ?? ['invidious', 'piped', 'khan_academy'];
+    if (sourcesValue.includes('khan_academy') && savedMatches.length < 3) {
       console.log('Supplementing with Khan Academy...');
       try {
         const khanResponse = await fetch(`${supabaseUrl}/functions/v1/search-khan-academy`, {

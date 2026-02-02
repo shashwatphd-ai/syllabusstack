@@ -72,7 +72,7 @@ const handler = async (req: Request): Promise<Response> => {
     console.log(`Searching jobs: title="${title}", location="${location}", skills=${skills?.length || 0}`);
 
     // Build filter for skills
-    const descriptionFilter = skills?.length > 0 ? skills.join(" OR ") : undefined;
+    const descriptionFilter = skills && skills.length > 0 ? skills.join(" OR ") : undefined;
 
     const response = await fetch("https://active-jobs-db.p.rapidapi.com/active-ats-7d", {
       method: "POST",

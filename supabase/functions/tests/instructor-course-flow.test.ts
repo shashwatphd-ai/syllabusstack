@@ -151,7 +151,7 @@ Deno.test("instructor-course - publishing requirements", async () => {
 });
 
 Deno.test("instructor-course - cannot publish without content", async () => {
-  const course = {
+  const course: { modules: { id: string }[]; learningObjectives: { id: string }[]; contentMatches: { status: string }[] } = {
     modules: [{ id: 'm1' }],
     learningObjectives: [{ id: 'lo1' }],
     contentMatches: [], // No content
