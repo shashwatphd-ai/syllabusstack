@@ -180,12 +180,8 @@ serve(async (req) => {
           gap: 50,
         }));
       }
-    } else {
-      return new Response(JSON.stringify({ error: 'Either career_match_id or dream_job_id is required' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
     }
+    // Note: Zod validation ensures at least one of career_match_id or dream_job_id is provided
 
     // Build AI prompt
     const hoursPerWeek = customizations.hours_per_week || 10;
