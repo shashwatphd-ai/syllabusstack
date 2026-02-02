@@ -231,6 +231,7 @@ export function LectureSlideViewer({
               variant="ghost"
               size="icon"
               onClick={() => setIsFullscreen(prev => !prev)}
+              aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
             >
               {isFullscreen ? (
                 <Minimize2 className="h-4 w-4" />
@@ -243,6 +244,7 @@ export function LectureSlideViewer({
               variant="ghost"
               size="icon"
               onClick={() => onOpenChange(false)}
+              aria-label="Close slide viewer"
             >
               <X className="h-4 w-4" />
             </Button>

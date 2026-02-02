@@ -56,7 +56,7 @@ export function ScannerDropzone({
                 </p>
               </div>
             </div>
-            <Button variant="ghost" size="icon" onClick={onRemoveFile} disabled={isParsing}>
+            <Button variant="ghost" size="icon" onClick={onRemoveFile} disabled={isParsing} aria-label="Remove file">
               <X className="h-4 w-4" />
             </Button>
           </div>

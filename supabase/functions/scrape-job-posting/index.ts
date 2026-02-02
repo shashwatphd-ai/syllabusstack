@@ -2,11 +2,9 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import { getWebProvider } from "../_shared/web-provider.ts";
 import { generateText, MODELS } from "../_shared/unified-ai-client.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import { createErrorResponse, createSuccessResponse, logInfo, logError, withErrorHandling } from "../_shared/error-handler.ts";
+import { validateRequest, scrapeJobPostingSchema } from "../_shared/validators/index.ts";
 
 interface JobPostingData {
   title: string;
@@ -20,20 +18,19 @@ interface JobPostingData {
   experienceLevel?: string;
 }
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+const handler = async (req: Request): Promise<Response> => {
+  const corsHeaders = getCorsHeaders(req);
+
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
 
   try {
-    const { url } = await req.json();
-
-    if (!url) {
-      return new Response(
-        JSON.stringify({ error: "URL is required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    const body = await req.json();
+    const validation = validateRequest(scrapeJobPostingSchema, body);
+    if (!validation.success) {
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, validation.errors.join(', '));
     }
+    const { url } = validation.data;
 
     // Validate URL format
     let jobUrl: URL;
@@ -179,13 +176,12 @@ Return a JSON object with these fields (use null for missing fields):
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
-    console.error("Error in scrape-job-posting:", error);
-    return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    logError("scrape-job-posting", error instanceof Error ? error : new Error(String(error)), { action: "scraping" });
+    return createErrorResponse("INTERNAL_ERROR", corsHeaders, error instanceof Error ? error.message : "Unknown error");
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));
 
 function extractJobDataFallback(markdown: string, metadata: any): JobPostingData {
   const lines = markdown.split("\n").filter(l => l.trim());

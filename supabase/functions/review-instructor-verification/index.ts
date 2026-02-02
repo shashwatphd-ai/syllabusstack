@@ -1,15 +1,14 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.0";
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import { createErrorResponse, createSuccessResponse, logInfo, logError, withErrorHandling } from "../_shared/error-handler.ts";
+import { validateRequest, reviewInstructorVerificationSchema } from "../_shared/validators/index.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+const handler = async (req: Request): Promise<Response> => {
+  const corsHeaders = getCorsHeaders(req);
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
 
   try {
     const supabaseAdmin = createClient(
@@ -45,15 +44,12 @@ serve(async (req) => {
       throw new Error("Unauthorized: Admin access required");
     }
 
-    const { verification_id, action, rejection_reason, trust_score_adjustment } = await req.json();
-
-    if (!verification_id || !action) {
-      throw new Error("verification_id and action are required");
+    const body = await req.json();
+    const validation = validateRequest(reviewInstructorVerificationSchema, body);
+    if (!validation.success) {
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, validation.errors.join(', '));
     }
-
-    if (!['approve', 'reject'].includes(action)) {
-      throw new Error("action must be 'approve' or 'reject'");
-    }
+    const { verification_id, action, rejection_reason, trust_score_adjustment } = validation.data;
 
     // Get the verification request
     const { data: verification, error: verificationError } = await supabaseAdmin
@@ -121,21 +117,16 @@ serve(async (req) => {
 
     console.log(`[review-instructor-verification] Reviewer ${user.id} ${action}ed verification ${verification_id} for user ${verification.user_id}`);
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        verification_id,
-        new_status: action === 'approve' ? 'approved' : 'rejected',
-        trust_score: newTrustScore,
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return createSuccessResponse({
+      success: true,
+      verification_id,
+      new_status: action === 'approve' ? 'approved' : 'rejected',
+      trust_score: newTrustScore,
+    }, corsHeaders);
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Unknown error";
-    console.error("[review-instructor-verification] Error:", error);
-    return new Response(
-      JSON.stringify({ error: errorMessage }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    logError("review-instructor-verification", error instanceof Error ? error : new Error(String(error)), { action: "review" });
+    return createErrorResponse("INTERNAL_ERROR", corsHeaders, error instanceof Error ? error.message : "Unknown error");
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));

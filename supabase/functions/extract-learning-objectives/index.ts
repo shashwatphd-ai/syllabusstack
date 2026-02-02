@@ -9,6 +9,7 @@ import {
   logInfo,
   logError,
 } from "../_shared/error-handler.ts";
+import { checkRateLimit, getUserLimits, createRateLimitResponse } from "../_shared/rate-limiter.ts";
 
 // Duration matrix: Bloom level x Specificity (in minutes)
 const DURATION_MATRIX: Record<string, Record<string, number>> = {
@@ -53,6 +54,15 @@ const handler = async (req: Request): Promise<Response> => {
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
     if (userError || !user) {
       throw new Error("Unauthorized");
+    }
+
+    // Rate limit check
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+    const serviceClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const limits = await getUserLimits(serviceClient, user.id);
+    const rateLimitResult = await checkRateLimit(serviceClient, user.id, 'extract-learning-objectives', limits);
+    if (!rateLimitResult.allowed) {
+      return createRateLimitResponse(rateLimitResult, corsHeaders);
     }
 
     const { syllabus_text, course_id, module_id } = await req.json();

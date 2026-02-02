@@ -2,8 +2,29 @@
  * Error Tracking & Monitoring Integration
  *
  * Provides centralized error tracking, reporting, and monitoring.
- * Can be integrated with external services like Sentry, LogRocket, etc.
+ * Integrated with Sentry for production error tracking.
+ *
+ * SETUP:
+ * 1. npm install @sentry/react
+ * 2. Set VITE_SENTRY_DSN in environment
+ * 3. Call initErrorTracking() in main.tsx
  */
+
+// Sentry integration (lazy loaded to avoid bundle impact if not configured)
+let Sentry: typeof import('@sentry/react') | null = null;
+let sentryInitialized = false;
+
+async function loadSentry(): Promise<typeof import('@sentry/react') | null> {
+  if (Sentry) return Sentry;
+
+  try {
+    Sentry = await import('@sentry/react');
+    return Sentry;
+  } catch {
+    console.warn('[Error Tracking] Sentry not installed. Run: npm install @sentry/react');
+    return null;
+  }
+}
 
 // Error severity levels
 export type ErrorSeverity = 'debug' | 'info' | 'warning' | 'error' | 'fatal';
@@ -73,12 +94,49 @@ let config = { ...defaultConfig };
 let isInitialized = false;
 
 /**
- * Initialize error tracking
+ * Initialize error tracking with Sentry
  */
-export function initErrorTracking(customConfig?: Partial<ErrorTrackingConfig>): void {
+export async function initErrorTracking(customConfig?: Partial<ErrorTrackingConfig>): Promise<void> {
   if (isInitialized) return;
 
   config = { ...defaultConfig, ...customConfig };
+
+  // Initialize Sentry in production
+  const sentryDsn = import.meta.env.VITE_SENTRY_DSN;
+  if (import.meta.env.PROD && sentryDsn) {
+    const sentry = await loadSentry();
+    if (sentry) {
+      sentry.init({
+        dsn: sentryDsn,
+        environment: config.environment,
+        integrations: [
+          sentry.browserTracingIntegration(),
+          sentry.replayIntegration({
+            maskAllText: false,
+            blockAllMedia: false,
+          }),
+        ],
+        // Performance Monitoring
+        tracesSampleRate: 0.1, // 10% of transactions
+        // Session Replay
+        replaysSessionSampleRate: 0.1, // 10% of sessions
+        replaysOnErrorSampleRate: 1.0, // 100% when error occurs
+        // Filter errors
+        beforeSend(event) {
+          // Filter out ignored patterns
+          if (event.exception?.values?.[0]?.value) {
+            const message = event.exception.values[0].value;
+            if (config.ignorePatterns.some(pattern => pattern.test(message))) {
+              return null;
+            }
+          }
+          return event;
+        },
+      });
+      sentryInitialized = true;
+      console.log('[Error Tracking] Sentry initialized');
+    }
+  }
 
   // Set up global error handlers
   if (typeof window !== 'undefined') {
@@ -134,6 +192,19 @@ export function trackError(
   // Add to buffer
   errorBuffer.push(trackedError);
 
+  // Send to Sentry if initialized
+  if (sentryInitialized && Sentry) {
+    Sentry.captureException(errorObj, {
+      level: trackedError.severity === 'fatal' ? 'fatal' : trackedError.severity === 'warning' ? 'warning' : 'error',
+      tags: {
+        category: trackedError.category,
+        handled: String(trackedError.handled),
+      },
+      extra: trackedError.context,
+      fingerprint: trackedError.fingerprint ? [trackedError.fingerprint] : undefined,
+    });
+  }
+
   // Log to console in development
   if (import.meta.env.DEV) {
     console.error('[Error Tracking]', trackedError);
@@ -166,6 +237,16 @@ export function addBreadcrumb(
   while (breadcrumbs.length > config.maxBreadcrumbs) {
     breadcrumbs.shift();
   }
+
+  // Also add to Sentry
+  if (sentryInitialized && Sentry) {
+    Sentry.addBreadcrumb({
+      category: type,
+      message,
+      level: 'info',
+      data: data as Record<string, unknown>,
+    });
+  }
 }
 
 /**
@@ -173,6 +254,14 @@ export function addBreadcrumb(
  */
 export function setUserContext(userId: string, metadata?: Record<string, unknown>): void {
   addBreadcrumb('user', `User context set: ${userId}`, metadata);
+
+  // Set Sentry user context
+  if (sentryInitialized && Sentry) {
+    Sentry.setUser({
+      id: userId,
+      ...metadata,
+    });
+  }
 }
 
 /**
@@ -180,6 +269,11 @@ export function setUserContext(userId: string, metadata?: Record<string, unknown
  */
 export function clearUserContext(): void {
   addBreadcrumb('user', 'User context cleared');
+
+  // Clear Sentry user context
+  if (sentryInitialized && Sentry) {
+    Sentry.setUser(null);
+  }
 }
 
 /**

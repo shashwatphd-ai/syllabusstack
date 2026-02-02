@@ -1,11 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
 import { getWebProvider, type SearchResult } from "../_shared/web-provider.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import { createErrorResponse, createSuccessResponse, logInfo, logError, withErrorHandling } from "../_shared/error-handler.ts";
 
 interface CourseResult {
   title: string;
@@ -376,32 +373,27 @@ function salvageBlockedResult(result: SearchResult): CourseResult | null {
 // MAIN HANDLER
 // =============================================================================
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+const handler = async (req: Request): Promise<Response> => {
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
+
+  const corsHeaders = getCorsHeaders(req);
 
   try {
     const { gaps, dreamJobId, dreamJobTitle, freeOnly = false } = await req.json();
 
     // Normalize and validate gaps using our robust normalization
     const normalizedGaps = normalizeGaps(gaps || []);
-    
+
     if (normalizedGaps.length === 0) {
       console.error('[firecrawl-search-courses] No valid gaps after normalization');
       console.error('[firecrawl-search-courses] Raw gaps received:', JSON.stringify(gaps).slice(0, 500));
-      return new Response(
-        JSON.stringify({ error: "No valid skill gaps provided. Please ensure gaps have text content." }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return createErrorResponse('BAD_REQUEST', corsHeaders, 'No valid skill gaps provided. Please ensure gaps have text content.');
     }
 
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
-      return new Response(
-        JSON.stringify({ error: "Authorization required" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return createErrorResponse('UNAUTHORIZED', corsHeaders, 'Authorization required');
     }
 
     const supabase = createClient(
@@ -412,10 +404,7 @@ serve(async (req) => {
 
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     if (userError || !user) {
-      return new Response(
-        JSON.stringify({ error: "Failed to authenticate user" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return createErrorResponse('UNAUTHORIZED', corsHeaders, 'Failed to authenticate user');
     }
 
     // Get web provider (firecrawl or jina based on WEB_PROVIDER env var)
@@ -428,10 +417,7 @@ serve(async (req) => {
 
     if (webProvider.name === 'firecrawl' && !FIRECRAWL_API_KEY) {
       console.error("[firecrawl-search-courses] FIRECRAWL_API_KEY not configured");
-      return new Response(
-        JSON.stringify({ error: "Firecrawl not configured. Please connect Firecrawl in Settings." }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return createErrorResponse('INTERNAL_ERROR', corsHeaders, 'Firecrawl not configured. Please connect Firecrawl in Settings.');
     }
 
     console.log(`[firecrawl-search-courses] Searching courses for ${normalizedGaps.length} gaps for job: ${dreamJobTitle}`);
@@ -571,25 +557,21 @@ serve(async (req) => {
       }
     }
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        courses: allCourses,
-        gapsSearched: gapsToSearch.length,
-        totalFound: allCourses.length,
-        freeCount: allCourses.filter(c => c.isFree).length,
-        paidCount: allCourses.filter(c => !c.isFree).length,
-        provider: webProvider.name,
-        blockedCount: blockedUrls.length,
-        searchErrors: searchErrors.length > 0 ? searchErrors : undefined,
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return createSuccessResponse({
+      success: true,
+      courses: allCourses,
+      gapsSearched: gapsToSearch.length,
+      totalFound: allCourses.length,
+      freeCount: allCourses.filter(c => c.isFree).length,
+      paidCount: allCourses.filter(c => !c.isFree).length,
+      provider: webProvider.name,
+      blockedCount: blockedUrls.length,
+      searchErrors: searchErrors.length > 0 ? searchErrors : undefined,
+    }, corsHeaders);
   } catch (error) {
-    console.error("[firecrawl-search-courses] Error:", error);
-    return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    logError("firecrawl-search-courses", error instanceof Error ? error : new Error(String(error)), { action: "search" });
+    return createErrorResponse("INTERNAL_ERROR", corsHeaders, error instanceof Error ? error.message : "Unknown error");
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));

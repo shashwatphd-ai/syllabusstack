@@ -1,10 +1,8 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.0";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import { createErrorResponse, createSuccessResponse, logInfo, logError, withErrorHandling } from "../_shared/error-handler.ts";
+import { validateRequest, verifyInstructorEmailSchema } from "../_shared/validators/index.ts";
 
 // Common .edu domains that should auto-approve
 const TRUSTED_EDU_DOMAINS = [
@@ -48,10 +46,11 @@ function calculateTrustScore(verification: {
   return Math.min(score, 100);
 }
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+const handler = async (req: Request): Promise<Response> => {
+  const corsHeaders = getCorsHeaders(req);
+
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
 
   try {
     const supabaseAdmin = createClient(
@@ -76,7 +75,12 @@ serve(async (req) => {
       throw new Error("Unauthorized");
     }
 
-    const { email, institution_name, department, title, linkedin_url, document_urls } = await req.json();
+    const body = await req.json();
+    const validation = validateRequest(verifyInstructorEmailSchema, body);
+    if (!validation.success) {
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, validation.errors.join(', '));
+    }
+    const { email, institution_name, department, title, linkedin_url, document_urls } = validation.data;
 
     // Check if user already has a verification request
     const { data: existingVerification } = await supabaseAdmin
@@ -189,11 +193,9 @@ serve(async (req) => {
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Unknown error";
-    console.error("[verify-instructor-email] Error:", error);
-    return new Response(
-      JSON.stringify({ error: errorMessage }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    logError("verify-instructor-email", error instanceof Error ? error : new Error(String(error)), { action: "verification" });
+    return createErrorResponse("INTERNAL_ERROR", corsHeaders, error instanceof Error ? error.message : "Unknown error");
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));

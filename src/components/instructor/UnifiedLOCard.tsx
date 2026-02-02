@@ -748,8 +748,9 @@ function CompactContentCard({
                         size="icon"
                         className="h-7 w-7"
                         asChild
+                        aria-label="Open video on YouTube"
                       >
-                        <a 
+                        <a
                           href={`https://www.youtube.com/watch?v=${content.source_id}`}
                           target="_blank"
                           rel="noopener noreferrer"
@@ -772,6 +773,7 @@ function CompactContentCard({
                         className="h-7 w-7 text-destructive/60 hover:text-destructive hover:bg-destructive/10"
                         onClick={onRemove}
                         disabled={isLoading}
+                        aria-label="Remove content from course"
                       >
                         <Trash2 className="h-3 w-3" />
                       </Button>
@@ -794,6 +796,7 @@ function CompactContentCard({
                   className="h-7 w-7 text-success hover:text-success hover:bg-success/10"
                   onClick={onApprove}
                   disabled={isLoading}
+                  aria-label="Approve recommendation"
                 >
                   <CheckCircle className="h-4 w-4" />
                 </Button>
@@ -810,6 +813,7 @@ function CompactContentCard({
                   className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
                   onClick={onReject}
                   disabled={isLoading}
+                  aria-label="Reject recommendation"
                 >
                   <XCircle className="h-4 w-4" />
                 </Button>

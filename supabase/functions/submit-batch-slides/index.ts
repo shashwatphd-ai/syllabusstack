@@ -2,6 +2,8 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
 import { MODEL_CONFIG } from '../_shared/ai-orchestrator.ts';
 import { searchGrounded } from '../_shared/unified-ai-client.ts';
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import { createErrorResponse, createSuccessResponse, logInfo, logError, withErrorHandling } from "../_shared/error-handler.ts";
 
 // ============================================================================
 // SUBMIT BATCH SLIDES - Fast Placeholder Creation
@@ -33,11 +35,6 @@ import { searchGrounded } from '../_shared/unified-ai-client.ts';
 //   - Must split work across function calls instead
 //
 // ============================================================================
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
 
 // Model configuration - use orchestrator's MODEL_CONFIG for consistency
 // CRITICAL: Batch MUST use the same model as v3 for quality parity.
@@ -692,11 +689,11 @@ function getEmptyResearchContext(topic: string): ResearchContext {
 // MAIN HANDLER
 // ============================================================================
 
-serve(async (req) => {
-  // Handle CORS preflight
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
+const handler = async (req: Request): Promise<Response> => {
+  const corsHeaders = getCorsHeaders(req);
+
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
 
   try {
     // ========================================================================
@@ -708,10 +705,7 @@ serve(async (req) => {
     const googleApiKey = Deno.env.get('GOOGLE_CLOUD_API_KEY');
 
     if (!googleApiKey) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'GOOGLE_CLOUD_API_KEY not configured' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return createErrorResponse('INTERNAL_ERROR', corsHeaders, 'GOOGLE_CLOUD_API_KEY not configured');
     }
 
     const supabase = createClient(supabaseUrl, serviceRoleKey);
@@ -1000,13 +994,9 @@ serve(async (req) => {
     );
 
   } catch (error) {
-    console.error('[Batch] Fatal error:', error);
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    logError("submit-batch-slides", error instanceof Error ? error : new Error(String(error)), { action: "batch_submission" });
+    return createErrorResponse("INTERNAL_ERROR", corsHeaders, error instanceof Error ? error.message : "Unknown error");
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));

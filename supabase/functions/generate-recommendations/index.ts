@@ -6,12 +6,13 @@ import { RECOMMENDATIONS_SCHEMA } from "../_shared/schemas.ts";
 import { generateStructured, MODELS } from "../_shared/unified-ai-client.ts";
 import { checkRateLimit, getUserLimits, createRateLimitResponse } from "../_shared/rate-limiter.ts";
 import { getCorsHeaders } from "../_shared/cors.ts";
-import { 
-  createErrorResponse, 
-  createSuccessResponse, 
-  withErrorHandling, 
-  logInfo 
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo
 } from "../_shared/error-handler.ts";
+import { validateRequest, generateRecommendationsSchema } from "../_shared/validators/index.ts";
 
 serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
@@ -21,14 +22,15 @@ serve(async (req) => {
   }
 
   try {
-    const { dreamJobId, gaps, gapAnalysisId } = await req.json();
-    
-    if (!dreamJobId) {
+    const body = await req.json();
+    const validation = validateRequest(generateRecommendationsSchema, body);
+    if (!validation.success) {
       return new Response(
-        JSON.stringify({ error: "Dream job ID is required" }),
+        JSON.stringify({ error: validation.errors.join(', ') }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+    const { dreamJobId, gaps, gapAnalysisId } = validation.data;
 
     const authHeader = req.headers.get("Authorization");
     

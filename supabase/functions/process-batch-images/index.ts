@@ -29,11 +29,14 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
 import { generateImage } from '../_shared/unified-ai-client.ts';
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo,
+  logError,
+} from "../_shared/error-handler.ts";
 
 // ============================================================================
 // CONFIGURATION
@@ -569,11 +572,11 @@ async function triggerContinuation(
 // MAIN HANDLER
 // ============================================================================
 
-serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
+const handler = async (req: Request): Promise<Response> => {
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
 
+  const corsHeaders = getCorsHeaders(req);
   const functionName = '[process-batch-images]';
   const startTime = Date.now();
   console.log(`${functionName} Starting...`);
@@ -605,14 +608,11 @@ serve(async (req) => {
       
       if (pendingItems.length === 0) {
         console.log(`${functionName} No pending items in queue`);
-        return new Response(
-          JSON.stringify({
-            success: true,
-            message: 'No pending items to process',
-            processed: 0,
-          }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        return createSuccessResponse({
+          success: true,
+          message: 'No pending items to process',
+          processed: 0,
+        }, corsHeaders);
       }
 
       console.log(`${functionName} Processing ${pendingItems.length} items`);
@@ -673,18 +673,15 @@ serve(async (req) => {
       const elapsed = Date.now() - startTime;
       console.log(`${functionName} Completed: ${successCount}/${processedCount} successful, ${remainingCount} remaining, ${elapsed}ms`);
 
-      return new Response(
-        JSON.stringify({
-          success: true,
-          processed: processedCount,
-          succeeded: successCount,
-          failed: processedCount - successCount,
-          remaining: remainingCount,
-          continuing: remainingCount > 0,
-          elapsed_ms: elapsed,
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return createSuccessResponse({
+        success: true,
+        processed: processedCount,
+        succeeded: successCount,
+        failed: processedCount - successCount,
+        remaining: remainingCount,
+        continuing: remainingCount > 0,
+        elapsed_ms: elapsed,
+      }, corsHeaders);
     }
 
     // ========================================================================
@@ -705,15 +702,12 @@ serve(async (req) => {
         await triggerContinuation(supabaseUrl, serviceRoleKey);
       }
 
-      return new Response(
-        JSON.stringify({
-          success: true,
-          message: `Queued ${totalQueued} slides for image generation`,
-          lectures_processed: ids.length,
-          slides_queued: totalQueued,
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return createSuccessResponse({
+        success: true,
+        message: `Queued ${totalQueued} slides for image generation`,
+        lectures_processed: ids.length,
+        slides_queued: totalQueued,
+      }, corsHeaders);
     }
 
     // ========================================================================
@@ -731,14 +725,11 @@ serve(async (req) => {
 
       if (error || !lectures || lectures.length === 0) {
         console.log(`${functionName} No ready lectures found for batch`);
-        return new Response(
-          JSON.stringify({
-            success: true,
-            message: 'No lectures found for batch',
-            processed: 0,
-          }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        return createSuccessResponse({
+          success: true,
+          message: 'No lectures found for batch',
+          processed: 0,
+        }, corsHeaders);
       }
 
       // Get domain from course
@@ -764,15 +755,12 @@ serve(async (req) => {
         await triggerContinuation(supabaseUrl, serviceRoleKey);
       }
 
-      return new Response(
-        JSON.stringify({
-          success: true,
-          message: `Queued ${totalQueued} slides from ${lectures.length} lectures`,
-          lectures_processed: lectures.length,
-          slides_queued: totalQueued,
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return createSuccessResponse({
+        success: true,
+        message: `Queued ${totalQueued} slides from ${lectures.length} lectures`,
+        lectures_processed: lectures.length,
+        slides_queued: totalQueued,
+      }, corsHeaders);
     }
 
     // ========================================================================
@@ -790,14 +778,11 @@ serve(async (req) => {
 
       if (error || !lectures || lectures.length === 0) {
         console.log(`${functionName} No ready lectures found for course`);
-        return new Response(
-          JSON.stringify({
-            success: true,
-            message: 'No ready lectures found for course',
-            queued: 0,
-          }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        return createSuccessResponse({
+          success: true,
+          message: 'No ready lectures found for course',
+          queued: 0,
+        }, corsHeaders);
       }
 
       // Get domain from course
@@ -820,37 +805,23 @@ serve(async (req) => {
         await triggerContinuation(supabaseUrl, serviceRoleKey);
       }
 
-      return new Response(
-        JSON.stringify({
-          success: true,
-          message: `Queued ${totalQueued} slides from ${lectures.length} lectures`,
-          queued: totalQueued,
-          lectures: lectures.length,
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return createSuccessResponse({
+        success: true,
+        message: `Queued ${totalQueued} slides from ${lectures.length} lectures`,
+        queued: totalQueued,
+        lectures: lectures.length,
+      }, corsHeaders);
     }
 
     // ========================================================================
     // No valid mode specified
     // ========================================================================
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error: 'Specify continue:true, lecture_slides_id, lecture_slides_ids, batch_job_id, or instructor_course_id',
-      }),
-      { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    return createErrorResponse('BAD_REQUEST', corsHeaders, 'Specify continue:true, lecture_slides_id, lecture_slides_ids, batch_job_id, or instructor_course_id');
 
   } catch (error) {
-    console.error(`${functionName} Error:`, error);
-
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    logError("process-batch-images", error instanceof Error ? error : new Error(String(error)), { action: "processing" });
+    return createErrorResponse('INTERNAL_ERROR', corsHeaders, error instanceof Error ? error.message : String(error));
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));

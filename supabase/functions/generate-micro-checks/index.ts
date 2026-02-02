@@ -8,6 +8,7 @@ import {
   withErrorHandling,
   logInfo,
 } from "../_shared/error-handler.ts";
+import { checkRateLimit, getUserLimits, createRateLimitResponse } from "../_shared/rate-limiter.ts";
 
 interface MicroCheckRequest {
   content_id: string;
@@ -51,6 +52,13 @@ const handler = async (req: Request): Promise<Response> => {
 
   if (authError || !user) {
     return createErrorResponse('UNAUTHORIZED', corsHeaders, 'Unauthorized');
+  }
+
+  // Rate limit check
+  const limits = await getUserLimits(supabase, user.id);
+  const rateLimitResult = await checkRateLimit(supabase, user.id, 'generate-micro-checks', limits);
+  if (!rateLimitResult.allowed) {
+    return createRateLimitResponse(rateLimitResult, corsHeaders);
   }
 
   const body: MicroCheckRequest = await req.json();

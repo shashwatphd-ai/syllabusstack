@@ -1,10 +1,13 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { compareProviders, webSearch, webScrape } from "../_shared/web-provider.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo,
+  logError,
+} from "../_shared/error-handler.ts";
 
 /**
  * Compare Firecrawl and Jina AI providers
@@ -22,19 +25,17 @@ const corsHeaders = {
  *   }
  */
 serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
+
+  const corsHeaders = getCorsHeaders(req);
 
   try {
     const { mode, query, url, limit = 5 } = await req.json();
 
     if (mode === "search") {
       if (!query) {
-        return new Response(
-          JSON.stringify({ error: "query is required for search mode" }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+        return createErrorResponse('BAD_REQUEST', corsHeaders, 'query is required for search mode');
       }
 
       console.log(`Comparing providers for search: "${query}"`);
@@ -55,10 +56,7 @@ serve(async (req) => {
 
     if (mode === "scrape") {
       if (!url) {
-        return new Response(
-          JSON.stringify({ error: "url is required for scrape mode" }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+        return createErrorResponse('BAD_REQUEST', corsHeaders, 'url is required for scrape mode');
       }
 
       console.log(`Comparing providers for scrape: "${url}"`);
@@ -140,15 +138,9 @@ serve(async (req) => {
       );
     }
 
-    return new Response(
-      JSON.stringify({ error: "mode must be 'search' or 'scrape'" }),
-      { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return createErrorResponse('BAD_REQUEST', corsHeaders, "mode must be 'search' or 'scrape'");
   } catch (error) {
-    console.error("Error in compare-web-providers:", error);
-    return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    logError('compare-web-providers', error);
+    return createErrorResponse('INTERNAL_ERROR', corsHeaders, error instanceof Error ? error.message : 'Unknown error');
   }
 });

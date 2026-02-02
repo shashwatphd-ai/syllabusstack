@@ -23,11 +23,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
 import { createVertexAIAuth } from '../_shared/vertex-ai-auth.ts';
 import { createGCSClient, GCSClient } from '../_shared/gcs-client.ts';
 import { createVertexAIBatchClient, VertexAIBatchClient, BatchJobState } from '../_shared/vertex-ai-batch.ts';
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import { createErrorResponse, createSuccessResponse, logInfo, logError, withErrorHandling } from "../_shared/error-handler.ts";
 
 // ============================================================================
 // TYPES
@@ -61,11 +58,11 @@ interface AIResponse {
 // MAIN HANDLER
 // ============================================================================
 
-serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
+const handler = async (req: Request): Promise<Response> => {
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
 
+  const corsHeaders = getCorsHeaders(req);
   const functionName = '[poll-batch-curriculum]';
   console.log(`${functionName} Starting...`);
 
@@ -106,18 +103,15 @@ serve(async (req) => {
     // Already completed?
     if (['completed', 'partial', 'failed'].includes(batchJob.status)) {
       console.log(`${functionName} Job already in terminal state: ${batchJob.status}`);
-      return new Response(
-        JSON.stringify({
-          success: true,
-          status: batchJob.status,
-          succeeded_count: batchJob.succeeded_count || 0,
-          failed_count: batchJob.failed_count || 0,
-          teaching_units_created: (batchJob.succeeded_count || 0) * 5, // Estimate
-          message: `Job already ${batchJob.status}`,
-          is_complete: true
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return createSuccessResponse({
+        success: true,
+        status: batchJob.status,
+        succeeded_count: batchJob.succeeded_count || 0,
+        failed_count: batchJob.failed_count || 0,
+        teaching_units_created: (batchJob.succeeded_count || 0) * 5, // Estimate
+        message: `Job already ${batchJob.status}`,
+        is_complete: true
+      }, corsHeaders);
     }
 
     // ========================================================================
@@ -150,19 +144,16 @@ serve(async (req) => {
         .update({ status: newStatus, updated_at: new Date().toISOString() })
         .eq('id', batch_job_id);
 
-      return new Response(
-        JSON.stringify({
-          success: true,
-          status: newStatus,
-          vertex_state: vertexStatus.state,
-          succeeded_count: 0,
-          failed_count: 0,
-          teaching_units_created: 0,
-          message: `Job still ${newStatus}, check again later`,
-          is_complete: false
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return createSuccessResponse({
+        success: true,
+        status: newStatus,
+        vertex_state: vertexStatus.state,
+        succeeded_count: 0,
+        failed_count: 0,
+        teaching_units_created: 0,
+        message: `Job still ${newStatus}, check again later`,
+        is_complete: false
+      }, corsHeaders);
     }
 
     // ========================================================================
@@ -371,33 +362,20 @@ serve(async (req) => {
     // ========================================================================
     // STEP 7: Return result
     // ========================================================================
-    return new Response(
-      JSON.stringify({
-        success: true,
-        status: finalStatus,
-        succeeded_count: succeededCount,
-        failed_count: failedCount,
-        teaching_units_created: teachingUnitsCreated,
-        message: `Processed ${succeededCount + failedCount} LOs, created ${teachingUnitsCreated} teaching units`,
-        is_complete: true
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    return createSuccessResponse({
+      success: true,
+      status: finalStatus,
+      succeeded_count: succeededCount,
+      failed_count: failedCount,
+      teaching_units_created: teachingUnitsCreated,
+      message: `Processed ${succeededCount + failedCount} LOs, created ${teachingUnitsCreated} teaching units`,
+      is_complete: true
+    }, corsHeaders);
 
   } catch (error) {
-    console.error(`${functionName} Error:`, error);
-
-    return new Response(
-      JSON.stringify({
-        success: false,
-        status: 'failed',
-        succeeded_count: 0,
-        failed_count: 0,
-        teaching_units_created: 0,
-        error: error instanceof Error ? error.message : String(error),
-        is_complete: false
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
-    );
+    logError("poll-batch-curriculum", error instanceof Error ? error : new Error(String(error)), { action: "polling" });
+    return createErrorResponse('INTERNAL_ERROR', corsHeaders, error instanceof Error ? error.message : String(error));
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));

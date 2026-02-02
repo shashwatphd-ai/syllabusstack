@@ -3,13 +3,14 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target
 import { generateText, MODELS, parseJsonResponse } from "../_shared/unified-ai-client.ts";
 import { checkRateLimit, getUserLimits, createRateLimitResponse } from "../_shared/rate-limiter.ts";
 import { getCorsHeaders } from "../_shared/cors.ts";
-import { 
-  createErrorResponse, 
-  createSuccessResponse, 
-  withErrorHandling, 
-  logInfo 
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo
 } from "../_shared/error-handler.ts";
 import { createServiceClient } from "../_shared/ai-cache.ts";
+import { validateRequest, generateCurriculumSchema } from "../_shared/validators/index.ts";
 
 interface GenerateCurriculumRequest {
   career_match_id?: string;
@@ -90,8 +91,16 @@ serve(async (req) => {
 
     logInfo('generate-curriculum', 'rate_limit_passed', { userId });
 
-    const body: GenerateCurriculumRequest = await req.json();
-    const { career_match_id, dream_job_id, customizations = {} } = body;
+    // Parse and validate request body with Zod
+    const body = await req.json();
+    const validation = validateRequest(generateCurriculumSchema, body);
+    if (!validation.success) {
+      return new Response(JSON.stringify({ error: validation.errors.join(', ') }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    const { career_match_id, dream_job_id, customizations = {} } = validation.data;
 
     console.log(`Generating curriculum for user: ${userId}, career_match_id: ${career_match_id}, dream_job_id: ${dream_job_id}`);
 
@@ -171,12 +180,8 @@ serve(async (req) => {
           gap: 50,
         }));
       }
-    } else {
-      return new Response(JSON.stringify({ error: 'Either career_match_id or dream_job_id is required' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
     }
+    // Note: Zod validation ensures at least one of career_match_id or dream_job_id is provided
 
     // Build AI prompt
     const hoursPerWeek = customizations.hours_per_week || 10;

@@ -18,18 +18,9 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
 import { createErrorResponse, createSuccessResponse, logInfo, withErrorHandling } from "../_shared/error-handler.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
-
-interface CreateWebhookRequest {
-  employer_account_id: string;
-  url: string;
-  events: string[];
-}
+import { validateRequest, webhookCreateSchema } from "../_shared/validators/index.ts";
 
 const VALID_WEBHOOK_EVENTS = [
   'certificate.issued',
@@ -82,10 +73,20 @@ function isBlockedUrl(hostname: string): boolean {
 }
 
 const handler = async (req: Request): Promise<Response> => {
-  const body = await req.json() as CreateWebhookRequest;
-  const { employer_account_id, url, events } = body;
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
 
-  // Validate required fields
+  const corsHeaders = getCorsHeaders(req);
+
+  // Validate request body with Zod schema
+  const body = await req.json();
+  const validation = validateRequest(webhookCreateSchema, body);
+  if (!validation.success) {
+    return createErrorResponse('VALIDATION_ERROR', corsHeaders, validation.errors.join(', '));
+  }
+  const { employer_account_id, url, events } = validation.data;
+
+  // Note: Zod schema already validates required fields and HTTPS requirement
   if (!employer_account_id || !url || !events?.length) {
     return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'Missing required fields: employer_account_id, url, and events are required');
   }
@@ -208,4 +209,4 @@ const handler = async (req: Request): Promise<Response> => {
   );
 };
 
-serve(withErrorHandling(handler, corsHeaders));
+serve(withErrorHandling(handler, getCorsHeaders));

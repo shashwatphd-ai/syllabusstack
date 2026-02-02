@@ -8,11 +8,15 @@ import {
   getLearnedSynonyms,
 } from "../_shared/dynamic-terms.ts";
 import { generateText, MODELS, parseJsonResponse } from "../_shared/unified-ai-client.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo,
+  logError,
+} from "../_shared/error-handler.ts";
+import { checkRateLimit, getUserLimits, createRateLimitResponse } from "../_shared/rate-limiter.ts";
 
 // ========== DOCX Local Extraction (same as parse-syllabus-document) ==========
 function base64ToU8(base64: string): Uint8Array {
@@ -239,9 +243,10 @@ interface CourseStructure {
  * 4. Saves everything to the database
  */
 serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
+
+  const corsHeaders = getCorsHeaders(req);
 
   try {
     const GOOGLE_CLOUD_API_KEY = Deno.env.get("GOOGLE_CLOUD_API_KEY");
@@ -264,6 +269,14 @@ serve(async (req: Request) => {
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
     if (userError || !user) {
       throw new Error("Unauthorized");
+    }
+
+    // Rate limit check
+    const serviceClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const limits = await getUserLimits(serviceClient, user.id);
+    const rateLimitResult = await checkRateLimit(serviceClient, user.id, 'process-syllabus', limits);
+    if (!rateLimitResult.allowed) {
+      return createRateLimitResponse(rateLimitResult, corsHeaders);
     }
 
     const { document_base64, document_url, instructor_course_id, file_name } = await req.json();

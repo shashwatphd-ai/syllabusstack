@@ -8,14 +8,7 @@ import {
   logInfo,
   logError,
 } from "../_shared/error-handler.ts";
-
-interface IssueCertificateRequest {
-  enrollment_id: string;
-  certificate_type: "completion_badge" | "verified" | "assessed";
-  stripe_payment_intent_id?: string;
-  mastery_score?: number;
-  skill_breakdown?: Record<string, number>;
-}
+import { validateRequest, issueCertificateSchema } from "../_shared/validators/index.ts";
 
 const handler = async (req: Request): Promise<Response> => {
   const preflightResponse = handleCorsPreFlight(req);
@@ -51,17 +44,12 @@ const handler = async (req: Request): Promise<Response> => {
       return createErrorResponse('UNAUTHORIZED', corsHeaders, 'Authorization required');
     }
 
-    const { 
-      enrollment_id, 
-      certificate_type, 
-      stripe_payment_intent_id,
-      mastery_score,
-      skill_breakdown
-    }: IssueCertificateRequest = await req.json();
-
-    if (!enrollment_id || !certificate_type) {
-      return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'enrollment_id and certificate_type are required');
+    const body = await req.json();
+    const validation = validateRequest(issueCertificateSchema, body);
+    if (!validation.success) {
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, validation.errors.join(', '));
     }
+    const { enrollment_id, certificate_type, stripe_payment_intent_id, mastery_score, skill_breakdown } = validation.data;
 
     // Fetch enrollment with course details
     const { data: enrollment, error: enrollmentError } = await supabase

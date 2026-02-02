@@ -192,6 +192,7 @@ export default function Auth() {
                         size="icon"
                         className="absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7"
                         onClick={() => setShowPassword(!showPassword)}
+                        aria-label={showPassword ? "Hide password" : "Show password"}
                       >
                         {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                       </Button>
@@ -200,7 +201,7 @@ export default function Auth() {
                       <p className="text-sm text-destructive">{loginForm.formState.errors.password.message}</p>
                     )}
                   </div>
-                  
+
                   <div className="flex justify-end">
                     <Link to="/forgot-password" className="text-sm text-primary hover:underline">
                       Forgot password?
@@ -261,6 +262,7 @@ export default function Auth() {
                         size="icon"
                         className="absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7"
                         onClick={() => setShowPassword(!showPassword)}
+                        aria-label={showPassword ? "Hide password" : "Show password"}
                       >
                         {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                       </Button>

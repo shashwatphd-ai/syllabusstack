@@ -105,6 +105,7 @@ export function AppHeader({ onMenuClick, showSearch = true, sidebarCollapsed = f
             size="icon"
             onClick={onMenuClick}
             className="lg:hidden min-h-11 min-w-11"
+            aria-label="Open navigation menu"
           >
             <Menu className="h-5 w-5" />
           </Button>
@@ -159,6 +160,7 @@ export function AppHeader({ onMenuClick, showSearch = true, sidebarCollapsed = f
               size="icon"
               onClick={() => setSearchOpen(!searchOpen)}
               className="md:hidden min-h-11 min-w-11"
+              aria-label={searchOpen ? "Close search" : "Open search"}
             >
               {searchOpen ? <X className="h-5 w-5" /> : <Search className="h-5 w-5" />}
             </Button>
@@ -170,7 +172,7 @@ export function AppHeader({ onMenuClick, showSearch = true, sidebarCollapsed = f
           {/* User menu */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="rounded-full min-h-11 min-w-11">
+              <Button variant="ghost" size="icon" className="rounded-full min-h-11 min-w-11" aria-label="User menu">
                 <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
                   <User className="h-4 w-4 text-primary" />
                 </div>

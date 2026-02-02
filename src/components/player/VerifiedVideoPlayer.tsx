@@ -604,6 +604,7 @@ export function VerifiedVideoPlayer({
               size="icon"
               onClick={isPlaying ? handlePause : handlePlay}
               disabled={playerState === 'BLOCKED' || playerState === 'MICROCHECK_ACTIVE' || playerState === 'LOADING'}
+              aria-label={isPlaying ? "Pause video" : "Play video"}
             >
               {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
             </Button>
@@ -612,6 +613,7 @@ export function VerifiedVideoPlayer({
               size="icon"
               onClick={() => handleSeek(Math.max(0, currentTime - 10))}
               disabled={playerState === 'LOADING'}
+              aria-label="Rewind 10 seconds"
             >
               <RotateCcw className="h-4 w-4" />
             </Button>
@@ -620,6 +622,7 @@ export function VerifiedVideoPlayer({
               size="icon"
               onClick={handleMuteToggle}
               disabled={playerState === 'LOADING'}
+              aria-label={isMuted ? "Unmute video" : "Mute video"}
             >
               {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
             </Button>

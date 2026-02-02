@@ -125,6 +125,7 @@ export function Pagination({
             onClick={goToFirst}
             disabled={!hasPrev}
             title="First page"
+            aria-label="Go to first page"
           >
             <ChevronsLeft className="h-4 w-4" />
           </Button>
@@ -135,12 +136,13 @@ export function Pagination({
             onClick={goToPrev}
             disabled={!hasPrev}
             title="Previous page"
+            aria-label="Go to previous page"
           >
             <ChevronLeft className="h-4 w-4" />
           </Button>
 
           {/* Page indicator */}
-          <span className="px-2 text-sm font-medium min-w-[80px] text-center">
+          <span className="px-2 text-sm font-medium min-w-[80px] text-center" aria-live="polite">
             {page} / {totalPages}
           </span>
 
@@ -151,6 +153,7 @@ export function Pagination({
             onClick={goToNext}
             disabled={!hasNext}
             title="Next page"
+            aria-label="Go to next page"
           >
             <ChevronRight className="h-4 w-4" />
           </Button>
@@ -161,6 +164,7 @@ export function Pagination({
             onClick={goToLast}
             disabled={!hasNext}
             title="Last page"
+            aria-label="Go to last page"
           >
             <ChevronsRight className="h-4 w-4" />
           </Button>

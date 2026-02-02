@@ -1,15 +1,13 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0";
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import { createErrorResponse, createSuccessResponse, logInfo, logError, withErrorHandling } from "../_shared/error-handler.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-api-key",
-};
+const handler = async (req: Request): Promise<Response> => {
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+  const corsHeaders = getCorsHeaders(req);
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -19,10 +17,7 @@ serve(async (req) => {
     // Get API key from header
     const apiKey = req.headers.get("x-api-key");
     if (!apiKey) {
-      return new Response(JSON.stringify({ error: "API key required" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return createErrorResponse('UNAUTHORIZED', corsHeaders, 'API key required');
     }
 
     // Hash the key to compare
@@ -54,45 +49,28 @@ serve(async (req) => {
       .single();
 
     if (keyError || !keyData) {
-      return new Response(JSON.stringify({ error: "Invalid API key" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return createErrorResponse('UNAUTHORIZED', corsHeaders, 'Invalid API key');
     }
 
     if (!keyData.is_active) {
-      return new Response(JSON.stringify({ error: "API key is disabled" }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return createErrorResponse('FORBIDDEN', corsHeaders, 'API key is disabled');
     }
 
     const account = keyData.employer_accounts as any;
     if (!account.is_active) {
-      return new Response(JSON.stringify({ error: "Employer account is inactive" }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return createErrorResponse('FORBIDDEN', corsHeaders, 'Employer account is inactive');
     }
 
     // Check rate limit
     if (account.verifications_this_month >= account.monthly_verification_limit) {
-      return new Response(JSON.stringify({ error: "Monthly verification limit reached" }), {
-        status: 429,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return createErrorResponse('RATE_LIMIT_EXCEEDED', corsHeaders, 'Monthly verification limit reached');
     }
 
     // Get request body
     const { certificate_id, certificate_number, share_token } = await req.json();
 
     if (!certificate_id && !certificate_number && !share_token) {
-      return new Response(JSON.stringify({ 
-        error: "Provide certificate_id, certificate_number, or share_token" 
-      }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return createErrorResponse('BAD_REQUEST', corsHeaders, 'Provide certificate_id, certificate_number, or share_token');
     }
 
     // Find certificate
@@ -139,24 +117,15 @@ serve(async (req) => {
       .eq("id", keyData.id);
 
     if (certError || !cert) {
-      return new Response(JSON.stringify({ 
-        valid: false, 
-        error: "Certificate not found" 
-      }), {
-        status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return createErrorResponse('NOT_FOUND', corsHeaders, 'Certificate not found');
     }
 
     if (cert.status !== "active") {
-      return new Response(JSON.stringify({ 
-        valid: false, 
+      return createSuccessResponse({
+        valid: false,
         error: "Certificate is not active",
-        status: cert.status 
-      }), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+        status: cert.status
+      }, corsHeaders);
     }
 
     // Increment verification count
@@ -174,7 +143,7 @@ serve(async (req) => {
       verifier_ip: req.headers.get("x-forwarded-for") || "0.0.0.0",
     });
 
-    return new Response(JSON.stringify({
+    return createSuccessResponse({
       valid: true,
       certificate: {
         certificate_number: cert.certificate_number,
@@ -191,15 +160,12 @@ serve(async (req) => {
       },
       verified_by: account.company_name,
       verified_at: new Date().toISOString(),
-    }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    }, corsHeaders);
 
   } catch (error) {
-    console.error("Error in employer-verify-completion:", error);
-    return new Response(JSON.stringify({ error: "Internal server error" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    logError("employer-verify-completion", error instanceof Error ? error : new Error(String(error)), { action: "verification" });
+    return createErrorResponse("INTERNAL_ERROR", corsHeaders, "Internal server error");
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));

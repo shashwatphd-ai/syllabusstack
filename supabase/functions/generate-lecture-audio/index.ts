@@ -11,6 +11,7 @@ import {
   logInfo,
   logError,
 } from "../_shared/error-handler.ts";
+import { validateRequest, lectureAudioSchema } from "../_shared/validators/index.ts";
 
 interface SlideWithAudio {
   order: number;
@@ -76,11 +77,12 @@ const handler = async (req: Request): Promise<Response> => {
 
   // Neural2 voices are more natural than WaveNet at same price ($16/1M chars)
   // Options: Neural2-A (female), Neural2-D (male), Neural2-F (female), Neural2-J (male)
-  const { slideId, voice = 'en-US-Neural2-D', enableSSML = true, enableSegmentMapping = true } = await req.json();
-
-  if (!slideId) {
-    return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'slideId is required');
+  const body = await req.json();
+  const validation = validateRequest(lectureAudioSchema, body);
+  if (!validation.success) {
+    return createErrorResponse('VALIDATION_ERROR', corsHeaders, validation.errors.join(', '));
   }
+  const { slideId, voice, enableSSML, enableSegmentMapping } = validation.data;
 
   const GOOGLE_CLOUD_API_KEY = Deno.env.get('GOOGLE_CLOUD_API_KEY');
   if (!GOOGLE_CLOUD_API_KEY) {

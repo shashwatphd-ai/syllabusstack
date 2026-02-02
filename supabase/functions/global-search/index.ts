@@ -7,6 +7,7 @@ import {
   withErrorHandling,
   logInfo,
 } from "../_shared/error-handler.ts";
+import { validateRequest, globalSearchSchema } from "../_shared/validators/index.ts";
 
 interface SearchResult {
   id: string;
@@ -23,11 +24,12 @@ const handler = async (req: Request): Promise<Response> => {
 
   const corsHeaders = getCorsHeaders(req);
 
-  const { query } = await req.json();
-
-  if (!query || query.trim().length < 2) {
+  const body = await req.json();
+  const validation = validateRequest(globalSearchSchema, body);
+  if (!validation.success) {
     return createSuccessResponse({ results: [] }, corsHeaders);
   }
+  const { query } = validation.data;
 
   const authHeader = req.headers.get("Authorization");
   if (!authHeader) {

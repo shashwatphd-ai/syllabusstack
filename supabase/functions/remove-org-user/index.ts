@@ -1,15 +1,14 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import { createErrorResponse, createSuccessResponse, logInfo, logError, withErrorHandling } from "../_shared/error-handler.ts";
+import { validateRequest, removeOrgUserSchema } from "../_shared/validators/index.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+const handler = async (req: Request): Promise<Response> => {
+  const corsHeaders = getCorsHeaders(req);
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
 
   try {
     // Authenticate user
@@ -54,15 +53,13 @@ serve(async (req) => {
       });
     }
 
-    // Get request body
-    const { userId } = await req.json();
-
-    if (!userId) {
-      return new Response(
-        JSON.stringify({ error: "userId is required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    // Get and validate request body
+    const body = await req.json();
+    const validation = validateRequest(removeOrgUserSchema, body);
+    if (!validation.success) {
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, validation.errors.join(', '));
     }
+    const { userId } = validation.data;
 
     // Prevent admin from removing themselves
     if (userId === user.id) {
@@ -105,18 +102,13 @@ serve(async (req) => {
       throw updateError;
     }
 
-    console.log(`Admin ${user.id} removed user ${userId} from organization ${adminProfile.organization_id}`);
+    logInfo("remove-org-user", "user_removed", { adminId: user.id, removedUserId: userId, organizationId: adminProfile.organization_id });
 
-    return new Response(
-      JSON.stringify({ success: true }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return createSuccessResponse({ success: true }, corsHeaders);
   } catch (error: unknown) {
-    console.error("Error removing user:", error);
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return new Response(
-      JSON.stringify({ error: message }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    logError("remove-org-user", error instanceof Error ? error : new Error(String(error)), { action: "remove_user" });
+    return createErrorResponse("INTERNAL_ERROR", corsHeaders, error instanceof Error ? error.message : "Unknown error");
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));

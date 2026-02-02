@@ -1,9 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import { createErrorResponse, createSuccessResponse, logInfo, logError, withErrorHandling } from "../_shared/error-handler.ts";
+import { validateRequest, searchJobsSchema } from "../_shared/validators/index.ts";
 
 /**
  * Search for jobs using Active Jobs DB (RapidAPI)
@@ -15,20 +13,19 @@ const corsHeaders = {
  *   POST /search-jobs
  *   { "title": "Software Engineer", "location": "Remote", "skills": ["python", "react"] }
  */
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+const handler = async (req: Request): Promise<Response> => {
+  const corsHeaders = getCorsHeaders(req);
+
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
 
   try {
-    const { title, location, skills, limit = 20 } = await req.json();
-
-    if (!title) {
-      return new Response(
-        JSON.stringify({ success: false, error: "Job title is required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    const body = await req.json();
+    const validation = validateRequest(searchJobsSchema, body);
+    if (!validation.success) {
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, validation.errors.join(', '));
     }
+    const { title, location, skills, limit } = validation.data;
 
     const RAPIDAPI_KEY = Deno.env.get("RAPIDAPI_KEY");
 
@@ -111,16 +108,12 @@ serve(async (req) => {
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
-    console.error("Error in search-jobs:", error);
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error: error instanceof Error ? error.message : "Unknown error",
-      }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    logError("search-jobs", error instanceof Error ? error : new Error(String(error)), { action: "searching" });
+    return createErrorResponse("INTERNAL_ERROR", corsHeaders, error instanceof Error ? error.message : "Unknown error");
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));
 
 /**
  * Extract requirements from various job data formats

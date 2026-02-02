@@ -1,10 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
+import { createErrorResponse, createSuccessResponse, logInfo, logError, withErrorHandling } from "../_shared/error-handler.ts";
+import { validateRequest, trackConsumptionSchema } from "../_shared/validators/index.ts";
 
 interface WatchedSegment {
   start: number;
@@ -98,15 +96,16 @@ function calculateEngagementScore(
   };
 }
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+const handler = async (req: Request): Promise<Response> => {
+  const corsHeaders = getCorsHeaders(req);
+
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
 
   try {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
-      throw new Error("No authorization header");
+      return createErrorResponse("UNAUTHORIZED", corsHeaders, "No authorization header");
     }
 
     const supabaseClient = createClient(
@@ -120,18 +119,19 @@ serve(async (req) => {
       throw new Error("Unauthorized");
     }
 
-    const { 
-      content_id, 
-      learning_objective_id, 
+    const body = await req.json();
+    const validation = validateRequest(trackConsumptionSchema, body);
+    if (!validation.success) {
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, validation.errors.join(', '));
+    }
+    const {
+      content_id,
+      learning_objective_id,
       event,
       current_segments,
       total_duration,
       micro_check_results,
-    } = await req.json();
-    
-    if (!content_id) {
-      throw new Error("content_id is required");
-    }
+    } = validation.data;
 
     console.log(`Processing consumption event for content: ${content_id}, event type: ${event?.type}`);
 
@@ -313,14 +313,12 @@ serve(async (req) => {
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error: unknown) {
-    console.error("Error in track-consumption:", error);
+    logError("track-consumption", error instanceof Error ? error : new Error(String(error)), { action: "tracking" });
 
-    // Handle different error types - Supabase errors are objects with message/code
     let errorMessage = "Unknown error";
     if (error instanceof Error) {
       errorMessage = error.message;
     } else if (error && typeof error === 'object') {
-      // Supabase/PostgreSQL error objects
       const err = error as { message?: string; code?: string; details?: string; hint?: string };
       errorMessage = err.message || err.details || err.hint || JSON.stringify(error);
       if (err.code) {
@@ -330,9 +328,8 @@ serve(async (req) => {
       errorMessage = error;
     }
 
-    return new Response(
-      JSON.stringify({ error: errorMessage }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return createErrorResponse("INTERNAL_ERROR", corsHeaders, errorMessage);
   }
-});
+};
+
+serve(withErrorHandling(handler, getCorsHeaders));

@@ -246,10 +246,10 @@ export default function EmployerDashboard() {
                         readOnly
                         className="font-mono"
                       />
-                      <Button variant="ghost" size="icon" onClick={() => setShowKey(!showKey)}>
+                      <Button variant="ghost" size="icon" onClick={() => setShowKey(!showKey)} aria-label={showKey ? "Hide API key" : "Show API key"}>
                         {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                       </Button>
-                      <Button variant="ghost" size="icon" onClick={copyKey}>
+                      <Button variant="ghost" size="icon" onClick={copyKey} aria-label="Copy API key">
                         <Copy className="h-4 w-4" />
                       </Button>
                     </div>

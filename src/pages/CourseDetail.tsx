@@ -261,7 +261,7 @@ export default function CourseDetailPage() {
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-start gap-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate("/learn?tab=transcript")}>
+          <Button variant="ghost" size="icon" onClick={() => navigate("/learn?tab=transcript")} aria-label="Back to transcript">
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div className="flex-1">
