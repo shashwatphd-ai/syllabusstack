@@ -147,7 +147,7 @@ export function WebhookConfig({ accountId }: WebhookConfigProps) {
                   <Label className="text-xs text-muted-foreground">Signing Secret</Label>
                   <div className="flex items-center gap-2 mt-1">
                     <code className="flex-1 text-sm font-mono break-all">{generatedSecret}</code>
-                    <Button variant="ghost" size="icon" onClick={() => copySecret(generatedSecret)}>
+                    <Button variant="ghost" size="icon" onClick={() => copySecret(generatedSecret)} aria-label="Copy secret to clipboard">
                       <Copy className="h-4 w-4" />
                     </Button>
                   </div>
@@ -305,10 +305,10 @@ function WebhookCard({
                 <code className="text-xs font-mono">
                   {showSecret ? webhook.secret : '••••••••••••••••'}
                 </code>
-                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onToggleSecret}>
+                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onToggleSecret} aria-label={showSecret ? "Hide secret" : "Show secret"}>
                   {showSecret ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
                 </Button>
-                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onCopySecret}>
+                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onCopySecret} aria-label="Copy secret">
                   <Copy className="h-3 w-3" />
                 </Button>
               </div>
@@ -330,7 +330,7 @@ function WebhookCard({
 
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive">
+                <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" aria-label="Delete webhook">
                   <Trash2 className="h-4 w-4" />
                 </Button>
               </AlertDialogTrigger>

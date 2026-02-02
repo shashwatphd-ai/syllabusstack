@@ -170,7 +170,7 @@ export function AppHeader({ onMenuClick, showSearch = true, sidebarCollapsed = f
           {/* User menu */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="rounded-full min-h-11 min-w-11">
+              <Button variant="ghost" size="icon" className="rounded-full min-h-11 min-w-11" aria-label="User menu">
                 <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
                   <User className="h-4 w-4 text-primary" />
                 </div>
