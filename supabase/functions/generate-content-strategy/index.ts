@@ -8,6 +8,8 @@ import {
   withErrorHandling,
   logInfo,
 } from "../_shared/error-handler.ts";
+import { checkRateLimit, getUserLimits, createRateLimitResponse } from "../_shared/rate-limiter.ts";
+import { validateRequest, generateContentStrategySchema } from "../_shared/validators/index.ts";
 
 // Bloom's Taxonomy descriptions for AI context
 const BLOOM_DESCRIPTIONS: Record<string, { action: string; videoTypes: string; focus: string }> = {
@@ -59,7 +61,30 @@ const handler = async (req: Request): Promise<Response> => {
   const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
   const supabase = createClient(supabaseUrl, supabaseKey);
 
-  const { learning_objective } = await req.json();
+  // Authenticate user
+  const { data: { user }, error: authError } = await supabase.auth.getUser(
+    authHeader.replace('Bearer ', '')
+  );
+  if (authError || !user) {
+    return createErrorResponse('UNAUTHORIZED', corsHeaders, 'Invalid authentication');
+  }
+
+  // Rate limit check
+  const limits = await getUserLimits(supabase, user.id);
+  const rateLimitResult = await checkRateLimit(supabase, user.id, 'generate-content-strategy', limits);
+  if (!rateLimitResult.allowed) {
+    return createRateLimitResponse(rateLimitResult, corsHeaders);
+  }
+
+  // Validate request body
+  const body = await req.json();
+  const validation = validateRequest(generateContentStrategySchema, body);
+  if (!validation.success) {
+    return createErrorResponse('VALIDATION_ERROR', corsHeaders, validation.errors.join(', '));
+  }
+
+  const { teaching_unit_id, force_regenerate } = validation.data;
+  const learning_objective = body.learning_objective;
 
   if (!learning_objective) {
     return createErrorResponse('BAD_REQUEST', corsHeaders, 'learning_objective is required');

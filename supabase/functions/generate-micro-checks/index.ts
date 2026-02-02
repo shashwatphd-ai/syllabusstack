@@ -9,16 +9,7 @@ import {
   logInfo,
 } from "../_shared/error-handler.ts";
 import { checkRateLimit, getUserLimits, createRateLimitResponse } from "../_shared/rate-limiter.ts";
-
-interface MicroCheckRequest {
-  content_id: string;
-  learning_objective_id: string;
-  content_title: string;
-  content_description?: string;
-  duration_seconds: number;
-  learning_objective_text: string;
-  num_checks?: number;
-}
+import { validateRequest, generateMicroChecksSchema } from "../_shared/validators/index.ts";
 
 interface GeneratedMicroCheck {
   trigger_time_seconds: number;
@@ -61,7 +52,13 @@ const handler = async (req: Request): Promise<Response> => {
     return createRateLimitResponse(rateLimitResult, corsHeaders);
   }
 
-  const body: MicroCheckRequest = await req.json();
+  // Validate request body
+  const body = await req.json();
+  const validation = validateRequest(generateMicroChecksSchema, body);
+  if (!validation.success) {
+    return createErrorResponse('VALIDATION_ERROR', corsHeaders, validation.errors.join(', '));
+  }
+
   const {
     content_id,
     learning_objective_id,
@@ -69,8 +66,8 @@ const handler = async (req: Request): Promise<Response> => {
     content_description,
     duration_seconds,
     learning_objective_text,
-    num_checks = 3,
-  } = body;
+    num_checks,
+  } = validation.data;
 
   logInfo('generate-micro-checks', 'starting', { 
     userId: user.id, 

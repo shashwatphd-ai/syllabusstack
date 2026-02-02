@@ -5,6 +5,7 @@ import { generateText, MODELS } from "../_shared/unified-ai-client.ts";
 import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
 import { createErrorResponse, createSuccessResponse, logInfo, logError, withErrorHandling } from "../_shared/error-handler.ts";
 import { validateRequest, scrapeJobPostingSchema } from "../_shared/validators/index.ts";
+import { checkRateLimit, getUserLimits, createRateLimitResponse } from "../_shared/rate-limiter.ts";
 
 interface JobPostingData {
   title: string;
@@ -25,6 +26,32 @@ const handler = async (req: Request): Promise<Response> => {
   if (preflightResponse) return preflightResponse;
 
   try {
+    // Authentication check
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      return createErrorResponse('UNAUTHORIZED', corsHeaders, 'No authorization header');
+    }
+
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser(
+      authHeader.replace('Bearer ', '')
+    );
+    if (authError || !user) {
+      return createErrorResponse('UNAUTHORIZED', corsHeaders, 'Invalid authentication');
+    }
+
+    // Rate limit check
+    const limits = await getUserLimits(supabase, user.id);
+    const rateLimitResult = await checkRateLimit(supabase, user.id, 'scrape-job-posting', limits);
+    if (!rateLimitResult.allowed) {
+      return createRateLimitResponse(rateLimitResult, corsHeaders);
+    }
+
+    logInfo('scrape-job-posting', 'authenticated', { userId: user.id });
+
     const body = await req.json();
     const validation = validateRequest(scrapeJobPostingSchema, body);
     if (!validation.success) {

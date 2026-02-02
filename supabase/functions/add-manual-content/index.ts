@@ -8,6 +8,7 @@ import {
   logInfo,
   logError,
 } from "../_shared/error-handler.ts";
+import { validateRequest, addManualContentSchema } from "../_shared/validators/index.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
@@ -40,25 +41,33 @@ serve(async (req) => {
       throw new Error("Unauthorized");
     }
 
+    // Validate request body
     const body = await req.json();
-    
-    // Accept both naming conventions for backwards compatibility
-    const learning_objective_id = body.learning_objective_id;
-    const video_id = body.video_id;
-    const video_title = body.video_title || body.title;
-    const video_description = body.video_description || body.description;
-    const channel_name = body.channel_name;
-    const thumbnail_url = body.thumbnail_url;
-    const duration_seconds = body.duration_seconds;
-    const view_count = body.view_count;
-    const raw_published_at = body.published_at;
-    const source_type = body.source_type || 'youtube';
-    const source_url = body.source_url;
-
-    if (!learning_objective_id || !video_id) {
-      console.error("Missing required fields:", { learning_objective_id, video_id, body });
-      throw new Error("learning_objective_id and video_id are required");
+    const validation = validateRequest(addManualContentSchema, body);
+    if (!validation.success) {
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, validation.errors.join(', '));
     }
+
+    // Extract validated data with backward compatibility
+    const {
+      learning_objective_id,
+      video_id,
+      video_title,
+      title,
+      video_description,
+      description,
+      channel_name,
+      thumbnail_url,
+      duration_seconds,
+      view_count,
+      published_at: raw_published_at,
+      source_type,
+      source_url,
+    } = validation.data;
+
+    // Apply naming fallbacks for backward compatibility
+    const finalVideoTitle = video_title || title;
+    const finalVideoDescription = video_description || description;
 
     console.log(`Adding manual content (${source_type}): ${video_id} for LO ${learning_objective_id}`);
 
@@ -108,8 +117,8 @@ serve(async (req) => {
     }
 
     // Fetch video details from YouTube if not provided (only for YouTube source)
-    let title = video_title;
-    let description = video_description;
+    let title = finalVideoTitle;
+    let description = finalVideoDescription;
     let channelName = channel_name;
     let thumbnailUrl = thumbnail_url;
     let durationSeconds = duration_seconds || 0;

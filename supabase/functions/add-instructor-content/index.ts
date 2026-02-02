@@ -9,6 +9,7 @@ import {
   logInfo,
   logError,
 } from "../_shared/error-handler.ts";
+import { validateRequest, addInstructorContentSchema } from "../_shared/validators/index.ts";
 
 /**
  * ADD INSTRUCTOR CONTENT
@@ -371,17 +372,20 @@ serve(async (req) => {
       throw new Error("Unauthorized");
     }
 
+    // Validate request body
+    const body = await req.json();
+    const validation = validateRequest(addInstructorContentSchema, body);
+    if (!validation.success) {
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, validation.errors.join(', '));
+    }
+
     const {
       url,
       learning_objective_id,
-      custom_title,       // Optional: override extracted title
-      custom_description, // Optional: override extracted description
-      auto_approve = true,
-    } = await req.json();
-
-    if (!url) {
-      throw new Error("URL is required");
-    }
+      custom_title,
+      custom_description,
+      auto_approve,
+    } = validation.data;
 
     console.log(`Extracting metadata for: ${url}`);
 
