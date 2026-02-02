@@ -19,6 +19,7 @@ import {
   logInfo,
   logError,
 } from "../_shared/error-handler.ts";
+import { validateRequest, searchYoutubeContentSchema } from "../_shared/validators/index.ts";
 
 
 /**
@@ -304,23 +305,26 @@ const handler = async (req: Request): Promise<Response> => {
       return createErrorResponse('UNAUTHORIZED', corsHeaders, 'Invalid authentication');
     }
 
-    const { 
-      learning_objective_id, 
-      teaching_unit_id, // NEW: Optional - if provided, search for this specific teaching unit only
-      core_concept, 
-      bloom_level, 
-      domain, 
-      search_keywords, 
-      expected_duration_minutes, 
-      lo_text, 
-      instructor_course_id,
-      use_ai_evaluation = true,
-      sources = ['invidious', 'piped', 'khan_academy']
-    } = await req.json();
-    
-    if (!learning_objective_id) {
-      return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'learning_objective_id is required');
+    // Validate request body
+    const body = await req.json();
+    const validation = validateRequest(searchYoutubeContentSchema, body);
+    if (!validation.success) {
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, validation.errors.join(', '));
     }
+
+    const {
+      learning_objective_id,
+      teaching_unit_id,
+      core_concept,
+      bloom_level,
+      domain,
+      search_keywords,
+      expected_duration_minutes,
+      lo_text,
+      instructor_course_id,
+      use_ai_evaluation,
+      sources,
+    } = validation.data;
 
     logInfo('search-youtube-content', 'starting', { loId: learning_objective_id });
 

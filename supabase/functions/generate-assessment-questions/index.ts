@@ -4,12 +4,13 @@ import { trackAIUsage, createServiceClient } from "../_shared/ai-cache.ts";
 import { generateStructured, MODELS } from "../_shared/unified-ai-client.ts";
 import { checkRateLimit, getUserLimits, createRateLimitResponse } from "../_shared/rate-limiter.ts";
 import { getCorsHeaders } from "../_shared/cors.ts";
-import { 
-  createErrorResponse, 
-  createSuccessResponse, 
-  withErrorHandling, 
-  logInfo 
+import {
+  createErrorResponse,
+  createSuccessResponse,
+  withErrorHandling,
+  logInfo
 } from "../_shared/error-handler.ts";
+import { validateRequest, generateAssessmentQuestionsSchema } from "../_shared/validators/index.ts";
 
 /**
  * Assessment Question Generation Schema
@@ -151,11 +152,14 @@ serve(async (req) => {
 
     logInfo('generate-assessment-questions', 'rate_limit_passed', { userId: user.id });
 
-    const { learning_objective_id, learning_objective_text, content_context } = await req.json();
-
-    if (!learning_objective_id && !learning_objective_text) {
-      throw new Error("Either learning_objective_id or learning_objective_text is required");
+    // Validate request body
+    const body = await req.json();
+    const validation = validateRequest(generateAssessmentQuestionsSchema, body);
+    if (!validation.success) {
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, validation.errors.join(', '));
     }
+
+    const { learning_objective_id, learning_objective_text, content_context } = validation.data;
 
     let objectiveText = learning_objective_text;
     let loId = learning_objective_id;

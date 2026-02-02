@@ -339,10 +339,15 @@ export const completeSkillsAssessmentSchema = z.object({
 });
 
 export const generateAssessmentQuestionsSchema = z.object({
-  learning_objective_id: uuidSchema,
+  learning_objective_id: uuidSchema.optional(),
+  learning_objective_text: z.string().max(2000).optional(),
+  content_context: z.string().max(10000).optional(),
   count: z.number().int().min(1).max(10).optional().default(5),
   difficulty: z.enum(['easy', 'medium', 'hard']).optional(),
-});
+}).refine(
+  data => data.learning_objective_id || data.learning_objective_text,
+  { message: 'Either learning_objective_id or learning_objective_text is required' }
+);
 
 // ============================================================================
 // CONTENT STRATEGY & RECOMMENDATION SCHEMAS
@@ -390,6 +395,20 @@ export const searchEducationalContentSchema = z.object({
 export const searchYoutubeManualSchema = z.object({
   query: z.string().min(2).max(200),
   maxResults: z.number().int().min(1).max(50).optional().default(10),
+});
+
+export const searchYoutubeContentSchema = z.object({
+  learning_objective_id: uuidSchema,
+  teaching_unit_id: uuidSchema.optional(),
+  core_concept: z.string().max(500).optional(),
+  bloom_level: z.string().max(50).optional(),
+  domain: z.string().max(100).optional(),
+  search_keywords: z.array(z.string()).optional(),
+  expected_duration_minutes: z.number().positive().optional(),
+  lo_text: z.string().max(2000).optional(),
+  instructor_course_id: uuidSchema.optional(),
+  use_ai_evaluation: z.boolean().optional().default(true),
+  sources: z.array(z.string()).optional().default(['invidious', 'piped', 'khan_academy']),
 });
 
 // ============================================================================
@@ -464,24 +483,45 @@ export const cancelBatchJobSchema = z.object({
 });
 
 // ============================================================================
+// MICRO-CHECKS SCHEMA
+// ============================================================================
+
+export const generateMicroChecksSchema = z.object({
+  content_id: z.string().min(1),
+  learning_objective_id: uuidSchema,
+  content_title: z.string().min(1).max(500),
+  content_description: z.string().max(5000).optional(),
+  duration_seconds: z.number().positive(),
+  learning_objective_text: z.string().min(1).max(2000),
+  num_checks: z.number().int().min(1).max(10).optional().default(3),
+});
+
+// ============================================================================
 // EXTERNAL CONTENT SCHEMAS
 // ============================================================================
 
 export const addInstructorContentSchema = z.object({
-  teaching_unit_id: uuidSchema,
-  content_type: z.enum(['video', 'document', 'link', 'file']),
-  url: urlSchema.optional(),
-  title: z.string().max(200).optional(),
-  description: z.string().max(2000).optional(),
+  url: urlSchema,
+  learning_objective_id: uuidSchema.optional(),
+  custom_title: z.string().max(500).optional(),
+  custom_description: z.string().max(5000).optional(),
+  auto_approve: z.boolean().optional().default(true),
 });
 
 export const addManualContentSchema = z.object({
   learning_objective_id: uuidSchema,
-  content_type: z.enum(['video', 'article', 'course', 'book', 'other']),
-  url: urlSchema,
-  title: z.string().min(1).max(200),
-  description: z.string().max(2000).optional(),
-  provider: z.string().max(100).optional(),
+  video_id: z.string().min(1).max(200),
+  video_title: z.string().max(500).optional(),
+  title: z.string().max(500).optional(),
+  video_description: z.string().max(10000).optional(),
+  description: z.string().max(10000).optional(),
+  channel_name: z.string().max(200).optional(),
+  thumbnail_url: urlSchema.optional().nullable(),
+  duration_seconds: z.number().min(0).optional(),
+  view_count: z.number().min(0).optional(),
+  published_at: z.string().optional().nullable(),
+  source_type: z.enum(['youtube', 'khan_academy', 'vimeo', 'archive_org', 'other']).optional().default('youtube'),
+  source_url: urlSchema.optional(),
 });
 
 export const fetchVideoMetadataSchema = z.object({
