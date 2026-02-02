@@ -2,29 +2,18 @@
  * Error Tracking & Monitoring Integration
  *
  * Provides centralized error tracking, reporting, and monitoring.
- * Integrated with Sentry for production error tracking.
+ * Uses console-based logging. Add Sentry integration when deploying to production.
  *
- * SETUP:
+ * To add Sentry later:
  * 1. npm install @sentry/react
  * 2. Set VITE_SENTRY_DSN in environment
- * 3. Call initErrorTracking() in main.tsx
+ * 3. Uncomment the Sentry integration code below
  */
 
-// Sentry integration (lazy loaded to avoid bundle impact if not configured)
-let Sentry: typeof import('@sentry/react') | null = null;
-let sentryInitialized = false;
-
-async function loadSentry(): Promise<typeof import('@sentry/react') | null> {
-  if (Sentry) return Sentry;
-
-  try {
-    Sentry = await import('@sentry/react');
-    return Sentry;
-  } catch {
-    console.warn('[Error Tracking] Sentry not installed. Run: npm install @sentry/react');
-    return null;
-  }
-}
+// Sentry integration placeholder - uncomment when Sentry is installed
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let Sentry: any = null;
+const sentryInitialized = false;
 
 // Error severity levels
 export type ErrorSeverity = 'debug' | 'info' | 'warning' | 'error' | 'fatal';
@@ -94,49 +83,28 @@ let config = { ...defaultConfig };
 let isInitialized = false;
 
 /**
- * Initialize error tracking with Sentry
+ * Initialize error tracking
+ * Currently uses console logging. Sentry can be added later.
  */
 export async function initErrorTracking(customConfig?: Partial<ErrorTrackingConfig>): Promise<void> {
   if (isInitialized) return;
 
   config = { ...defaultConfig, ...customConfig };
 
-  // Initialize Sentry in production
-  const sentryDsn = import.meta.env.VITE_SENTRY_DSN;
-  if (import.meta.env.PROD && sentryDsn) {
-    const sentry = await loadSentry();
-    if (sentry) {
-      sentry.init({
-        dsn: sentryDsn,
-        environment: config.environment,
-        integrations: [
-          sentry.browserTracingIntegration(),
-          sentry.replayIntegration({
-            maskAllText: false,
-            blockAllMedia: false,
-          }),
-        ],
-        // Performance Monitoring
-        tracesSampleRate: 0.1, // 10% of transactions
-        // Session Replay
-        replaysSessionSampleRate: 0.1, // 10% of sessions
-        replaysOnErrorSampleRate: 1.0, // 100% when error occurs
-        // Filter errors
-        beforeSend(event) {
-          // Filter out ignored patterns
-          if (event.exception?.values?.[0]?.value) {
-            const message = event.exception.values[0].value;
-            if (config.ignorePatterns.some(pattern => pattern.test(message))) {
-              return null;
-            }
-          }
-          return event;
-        },
-      });
-      sentryInitialized = true;
-      console.log('[Error Tracking] Sentry initialized');
-    }
+  // Sentry integration placeholder - add when @sentry/react is installed
+  // To enable: npm install @sentry/react, then uncomment below
+  /*
+  if (import.meta.env.PROD && import.meta.env.VITE_SENTRY_DSN) {
+    const SentryModule = await import('@sentry/react');
+    Sentry = SentryModule;
+    Sentry.init({
+      dsn: import.meta.env.VITE_SENTRY_DSN,
+      environment: config.environment,
+      tracesSampleRate: 0.1,
+    });
+    console.log('[Error Tracking] Sentry initialized');
   }
+  */
 
   // Set up global error handlers
   if (typeof window !== 'undefined') {
@@ -146,6 +114,7 @@ export async function initErrorTracking(customConfig?: Partial<ErrorTrackingConf
 
   isInitialized = true;
   addBreadcrumb('system', 'Error tracking initialized');
+  console.log('[Error Tracking] Initialized with console logging');
 }
 
 /**
