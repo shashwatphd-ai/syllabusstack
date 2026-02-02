@@ -133,20 +133,41 @@ Return ONLY valid JSON array, no markdown formatting.`;
 
 ${syllabus_text}
 
-Return a JSON array of learning objectives with this exact structure:
-[
-  {
-    "text": "Full text of the learning objective",
-    "core_concept": "Main topic in 2-4 words",
-    "action_verb": "The Bloom's taxonomy verb (e.g., analyze, apply, evaluate)",
-    "bloom_level": "remember|understand|apply|analyze|evaluate|create",
-    "domain": "business|science|humanities|technical|arts|other",
-    "specificity": "introductory|intermediate|advanced",
-    "search_keywords": ["keyword1", "keyword2", "keyword3"]
-  }
-]
+IMPORTANT: Only extract learning objectives that are EXPLICITLY stated in the syllabus.
+Look for phrases like:
+- "Students will be able to..."
+- "By the end of this course..."
+- "Learning outcomes:"
+- "Objectives:"
+- Numbered lists under "Goals" or "Outcomes" sections
 
-If no explicit learning objectives are found, infer them from course topics and assignments. Extract at least 3 and at most 15 learning objectives.`;
+DO NOT invent, infer, or create learning objectives. Only extract what is explicitly written.
+
+Return a JSON object with this exact structure:
+{
+  "learning_objectives": [
+    {
+      "text": "Full text of the learning objective",
+      "core_concept": "Main topic in 2-4 words",
+      "action_verb": "The Bloom's taxonomy verb (e.g., analyze, apply, evaluate)",
+      "bloom_level": "remember|understand|apply|analyze|evaluate|create",
+      "domain": "business|science|humanities|technical|arts|other",
+      "specificity": "introductory|intermediate|advanced",
+      "search_keywords": ["keyword1", "keyword2", "keyword3"]
+    }
+  ],
+  "explicit_objectives_found": true or false,
+  "potential_sections": ["Section names that might contain implicit LOs if none were found"],
+  "recommendation": "Message if no explicit LOs found"
+}
+
+If NO explicit learning objectives are found:
+1. Return an EMPTY array for learning_objectives
+2. Set explicit_objectives_found to false
+3. List section titles that might contain objectives in potential_sections
+4. Provide a helpful recommendation message
+
+Extract at most 15 learning objectives if explicit ones are found.`;
 
     // Call AI via OpenRouter (unified-ai-client)
     const result = await generateText({
@@ -160,13 +181,50 @@ If no explicit learning objectives are found, infer them from course topics and 
       throw new Error("No content returned from AI");
     }
 
-    // Parse the JSON response
-    let learningObjectives: LearningObjective[];
+    // Parse the JSON response - now expecting structured object
+    interface ExtractionResponse {
+      learning_objectives: LearningObjective[];
+      explicit_objectives_found: boolean;
+      potential_sections?: string[];
+      recommendation?: string;
+    }
+
+    let extractionResult: ExtractionResponse;
     try {
-      learningObjectives = parseJsonResponse<LearningObjective[]>(result.content);
+      const parsed = parseJsonResponse<ExtractionResponse | LearningObjective[]>(result.content);
+      // Handle both old array format and new object format for backwards compatibility
+      if (Array.isArray(parsed)) {
+        extractionResult = {
+          learning_objectives: parsed,
+          explicit_objectives_found: parsed.length > 0,
+        };
+      } else {
+        extractionResult = parsed;
+      }
     } catch (parseError) {
       console.error("Failed to parse AI response:", result.content);
       throw new Error("Failed to parse learning objectives from AI response");
+    }
+
+    const learningObjectives = extractionResult.learning_objectives || [];
+
+    // If no explicit LOs found, return early with warning (don't save hallucinated content)
+    if (!extractionResult.explicit_objectives_found || learningObjectives.length === 0) {
+      logInfo('extract-learning-objectives', 'no_explicit_los_found', {
+        potential_sections: extractionResult.potential_sections,
+        recommendation: extractionResult.recommendation
+      });
+
+      return createSuccessResponse({
+        success: true,
+        learning_objectives: [],
+        count: 0,
+        explicit_objectives_found: false,
+        potential_sections: extractionResult.potential_sections || [],
+        recommendation: extractionResult.recommendation ||
+          'No explicit learning objectives found in the syllabus. Please add them manually or upload a more detailed syllabus.',
+        warning: 'No explicit learning objectives were found. The system does not infer or create objectives to ensure accuracy.'
+      }, corsHeaders);
     }
 
     // BATCHED APPROACH: Build all LOs and insert in one query (15x faster)
@@ -206,6 +264,7 @@ If no explicit learning objectives are found, infer them from course topics and 
       success: true,
       learning_objectives: savedLOs || [],
       count: savedLOs?.length || 0,
+      explicit_objectives_found: true,
     }, corsHeaders);
   } catch (error: unknown) {
     logError('extract-learning-objectives', error instanceof Error ? error : new Error(String(error)));

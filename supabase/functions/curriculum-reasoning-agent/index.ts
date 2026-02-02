@@ -92,7 +92,7 @@ QUALITY MARKERS FOR TEACHING UNITS:
 OUTPUT FORMAT: Return valid JSON only, no markdown or explanations outside the JSON.`;
 
 function buildUserPrompt(lo: LearningObjective, module: ModuleContext | null, course: CourseContext): string {
-  return `TASK: Decompose this learning objective into EXACTLY 5 teachable micro-concepts using backward design.
+  return `TASK: Decompose this learning objective into 3-5 teachable micro-concepts using backward design. Aim for 5 units for comprehensive topics, but use fewer (3-4) if the concept is focused or simple.
 
 LEARNING OBJECTIVE:
 "${lo.text}"
@@ -300,9 +300,16 @@ serve(async (req) => {
       throw new Error('AI returned no teaching units');
     }
 
+    // Log quality warning if fewer than 3 units (may indicate oversimplification)
+    if (result.teaching_units.length < 3) {
+      console.warn(`[curriculum-reasoning-agent] LOW UNIT COUNT WARNING: Only ${result.teaching_units.length} units generated for LO ${learning_objective_id}. ` +
+        `LO text: "${(lo as LearningObjective).text?.substring(0, 100)}..." - Consider reviewing if decomposition is sufficient.`);
+    }
+
     // ENFORCE MAX 5 TEACHING UNITS PER LO (Phase 1 constraint)
     if (result.teaching_units.length > 5) {
-      console.log(`[curriculum-reasoning-agent] Truncating ${result.teaching_units.length} units to max 5`);
+      console.warn(`[curriculum-reasoning-agent] TRUNCATING: AI generated ${result.teaching_units.length} units for LO ${learning_objective_id}, ` +
+        `keeping first 5. Discarded units: ${result.teaching_units.slice(5).map(u => u.title).join(', ')}`);
       result.teaching_units = result.teaching_units.slice(0, 5);
     }
 

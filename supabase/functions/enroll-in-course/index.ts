@@ -110,7 +110,27 @@ const handler = async (req: Request): Promise<Response> => {
         .select()
         .single();
 
-      if (enrollError) throw enrollError;
+      if (enrollError) {
+        // Handle race condition: duplicate key constraint (another request enrolled first)
+        if (enrollError.code === '23505') {
+          logStep("Race condition detected - user already enrolled by concurrent request");
+          // Fetch the existing enrollment
+          const { data: existingEnrollment } = await supabaseAdmin
+            .from("course_enrollments")
+            .select("id")
+            .eq("student_id", user.id)
+            .eq("instructor_course_id", course.id)
+            .single();
+
+          return createSuccessResponse({
+            already_enrolled: true,
+            enrollment_id: existingEnrollment?.id,
+            course,
+          }, corsHeaders);
+        }
+        // Other errors should be thrown
+        throw enrollError;
+      }
       logInfo('enroll-in-course', 'pro_enrolled', { enrollmentId: enrollment.id });
 
       return createSuccessResponse({

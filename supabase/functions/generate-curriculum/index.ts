@@ -307,6 +307,27 @@ Return JSON in this exact format:
       0
     );
 
+    // PHASE 3.3: Validate curriculum hours are achievable
+    const totalEstimatedHours = curriculumData.subjects.reduce((sum, s) => sum + (s.estimated_hours || 0), 0);
+    const availableHours = hoursPerWeek * (curriculumData.estimated_total_weeks || 12);
+    const hoursMismatch = Math.abs(totalEstimatedHours - availableHours) / availableHours;
+
+    let feasibilityWarning: string | null = null;
+    if (hoursMismatch > 0.3) {
+      // More than 30% mismatch between total hours and available time
+      const weeksNeeded = Math.ceil(totalEstimatedHours / hoursPerWeek);
+      if (totalEstimatedHours > availableHours) {
+        feasibilityWarning = `Curriculum requires ~${totalEstimatedHours} hours but only ${availableHours} hours available ` +
+          `(${hoursPerWeek} hrs/week × ${curriculumData.estimated_total_weeks} weeks). ` +
+          `Consider ${weeksNeeded} weeks instead, or increasing weekly hours.`;
+        console.warn(`[generate-curriculum] HOURS MISMATCH: ${totalEstimatedHours}h curriculum vs ${availableHours}h available`);
+      } else {
+        feasibilityWarning = `Curriculum only uses ~${totalEstimatedHours} hours of ${availableHours} available hours. ` +
+          `You may complete faster than estimated or have time for additional practice.`;
+        console.log(`[generate-curriculum] HOURS UNDERUTILIZED: ${totalEstimatedHours}h curriculum vs ${availableHours}h available`);
+      }
+    }
+
     // Save to database
     const { data: curriculum, error: saveError } = await supabase
       .from('generated_curricula')
@@ -338,6 +359,9 @@ Return JSON in this exact format:
       title: targetOccupation,
       summary: curriculumData.curriculum_summary,
       estimated_weeks: curriculumData.estimated_total_weeks,
+      total_estimated_hours: totalEstimatedHours,
+      available_hours: availableHours,
+      feasibility_warning: feasibilityWarning,
       subjects: curriculumData.subjects.map(s => ({
         title: s.title,
         description: s.description,

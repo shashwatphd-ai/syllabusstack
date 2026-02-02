@@ -130,18 +130,33 @@ async function handleCheckoutComplete(
     }
 
     // Create the enrollment record
-    const { error: enrollError } = await supabase
+    const { data: enrollment, error: enrollError } = await supabase
       .from("course_enrollments")
       .insert({
         student_id: userId,
         instructor_course_id: courseId,
-      });
+      })
+      .select('id')
+      .single();
 
     if (enrollError) {
-      console.error("Failed to create enrollment:", enrollError);
-    } else {
-      console.log(`Enrollment created for user ${userId} in course ${courseId}`);
+      // Check if it's a duplicate - that's OK
+      if (enrollError.code === '23505') {
+        console.log(`User ${userId} already enrolled in course ${courseId} - ignoring duplicate`);
+        return;
+      }
+      console.error('CRITICAL PAYMENT ERROR - course_enrollment:', JSON.stringify({
+        error: enrollError.message,
+        code: enrollError.code,
+        userId,
+        courseId,
+        sessionId: session.id,
+        timestamp: new Date().toISOString()
+      }));
+      throw new Error(`Failed to create enrollment for user ${userId}: ${enrollError.message}`);
     }
+
+    console.log(`CONFIRMED: Enrollment ${enrollment.id} created for user ${userId} in course ${courseId}`);
     return;
   }
 
@@ -199,7 +214,7 @@ async function handleCheckoutComplete(
   if (session.subscription) {
     const subscription = await stripe.subscriptions.retrieve(session.subscription as string);
 
-    await supabase
+    const { data: updatedProfile, error: updateError } = await supabase
       .from("profiles")
       .update({
         subscription_tier: "pro",
@@ -210,9 +225,26 @@ async function handleCheckoutComplete(
           ? new Date(subscription.current_period_end * 1000).toISOString()
           : null,
       })
-      .eq("user_id", subscriptionUserId);
+      .eq("user_id", subscriptionUserId)
+      .select('user_id, subscription_tier')
+      .single();
 
-    console.log(`Updated user ${subscriptionUserId} to pro tier`);
+    if (updateError || !updatedProfile) {
+      // CRITICAL: Log with context for manual reconciliation
+      console.error('CRITICAL PAYMENT ERROR - checkout.session.completed:', JSON.stringify({
+        error: updateError?.message,
+        code: updateError?.code,
+        userId: subscriptionUserId,
+        stripeSubscriptionId: subscription.id,
+        sessionId: session.id,
+        intendedTier: 'pro',
+        timestamp: new Date().toISOString()
+      }));
+      // Throw to return 500, so Stripe retries the webhook
+      throw new Error(`Failed to update subscription for user ${subscriptionUserId}: ${updateError?.message}`);
+    }
+
+    console.log(`CONFIRMED: User ${subscriptionUserId} upgraded to ${updatedProfile.subscription_tier}`);
   }
 }
 
@@ -237,7 +269,7 @@ async function handleSubscriptionUpdate(
   else if (subscription.status === "canceled") status = "canceled";
   else if (subscription.status === "trialing") status = "trialing";
 
-  await supabase
+  const { data: updatedProfile, error: updateError } = await supabase
     .from("profiles")
     .update({
       subscription_tier: tier,
@@ -247,9 +279,24 @@ async function handleSubscriptionUpdate(
         ? new Date(subscription.current_period_end * 1000).toISOString()
         : null,
     })
-    .eq("user_id", userId);
+    .eq("user_id", userId)
+    .select('user_id, subscription_tier, subscription_status')
+    .single();
 
-  console.log(`Updated subscription for user ${userId}: ${tier} (${status})`);
+  if (updateError || !updatedProfile) {
+    console.error('CRITICAL PAYMENT ERROR - subscription.updated:', JSON.stringify({
+      error: updateError?.message,
+      code: updateError?.code,
+      userId,
+      stripeSubscriptionId: subscription.id,
+      intendedTier: tier,
+      intendedStatus: status,
+      timestamp: new Date().toISOString()
+    }));
+    throw new Error(`Failed to update subscription for user ${userId}: ${updateError?.message}`);
+  }
+
+  console.log(`CONFIRMED: Subscription updated for user ${userId}: ${updatedProfile.subscription_tier} (${updatedProfile.subscription_status})`);
 }
 
 async function handleSubscriptionCanceled(
@@ -265,7 +312,7 @@ async function handleSubscriptionCanceled(
   }
 
   // Downgrade to free tier
-  await supabase
+  const { data: updatedProfile, error: updateError } = await supabase
     .from("profiles")
     .update({
       subscription_tier: "free",
@@ -273,9 +320,22 @@ async function handleSubscriptionCanceled(
       stripe_subscription_id: null,
       subscription_ends_at: null,
     })
-    .eq("user_id", userId);
+    .eq("user_id", userId)
+    .select('user_id, subscription_tier')
+    .single();
 
-  console.log(`Downgraded user ${userId} to free tier`);
+  if (updateError || !updatedProfile) {
+    console.error('CRITICAL PAYMENT ERROR - subscription.canceled:', JSON.stringify({
+      error: updateError?.message,
+      code: updateError?.code,
+      userId,
+      stripeSubscriptionId: subscription.id,
+      timestamp: new Date().toISOString()
+    }));
+    throw new Error(`Failed to downgrade subscription for user ${userId}: ${updateError?.message}`);
+  }
+
+  console.log(`CONFIRMED: User ${userId} downgraded to ${updatedProfile.subscription_tier}`);
 }
 
 async function handlePaymentFailed(
@@ -299,10 +359,24 @@ async function handlePaymentFailed(
   }
 
   // Update subscription status
-  await supabase
+  const { data: updatedProfile, error: updateError } = await supabase
     .from("profiles")
     .update({ subscription_status: "past_due" })
-    .eq("user_id", profile.user_id);
+    .eq("user_id", profile.user_id)
+    .select('user_id, subscription_status')
+    .single();
+
+  if (updateError || !updatedProfile) {
+    console.error('CRITICAL PAYMENT ERROR - invoice.payment_failed:', JSON.stringify({
+      error: updateError?.message,
+      code: updateError?.code,
+      userId: profile.user_id,
+      customerId,
+      invoiceId: invoice.id,
+      timestamp: new Date().toISOString()
+    }));
+    throw new Error(`Failed to update payment failed status for user ${profile.user_id}: ${updateError?.message}`);
+  }
 
   // Send payment failed email notification
   const resendApiKey = Deno.env.get("RESEND_API_KEY");
@@ -373,10 +447,24 @@ async function handlePaymentSucceeded(
   }
 
   // Ensure subscription is active
-  await supabase
+  const { data: updatedProfile, error: updateError } = await supabase
     .from("profiles")
     .update({ subscription_status: "active" })
-    .eq("user_id", profile.user_id);
+    .eq("user_id", profile.user_id)
+    .select('user_id, subscription_status')
+    .single();
 
-  console.log(`Payment succeeded for user ${profile.user_id}`);
+  if (updateError || !updatedProfile) {
+    console.error('CRITICAL PAYMENT ERROR - invoice.payment_succeeded:', JSON.stringify({
+      error: updateError?.message,
+      code: updateError?.code,
+      userId: profile.user_id,
+      customerId,
+      invoiceId: invoice.id,
+      timestamp: new Date().toISOString()
+    }));
+    throw new Error(`Failed to update payment success status for user ${profile.user_id}: ${updateError?.message}`);
+  }
+
+  console.log(`CONFIRMED: Payment succeeded for user ${profile.user_id}, status: ${updatedProfile.subscription_status}`);
 }

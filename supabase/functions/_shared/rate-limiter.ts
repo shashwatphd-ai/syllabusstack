@@ -64,9 +64,20 @@ export async function checkRateLimit(
       .gte('created_at', hourAgo.toISOString());
 
     if (hourlyError) {
-      console.error('Rate limit hourly check error:', hourlyError);
-      // Fail open - allow the request but log the error
-      return { allowed: true, remaining: { hourly: 0, daily: 0, costBudget: 0 } };
+      console.error('RATE LIMIT CHECK FAILED - blocking request:', JSON.stringify({
+        error: hourlyError.message,
+        code: hourlyError.code,
+        userId,
+        functionName,
+        checkType: 'hourly'
+      }));
+      // FAIL CLOSED: Deny request when we can't verify limits (prevents abuse during DB issues)
+      return {
+        allowed: false,
+        remaining: { hourly: 0, daily: 0, costBudget: 0 },
+        retryAfter: 60, // Tell client to retry in 60 seconds
+        reason: 'Rate limit service temporarily unavailable. Please try again in a minute.'
+      };
     }
 
     // Get daily usage with cost
@@ -77,8 +88,20 @@ export async function checkRateLimit(
       .gte('created_at', dayAgo.toISOString());
 
     if (dailyError) {
-      console.error('Rate limit daily check error:', dailyError);
-      return { allowed: true, remaining: { hourly: 0, daily: 0, costBudget: 0 } };
+      console.error('RATE LIMIT CHECK FAILED - blocking request:', JSON.stringify({
+        error: dailyError.message,
+        code: dailyError.code,
+        userId,
+        functionName,
+        checkType: 'daily'
+      }));
+      // FAIL CLOSED: Deny request when we can't verify limits
+      return {
+        allowed: false,
+        remaining: { hourly: 0, daily: 0, costBudget: 0 },
+        retryAfter: 60,
+        reason: 'Rate limit service temporarily unavailable. Please try again in a minute.'
+      };
     }
 
     const dailyCount = dailyUsage?.length || 0;
@@ -131,9 +154,19 @@ export async function checkRateLimit(
       }
     };
   } catch (error) {
-    console.error('Rate limit check error:', error);
-    // Fail open on errors
-    return { allowed: true, remaining: { hourly: 0, daily: 0, costBudget: 0 } };
+    console.error('RATE LIMIT CHECK FAILED - blocking request:', JSON.stringify({
+      error: error instanceof Error ? error.message : String(error),
+      userId,
+      functionName,
+      checkType: 'unexpected_error'
+    }));
+    // FAIL CLOSED: Deny request on any error to prevent abuse
+    return {
+      allowed: false,
+      remaining: { hourly: 0, daily: 0, costBudget: 0 },
+      retryAfter: 60,
+      reason: 'Rate limit service temporarily unavailable. Please try again in a minute.'
+    };
   }
 }
 

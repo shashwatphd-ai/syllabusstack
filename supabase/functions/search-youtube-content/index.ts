@@ -652,19 +652,30 @@ const handler = async (req: Request): Promise<Response> => {
     
     // Fallback to Query Intelligence if no teaching unit queries available
     if (queries.length === 0) {
+      // Check if we have teaching unit context to use for better queries
+      const targetUnit = teaching_unit_id ? teachingUnits.find((u: any) => u.id === teaching_unit_id) : teachingUnits[0];
+
       try {
         console.log('[QUERY INTELLIGENCE] Generating search queries...');
+
+        // Enhanced: Use teaching unit context when available for better query generation
+        const queryText = targetUnit?.what_to_teach || targetUnit?.title || effectiveLoText;
+        const queryConcept = targetUnit?.title || effectiveCoreConcept;
+        const queryKeywords = targetUnit?.required_concepts?.length > 0
+          ? targetUnit.required_concepts
+          : effectiveSearchKeywords || [];
+
         queries = await generateSearchQueries(
           {
             id: learning_objective_id,
-            text: effectiveLoText,
-            core_concept: effectiveCoreConcept,
+            text: queryText,
+            core_concept: queryConcept,
             action_verb: effectiveSearchKeywords?.[0] || '',
             bloom_level: effectiveBloomLevel,
             domain: effectiveDomain || 'other',
             specificity: 'intermediate',
-            search_keywords: effectiveSearchKeywords || [],
-            expected_duration_minutes: effectiveDuration || 15,
+            search_keywords: queryKeywords,
+            expected_duration_minutes: targetUnit?.target_duration_minutes || effectiveDuration || 15,
           },
           moduleContext,
           courseContext
@@ -672,13 +683,20 @@ const handler = async (req: Request): Promise<Response> => {
         console.log(`[QUERY INTELLIGENCE] Generated ${queries.length} queries:`, queries.slice(0, 3));
       } catch (qiError) {
         console.error('[QUERY INTELLIGENCE] Failed, using fallback:', qiError);
-        // Fallback to basic queries using effective values
-        const concept = effectiveCoreConcept || effectiveLoText?.split(' ').slice(0, 5).join(' ') || 'topic';
+        // Enhanced fallback: Use teaching unit context if available
+        const concept = targetUnit?.title || targetUnit?.what_to_teach?.split(' ').slice(0, 6).join(' ') ||
+          effectiveCoreConcept || effectiveLoText?.split(' ').slice(0, 5).join(' ') || 'topic';
+        const videoType = targetUnit?.target_video_type || 'explainer';
+
+        // Use required_concepts from teaching unit if available
+        const extraTerms = targetUnit?.required_concepts?.slice(0, 2).join(' ') || '';
+
         queries = [
+          `${concept} ${videoType} ${extraTerms}`.trim(),
           `${concept} explained tutorial`,
           `${concept} lecture educational`,
-          `${concept} course introduction`,
         ];
+        console.log(`[FALLBACK QUERIES] Using teaching unit context: "${concept.substring(0, 50)}..."`);
       }
     }
 
