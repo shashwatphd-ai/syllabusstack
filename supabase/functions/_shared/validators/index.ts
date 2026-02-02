@@ -70,6 +70,30 @@ export const gapAnalysisSchema = z.object({
   dreamJobId: uuidSchema,
 });
 
+export const matchCareersSchema = z.object({
+  limit: z.number().int().min(1).max(100).optional().default(20),
+  filters: z.object({
+    min_education_level: z.string().optional(),
+    min_salary: positiveNumberSchema.optional(),
+    job_outlook: z.string().optional(),
+  }).optional(),
+});
+
+export const discoverDreamJobsSchema = z.object({
+  interests: z.string().max(2000).optional(),
+  skills: z.string().max(2000).optional(),
+  major: z.string().max(200).optional(),
+  careerGoals: z.string().max(2000).optional(),
+  workStyle: z.string().max(500).optional(),
+});
+
+export const analyzeDreamJobSchema = z.object({
+  jobTitle: z.string().min(1).max(200),
+  companyType: z.string().max(200).optional(),
+  location: z.string().max(200).optional(),
+  dreamJobId: uuidSchema.optional(),
+});
+
 // ============================================================================
 // COURSE & ENROLLMENT SCHEMAS
 // ============================================================================
@@ -78,6 +102,27 @@ export const courseEnrollmentSchema = z.object({
   course_id: uuidSchema,
   payment_intent_id: z.string().optional(),
 });
+
+export const enrollInCourseSchema = z.object({
+  access_code: z.string().min(1).max(50),
+  promo_code: z.string().max(50).optional(),
+  success_url: urlSchema.optional(),
+  cancel_url: urlSchema.optional(),
+});
+
+export const generateCurriculumSchema = z.object({
+  career_match_id: uuidSchema.optional(),
+  dream_job_id: uuidSchema.optional(),
+  customizations: z.object({
+    hours_per_week: z.number().int().min(1).max(80).optional(),
+    learning_style: z.enum(['visual', 'reading', 'hands_on']).optional(),
+    priority_skills: z.array(z.string().min(1)).optional(),
+    exclude_topics: z.array(z.string().min(1)).optional(),
+  }).optional(),
+}).refine(
+  data => data.career_match_id || data.dream_job_id,
+  { message: 'Either career_match_id or dream_job_id is required' }
+);
 
 export const syllabusParseSchema = z.object({
   course_id: uuidSchema,

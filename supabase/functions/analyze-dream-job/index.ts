@@ -13,6 +13,7 @@ import {
   logInfo,
   logError,
 } from "../_shared/error-handler.ts";
+import { validateRequest, analyzeDreamJobSchema } from "../_shared/validators/index.ts";
 
 const handler = async (req: Request): Promise<Response> => {
   // Handle CORS preflight
@@ -23,14 +24,14 @@ const handler = async (req: Request): Promise<Response> => {
 
   try {
     logInfo('analyze-dream-job', 'starting');
-    const { jobTitle, companyType, location, dreamJobId } = await req.json();
 
-    if (!jobTitle) {
-      return new Response(
-        JSON.stringify({ error: "Job title is required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    // Parse and validate request body with Zod
+    const body = await req.json();
+    const validation = validateRequest(analyzeDreamJobSchema, body);
+    if (!validation.success) {
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, validation.errors.join(', '));
     }
+    const { jobTitle, companyType, location, dreamJobId } = validation.data;
 
     console.log("Analyzing dream job:", jobTitle);
 

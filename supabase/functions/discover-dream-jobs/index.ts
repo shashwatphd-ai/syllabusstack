@@ -5,6 +5,7 @@ import { checkRateLimit, getUserLimits, createRateLimitResponse } from "../_shar
 import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
 import { createErrorResponse, createSuccessResponse, logInfo, logError, withErrorHandling } from "../_shared/error-handler.ts";
 import { createServiceClient } from "../_shared/ai-cache.ts";
+import { validateRequest, discoverDreamJobsSchema } from "../_shared/validators/index.ts";
 
 interface DiscoveredJob {
   title: string;
@@ -24,7 +25,13 @@ const handler = async (req: Request): Promise<Response> => {
   const corsHeaders = getCorsHeaders(req);
 
   try {
-    const { interests, skills, major, careerGoals, workStyle } = await req.json();
+    // Parse and validate request body with Zod
+    const body = await req.json();
+    const validation = validateRequest(discoverDreamJobsSchema, body);
+    if (!validation.success) {
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, validation.errors.join(', '));
+    }
+    const { interests, skills, major, careerGoals, workStyle } = validation.data;
 
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {

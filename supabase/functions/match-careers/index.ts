@@ -1,7 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
 import {
-  validateMatchCareersRequest,
   corsPreflightResponse,
   successResponse,
   validationErrorResponse,
@@ -17,6 +16,7 @@ import {
 } from "../_shared/skills-pipeline/index.ts";
 import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
 import { logInfo, logError } from "../_shared/error-handler.ts";
+import { validateRequest, matchCareersSchema } from "../_shared/validators/index.ts";
 
 // Holland RIASEC adjacency for Iachan's M Index
 const HOLLAND_ADJACENCY: Record<string, string[]> = {
@@ -155,7 +155,7 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
 
-    // Parse and validate request body
+    // Parse and validate request body with Zod
     let body: unknown;
     try {
       body = await req.json();
@@ -163,13 +163,13 @@ serve(async (req) => {
       body = {};
     }
 
-    const validation = validateMatchCareersRequest(body);
+    const validation = validateRequest(matchCareersSchema, body);
     if (!validation.success) {
       logger.warn('Validation failed', { errors: validation.errors });
-      return validationErrorResponse(validation.errors!, requestId);
+      return validationErrorResponse(validation.errors.map(e => ({ field: e.split(':')[0], message: e })), requestId);
     }
 
-    const { limit = 20, filters } = validation.data!;
+    const { limit, filters } = validation.data;
 
     // Authenticate user
     const authHeader = req.headers.get('Authorization');

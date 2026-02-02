@@ -9,6 +9,7 @@ import {
   logInfo,
   logError,
 } from "../_shared/error-handler.ts";
+import { validateRequest, enrollInCourseSchema } from "../_shared/validators/index.ts";
 
 const logStep = (step: string, details?: any) => {
   const detailsStr = details ? ` - ${JSON.stringify(details)}` : '';
@@ -52,10 +53,13 @@ const handler = async (req: Request): Promise<Response> => {
     if (!user?.email) throw new Error("User not authenticated or email not available");
     logStep("User authenticated", { userId: user.id });
 
+    // Parse and validate request body with Zod
     const body = await req.json();
-    const { access_code, promo_code, success_url, cancel_url } = body;
-
-    if (!access_code) throw new Error("Access code is required");
+    const validation = validateRequest(enrollInCourseSchema, body);
+    if (!validation.success) {
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, validation.errors.join(', '));
+    }
+    const { access_code, promo_code, success_url, cancel_url } = validation.data;
 
     // Find course by access code
     const { data: course, error: courseError } = await supabaseAdmin
