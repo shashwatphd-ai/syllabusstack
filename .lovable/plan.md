@@ -1,148 +1,119 @@
 
-# Plan: Auto-Recovery for Stuck Slide Generation
+# Root Cause Analysis: Edge Function "Failed to fetch" Error
 
-## Problem Summary
-The slide generation UI shows "Generating..." and "Preparing..." states permanently because:
-1. Database contains 5 slides stuck in `generating` and 4 in `preparing` since January 29th
-2. A batch job is stuck in `researching` status with no progress
-3. No automatic cleanup mechanism detects and resets stale jobs
-4. The frontend trusts database status without checking staleness
+## Problem Identified
 
----
+The error "Failed to send a request to the Edge Function" with underlying "Failed to fetch" is caused by **CORS rejection**. The request origin (`id-preview--*.lovable.app` and `*.lovableproject.com`) is not in the allowed origins list in `supabase/functions/_shared/cors.ts`.
 
-## Solution Overview
+## Evidence
 
-Implement a **self-healing system** that automatically detects and resets stale generation jobs, ensuring the UI reflects accurate state and allows users to retry cleanly.
+1. **Console logs** show:
+   - `FunctionsFetchError: Failed to send a request to the Edge Function`
+   - Inner error: `TypeError: Failed to fetch`
 
----
+2. **Network requests** originate from:
+   - `https://99730e5c-7950-4097-8601-0fd29fb1f3ef.lovableproject.com`
+   - `https://id-preview--99730e5c-7950-4097-8601-0fd29fb1f3ef.lovable.app`
 
-## Technical Implementation
+3. **Edge function logs** show no incoming requests for `submit-batch-slides` or `generate-lecture-slides-v3`, confirming the request is blocked at the CORS preflight stage (never reaches the function).
 
-### 1. Enhanced `poll-batch-status` with Auto-Reset Logic
+4. **CORS configuration** (`supabase/functions/_shared/cors.ts`) only allows:
+   ```typescript
+   production: ['https://syllabusstack.com', 'https://app.syllabusstack.com', 'https://www.syllabusstack.com'],
+   staging: ['https://staging.syllabusstack.com', 'https://staging-app.syllabusstack.com'],
+   development: ['http://localhost:5173', 'http://localhost:3000', 'http://127.0.0.1:5173', 'http://127.0.0.1:3000'],
+   ```
+   
+   **Missing:** Lovable preview domains (`*.lovable.app`, `*.lovableproject.com`)
 
-Modify the edge function to automatically detect and reset stale records during polling:
+## Why This Matters
 
-```text
-┌─────────────────────────────────────────────────────────┐
-│  poll-batch-status (enhanced)                          │
-├─────────────────────────────────────────────────────────┤
-│  1. Query slides and batch jobs                        │
-│  2. Detect stale records (>30 min for intermediate)    │
-│  3. Auto-reset: generating/preparing → pending or fail │
-│  4. Auto-reset: batch_jobs researching → failed        │
-│  5. Return clean counts to frontend                    │
-└─────────────────────────────────────────────────────────┘
-```
-
-**Staleness thresholds:**
-- `generating` slides: >30 minutes → reset to `failed` with error message
-- `preparing` slides: >30 minutes → reset to `pending` 
-- `batch_pending` slides: >60 minutes without progress → reset to `pending`
-- `researching` batch jobs: >30 minutes → mark as `failed`
-
-### 2. Cleaner UI State Logic
-
-Update frontend to show accurate generation state:
-
-**Current (problematic):**
-```
-if (generating > 0) → show "Generating..."
-```
-
-**New (improved):**
-```
-if (active_batch && !active_batch.is_stale) → show batch progress
-else if (generating > 0 && hasRecentActivity) → show "Generating..."
-else → show "Generate All Slides" button (ready state)
-```
-
-The backend will reset stale counts, so the frontend can trust the data.
-
-### 3. Files to Modify
-
-| File | Changes |
-|------|---------|
-| `supabase/functions/poll-batch-status/index.ts` | Add auto-reset logic for stale slides and batch jobs |
-| `src/hooks/useBatchSlides.ts` | Add `is_stale` field parsing from response |
-| `src/pages/instructor/InstructorCourseDetail.tsx` | Simplify logic (backend handles cleanup) |
+When the browser makes a cross-origin request to an Edge Function, it first sends an OPTIONS preflight request. If the returned `Access-Control-Allow-Origin` header doesn't match the request's origin, the browser blocks the actual request entirely—hence "Failed to fetch" with no logs on the server.
 
 ---
 
-## Detailed Changes
+## Solution: Add Lovable Preview Domains to CORS Allowlist
 
-### A. poll-batch-status Edge Function
+### File to Modify
 
-Add a new function `resetStaleRecords()` that runs during every poll:
+`supabase/functions/_shared/cors.ts`
 
-1. **Find stale slides:**
-   - Status is `generating`, `preparing`, or `batch_pending`
-   - Last `updated_at` is older than 30 minutes
+### Changes
 
-2. **Reset logic:**
-   - `generating` → `failed` with message "Generation timed out - please retry"
-   - `preparing` → `pending` (allows clean restart)
-   - `batch_pending` → `pending` (allows clean restart)
+Add Lovable preview patterns to the development/staging origins and update the matching logic to handle dynamic subdomains:
 
-3. **Find stale batch jobs:**
-   - Status is `researching`, `submitted`, or `processing`
-   - No `google_batch_id` or last update > 30 minutes
+```typescript
+const ALLOWED_ORIGINS: Record<string, string[]> = {
+  production: [
+    'https://syllabusstack.com',
+    'https://app.syllabusstack.com',
+    'https://www.syllabusstack.com',
+    'https://syllabusstack.lovable.app', // Published Lovable URL
+  ],
+  staging: [
+    'https://staging.syllabusstack.com',
+    'https://staging-app.syllabusstack.com',
+  ],
+  development: [
+    'http://localhost:5173',
+    'http://localhost:3000',
+    'http://127.0.0.1:5173',
+    'http://127.0.0.1:3000',
+  ],
+};
 
-4. **Reset batch jobs:**
-   - Mark as `failed` with appropriate error message
-   - Clear slides linked to this job back to `pending`
+// Lovable preview domain patterns (always allowed)
+const LOVABLE_PATTERNS = [
+  /^https:\/\/[a-z0-9-]+\.lovable\.app$/,       // id.lovable.app
+  /^https:\/\/id-preview--[a-z0-9-]+\.lovable\.app$/, // id-preview--*.lovable.app
+  /^https:\/\/[a-z0-9-]+\.lovableproject\.com$/, // *.lovableproject.com
+];
 
-### B. Frontend Simplification
+function isLovableOrigin(origin: string): boolean {
+  return LOVABLE_PATTERNS.some(pattern => pattern.test(origin));
+}
 
-The frontend no longer needs complex staleness detection because:
-- Backend auto-resets stale records before returning counts
-- `generating` count only includes truly active generation
-- `active_batch` only present when a real batch is in progress
+export function getCorsHeaders(req: Request): Record<string, string> {
+  const origin = req.headers.get('Origin') || '';
+  const env = Deno.env.get('ENVIRONMENT') || 'development';
+  const allowed = ALLOWED_ORIGINS[env] || ALLOWED_ORIGINS.development;
 
-### C. Add Manual Reset Button (Optional UX Enhancement)
+  // Allow Lovable preview origins (dynamic subdomains)
+  const isAllowed = allowed.includes(origin) || isLovableOrigin(origin);
 
-Add a small "Reset stuck items" button that appears when:
-- No active batch but `generating > 0` persists for 2+ minutes
-- Calls the existing `cleanup-stuck` action with expanded scope
-
----
-
-## Data Migration (One-Time Cleanup)
-
-Before deploying, run a one-time SQL to clear the current stuck data:
-
-```sql
--- Reset stuck slides to failed state
-UPDATE lecture_slides 
-SET status = 'failed', 
-    error_message = 'Generation timed out - please retry'
-WHERE status IN ('generating', 'preparing', 'batch_pending')
-AND updated_at < NOW() - INTERVAL '30 minutes';
-
--- Mark stuck batch job as failed
-UPDATE batch_jobs 
-SET status = 'failed',
-    error_message = 'Research phase timed out - please retry'
-WHERE status = 'researching'
-AND updated_at < NOW() - INTERVAL '30 minutes';
+  return {
+    'Access-Control-Allow-Origin': isAllowed ? origin : allowed[0],
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+    'Access-Control-Max-Age': '86400',
+    'Access-Control-Allow-Credentials': 'true',
+  };
+}
 ```
 
 ---
 
-## Expected Behavior After Fix
+## Technical Details
 
-1. **On page load:** Backend detects stale records, resets them, returns clean counts
-2. **UI shows:** "Generate All Slides" button (not stuck spinner)
-3. **When user clicks:** New batch job starts fresh
-4. **If generation stalls:** Auto-reset kicks in within 30 minutes
-5. **User can always:** Click the button to start a new generation
+### Why This Solution
+
+| Approach | Pros | Cons |
+|----------|------|------|
+| **Wildcard `*`** | Simple | Security vulnerability, doesn't work with credentials |
+| **Static list** | Secure | Can't handle dynamic Lovable subdomains |
+| **Regex patterns** ✓ | Secure + flexible | Slightly more complex |
+
+The regex pattern approach safely allows all Lovable preview domains while maintaining strict control over production origins.
+
+### Deployment
+
+After modifying `cors.ts`, all edge functions automatically pick up the change since they import from the shared module. No individual function changes needed.
 
 ---
 
-## Testing Verification
+## Testing Plan
 
-After implementation:
-1. Visit the instructor course detail page
-2. Verify "Generating..." spinner is gone
-3. Click "Generate All Slides" to start fresh
-4. Verify stuck records were cleaned up in database
-
+1. After deployment, visit the Instructor Portal
+2. Click "Retry" on a teaching unit with failed status
+3. Verify the request succeeds (no CORS error)
+4. Check edge function logs show the incoming request
