@@ -9,11 +9,11 @@ const plans = [
     name: "Free",
     icon: GraduationCap,
     price: "$0",
-    tagline: "Try it out.",
+    tagline: "Get started.",
     features: [
-      "3 courses",
-      "1 dream job",
-      "Basic features",
+      "Up to 3 courses",
+      "1 dream job analysis",
+      "20 AI calls/month",
     ],
     cta: "Get Started",
     href: "/auth",
@@ -24,11 +24,12 @@ const plans = [
     icon: BookOpen,
     price: "$9.99",
     priceDetail: "/mo",
-    tagline: "Everything, no limits.",
+    tagline: "No limits.",
     features: [
       "Unlimited courses",
-      "5 dream jobs",
-      "All features included",
+      "Up to 5 dream jobs",
+      "200 AI calls/month",
+      "PDF export",
     ],
     cta: "Go Pro",
     href: "/checkout?plan=pro",
@@ -38,11 +39,12 @@ const plans = [
     name: "University",
     icon: Building2,
     price: "Custom",
-    tagline: "For teams.",
+    tagline: "For institutions.",
     features: [
       "Everything unlimited",
       "Multiple instructors",
-      "Your branding",
+      "Custom branding",
+      "Admin dashboard",
     ],
     cta: "Contact Us",
     href: "/universities",
@@ -107,10 +109,10 @@ export const PricingSection = forwardRef<HTMLElement>(function PricingSection(_p
                   ))}
                 </ul>
 
-                <Button 
-                  asChild 
-                  variant={plan.highlight ? "default" : "outline"} 
-                  className={`w-full ${plan.highlight ? "bg-coral-500 hover:bg-coral-600" : ""}`}
+                <Button
+                  asChild
+                  variant={plan.highlight ? "default" : "outline"}
+                  className={`w-full ${plan.highlight ? "bg-coral-500 hover:bg-coral-600 text-white" : ""}`}
                 >
                   <Link to={plan.href}>{plan.cta}</Link>
                 </Button>
