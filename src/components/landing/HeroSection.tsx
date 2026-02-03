@@ -36,9 +36,10 @@ export const HeroSection = forwardRef<HTMLElement>(function HeroSection(_props, 
               className={cn(
                 "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all",
                 audience === "students"
-                  ? "bg-coral-500 text-white shadow-lg"
+                  ? "bg-coral-500 shadow-lg"
                   : "text-primary-foreground/70 hover:text-primary-foreground"
               )}
+              style={audience === "students" ? { color: "white" } : undefined}
             >
               <GraduationCap className="w-4 h-4" />
               I'm a Student
@@ -48,9 +49,10 @@ export const HeroSection = forwardRef<HTMLElement>(function HeroSection(_props, 
               className={cn(
                 "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all",
                 audience === "instructors"
-                  ? "bg-coral-500 text-white shadow-lg"
+                  ? "bg-coral-500 shadow-lg"
                   : "text-primary-foreground/70 hover:text-primary-foreground"
               )}
+              style={audience === "instructors" ? { color: "white" } : undefined}
             >
               <BookOpen className="w-4 h-4" />
               I'm an Educator
