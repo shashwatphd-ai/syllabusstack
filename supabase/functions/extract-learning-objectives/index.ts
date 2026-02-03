@@ -293,8 +293,8 @@ Return JSON in this exact structure:
       }, corsHeaders);
     }
 
-    // Helper to build LO data for database
-    const buildLoData = (lo: LearningObjective, isAutoApproved: boolean) => {
+    // Helper to build LO data for database (core fields that always exist)
+    const buildCoreLoData = (lo: LearningObjective) => {
       const bloomLevel = lo.bloom_level || "understand";
       const specificity = lo.specificity || "intermediate";
       const expectedDuration = DURATION_MATRIX[bloomLevel]?.[specificity] || 15;
@@ -312,48 +312,66 @@ Return JSON in this exact structure:
         search_keywords: lo.search_keywords || [],
         expected_duration_minutes: expectedDuration,
         verification_state: "unstarted",
-        // NEW: Source tracking fields
-        source_type: lo.source_type || 'explicit',
-        source_text: lo.source_text || null,
-        confidence: lo.confidence || 'high',
-        // Explicit LOs are auto-approved; inferred need review
-        approval_status: isAutoApproved ? 'approved' : 'pending_review',
       };
     };
 
-    // SAVE EXPLICIT OBJECTIVES (auto-approved)
-    const explicitLoData = explicitObjectives.map(lo => buildLoData(lo, true));
-    let savedExplicitLOs: any[] = [];
+    // New fields for source tracking (added by migration 20260203100000)
+    const buildSourceFields = (lo: LearningObjective, isAutoApproved: boolean) => ({
+      source_type: lo.source_type || 'explicit',
+      source_text: lo.source_text || null,
+      confidence: lo.confidence || 'high',
+      approval_status: isAutoApproved ? 'approved' : 'pending_review',
+    });
 
-    if (explicitLoData.length > 0) {
-      const { data, error: saveError } = await supabaseClient
+    // Try insert with new fields, fallback to core fields if migration hasn't run
+    const insertLOs = async (los: LearningObjective[], isAutoApproved: boolean) => {
+      if (los.length === 0) return [];
+
+      // First try with all fields (including new source tracking columns)
+      const fullData = los.map(lo => ({
+        ...buildCoreLoData(lo),
+        ...buildSourceFields(lo, isAutoApproved),
+      }));
+
+      const { data, error } = await supabaseClient
         .from("learning_objectives")
-        .insert(explicitLoData)
+        .insert(fullData)
         .select();
 
-      if (saveError) {
-        console.error("Error saving explicit learning objectives:", saveError);
-      } else {
-        savedExplicitLOs = data || [];
+      if (!error) {
+        return data || [];
       }
-    }
+
+      // If error mentions unknown column, retry without new fields (migration not yet run)
+      if (error.message?.includes('column') || error.code === '42703') {
+        console.warn('[extract-learning-objectives] New columns not available, using core fields only');
+        const coreData = los.map(lo => buildCoreLoData(lo));
+        const { data: fallbackData, error: fallbackError } = await supabaseClient
+          .from("learning_objectives")
+          .insert(coreData)
+          .select();
+
+        if (fallbackError) {
+          console.error("Error saving learning objectives (fallback):", fallbackError);
+          return [];
+        }
+
+        // Add source metadata to returned objects for response (even if not in DB)
+        return (fallbackData || []).map((savedLo, idx) => ({
+          ...savedLo,
+          ...buildSourceFields(los[idx], isAutoApproved),
+        }));
+      }
+
+      console.error("Error saving learning objectives:", error);
+      return [];
+    };
+
+    // SAVE EXPLICIT OBJECTIVES (auto-approved)
+    const savedExplicitLOs = await insertLOs(explicitObjectives, true);
 
     // SAVE INFERRED OBJECTIVES (pending review - instructor must approve)
-    const inferredLoData = inferredObjectives.map(lo => buildLoData(lo, false));
-    let savedInferredLOs: any[] = [];
-
-    if (inferredLoData.length > 0) {
-      const { data, error: saveError } = await supabaseClient
-        .from("learning_objectives")
-        .insert(inferredLoData)
-        .select();
-
-      if (saveError) {
-        console.error("Error saving inferred learning objectives:", saveError);
-      } else {
-        savedInferredLOs = data || [];
-      }
-    }
+    const savedInferredLOs = await insertLOs(inferredObjectives, false);
 
     const totalSaved = savedExplicitLOs.length + savedInferredLOs.length;
     logInfo('extract-learning-objectives', 'complete', {
