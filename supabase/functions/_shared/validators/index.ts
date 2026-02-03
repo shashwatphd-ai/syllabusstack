@@ -287,11 +287,52 @@ const watchedSegmentSchema = z.object({
   end: z.number().min(0),
 });
 
+// Typed event data schemas for different consumption event types
+const videoWatchDataSchema = z.object({
+  event_type: z.literal('video_watch').optional(),
+  video_id: z.string().min(1).optional(),
+  watch_duration_seconds: z.number().min(0).optional(),
+  completed: z.boolean().optional(),
+});
+
+const assessmentAttemptDataSchema = z.object({
+  event_type: z.literal('assessment_attempt').optional(),
+  assessment_id: z.string().uuid().optional(),
+  score: z.number().min(0).max(100).optional(),
+  time_spent_seconds: z.number().min(0).optional(),
+});
+
+const slideViewDataSchema = z.object({
+  event_type: z.literal('slide_view').optional(),
+  slide_id: z.string().uuid().optional(),
+  view_duration_seconds: z.number().min(0).optional(),
+});
+
+const speedChangeDataSchema = z.object({
+  previous_speed: z.number().min(0.25).max(4).optional(),
+  new_speed: z.number().min(0.25).max(4).optional(),
+});
+
+const seekDataSchema = z.object({
+  from_time: z.number().min(0).optional(),
+  to_time: z.number().min(0).optional(),
+});
+
+// Combined data schema - allows known types or unknown with passthrough
+const consumptionEventDataSchema = z.union([
+  videoWatchDataSchema,
+  assessmentAttemptDataSchema,
+  slideViewDataSchema,
+  speedChangeDataSchema,
+  seekDataSchema,
+  z.object({}).passthrough(), // Allow unknown event data for extensibility
+]).optional();
+
 const consumptionEventSchema = z.object({
   type: z.enum(['play', 'pause', 'seek', 'speed_change', 'tab_focus_loss', 'complete']),
   timestamp: z.number(),
   video_time: z.number(),
-  data: z.any().optional(),
+  data: consumptionEventDataSchema,
 });
 
 const microCheckResultSchema = z.object({
