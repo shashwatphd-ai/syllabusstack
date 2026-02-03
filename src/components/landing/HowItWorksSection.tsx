@@ -296,36 +296,52 @@ export const HowItWorksSection = forwardRef<HTMLElement>(function HowItWorksSect
           </div>
         </div>
 
-        {/* Steps */}
-        <div id="how-it-works-instructor" className="grid lg:grid-cols-2 gap-10 max-w-5xl mx-auto">
-          {steps.map((step, index) => (
-            <div
-              key={step.number}
-              className="group flex gap-6 items-start"
-            >
-              {/* Number badge */}
-              <div className="flex flex-col items-center">
-                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center shadow-lg shadow-primary/25 group-hover:scale-110 transition-transform">
-                  <span className="text-xl font-bold text-primary-foreground">{step.number}</span>
-                </div>
+        {/* Steps with sequential flow */}
+        <div id="how-it-works-instructor" className="relative max-w-5xl mx-auto">
+          {/* Connecting line for desktop */}
+          <div className="hidden lg:block absolute top-7 left-[calc(25%-28px)] right-[calc(25%-28px)] h-0.5 bg-gradient-to-r from-primary/20 via-primary/40 to-primary/20" />
+          <div className="hidden lg:block absolute top-[calc(50%+28px)] left-[calc(25%-28px)] right-[calc(25%-28px)] h-0.5 bg-gradient-to-r from-primary/20 via-primary/40 to-primary/20" />
+          
+          <div className="grid lg:grid-cols-2 gap-x-16 gap-y-12">
+            {steps.map((step, index) => (
+              <div
+                key={step.number}
+                className="group relative flex gap-6 items-start"
+              >
+                {/* Vertical connector for mobile */}
                 {index < steps.length - 1 && (
-                  <div className="w-px h-full bg-gradient-to-b from-primary/50 to-transparent mt-4 lg:hidden" />
+                  <div className="lg:hidden absolute left-7 top-14 w-0.5 h-[calc(100%+48px)] bg-gradient-to-b from-primary/40 to-primary/10" />
                 )}
-              </div>
+                
+                {/* Horizontal arrow connector for desktop (between columns) */}
+                {index % 2 === 0 && index < steps.length - 1 && (
+                  <div className="hidden lg:flex absolute -right-10 top-7 items-center">
+                    <div className="w-4 h-0.5 bg-primary/40" />
+                    <div className="w-0 h-0 border-t-[5px] border-t-transparent border-b-[5px] border-b-transparent border-l-[8px] border-l-primary/60" />
+                  </div>
+                )}
 
-              {/* Content */}
-              <div className="flex-1 pb-8">
-                <h3 className="text-xl font-bold text-foreground mb-3 flex items-center gap-3">
-                  <step.icon className="w-5 h-5 text-primary" />
-                  {step.title}
-                </h3>
-                <p className="text-base text-muted-foreground mb-5 leading-relaxed">
-                  {step.description}
-                </p>
-                {step.visual}
+                {/* Number badge */}
+                <div className="relative z-10 flex flex-col items-center">
+                  <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center shadow-lg shadow-primary/25 group-hover:scale-110 transition-transform ring-4 ring-background">
+                    <span className="text-xl font-bold text-primary-foreground">{step.number}</span>
+                  </div>
+                </div>
+
+                {/* Content */}
+                <div className="flex-1 pb-4">
+                  <h3 className="text-xl font-bold text-foreground mb-3 flex items-center gap-3">
+                    <step.icon className="w-5 h-5 text-primary" />
+                    {step.title}
+                  </h3>
+                  <p className="text-base text-muted-foreground mb-5 leading-relaxed">
+                    {step.description}
+                  </p>
+                  {step.visual}
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </div>
     </section>
