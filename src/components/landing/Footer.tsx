@@ -14,7 +14,7 @@ export const Footer = forwardRef<HTMLElement>(function Footer(_props, ref) {
               <Logo size="md" variant="light" />
             </Link>
             <p className="text-primary-foreground/50 text-sm mb-4">
-              AI-powered career intelligence for students who want honest answers, not empty encouragement.
+              The platform that bridges what you've learned to where you're going.
             </p>
             <div className="flex gap-3">
               <a
