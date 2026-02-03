@@ -6,47 +6,45 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const plans = [
   {
-    name: "Students",
+    name: "Free",
     icon: GraduationCap,
-    price: "Free",
-    tagline: "See where you stand for your dream job.",
+    price: "$0",
+    tagline: "Try it out.",
     features: [
-      "Upload all your courses",
-      "Find gaps before you apply",
-      "Know exactly what to do next",
-      "Track your progress",
+      "3 courses",
+      "1 dream job",
+      "Basic features",
     ],
-    cta: "Get Started Free",
-    href: "/auth",
-    highlight: true,
-  },
-  {
-    name: "Educators",
-    icon: BookOpen,
-    price: "Free",
-    tagline: "Build video courses from your syllabus.",
-    features: [
-      "Turn syllabi into learning paths",
-      "Videos matched to each topic",
-      "Know who's actually watching",
-      "See who needs help",
-    ],
-    cta: "Create Your Course",
+    cta: "Get Started",
     href: "/auth",
     highlight: false,
   },
   {
-    name: "Institutions",
-    icon: Building2,
-    price: "Contact",
-    tagline: "Enterprise features for universities.",
+    name: "Pro",
+    icon: BookOpen,
+    price: "$9.99",
+    priceDetail: "/mo",
+    tagline: "Everything, no limits.",
     features: [
-      "Multi-instructor support",
-      "LMS integration (coming soon)",
-      "Custom branding",
-      "Priority support",
+      "Unlimited courses",
+      "5 dream jobs",
+      "All features included",
     ],
-    cta: "Talk to Sales",
+    cta: "Go Pro",
+    href: "/checkout?plan=pro",
+    highlight: true,
+  },
+  {
+    name: "University",
+    icon: Building2,
+    price: "Custom",
+    tagline: "For teams.",
+    features: [
+      "Everything unlimited",
+      "Multiple instructors",
+      "Your branding",
+    ],
+    cta: "Contact Us",
     href: "/universities",
     highlight: false,
   },
@@ -62,10 +60,10 @@ export const PricingSection = forwardRef<HTMLElement>(function PricingSection(_p
             Pricing
           </div>
           <h2 className="text-3xl sm:text-4xl font-bold text-foreground mb-4">
-            Simple, transparent pricing
+            Pricing
           </h2>
           <p className="text-muted-foreground text-lg">
-            Free to start for students and educators. Only pay when you need enterprise features.
+            Free to start. Pro when you're ready.
           </p>
         </div>
 
@@ -89,7 +87,12 @@ export const PricingSection = forwardRef<HTMLElement>(function PricingSection(_p
                   </div>
                   <CardTitle className="flex items-baseline justify-between gap-4 flex-1">
                     <span>{plan.name}</span>
-                    <span className="text-2xl font-bold text-foreground">{plan.price}</span>
+                    <span className="text-2xl font-bold text-foreground">
+                      {plan.price}
+                      {"priceDetail" in plan && (
+                        <span className="text-sm font-normal text-muted-foreground">{plan.priceDetail}</span>
+                      )}
+                    </span>
                   </CardTitle>
                 </div>
                 <p className="text-sm text-muted-foreground">{plan.tagline}</p>
