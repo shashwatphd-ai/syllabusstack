@@ -1,314 +1,148 @@
 
-# Pricing Transparency Fix Plan
+# Plan: Auto-Recovery for Stuck Slide Generation
 
 ## Problem Summary
-
-The landing page presents misleading pricing information:
-
-### Current Misleading Claims
-
-| Location | Current Text | Reality (in code) |
-|----------|--------------|-------------------|
-| Hero Section | "No credit card required" | $1 payment gates exist for course creation/enrollment |
-| Hero Section | "Free to start" | True for browsing, but actions cost $1 |
-| CTA Section | "Free to Get Started" | Partially true |
-| CTA Section | "Free tier available" | Hides $1 per-action fees |
-| Pricing Card | "Free - $0" | $1/course creation, $1/enrollment |
-| Pricing Features | Shows only 3 limits | Missing $1 payment gate disclosure |
-
-### Actual Economics (from code)
-
-```text
-FREE TIER:
-+- Monthly subscription: $0
-+- Course Creation: $1 per course
-+- Course Enrollment: $1 per enrollment
-+- AI Calls: 20/month
-+- Max Courses: 3
-+- Dream Jobs: 1
-
-PRO TIER ($9.99/mo):
-+- Course Creation: Unlimited (no fee)
-+- Course Enrollment: Unlimited (no fee)
-+- AI Calls: 200/month
-+- Max Courses: Unlimited
-+- Dream Jobs: 5
-
-CERTIFICATES (all tiers):
-+- Completion Badge: Free
-+- Verified Certificate: $25
-+- Assessed Certificate: $49
-```
+The slide generation UI shows "Generating..." and "Preparing..." states permanently because:
+1. Database contains 5 slides stuck in `generating` and 4 in `preparing` since January 29th
+2. A batch job is stuck in `researching` status with no progress
+3. No automatic cleanup mechanism detects and resets stale jobs
+4. The frontend trusts database status without checking staleness
 
 ---
 
-## Solution Strategy
+## Solution Overview
 
-**Two options** for solving this:
-
-### Option A: Full Disclosure (Recommended)
-Update the landing page to honestly show the $1 payment gates while positioning Pro as the better value.
-
-### Option B: Remove Payment Gates
-Remove the $1 fees entirely from the code to match the marketing claims.
-
-I recommend **Option A** because:
-1. The payment gates are already coded and working
-2. It creates a natural upsell path to Pro
-3. It filters for serious users on Free tier
-4. Removing them requires backend changes across multiple edge functions
+Implement a **self-healing system** that automatically detects and resets stale generation jobs, ensuring the UI reflects accurate state and allows users to retry cleanly.
 
 ---
 
-## Implementation Plan (Option A)
+## Technical Implementation
 
-### Phase 1: Update PricingSection.tsx
+### 1. Enhanced `poll-batch-status` with Auto-Reset Logic
 
-**Changes to make:**
-
-1. Change Free tier price display from `$0` to `$0*`
-2. Add subtext explaining `*$1 per course or enrollment`
-3. Add a new feature line: `$1 per course action`
-4. Update Pro features to emphasize: `No per-action fees`
-
-**Updated plans array:**
+Modify the edge function to automatically detect and reset stale records during polling:
 
 ```text
-FREE TIER:
-- name: "Free"
-- price: "$0*"
-- tagline: "Try the basics."
-- features:
-  + "Up to 3 courses"
-  + "1 dream job analysis"
-  + "20 AI calls/month"
-  + "$1 per course/enrollment" (NEW - with info tooltip)
-
-PRO TIER:
-- features:
-  + "Unlimited courses"
-  + "No per-action fees" (NEW - highlighted)
-  + "Up to 5 dream jobs"
-  + "200 AI calls/month"
-  + "PDF export"
+┌─────────────────────────────────────────────────────────┐
+│  poll-batch-status (enhanced)                          │
+├─────────────────────────────────────────────────────────┤
+│  1. Query slides and batch jobs                        │
+│  2. Detect stale records (>30 min for intermediate)    │
+│  3. Auto-reset: generating/preparing → pending or fail │
+│  4. Auto-reset: batch_jobs researching → failed        │
+│  5. Return clean counts to frontend                    │
+└─────────────────────────────────────────────────────────┘
 ```
 
-**Add footnote below pricing grid:**
-```text
-* Free tier includes $1 fee per course creation or enrollment
-  to ensure quality. Pro subscribers have no per-action fees.
+**Staleness thresholds:**
+- `generating` slides: >30 minutes → reset to `failed` with error message
+- `preparing` slides: >30 minutes → reset to `pending` 
+- `batch_pending` slides: >60 minutes without progress → reset to `pending`
+- `researching` batch jobs: >30 minutes → mark as `failed`
+
+### 2. Cleaner UI State Logic
+
+Update frontend to show accurate generation state:
+
+**Current (problematic):**
+```
+if (generating > 0) → show "Generating..."
 ```
 
----
-
-### Phase 2: Update HeroSection.tsx
-
-**StudentHero changes:**
-
-Replace:
-```text
-"No credit card required"
+**New (improved):**
+```
+if (active_batch && !active_batch.is_stale) → show batch progress
+else if (generating > 0 && hasRecentActivity) → show "Generating..."
+else → show "Generate All Slides" button (ready state)
 ```
 
-With:
-```text
-"First analysis free"
-```
+The backend will reset stale counts, so the frontend can trust the data.
 
-Keep but clarify:
-```text
-"Free to start" -> "Free to explore"
-```
-
-**InstructorHero changes:**
-
-Replace:
-```text
-"Free to start"
-```
-
-With:
-```text
-"Create for $1 or upgrade to Pro"
-```
-
-Or simpler:
-```text
-"Start for just $1"
-```
-
----
-
-### Phase 3: Update CTASection.tsx
-
-**Changes:**
-
-1. Badge: `"Free to Get Started"` -> `"Try Free Today"`
-
-2. Trust indicators - replace:
-```text
-- "No credit card required" -> "No monthly commitment"
-- "Free tier available" -> "Pay per action or subscribe"
-```
-
-Or keep it simple:
-```text
-- "Start exploring free"
-- "Pro unlocks everything"
-- "Set up in minutes"
-```
-
----
-
-### Phase 4: Add Feature Comparison to Landing Page
-
-Create a new section or expand PricingSection to include a clear comparison table showing:
-
-```text
-+-------------------------+----------+----------+
-| Feature                 | Free     | Pro      |
-+-------------------------+----------+----------+
-| Syllabus Analysis       | Free     | Free     |
-| Gap Analysis            | Free     | Advanced |
-| Course Creation         | $1 each  | Included |
-| Course Enrollment       | $1 each  | Included |
-| AI Calls                | 20/mo    | 200/mo   |
-| PDF Export              | -        | Yes      |
-| Verified Certificate    | $25      | $25      |
-| Assessed Certificate    | $49      | $49      |
-+-------------------------+----------+----------+
-```
-
----
-
-### Phase 5: Update TIER_INFO in useSubscription.ts
-
-Add disclosure to the features array:
-
-```typescript
-free: {
-  features: [
-    'Up to 3 course syllabi',
-    '1 dream job profile',
-    '20 AI analyses/month',
-    'Basic gap analysis',
-    '$1 per course action', // NEW
-  ],
-},
-pro: {
-  features: [
-    'Unlimited course syllabi',
-    'No per-action fees',  // NEW - moved to top
-    'Up to 5 dream job profiles',
-    '200 AI analyses/month',
-    // ...rest
-  ],
-},
-```
-
----
-
-### Phase 6: Update PricingTable.tsx (Billing Page)
-
-Add a row to the FeatureComparison table:
-
-```typescript
-{ name: 'Course/Enrollment Fee', free: '$1 each', pro: 'Included', university: 'Included' },
-```
-
----
-
-## Files to Modify
+### 3. Files to Modify
 
 | File | Changes |
 |------|---------|
-| `src/components/landing/PricingSection.tsx` | Update Free tier display, add footnote, highlight Pro value |
-| `src/components/landing/HeroSection.tsx` | Update trust indicators for both Student and Instructor hero |
-| `src/components/landing/CTASection.tsx` | Update badge and trust indicators |
-| `src/hooks/useSubscription.ts` | Update TIER_INFO features array |
-| `src/components/billing/PricingTable.tsx` | Add row for per-action fees |
+| `supabase/functions/poll-batch-status/index.ts` | Add auto-reset logic for stale slides and batch jobs |
+| `src/hooks/useBatchSlides.ts` | Add `is_stale` field parsing from response |
+| `src/pages/instructor/InstructorCourseDetail.tsx` | Simplify logic (backend handles cleanup) |
 
 ---
 
-## Copy Recommendations
+## Detailed Changes
 
-### Option 1: Honest + Value-Focused
-- **Free**: "$0 + $1/action"
-- **Tagline**: "Pay as you go"
-- **Trust**: "Start exploring free"
+### A. poll-batch-status Edge Function
 
-### Option 2: Pro-Forward
-- **Free**: "$0*" (with asterisk)
-- **Tagline**: "Try the basics"
-- **Trust**: "Pro unlocks unlimited access"
+Add a new function `resetStaleRecords()` that runs during every poll:
 
-### Option 3: Minimal Change
-- Keep "$0" but add small footnote
-- Add one line to features: "Per-action fees apply"
-- Update one trust indicator
+1. **Find stale slides:**
+   - Status is `generating`, `preparing`, or `batch_pending`
+   - Last `updated_at` is older than 30 minutes
 
----
+2. **Reset logic:**
+   - `generating` → `failed` with message "Generation timed out - please retry"
+   - `preparing` → `pending` (allows clean restart)
+   - `batch_pending` → `pending` (allows clean restart)
 
-## Technical Implementation Details
+3. **Find stale batch jobs:**
+   - Status is `researching`, `submitted`, or `processing`
+   - No `google_batch_id` or last update > 30 minutes
 
-### PricingSection.tsx Changes
+4. **Reset batch jobs:**
+   - Mark as `failed` with appropriate error message
+   - Clear slides linked to this job back to `pending`
 
-1. Add price footnote indicator:
-```tsx
-<span className="text-2xl font-bold">
-  {plan.price}
-  {plan.name === "Free" && <sup className="text-xs">*</sup>}
-</span>
-```
+### B. Frontend Simplification
 
-2. Add footnote component below grid:
-```tsx
-<p className="text-center text-sm text-muted-foreground mt-6">
-  * Free tier includes $1 fee per course creation or enrollment.
-  <Link to="/pricing" className="text-coral-500 ml-1">
-    See full pricing details
-  </Link>
-</p>
-```
+The frontend no longer needs complex staleness detection because:
+- Backend auto-resets stale records before returning counts
+- `generating` count only includes truly active generation
+- `active_batch` only present when a real batch is in progress
 
-3. Update features array to add "$1 per course/enrollment" line
+### C. Add Manual Reset Button (Optional UX Enhancement)
 
-### HeroSection.tsx Changes
-
-Update trust indicators in StudentHero and InstructorHero:
-```tsx
-<span className="flex items-center gap-2">
-  <CheckCircle className="w-4 h-4 text-coral-400" />
-  First analysis free
-</span>
-```
-
-### CTASection.tsx Changes
-
-Update badge and trust indicators to be accurate while still appealing.
+Add a small "Reset stuck items" button that appears when:
+- No active batch but `generating > 0` persists for 2+ minutes
+- Calls the existing `cleanup-stuck` action with expanded scope
 
 ---
 
-## Testing Checklist
+## Data Migration (One-Time Cleanup)
+
+Before deploying, run a one-time SQL to clear the current stuck data:
+
+```sql
+-- Reset stuck slides to failed state
+UPDATE lecture_slides 
+SET status = 'failed', 
+    error_message = 'Generation timed out - please retry'
+WHERE status IN ('generating', 'preparing', 'batch_pending')
+AND updated_at < NOW() - INTERVAL '30 minutes';
+
+-- Mark stuck batch job as failed
+UPDATE batch_jobs 
+SET status = 'failed',
+    error_message = 'Research phase timed out - please retry'
+WHERE status = 'researching'
+AND updated_at < NOW() - INTERVAL '30 minutes';
+```
+
+---
+
+## Expected Behavior After Fix
+
+1. **On page load:** Backend detects stale records, resets them, returns clean counts
+2. **UI shows:** "Generate All Slides" button (not stuck spinner)
+3. **When user clicks:** New batch job starts fresh
+4. **If generation stalls:** Auto-reset kicks in within 30 minutes
+5. **User can always:** Click the button to start a new generation
+
+---
+
+## Testing Verification
 
 After implementation:
-- [ ] Verify PricingSection shows asterisk on Free tier
-- [ ] Verify footnote appears and links correctly
-- [ ] Verify HeroSection trust indicators are accurate
-- [ ] Verify CTASection trust indicators are accurate
-- [ ] Verify PricingTable includes fee comparison row
-- [ ] Mobile responsive check for new text
-- [ ] Dark mode check for new text styling
-
----
-
-## Impact Assessment
-
-**Before:**
-- Potentially misleading - users may feel deceived when hitting $1 payment gate
-
-**After:**
-- Clear expectations - users know about $1 fees upfront
-- Better Pro conversion - $1 fees make $9.99/mo look like great value
-- Trust building - honesty improves brand perception
+1. Visit the instructor course detail page
+2. Verify "Generating..." spinner is gone
+3. Click "Generate All Slides" to start fresh
+4. Verify stuck records were cleaned up in database
 
