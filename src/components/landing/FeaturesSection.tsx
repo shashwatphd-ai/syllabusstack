@@ -89,10 +89,9 @@ export const FeaturesSection = forwardRef<HTMLElement>(function FeaturesSection(
               className={cn(
                 "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all",
                 audience === "students"
-                  ? "bg-amber-500 shadow-lg"
+                  ? "bg-amber-500 text-amber-950 shadow-lg"
                   : "text-muted-foreground hover:text-foreground"
               )}
-              style={audience === "students" ? { color: "white" } : undefined}
             >
               <GraduationCap className="w-4 h-4" />
               For Students
@@ -102,10 +101,9 @@ export const FeaturesSection = forwardRef<HTMLElement>(function FeaturesSection(
               className={cn(
                 "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all",
                 audience === "instructors"
-                  ? "bg-amber-500 shadow-lg"
+                  ? "bg-amber-500 text-amber-950 shadow-lg"
                   : "text-muted-foreground hover:text-foreground"
               )}
-              style={audience === "instructors" ? { color: "white" } : undefined}
             >
               <BookOpen className="w-4 h-4" />
               For Educators
