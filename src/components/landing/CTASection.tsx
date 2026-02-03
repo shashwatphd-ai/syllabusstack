@@ -16,7 +16,7 @@ export const CTASection = forwardRef<HTMLElement>(function CTASection(_props, re
           {/* Badge */}
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-coral-500/10 border border-coral-500/20 text-coral-300 text-sm font-medium mb-8">
             <Sparkles className="w-4 h-4" />
-            <span>Free to Get Started</span>
+            <span>Try Free Today</span>
           </div>
 
           {/* Headline */}
@@ -41,15 +41,15 @@ export const CTASection = forwardRef<HTMLElement>(function CTASection(_props, re
             </Button>
           </div>
 
-          {/* Trust indicators */}
+          {/* Trust indicators - honest about pricing */}
           <div className="mt-10 flex flex-wrap items-center justify-center gap-6 text-primary-foreground/50 text-sm">
             <span className="flex items-center gap-2">
               <CheckCircle className="w-4 h-4 text-coral-400" />
-              No credit card required
+              Start exploring free
             </span>
             <span className="flex items-center gap-2">
               <CheckCircle className="w-4 h-4 text-coral-400" />
-              Free tier available
+              Pro unlocks everything
             </span>
             <span className="flex items-center gap-2">
               <CheckCircle className="w-4 h-4 text-coral-400" />

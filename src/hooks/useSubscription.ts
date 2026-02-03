@@ -54,9 +54,9 @@ export const TIER_INFO: Record<SubscriptionTier, {
 }> = {
   free: {
     name: 'Free',
-    price: 'Free',
+    price: 'Free*',
     priceMonthly: 0,
-    description: 'Get started with career navigation',
+    description: 'Pay as you go',
     color: 'text-muted-foreground',
     features: [
       'Up to 3 course syllabi',
@@ -64,7 +64,7 @@ export const TIER_INFO: Record<SubscriptionTier, {
       '20 AI analyses/month',
       'Basic gap analysis',
       'Top 5 recommendations',
-      'Community content',
+      '$1 per course action',
     ],
   },
   pro: {
@@ -74,6 +74,7 @@ export const TIER_INFO: Record<SubscriptionTier, {
     description: 'Full career acceleration toolkit',
     color: 'text-primary',
     features: [
+      'No per-action fees',
       'Unlimited course syllabi',
       'Up to 5 dream job profiles',
       '200 AI analyses/month',
