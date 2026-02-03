@@ -201,11 +201,12 @@ const handler = async (req: Request): Promise<Response> => {
 
         case "seek":
           // Record rewind if seeking backward
-          if (consumptionEvent.data?.from > consumptionEvent.data?.to) {
+          const seekData = consumptionEvent.data as { from?: number; to?: number } | undefined;
+          if (seekData?.from !== undefined && seekData?.to !== undefined && seekData.from > seekData.to) {
             const rewindEvents = [...(record.rewind_events || [])];
             rewindEvents.push({
-              from: consumptionEvent.data.from,
-              to: consumptionEvent.data.to,
+              from: seekData.from,
+              to: seekData.to,
               timestamp: consumptionEvent.timestamp,
             });
             updates.rewind_events = rewindEvents;
@@ -213,7 +214,8 @@ const handler = async (req: Request): Promise<Response> => {
           break;
 
         case "speed_change":
-          if (consumptionEvent.data?.speed > 2) {
+          const speedData = consumptionEvent.data as { speed?: number } | undefined;
+          if (speedData?.speed !== undefined && speedData.speed > 2) {
             updates.playback_speed_violations = (record.playback_speed_violations || 0) + 1;
           }
           break;
