@@ -9,11 +9,13 @@ const plans = [
     name: "Free",
     icon: GraduationCap,
     price: "$0",
-    tagline: "Get started.",
+    priceNote: "*",
+    tagline: "Pay as you go.",
     features: [
       "Up to 3 courses",
       "1 dream job analysis",
       "20 AI calls/month",
+      "$1 per course/enrollment",
     ],
     cta: "Get Started",
     href: "/auth",
@@ -24,8 +26,9 @@ const plans = [
     icon: BookOpen,
     price: "$9.99",
     priceDetail: "/mo",
-    tagline: "No limits.",
+    tagline: "No per-action fees.",
     features: [
+      "No per-action fees",
       "Unlimited courses",
       "Up to 5 dream jobs",
       "200 AI calls/month",
@@ -78,6 +81,11 @@ export const PricingSection = forwardRef<HTMLElement>(function PricingSection(_p
               {plan.highlight && (
                 <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-coral-400 to-coral-500" />
               )}
+              {plan.name === "Free" && (
+                <div className="absolute top-2 right-2">
+                  <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">Pay-per-action</span>
+                </div>
+              )}
               <CardHeader>
                 <div className="flex items-center gap-3 mb-2">
                   <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
@@ -91,6 +99,9 @@ export const PricingSection = forwardRef<HTMLElement>(function PricingSection(_p
                     <span>{plan.name}</span>
                     <span className="text-2xl font-bold text-foreground">
                       {plan.price}
+                      {"priceNote" in plan && (
+                        <sup className="text-xs text-muted-foreground">{plan.priceNote}</sup>
+                      )}
                       {"priceDetail" in plan && (
                         <span className="text-sm font-normal text-muted-foreground">{plan.priceDetail}</span>
                       )}
@@ -120,6 +131,14 @@ export const PricingSection = forwardRef<HTMLElement>(function PricingSection(_p
             </Card>
           ))}
         </div>
+
+        {/* Pricing footnote */}
+        <p className="text-center text-sm text-muted-foreground mt-8">
+          * Free tier includes $1 fee per course creation or enrollment.{" "}
+          <Link to="/billing#pricing" className="text-coral-500 hover:underline">
+            See full pricing details
+          </Link>
+        </p>
       </div>
     </section>
   );

@@ -171,15 +171,15 @@ function StudentHero() {
         </Button>
       </div>
 
-      {/* Trust indicators - honest, no fake stats */}
+      {/* Trust indicators - honest about pricing */}
       <div className="flex flex-wrap items-center justify-center gap-6 text-primary-foreground/50 text-sm animate-fade-up" style={{ animationDelay: '0.4s' }}>
         <span className="flex items-center gap-2">
           <CheckCircle className="w-4 h-4 text-coral-400" />
-          Free to start
+          First analysis free
         </span>
         <span className="flex items-center gap-2">
           <CheckCircle className="w-4 h-4 text-coral-400" />
-          No credit card required
+          Pay per action or subscribe
         </span>
         <span className="flex items-center gap-2">
           <CheckCircle className="w-4 h-4 text-coral-400" />
@@ -224,11 +224,11 @@ function InstructorHero() {
         </Button>
       </div>
 
-      {/* Trust indicators */}
+      {/* Trust indicators - honest about pricing */}
       <div className="flex flex-wrap items-center justify-center gap-6 text-primary-foreground/50 text-sm animate-fade-up" style={{ animationDelay: '0.4s' }}>
         <span className="flex items-center gap-2">
           <CheckCircle className="w-4 h-4 text-coral-400" />
-          Free to start
+          $1 per course or go Pro
         </span>
         <span className="flex items-center gap-2">
           <CheckCircle className="w-4 h-4 text-coral-400" />
