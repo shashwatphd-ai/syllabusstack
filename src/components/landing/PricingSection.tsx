@@ -111,8 +111,8 @@ export const PricingSection = forwardRef<HTMLElement>(function PricingSection(_p
 
                 <Button
                   asChild
-                  variant={plan.highlight ? "default" : "outline"}
-                  className={`w-full ${plan.highlight ? "bg-coral-500 hover:bg-coral-600 text-white" : ""}`}
+                  variant="outline"
+                  className={`w-full ${plan.highlight ? "bg-coral-500 hover:bg-coral-600 !text-white border-coral-500" : ""}`}
                 >
                   <Link to={plan.href}>{plan.cta}</Link>
                 </Button>
