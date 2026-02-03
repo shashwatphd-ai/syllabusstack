@@ -76,7 +76,7 @@ export const PricingSection = forwardRef<HTMLElement>(function PricingSection(_p
             Pricing
           </div>
           <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-foreground mb-4">
-            Pricing
+            Choose Your Plan
           </h2>
           <p className="text-muted-foreground text-lg">
             Free to start. Pro when you're ready.
