@@ -121,24 +121,25 @@ const handler = async (req: Request): Promise<Response> => {
   let selectedQuestions: typeof allQuestions = [];
 
   // Target distribution: 20% easy, 50% medium, 30% hard
-  const numEasy = Math.max(1, Math.floor(num_questions * 0.2));
-  const numMedium = Math.max(1, Math.floor(num_questions * 0.5));
-  const numHard = num_questions - numEasy - numMedium;
+  const numQuestionsValue = num_questions ?? 5;
+  const numEasy = Math.max(1, Math.floor(numQuestionsValue * 0.2));
+  const numMedium = Math.max(1, Math.floor(numQuestionsValue * 0.5));
+  const numHard = numQuestionsValue - numEasy - numMedium;
 
   selectedQuestions.push(...shuffle(easyQuestions).slice(0, numEasy));
   selectedQuestions.push(...shuffle(mediumQuestions).slice(0, numMedium));
   selectedQuestions.push(...shuffle(hardQuestions).slice(0, numHard));
 
   // Fill remaining with any unseen questions
-  if (selectedQuestions.length < num_questions) {
+  if (selectedQuestions.length < numQuestionsValue) {
     const remaining = unseenQuestions.filter(q => !selectedQuestions.includes(q));
-    selectedQuestions.push(...shuffle(remaining).slice(0, num_questions - selectedQuestions.length));
+    selectedQuestions.push(...shuffle(remaining).slice(0, numQuestionsValue - selectedQuestions.length));
   }
 
   // If still not enough, use previously seen questions
-  if (selectedQuestions.length < num_questions) {
+  if (selectedQuestions.length < numQuestionsValue) {
     const seenQuestions = allQuestions.filter(q => !selectedQuestions.includes(q));
-    selectedQuestions.push(...shuffle(seenQuestions).slice(0, num_questions - selectedQuestions.length));
+    selectedQuestions.push(...shuffle(seenQuestions).slice(0, numQuestionsValue - selectedQuestions.length));
   }
 
   // Final shuffle to randomize order

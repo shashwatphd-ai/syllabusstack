@@ -105,7 +105,7 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     // Check if email is from .edu domain
-    const emailToCheck = email || user.email;
+    const emailToCheck = email || user.email || '';
     const eduDomainVerified = isEduDomain(emailToCheck);
     const emailDomain = emailToCheck?.split('@')[1]?.toLowerCase();
 
@@ -114,7 +114,7 @@ const handler = async (req: Request): Promise<Response> => {
       eduDomainVerified,
       linkedinProvided: !!linkedin_url,
       institutionProvided: !!institution_name,
-      documentsProvided: document_urls && document_urls.length > 0,
+      documentsProvided: !!(document_urls && document_urls.length > 0),
     });
 
     // Determine verification method

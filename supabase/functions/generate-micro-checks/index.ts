@@ -76,14 +76,15 @@ const handler = async (req: Request): Promise<Response> => {
   });
 
   // Calculate check intervals (evenly distributed)
-  const checkInterval = Math.floor(duration_seconds / (num_checks + 1));
-  const checkTimes = Array.from({ length: num_checks }, (_, i) => 
+  const numChecksValue = num_checks ?? 3;
+  const checkInterval = Math.floor(duration_seconds / (numChecksValue + 1));
+  const checkTimes = Array.from({ length: numChecksValue }, (_, i) => 
     checkInterval * (i + 1)
   );
 
   const systemPrompt = 'You are an educational assessment expert. Generate micro-check questions in valid JSON format only.';
 
-  const userPrompt = `You are an educational assessment expert. Generate ${num_checks} micro-check questions for a video about "${content_title}".
+  const userPrompt = `You are an educational assessment expert. Generate ${numChecksValue} micro-check questions for a video about "${content_title}".
 
 Learning Objective: ${learning_objective_text}
 

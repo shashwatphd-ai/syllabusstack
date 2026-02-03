@@ -82,7 +82,7 @@ const handler = async (req: Request): Promise<Response> => {
   if (!validation.success) {
     return createErrorResponse('VALIDATION_ERROR', corsHeaders, validation.errors.join(', '));
   }
-  const { slideId, voice, enableSSML, enableSegmentMapping } = validation.data;
+  const { slideId, voice = 'en-US-Neural2-D', enableSSML, enableSegmentMapping } = validation.data;
 
   const GOOGLE_CLOUD_API_KEY = Deno.env.get('GOOGLE_CLOUD_API_KEY');
   if (!GOOGLE_CLOUD_API_KEY) {

@@ -5,7 +5,9 @@
  * This data enables the adaptive assessment system to improve over time.
  */
 
-import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+// Use 'any' for SupabaseClient to avoid version conflicts between edge functions
+// deno-lint-ignore no-explicit-any
+type SupabaseClientAny = any;
 
 export interface AssessmentResponseLog {
   session_id: string;
@@ -24,7 +26,7 @@ export interface AssessmentResponseLog {
  * Non-blocking - errors are logged but don't break the flow
  */
 export async function logAssessmentResponse(
-  supabase: SupabaseClient,
+  supabase: SupabaseClientAny,
   response: AssessmentResponseLog
 ): Promise<{ success: boolean; error?: string }> {
   try {
@@ -61,7 +63,7 @@ export async function logAssessmentResponse(
  * More efficient for end-of-session logging
  */
 export async function logBatchResponses(
-  supabase: SupabaseClient,
+  supabase: SupabaseClientAny,
   responses: AssessmentResponseLog[]
 ): Promise<{ success: boolean; logged: number; error?: string }> {
   if (responses.length === 0) {
@@ -103,7 +105,7 @@ export async function logBatchResponses(
  * Get response statistics for a question (for IRT calibration)
  */
 export async function getQuestionStats(
-  supabase: SupabaseClient,
+  supabase: SupabaseClientAny,
   questionId: string
 ): Promise<{
   total_responses: number;
@@ -126,12 +128,12 @@ export async function getQuestionStats(
   }
 
   const total = data.length;
-  const correct = data.filter(r => r.is_correct).length;
+  const correct = data.filter((r: { is_correct: boolean }) => r.is_correct).length;
   const times = data
-    .filter(r => r.response_time_ms != null)
-    .map(r => r.response_time_ms as number);
+    .filter((r: { response_time_ms?: number }) => r.response_time_ms != null)
+    .map((r: { response_time_ms: number }) => r.response_time_ms);
   const avgTime = times.length > 0
-    ? times.reduce((a, b) => a + b, 0) / times.length
+    ? times.reduce((a: number, b: number) => a + b, 0) / times.length
     : 0;
 
   // Simple difficulty estimate from proportion correct
@@ -152,7 +154,7 @@ export async function getQuestionStats(
  * Get user's response history for a skill (for ability estimation)
  */
 export async function getUserSkillResponses(
-  supabase: SupabaseClient,
+  supabase: SupabaseClientAny,
   userId: string,
   skillName: string,
   limit: number = 50
@@ -174,7 +176,7 @@ export async function getUserSkillResponses(
     return [];
   }
 
-  return data.map(r => ({
+  return data.map((r: { question_id: string; is_correct: boolean; estimated_difficulty?: number; responded_at: string }) => ({
     question_id: r.question_id,
     is_correct: r.is_correct,
     difficulty: r.estimated_difficulty || 0,

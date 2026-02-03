@@ -117,18 +117,17 @@ serve(async (req) => {
     }
 
     // Fetch video details from YouTube if not provided (only for YouTube source)
-    let title = finalVideoTitle;
-    let description = finalVideoDescription;
+    let contentTitle = finalVideoTitle;
+    let contentDescription = finalVideoDescription;
     let channelName = channel_name;
     let thumbnailUrl = thumbnail_url;
     let durationSeconds = duration_seconds || 0;
     let viewCount = view_count || 0;
     let likeCount = 0;
-    let publishedAt = parsePublishedAt(raw_published_at);
+    let publishedAt = parsePublishedAt(raw_published_at ?? null);
 
     // If we don't have title and it's a YouTube video, fetch from YouTube API
-    if (!title && source_type === 'youtube') {
-      const YOUTUBE_API_KEY = Deno.env.get("GOOGLE_CLOUD_API_KEY");
+    if (!contentTitle && source_type === 'youtube') {
       if (YOUTUBE_API_KEY) {
         const detailsUrl = new URL("https://www.googleapis.com/youtube/v3/videos");
         detailsUrl.searchParams.set("key", YOUTUBE_API_KEY);
@@ -141,8 +140,8 @@ serve(async (req) => {
           const item = detailsData.items?.[0];
           
           if (item) {
-            title = item.snippet.title;
-            description = description || item.snippet.description;
+            contentTitle = item.snippet.title;
+            contentDescription = contentDescription || item.snippet.description;
             channelName = channelName || item.snippet.channelTitle;
             thumbnailUrl = thumbnailUrl || item.snippet.thumbnails?.medium?.url;
             publishedAt = item.snippet.publishedAt;
@@ -167,7 +166,7 @@ serve(async (req) => {
 
     // For Khan Academy, use defaults if not provided
     if (source_type === 'khan_academy') {
-      title = title || video_id.replace(/-/g, ' ');
+      contentTitle = contentTitle || video_id.replace(/-/g, ' ');
       channelName = channelName || 'Khan Academy';
       durationSeconds = durationSeconds || 600; // Default 10 min estimate
     }
@@ -196,8 +195,8 @@ serve(async (req) => {
           source_type: source_type,
           source_id: video_id,
           source_url: finalSourceUrl,
-          title: title || "Unknown Title",
-          description: description || null,
+          title: contentTitle || "Unknown Title",
+          description: contentDescription || null,
           duration_seconds: durationSeconds || null,
           thumbnail_url: thumbnailUrl || null,
           channel_name: channelName || null,
@@ -252,7 +251,7 @@ serve(async (req) => {
     // Perform AI evaluation for manual content (same as automated search)
     let aiEvaluation = null;
     try {
-      console.log(`[MANUAL CONTENT] Requesting AI evaluation for video: ${title}`);
+      console.log(`[MANUAL CONTENT] Requesting AI evaluation for video: ${contentTitle}`);
       
       const evalResponse = await fetch(`${SUPABASE_URL}/functions/v1/evaluate-content-batch`, {
         method: "POST",
@@ -269,8 +268,8 @@ serve(async (req) => {
           },
           videos: [{
             video_id: video_id,
-            title: title || "Unknown Title",
-            description: description || "",
+            title: contentTitle || "Unknown Title",
+            description: contentDescription || "",
             channel_name: channelName || "",
             duration_seconds: durationSeconds,
           }],

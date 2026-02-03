@@ -724,9 +724,15 @@ export default function HelpArticlePage() {
           if (line.trim() === '') {
             return <br key={i} />;
           }
-          // Handle bold text
-          const formattedLine = line.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-          return <p key={i} className="mb-2" dangerouslySetInnerHTML={{ __html: formattedLine }} />;
+          // Handle bold text safely without dangerouslySetInnerHTML
+          const parts = line.split(/\*\*(.+?)\*\*/g);
+          return (
+            <p key={i} className="mb-2">
+              {parts.map((part, j) => 
+                j % 2 === 1 ? <strong key={j}>{part}</strong> : part
+              )}
+            </p>
+          );
         })}
       </article>
 

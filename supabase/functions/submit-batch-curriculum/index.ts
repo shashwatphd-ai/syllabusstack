@@ -159,6 +159,7 @@ const handler = async (req: Request): Promise<Response> => {
   if (preflightResponse) return preflightResponse;
 
   const corsHeaders = getCorsHeaders(req);
+  const fnName = '[submit-batch-curriculum]';
   logInfo('submit-batch-curriculum', 'starting');
 
   try {
@@ -220,7 +221,7 @@ const handler = async (req: Request): Promise<Response> => {
       throw new Error('Not authorized to modify this course');
     }
 
-    console.log(`${functionName} Course verified: ${course.title}`);
+    console.log(`${fnName} Course verified: ${course.title}`);
 
     // ========================================================================
     // STEP 3: Fetch LOs that need decomposition
@@ -246,7 +247,7 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     if (!learningObjectives || learningObjectives.length === 0) {
-      console.log(`${functionName} No LOs need decomposition`);
+      console.log(`${fnName} No LOs need decomposition`);
       return new Response(
         JSON.stringify({
           success: true,
@@ -258,11 +259,11 @@ const handler = async (req: Request): Promise<Response> => {
       );
     }
 
-    console.log(`${functionName} Found ${learningObjectives.length} LOs to decompose`);
+    console.log(`${fnName} Found ${learningObjectives.length} LOs to decompose`);
 
     // Check minimum batch size
     if (learningObjectives.length < BATCH_CONFIG.MIN_BATCH_SIZE) {
-      console.log(`${functionName} Below minimum batch size, use sync decomposition`);
+      console.log(`${fnName} Below minimum batch size, use sync decomposition`);
       return new Response(
         JSON.stringify({
           success: false,
@@ -293,7 +294,7 @@ const handler = async (req: Request): Promise<Response> => {
     // ========================================================================
     // STEP 5: Build JSONL batch request
     // ========================================================================
-    console.log(`${functionName} Building batch request...`);
+    console.log(`${fnName} Building batch request...`);
 
     // Build request mapping for result processing
     const requestMapping: Record<string, string> = {};
@@ -326,7 +327,7 @@ const handler = async (req: Request): Promise<Response> => {
       requestMapping[`slide_${i}`] = lo.id; // Use same key format as slides for consistency
     }
 
-    console.log(`${functionName} Built ${batchLines.length} requests`);
+    console.log(`${fnName} Built ${batchLines.length} requests`);
 
     // ========================================================================
     // STEP 6: Create batch_jobs record first (for reference)
@@ -350,7 +351,7 @@ const handler = async (req: Request): Promise<Response> => {
       throw new Error(`Failed to create batch job record: ${insertJobError.message}`);
     }
 
-    console.log(`${functionName} Created batch job: ${batchJobId}`);
+    console.log(`${fnName} Created batch job: ${batchJobId}`);
 
     // ========================================================================
     // STEP 7: Upload JSONL to GCS
@@ -373,7 +374,7 @@ const handler = async (req: Request): Promise<Response> => {
 
     try {
       const gcsUri = await gcsClient.uploadJsonl(inputPath, batchLines);
-      console.log(`${functionName} Uploaded to GCS: ${gcsUri}`);
+      console.log(`${fnName} Uploaded to GCS: ${gcsUri}`);
     } catch (gcsError) {
       // Clean up batch job record on GCS failure
       await supabase
@@ -397,7 +398,7 @@ const handler = async (req: Request): Promise<Response> => {
         outputUriPrefix: `gs://${bucketName}/${BATCH_CONFIG.GCS_PREFIX}/${batchJobId}/output/`
       });
 
-      console.log(`${functionName} Created Vertex AI job: ${batchJob.name}`);
+      console.log(`${fnName} Created Vertex AI job: ${batchJob.name}`);
 
       // Update batch_jobs with Vertex AI job ID
       await supabase
@@ -413,7 +414,7 @@ const handler = async (req: Request): Promise<Response> => {
       try {
         await gcsClient.deleteFile(inputPath);
       } catch (cleanupError) {
-        console.warn(`${functionName} Failed to cleanup GCS file:`, cleanupError);
+        console.warn(`${fnName} Failed to cleanup GCS file:`, cleanupError);
       }
       await supabase
         .from('batch_jobs')
@@ -438,7 +439,7 @@ const handler = async (req: Request): Promise<Response> => {
       })
       .in('id', loIds);
 
-    console.log(`${functionName} Updated ${loIds.length} LOs with batch job reference`);
+    console.log(`${fnName} Updated ${loIds.length} LOs with batch job reference`);
 
     // ========================================================================
     // STEP 10: Return success
