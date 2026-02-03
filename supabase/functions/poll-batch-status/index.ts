@@ -174,6 +174,12 @@ const handler = async (req: Request): Promise<Response> => {
     // ========================================================================
 
     if (instructor_course_id) {
+      // ======================================================================
+      // STEP 1: Auto-reset stale records before calculating status
+      // ======================================================================
+      // This ensures the UI always shows accurate state and users can retry cleanly
+      await resetStaleRecords(supabase, instructor_course_id);
+
       // Get all batch jobs for this course
       const { data: batchJobs } = await supabase
         .from('batch_jobs')
@@ -288,6 +294,122 @@ const handler = async (req: Request): Promise<Response> => {
 };
 
 serve(withErrorHandling(handler, getCorsHeaders));
+
+// ============================================================================
+// RESET STALE RECORDS
+// ============================================================================
+//
+// Auto-reset stale generation jobs to allow clean retry.
+// This ensures the UI always shows accurate state and users can start fresh.
+//
+// Staleness thresholds:
+//   - `generating` slides: >30 min → reset to `failed`
+//   - `preparing` slides: >30 min → reset to `pending`
+//   - `batch_pending` slides: >60 min → reset to `pending`
+//   - `researching` batch jobs: >30 min → mark as `failed`
+//
+async function resetStaleRecords(supabase: any, instructorCourseId: string) {
+  const STALE_THRESHOLD_MS = 30 * 60 * 1000; // 30 minutes
+  const BATCH_PENDING_THRESHOLD_MS = 60 * 60 * 1000; // 60 minutes
+  const cutoffTime = new Date(Date.now() - STALE_THRESHOLD_MS).toISOString();
+  const batchPendingCutoff = new Date(Date.now() - BATCH_PENDING_THRESHOLD_MS).toISOString();
+
+  try {
+    // Reset stale 'generating' slides to 'failed'
+    const { data: staleGenerating, error: genErr } = await supabase
+      .from('lecture_slides')
+      .update({
+        status: 'failed',
+        error_message: 'Generation timed out - please retry',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('instructor_course_id', instructorCourseId)
+      .eq('status', 'generating')
+      .lt('updated_at', cutoffTime)
+      .select('id');
+
+    if (staleGenerating?.length > 0) {
+      console.log(`[Poll] Reset ${staleGenerating.length} stale generating slides to failed`);
+    }
+
+    // Reset stale 'preparing' slides to 'pending'
+    const { data: stalePreparing, error: prepErr } = await supabase
+      .from('lecture_slides')
+      .update({
+        status: 'pending',
+        error_message: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('instructor_course_id', instructorCourseId)
+      .eq('status', 'preparing')
+      .lt('updated_at', cutoffTime)
+      .select('id');
+
+    if (stalePreparing?.length > 0) {
+      console.log(`[Poll] Reset ${stalePreparing.length} stale preparing slides to pending`);
+    }
+
+    // Reset stale 'batch_pending' slides to 'pending'
+    const { data: staleBatchPending, error: batchErr } = await supabase
+      .from('lecture_slides')
+      .update({
+        status: 'pending',
+        batch_job_id: null,
+        error_message: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('instructor_course_id', instructorCourseId)
+      .eq('status', 'batch_pending')
+      .lt('updated_at', batchPendingCutoff)
+      .select('id');
+
+    if (staleBatchPending?.length > 0) {
+      console.log(`[Poll] Reset ${staleBatchPending.length} stale batch_pending slides to pending`);
+    }
+
+    // Reset stale 'researching' batch jobs to 'failed'
+    const { data: staleBatches, error: batchJobErr } = await supabase
+      .from('batch_jobs')
+      .update({
+        status: 'failed',
+        error_message: 'Research phase timed out - please retry',
+        completed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('instructor_course_id', instructorCourseId)
+      .eq('status', 'researching')
+      .lt('updated_at', cutoffTime)
+      .select('id');
+
+    if (staleBatches?.length > 0) {
+      console.log(`[Poll] Reset ${staleBatches.length} stale researching batch jobs to failed`);
+      
+      // Also reset slides that were tied to these failed batch jobs
+      for (const batch of staleBatches) {
+        await supabase
+          .from('lecture_slides')
+          .update({
+            status: 'pending',
+            batch_job_id: null,
+            error_message: null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('batch_job_id', batch.id)
+          .in('status', ['batch_pending', 'preparing', 'generating']);
+      }
+    }
+
+    // Log any errors but don't throw - auto-reset is best-effort
+    if (genErr) console.warn('[Poll] Error resetting generating slides:', genErr);
+    if (prepErr) console.warn('[Poll] Error resetting preparing slides:', prepErr);
+    if (batchErr) console.warn('[Poll] Error resetting batch_pending slides:', batchErr);
+    if (batchJobErr) console.warn('[Poll] Error resetting batch jobs:', batchJobErr);
+
+  } catch (error) {
+    console.error('[Poll] resetStaleRecords error:', error);
+    // Don't throw - auto-reset is best-effort, don't break the main poll flow
+  }
+}
 
 // ============================================================================
 // JSON REPAIR UTILITY
