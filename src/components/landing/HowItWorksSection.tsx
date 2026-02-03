@@ -11,25 +11,25 @@ const studentSteps = [
     title: "Upload Your Courses",
     description: "Add your course syllabi—PDF, DOCX, or paste text. We identify the skills you've built.",
     visual: (
-      <div className="bg-muted/50 rounded-xl p-4 border border-border">
-        <div className="flex items-center gap-3 mb-3">
-          <div className="w-8 h-8 rounded-lg bg-coral-500/10 flex items-center justify-center">
-            <Upload className="w-4 h-4 text-coral-500" />
+      <div className="bg-card/80 backdrop-blur-sm rounded-xl p-5 border border-primary/10 shadow-lg">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-primary/20 to-primary/10 flex items-center justify-center">
+            <Upload className="w-5 h-5 text-primary" />
           </div>
-          <div className="text-sm font-medium text-foreground">Financial Modeling 301</div>
+          <div className="text-base font-semibold text-foreground">Financial Modeling 301</div>
         </div>
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <CheckCircle className="w-3 h-3 text-success" />
-            <span className="text-xs text-muted-foreground">3-statement model building</span>
+        <div className="space-y-3">
+          <div className="flex items-center gap-3">
+            <CheckCircle className="w-4 h-4 text-success" />
+            <span className="text-sm text-muted-foreground">3-statement model building</span>
           </div>
-          <div className="flex items-center gap-2">
-            <CheckCircle className="w-3 h-3 text-success" />
-            <span className="text-xs text-muted-foreground">Excel proficiency (advanced)</span>
+          <div className="flex items-center gap-3">
+            <CheckCircle className="w-4 h-4 text-success" />
+            <span className="text-sm text-muted-foreground">Excel proficiency (advanced)</span>
           </div>
-          <div className="flex items-center gap-2">
-            <CheckCircle className="w-3 h-3 text-success" />
-            <span className="text-xs text-muted-foreground">DCF valuation basics</span>
+          <div className="flex items-center gap-3">
+            <CheckCircle className="w-4 h-4 text-success" />
+            <span className="text-sm text-muted-foreground">DCF valuation basics</span>
           </div>
         </div>
       </div>
@@ -41,14 +41,14 @@ const studentSteps = [
     title: "Add Dream Jobs",
     description: "Tell us what roles you want. Product Manager? Investment Banking? We analyze real requirements.",
     visual: (
-      <div className="bg-muted/50 rounded-xl p-4 border border-border">
-        <div className="text-xs text-muted-foreground mb-2">Dream Job</div>
-        <div className="text-sm font-semibold text-foreground mb-3">Product Manager @ Tech</div>
-        <div className="text-xs text-muted-foreground mb-2">Day-One Requirements:</div>
-        <div className="flex flex-wrap gap-1">
-          <span className="px-2 py-1 text-xs bg-coral-500/10 text-coral-500 rounded-md">SQL queries</span>
-          <span className="px-2 py-1 text-xs bg-coral-500/10 text-coral-500 rounded-md">PRD writing</span>
-          <span className="px-2 py-1 text-xs bg-coral-500/10 text-coral-500 rounded-md">A/B testing</span>
+      <div className="bg-card/80 backdrop-blur-sm rounded-xl p-5 border border-primary/10 shadow-lg">
+        <div className="text-sm text-muted-foreground mb-1">Dream Job</div>
+        <div className="text-base font-bold text-foreground mb-4">Product Manager @ Tech</div>
+        <div className="text-sm text-muted-foreground mb-3">Day-One Requirements:</div>
+        <div className="flex flex-wrap gap-2">
+          <span className="px-3 py-1.5 text-sm bg-primary/10 text-primary rounded-lg font-medium">SQL queries</span>
+          <span className="px-3 py-1.5 text-sm bg-primary/10 text-primary rounded-lg font-medium">PRD writing</span>
+          <span className="px-3 py-1.5 text-sm bg-primary/10 text-primary rounded-lg font-medium">A/B testing</span>
         </div>
       </div>
     ),
@@ -59,32 +59,32 @@ const studentSteps = [
     title: "Get Gap Analysis",
     description: "See exactly where you're strong, where you're weak, and what would actually get you filtered out.",
     visual: (
-      <div className="bg-muted/50 rounded-xl p-4 border border-border">
-        <div className="mb-3">
-          <div className="flex items-center justify-between text-xs mb-1">
-            <span className="text-success">Strong Overlap</span>
+      <div className="bg-card/80 backdrop-blur-sm rounded-xl p-5 border border-primary/10 shadow-lg">
+        <div className="mb-4">
+          <div className="flex items-center justify-between text-sm mb-2">
+            <span className="text-success font-medium">Strong Overlap</span>
             <span className="text-muted-foreground">4 areas</span>
           </div>
-          <div className="h-2 bg-muted rounded-full overflow-hidden">
-            <div className="h-full bg-success w-2/3 rounded-full" />
+          <div className="h-3 bg-muted rounded-full overflow-hidden">
+            <div className="h-full bg-gradient-to-r from-success to-emerald-400 w-2/3 rounded-full" />
           </div>
         </div>
-        <div className="mb-3">
-          <div className="flex items-center justify-between text-xs mb-1">
-            <span className="text-warning">Partial Match</span>
+        <div className="mb-4">
+          <div className="flex items-center justify-between text-sm mb-2">
+            <span className="text-warning font-medium">Partial Match</span>
             <span className="text-muted-foreground">2 areas</span>
           </div>
-          <div className="h-2 bg-muted rounded-full overflow-hidden">
-            <div className="h-full bg-warning w-1/3 rounded-full" />
+          <div className="h-3 bg-muted rounded-full overflow-hidden">
+            <div className="h-full bg-gradient-to-r from-warning to-amber-400 w-1/3 rounded-full" />
           </div>
         </div>
         <div>
-          <div className="flex items-center justify-between text-xs mb-1">
-            <span className="text-destructive">Critical Gaps</span>
+          <div className="flex items-center justify-between text-sm mb-2">
+            <span className="text-destructive font-medium">Critical Gaps</span>
             <span className="text-muted-foreground">2 areas</span>
           </div>
-          <div className="h-2 bg-muted rounded-full overflow-hidden">
-            <div className="h-full bg-destructive w-1/4 rounded-full" />
+          <div className="h-3 bg-muted rounded-full overflow-hidden">
+            <div className="h-full bg-gradient-to-r from-destructive to-red-400 w-1/4 rounded-full" />
           </div>
         </div>
       </div>
@@ -96,24 +96,24 @@ const studentSteps = [
     title: "Follow Your Plan",
     description: "Get specific, actionable recommendations with time estimates, costs, and evidence you can show.",
     visual: (
-      <div className="bg-muted/50 rounded-xl p-4 border border-border">
-        <div className="space-y-3">
-          <div className="flex items-start gap-3">
-            <div className="w-6 h-6 rounded-full bg-coral-500/20 flex items-center justify-center flex-shrink-0">
-              <span className="text-xs font-bold text-coral-500">1</span>
+      <div className="bg-card/80 backdrop-blur-sm rounded-xl p-5 border border-primary/10 shadow-lg">
+        <div className="space-y-4">
+          <div className="flex items-start gap-4">
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-500 to-amber-400 flex items-center justify-center flex-shrink-0 shadow-md">
+              <span className="text-sm font-bold text-amber-950">1</span>
             </div>
             <div>
-              <div className="text-xs font-medium text-foreground">Mode Analytics SQL Course</div>
-              <div className="text-xs text-muted-foreground">15 hrs • Free • Closes data gap</div>
+              <div className="text-sm font-semibold text-foreground">Mode Analytics SQL Course</div>
+              <div className="text-sm text-muted-foreground">15 hrs • Free • Closes data gap</div>
             </div>
           </div>
-          <div className="flex items-start gap-3">
-            <div className="w-6 h-6 rounded-full bg-coral-500/20 flex items-center justify-center flex-shrink-0">
-              <span className="text-xs font-bold text-coral-500">2</span>
+          <div className="flex items-start gap-4">
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-500 to-amber-400 flex items-center justify-center flex-shrink-0 shadow-md">
+              <span className="text-sm font-bold text-amber-950">2</span>
             </div>
             <div>
-              <div className="text-xs font-medium text-foreground">Build a PRD for real product</div>
-              <div className="text-xs text-muted-foreground">8 hrs • Free • Portfolio evidence</div>
+              <div className="text-sm font-semibold text-foreground">Build a PRD for real product</div>
+              <div className="text-sm text-muted-foreground">8 hrs • Free • Portfolio evidence</div>
             </div>
           </div>
         </div>
@@ -129,21 +129,21 @@ const instructorSteps = [
     title: "Upload Your Syllabus",
     description: "Paste or upload your syllabus. We turn it into clear topics your students can follow.",
     visual: (
-      <div className="bg-muted/50 rounded-xl p-4 border border-border">
-        <div className="flex items-center gap-3 mb-3">
-          <div className="w-8 h-8 rounded-lg bg-coral-500/10 flex items-center justify-center">
-            <FileText className="w-4 h-4 text-coral-500" />
+      <div className="bg-card/80 backdrop-blur-sm rounded-xl p-5 border border-primary/10 shadow-lg">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-primary/20 to-primary/10 flex items-center justify-center">
+            <FileText className="w-5 h-5 text-primary" />
           </div>
-          <div className="text-sm font-medium text-foreground">CS 101: Intro to Programming</div>
+          <div className="text-base font-semibold text-foreground">CS 101: Intro to Programming</div>
         </div>
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <CheckCircle className="w-3 h-3 text-success" />
-            <span className="text-xs text-muted-foreground">12 topics ready to go</span>
+        <div className="space-y-3">
+          <div className="flex items-center gap-3">
+            <CheckCircle className="w-4 h-4 text-success" />
+            <span className="text-sm text-muted-foreground">12 topics ready to go</span>
           </div>
-          <div className="flex items-center gap-2">
-            <CheckCircle className="w-3 h-3 text-success" />
-            <span className="text-xs text-muted-foreground">Organized by difficulty</span>
+          <div className="flex items-center gap-3">
+            <CheckCircle className="w-4 h-4 text-success" />
+            <span className="text-sm text-muted-foreground">Organized by difficulty</span>
           </div>
         </div>
       </div>
@@ -155,25 +155,25 @@ const instructorSteps = [
     title: "Videos Get Matched",
     description: "Each topic gets matched with quality YouTube videos. Review them or let it run automatically.",
     visual: (
-      <div className="bg-muted/50 rounded-xl p-4 border border-border">
-        <div className="text-xs text-muted-foreground mb-2">For: "Understand variables and data types"</div>
-        <div className="space-y-2">
-          <div className="flex items-center gap-2 p-2 bg-background rounded-lg border border-coral-500/30">
-            <div className="w-6 h-6 rounded bg-coral-500/20 flex items-center justify-center">
-              <span className="text-xs text-coral-500">▶</span>
+      <div className="bg-card/80 backdrop-blur-sm rounded-xl p-5 border border-primary/10 shadow-lg">
+        <div className="text-sm text-muted-foreground mb-3">For: "Understand variables and data types"</div>
+        <div className="space-y-3">
+          <div className="flex items-center gap-3 p-3 bg-background rounded-lg border-2 border-primary/30 shadow-sm">
+            <div className="w-8 h-8 rounded bg-gradient-to-br from-primary/30 to-primary/10 flex items-center justify-center">
+              <span className="text-sm text-primary font-bold">▶</span>
             </div>
             <div className="flex-1">
-              <div className="text-xs font-medium">Variables Explained (12:34)</div>
-              <div className="text-xs text-muted-foreground">freeCodeCamp • 98% match</div>
+              <div className="text-sm font-semibold text-foreground">Variables Explained (12:34)</div>
+              <div className="text-sm text-muted-foreground">freeCodeCamp • 98% match</div>
             </div>
           </div>
-          <div className="flex items-center gap-2 p-2 bg-background rounded-lg border border-border">
-            <div className="w-6 h-6 rounded bg-muted flex items-center justify-center">
-              <span className="text-xs text-muted-foreground">▶</span>
+          <div className="flex items-center gap-3 p-3 bg-background rounded-lg border border-border">
+            <div className="w-8 h-8 rounded bg-muted flex items-center justify-center">
+              <span className="text-sm text-muted-foreground">▶</span>
             </div>
             <div className="flex-1">
-              <div className="text-xs font-medium">Data Types Deep Dive (8:22)</div>
-              <div className="text-xs text-muted-foreground">CS Dojo • 94% match</div>
+              <div className="text-sm font-semibold text-foreground">Data Types Deep Dive (8:22)</div>
+              <div className="text-sm text-muted-foreground">CS Dojo • 94% match</div>
             </div>
           </div>
         </div>
@@ -186,18 +186,18 @@ const instructorSteps = [
     title: "Students Learn Verifiably",
     description: "Students watch with micro-checks that prevent skipping. You know they actually engaged.",
     visual: (
-      <div className="bg-muted/50 rounded-xl p-4 border border-border">
-        <div className="flex items-center justify-between mb-3">
-          <div className="text-xs font-medium text-foreground">Micro-Check @ 5:30</div>
-          <span className="px-2 py-0.5 text-xs bg-success/10 text-success rounded-full">Passed</span>
+      <div className="bg-card/80 backdrop-blur-sm rounded-xl p-5 border border-primary/10 shadow-lg">
+        <div className="flex items-center justify-between mb-4">
+          <div className="text-sm font-semibold text-foreground">Micro-Check @ 5:30</div>
+          <span className="px-3 py-1 text-sm bg-success/10 text-success rounded-full font-medium">Passed</span>
         </div>
-        <div className="text-xs text-muted-foreground mb-2">
+        <div className="text-sm text-muted-foreground mb-3">
           "What is the output of: x = 5; print(x + 2)?"
         </div>
         <div className="flex gap-2">
-          <span className="px-2 py-1 text-xs bg-muted rounded">5</span>
-          <span className="px-2 py-1 text-xs bg-success/20 text-success rounded border border-success">7 ✓</span>
-          <span className="px-2 py-1 text-xs bg-muted rounded">52</span>
+          <span className="px-3 py-1.5 text-sm bg-muted rounded-lg">5</span>
+          <span className="px-3 py-1.5 text-sm bg-success/20 text-success rounded-lg border border-success font-medium">7 ✓</span>
+          <span className="px-3 py-1.5 text-sm bg-muted rounded-lg">52</span>
         </div>
       </div>
     ),
@@ -208,22 +208,26 @@ const instructorSteps = [
     title: "Track Mastery",
     description: "See which students are struggling, what content works, and who's ready for final assessments.",
     visual: (
-      <div className="bg-muted/50 rounded-xl p-4 border border-border">
-        <div className="text-xs font-medium text-foreground mb-3">Class Progress</div>
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">Module 1</span>
-            <span className="text-xs text-success">92% complete</span>
+      <div className="bg-card/80 backdrop-blur-sm rounded-xl p-5 border border-primary/10 shadow-lg">
+        <div className="text-sm font-semibold text-foreground mb-4">Class Progress</div>
+        <div className="space-y-4">
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm text-muted-foreground">Module 1</span>
+              <span className="text-sm text-success font-medium">92% complete</span>
+            </div>
+            <div className="h-3 bg-muted rounded-full overflow-hidden">
+              <div className="h-full bg-gradient-to-r from-success to-emerald-400 w-[92%] rounded-full" />
+            </div>
           </div>
-          <div className="h-2 bg-muted rounded-full overflow-hidden">
-            <div className="h-full bg-success w-[92%] rounded-full" />
-          </div>
-          <div className="flex items-center justify-between mt-2">
-            <span className="text-xs text-muted-foreground">Module 2</span>
-            <span className="text-xs text-coral-500">45% complete</span>
-          </div>
-          <div className="h-2 bg-muted rounded-full overflow-hidden">
-            <div className="h-full bg-coral-500 w-[45%] rounded-full" />
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm text-muted-foreground">Module 2</span>
+              <span className="text-sm text-amber-500 font-medium">45% complete</span>
+            </div>
+            <div className="h-3 bg-muted rounded-full overflow-hidden">
+              <div className="h-full bg-gradient-to-r from-amber-500 to-amber-400 w-[45%] rounded-full" />
+            </div>
           </div>
         </div>
       </div>
@@ -236,16 +240,23 @@ export const HowItWorksSection = forwardRef<HTMLElement>(function HowItWorksSect
   const steps = audience === "students" ? studentSteps : instructorSteps;
 
   return (
-    <section ref={ref} id="how-it-works" className="py-24 bg-muted/30 relative overflow-hidden">
-      <div className="container mx-auto px-6">
+    <section ref={ref} id="how-it-works" className="py-24 relative overflow-hidden">
+      {/* Gradient background */}
+      <div className="absolute inset-0 bg-gradient-to-b from-background via-primary/5 to-background" />
+      
+      {/* Decorative elements */}
+      <div className="absolute top-20 right-10 w-72 h-72 bg-primary/10 rounded-full blur-3xl opacity-50" />
+      <div className="absolute bottom-20 left-10 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl opacity-50" />
+
+      <div className="container mx-auto px-6 relative">
         {/* Section header */}
         <div className="text-center max-w-2xl mx-auto mb-12">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-coral-500/10 text-coral-500 text-sm font-medium mb-4">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary/10 text-primary text-sm font-medium mb-6 border border-primary/20">
             How It Works
           </div>
-          <h2 className="text-3xl sm:text-4xl font-bold text-foreground mb-4">
+          <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-foreground mb-4">
             From Confusion to{" "}
-            <span className="text-gradient bg-gradient-to-r from-coral-400 to-coral-500">Clarity</span>
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-500 to-amber-400">Clarity</span>
           </h2>
           <p className="text-muted-foreground text-lg">
             {audience === "students" 
@@ -256,15 +267,15 @@ export const HowItWorksSection = forwardRef<HTMLElement>(function HowItWorksSect
         </div>
 
         {/* Audience toggle */}
-        <div className="flex justify-center mb-12">
-          <div className="inline-flex items-center gap-1 p-1 rounded-full bg-background border border-border">
+        <div className="flex justify-center mb-16">
+          <div className="inline-flex items-center gap-1 p-1.5 rounded-full bg-card/80 backdrop-blur-sm border border-border shadow-lg">
             <button
               onClick={() => setAudience("students")}
               className={cn(
-                "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all",
+                "flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold transition-all",
                 audience === "students"
-                  ? "bg-amber-500 text-amber-950 shadow-lg"
-                  : "text-muted-foreground hover:text-foreground"
+                  ? "bg-gradient-to-r from-amber-500 to-amber-400 text-amber-950 shadow-lg shadow-amber-500/25"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
               )}
             >
               <GraduationCap className="w-4 h-4" />
@@ -273,10 +284,10 @@ export const HowItWorksSection = forwardRef<HTMLElement>(function HowItWorksSect
             <button
               onClick={() => setAudience("instructors")}
               className={cn(
-                "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all",
+                "flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold transition-all",
                 audience === "instructors"
-                  ? "bg-amber-500 text-amber-950 shadow-lg"
-                  : "text-muted-foreground hover:text-foreground"
+                  ? "bg-gradient-to-r from-amber-500 to-amber-400 text-amber-950 shadow-lg shadow-amber-500/25"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
               )}
             >
               <BookOpen className="w-4 h-4" />
@@ -286,29 +297,29 @@ export const HowItWorksSection = forwardRef<HTMLElement>(function HowItWorksSect
         </div>
 
         {/* Steps */}
-        <div id="how-it-works-instructor" className="grid lg:grid-cols-2 gap-8 max-w-5xl mx-auto">
+        <div id="how-it-works-instructor" className="grid lg:grid-cols-2 gap-10 max-w-5xl mx-auto">
           {steps.map((step, index) => (
             <div
               key={step.number}
-              className="flex gap-6 items-start"
+              className="group flex gap-6 items-start"
             >
-              {/* Number and line */}
+              {/* Number badge */}
               <div className="flex flex-col items-center">
-                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-coral-400 to-coral-500 flex items-center justify-center shadow-lg">
-                  <span className="text-lg font-bold text-white">{step.number}</span>
+                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center shadow-lg shadow-primary/25 group-hover:scale-110 transition-transform">
+                  <span className="text-xl font-bold text-primary-foreground">{step.number}</span>
                 </div>
                 {index < steps.length - 1 && (
-                  <div className="w-px h-full bg-gradient-to-b from-coral-500/50 to-transparent mt-4 lg:hidden" />
+                  <div className="w-px h-full bg-gradient-to-b from-primary/50 to-transparent mt-4 lg:hidden" />
                 )}
               </div>
 
               {/* Content */}
               <div className="flex-1 pb-8">
-                <h3 className="text-xl font-semibold text-foreground mb-2 flex items-center gap-2">
-                  <step.icon className="w-5 h-5 text-coral-500" />
+                <h3 className="text-xl font-bold text-foreground mb-3 flex items-center gap-3">
+                  <step.icon className="w-5 h-5 text-primary" />
                   {step.title}
                 </h3>
-                <p className="text-muted-foreground mb-4">
+                <p className="text-base text-muted-foreground mb-5 leading-relaxed">
                   {step.description}
                 </p>
                 {step.visual}
