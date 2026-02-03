@@ -298,10 +298,6 @@ export const HowItWorksSection = forwardRef<HTMLElement>(function HowItWorksSect
 
         {/* Steps with sequential flow */}
         <div id="how-it-works-instructor" className="relative max-w-5xl mx-auto">
-          {/* Connecting line for desktop */}
-          <div className="hidden lg:block absolute top-7 left-[calc(25%-28px)] right-[calc(25%-28px)] h-0.5 bg-gradient-to-r from-primary/20 via-primary/40 to-primary/20" />
-          <div className="hidden lg:block absolute top-[calc(50%+28px)] left-[calc(25%-28px)] right-[calc(25%-28px)] h-0.5 bg-gradient-to-r from-primary/20 via-primary/40 to-primary/20" />
-          
           <div className="grid lg:grid-cols-2 gap-x-16 gap-y-12">
             {steps.map((step, index) => (
               <div
@@ -311,14 +307,6 @@ export const HowItWorksSection = forwardRef<HTMLElement>(function HowItWorksSect
                 {/* Vertical connector for mobile */}
                 {index < steps.length - 1 && (
                   <div className="lg:hidden absolute left-7 top-14 w-0.5 h-[calc(100%+48px)] bg-gradient-to-b from-primary/40 to-primary/10" />
-                )}
-                
-                {/* Horizontal arrow connector for desktop (between columns) */}
-                {index % 2 === 0 && index < steps.length - 1 && (
-                  <div className="hidden lg:flex absolute -right-10 top-7 items-center">
-                    <div className="w-4 h-0.5 bg-primary/40" />
-                    <div className="w-0 h-0 border-t-[5px] border-t-transparent border-b-[5px] border-b-transparent border-l-[8px] border-l-primary/60" />
-                  </div>
                 )}
 
                 {/* Number badge */}
@@ -330,10 +318,19 @@ export const HowItWorksSection = forwardRef<HTMLElement>(function HowItWorksSect
 
                 {/* Content */}
                 <div className="flex-1 pb-4">
-                  <h3 className="text-xl font-bold text-foreground mb-3 flex items-center gap-3">
-                    <step.icon className="w-5 h-5 text-primary" />
-                    {step.title}
-                  </h3>
+                  <div className="flex items-center gap-3 mb-3">
+                    <h3 className="text-xl font-bold text-foreground flex items-center gap-3">
+                      <step.icon className="w-5 h-5 text-primary" />
+                      {step.title}
+                    </h3>
+                    {/* Arrow to next step (only on even indices on desktop) */}
+                    {index % 2 === 0 && index < steps.length - 1 && (
+                      <div className="hidden lg:flex items-center ml-auto text-primary/40">
+                        <div className="w-8 h-0.5 bg-current" />
+                        <div className="w-0 h-0 border-t-[5px] border-t-transparent border-b-[5px] border-b-transparent border-l-[8px] border-l-current" />
+                      </div>
+                    )}
+                  </div>
                   <p className="text-base text-muted-foreground mb-5 leading-relaxed">
                     {step.description}
                   </p>
@@ -341,6 +338,12 @@ export const HowItWorksSection = forwardRef<HTMLElement>(function HowItWorksSect
                 </div>
               </div>
             ))}
+          </div>
+          
+          {/* Vertical connector between rows on desktop */}
+          <div className="hidden lg:block absolute left-1/2 top-[45%] -translate-x-1/2 flex flex-col items-center">
+            <div className="w-0.5 h-12 bg-gradient-to-b from-primary/40 to-primary/20" />
+            <div className="w-0 h-0 border-l-[5px] border-l-transparent border-r-[5px] border-r-transparent border-t-[8px] border-t-primary/40" />
           </div>
         </div>
       </div>
