@@ -24,6 +24,7 @@ const ALLOWED_ORIGINS: Record<string, string[]> = {
     'https://syllabusstack.com',
     'https://app.syllabusstack.com',
     'https://www.syllabusstack.com',
+    'https://syllabusstack.lovable.app',
   ],
   staging: [
     'https://staging.syllabusstack.com',
@@ -37,6 +38,20 @@ const ALLOWED_ORIGINS: Record<string, string[]> = {
   ],
 };
 
+// Lovable preview domain patterns (always allowed for development/testing)
+const LOVABLE_PATTERNS = [
+  /^https:\/\/[a-z0-9-]+\.lovable\.app$/,
+  /^https:\/\/id-preview--[a-z0-9-]+\.lovable\.app$/,
+  /^https:\/\/[a-z0-9-]+\.lovableproject\.com$/,
+];
+
+/**
+ * Check if origin matches Lovable preview domain patterns
+ */
+function isLovableOrigin(origin: string): boolean {
+  return LOVABLE_PATTERNS.some(pattern => pattern.test(origin));
+}
+
 /**
  * Get CORS headers based on request origin and environment
  *
@@ -48,8 +63,8 @@ export function getCorsHeaders(req: Request): Record<string, string> {
   const env = Deno.env.get('ENVIRONMENT') || 'development';
   const allowed = ALLOWED_ORIGINS[env] || ALLOWED_ORIGINS.development;
 
-  // Check if the origin is in the allowed list
-  const isAllowed = allowed.includes(origin);
+  // Allow Lovable preview origins (dynamic subdomains) or static allowed list
+  const isAllowed = allowed.includes(origin) || isLovableOrigin(origin);
 
   return {
     'Access-Control-Allow-Origin': isAllowed ? origin : allowed[0],
