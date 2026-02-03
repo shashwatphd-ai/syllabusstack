@@ -254,20 +254,39 @@ const handler = async (req: Request): Promise<Response> => {
     }
   }
 
-  // Generate performance summary
+  // Validate session data before generating summary
+  if (!session.question_ids || !Array.isArray(session.question_ids)) {
+    logError('complete-assessment', new Error('Malformed session - missing question_ids'), {
+      sessionId: session.id,
+      questionIdsType: typeof session.question_ids,
+      questionIdsValue: session.question_ids
+    });
+    return createErrorResponse('INTERNAL_ERROR', corsHeaders,
+      `Assessment session data is corrupted. Please contact support with session ID: ${session.id}`);
+  }
+
+  if (session.question_ids.length === 0) {
+    return createErrorResponse('BAD_REQUEST', corsHeaders,
+      'This assessment has no questions. Please contact your instructor.');
+  }
+
+  // Generate performance summary with null-safe access
+  const totalQuestions = session.question_ids.length;
+  const attemptNumber = session.attempt_number ?? 1;
+
   const performanceSummary = {
-    total_questions: session.question_ids.length,
+    total_questions: totalQuestions,
     questions_answered: questionsAnswered,
     questions_correct: questionsCorrect,
     questions_incorrect: questionsAnswered - questionsCorrect,
-    questions_skipped: session.question_ids.length - questionsAnswered,
+    questions_skipped: totalQuestions - questionsAnswered,
     total_score: Math.round(totalScore * 10) / 10,
     passed,
     passing_threshold: PASSING_THRESHOLD,
     total_time_seconds: totalTimeSeconds,
     avg_time_per_question: Math.round(avgTimePerQuestion * 10) / 10,
     timing_anomalies: timingFlags,
-    attempt_number: session.attempt_number,
+    attempt_number: attemptNumber,
   };
 
   // Categorize answers by correctness for review

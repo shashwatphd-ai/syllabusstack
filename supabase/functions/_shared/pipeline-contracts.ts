@@ -49,12 +49,33 @@ export interface LearningObjective {
   specificity: 'introductory' | 'intermediate' | 'advanced';
   search_keywords: string[];
   expected_duration_minutes: number;
+  // Source tracking fields (added for transparency)
+  source_type?: 'explicit' | 'inferred_from_topics' | 'inferred_from_assignments' | 'inferred_from_readings';
+  source_text?: string;
+  confidence?: 'high' | 'medium' | 'low';
+  approval_status?: 'approved' | 'pending_review' | 'rejected';
+}
+
+export interface ExtractionSummary {
+  explicit_count: number;
+  inferred_count: number;
+  topics_found: string[];
+  assignments_found: string[];
+  readings_found: string[];
 }
 
 export interface ExtractLearningObjectivesOutput {
   success: boolean;
+  // Backwards compatible: combined list
   learning_objectives: LearningObjective[];
   count: number;
+  // New: separated by source for frontend handling
+  explicit_objectives?: LearningObjective[];
+  inferred_objectives?: LearningObjective[];
+  extraction_summary?: ExtractionSummary;
+  // Review workflow
+  review_required?: boolean;
+  review_message?: string | null;
 }
 
 // ============================================================================
@@ -306,11 +327,19 @@ export function validateAnalyzeSyllabusOutput(output: unknown): output is Analyz
 export function validateExtractLearningObjectivesOutput(output: unknown): output is ExtractLearningObjectivesOutput {
   if (!output || typeof output !== 'object') return false;
   const o = output as ExtractLearningObjectivesOutput;
-  return (
+  // Core validation (backwards compatible)
+  const coreValid = (
     typeof o.success === 'boolean' &&
     Array.isArray(o.learning_objectives) &&
     typeof o.count === 'number'
   );
+  // New format validation (optional fields)
+  const newFormatValid = (
+    o.explicit_objectives === undefined || Array.isArray(o.explicit_objectives)
+  ) && (
+    o.inferred_objectives === undefined || Array.isArray(o.inferred_objectives)
+  );
+  return coreValid && newFormatValid;
 }
 
 export function validateCurriculumReasoningOutput(output: unknown): output is CurriculumReasoningOutput {

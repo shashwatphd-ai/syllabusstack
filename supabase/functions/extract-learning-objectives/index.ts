@@ -30,6 +30,10 @@ interface LearningObjective {
   specificity: string;
   search_keywords: string[];
   expected_duration_minutes: number;
+  // NEW: Source tracking for transparency
+  source_type?: 'explicit' | 'inferred_from_topics' | 'inferred_from_assignments' | 'inferred_from_readings';
+  source_text?: string;  // The syllabus text this was derived from
+  confidence?: 'high' | 'medium' | 'low';
 }
 
 const handler = async (req: Request): Promise<Response> => {
@@ -117,36 +121,91 @@ const handler = async (req: Request): Promise<Response> => {
 
     const systemPrompt = `You are an expert educational analyst specializing in learning objective extraction and Bloom's Taxonomy classification.
 
-Your task is to extract learning objectives from course syllabi and classify them according to:
-1. Bloom's Taxonomy level (remember, understand, apply, analyze, evaluate, create)
-2. Domain (business, science, humanities, technical, arts, other)
-3. Specificity (introductory, intermediate, advanced)
+Your task is to INTELLIGENTLY extract learning objectives from course syllabi by:
+1. Finding EXPLICIT learning objectives (clearly stated "Students will be able to...")
+2. INFERRING implicit learning objectives from course content (topics, assignments, readings)
 
-For each learning objective, identify:
-- The core concept in 2-4 words
-- The action verb (Bloom's taxonomy verb)
-- 3 search keywords that would find relevant educational content
+For EVERY learning objective, you MUST classify:
+- Bloom's Taxonomy level (remember, understand, apply, analyze, evaluate, create)
+- Domain (business, science, humanities, technical, arts, other)
+- Specificity (introductory, intermediate, advanced)
+- SOURCE TYPE (explicit, inferred_from_topics, inferred_from_assignments, inferred_from_readings)
+- SOURCE TEXT (the actual syllabus text that this objective comes from)
+- CONFIDENCE (high, medium, low)
 
-Return ONLY valid JSON array, no markdown formatting.`;
+Return ONLY valid JSON, no markdown formatting.`;
 
-    const userPrompt = `Analyze this syllabus and extract all learning objectives:
+    const userPrompt = `Analyze this syllabus and extract ALL learning objectives - both explicit and inferred:
 
 ${syllabus_text}
 
-Return a JSON array of learning objectives with this exact structure:
-[
-  {
-    "text": "Full text of the learning objective",
-    "core_concept": "Main topic in 2-4 words",
-    "action_verb": "The Bloom's taxonomy verb (e.g., analyze, apply, evaluate)",
-    "bloom_level": "remember|understand|apply|analyze|evaluate|create",
-    "domain": "business|science|humanities|technical|arts|other",
-    "specificity": "introductory|intermediate|advanced",
-    "search_keywords": ["keyword1", "keyword2", "keyword3"]
-  }
-]
+EXTRACTION STRATEGY:
 
-If no explicit learning objectives are found, infer them from course topics and assignments. Extract at least 3 and at most 15 learning objectives.`;
+1. EXPLICIT OBJECTIVES (source_type: "explicit", confidence: "high")
+   Look for clearly stated objectives:
+   - "Students will be able to..."
+   - "By the end of this course, learners will..."
+   - "Learning Outcomes:" or "Objectives:" sections
+   - Numbered lists under "Goals"
+
+2. INFERRED FROM TOPICS (source_type: "inferred_from_topics", confidence: "medium")
+   For each topic/week in the schedule, infer what students should learn:
+   - "Week 3: Supply and Demand" → "Understand the principles of supply and demand and their effect on market prices"
+   - "Module 2: Regression Analysis" → "Apply regression analysis techniques to predict outcomes"
+
+3. INFERRED FROM ASSIGNMENTS (source_type: "inferred_from_assignments", confidence: "medium")
+   Derive objectives from what students must DO:
+   - "Midterm: Case study analysis" → "Analyze real-world case studies using course frameworks"
+   - "Project: Build a web application" → "Create a functional web application using [technology]"
+
+4. INFERRED FROM READINGS (source_type: "inferred_from_readings", confidence: "low")
+   Derive objectives from required readings:
+   - "Required: Chapter 5 - Neural Networks" → "Understand the architecture and function of neural networks"
+
+CRITICAL RULES:
+- Every inferred objective MUST include source_text showing the EXACT syllabus text it came from
+- Use appropriate Bloom's verbs: topics → "understand/explain", assignments → "apply/analyze/create"
+- Confidence: explicit=high, topics/assignments=medium, readings=low
+- Maximum 20 total objectives (prioritize explicit, then assignments, then topics)
+
+Return JSON in this exact structure:
+{
+  "explicit_objectives": [
+    {
+      "text": "The learning objective text",
+      "core_concept": "Main topic in 2-4 words",
+      "action_verb": "Bloom's taxonomy verb",
+      "bloom_level": "understand",
+      "domain": "business",
+      "specificity": "intermediate",
+      "search_keywords": ["keyword1", "keyword2", "keyword3"],
+      "source_type": "explicit",
+      "source_text": "The exact syllabus text this came from",
+      "confidence": "high"
+    }
+  ],
+  "inferred_objectives": [
+    {
+      "text": "Inferred learning objective",
+      "core_concept": "Main topic",
+      "action_verb": "apply",
+      "bloom_level": "apply",
+      "domain": "technical",
+      "specificity": "intermediate",
+      "search_keywords": ["keyword1", "keyword2"],
+      "source_type": "inferred_from_assignments",
+      "source_text": "Midterm Project: Build a REST API",
+      "confidence": "medium"
+    }
+  ],
+  "extraction_summary": {
+    "explicit_count": 5,
+    "inferred_count": 8,
+    "topics_found": ["Week 1: Intro", "Week 2: Basics"],
+    "assignments_found": ["Midterm", "Final Project"],
+    "readings_found": ["Chapter 1-5"]
+  }
+}`;
 
     // Call AI via OpenRouter (unified-ai-client)
     const result = await generateText({
@@ -160,17 +219,82 @@ If no explicit learning objectives are found, infer them from course topics and 
       throw new Error("No content returned from AI");
     }
 
-    // Parse the JSON response
-    let learningObjectives: LearningObjective[];
+    // Parse the JSON response - now expecting structured object with explicit + inferred
+    interface SmartExtractionResponse {
+      explicit_objectives: LearningObjective[];
+      inferred_objectives: LearningObjective[];
+      extraction_summary: {
+        explicit_count: number;
+        inferred_count: number;
+        topics_found: string[];
+        assignments_found: string[];
+        readings_found: string[];
+      };
+    }
+
+    // Legacy format for backwards compatibility
+    interface LegacyExtractionResponse {
+      learning_objectives: LearningObjective[];
+      explicit_objectives_found?: boolean;
+    }
+
+    let explicitObjectives: LearningObjective[] = [];
+    let inferredObjectives: LearningObjective[] = [];
+    let extractionSummary: SmartExtractionResponse['extraction_summary'] | null = null;
+
     try {
-      learningObjectives = parseJsonResponse<LearningObjective[]>(result.content);
+      const parsed = parseJsonResponse<SmartExtractionResponse | LegacyExtractionResponse | LearningObjective[]>(result.content);
+
+      if (Array.isArray(parsed)) {
+        // Old array format - treat all as explicit
+        explicitObjectives = parsed.map(lo => ({ ...lo, source_type: 'explicit' as const, confidence: 'high' as const }));
+      } else if ('explicit_objectives' in parsed) {
+        // New smart format
+        explicitObjectives = (parsed.explicit_objectives || []).map(lo => ({
+          ...lo,
+          source_type: lo.source_type || 'explicit',
+          confidence: lo.confidence || 'high'
+        }));
+        inferredObjectives = (parsed.inferred_objectives || []).map(lo => ({
+          ...lo,
+          source_type: lo.source_type || 'inferred_from_topics',
+          confidence: lo.confidence || 'medium'
+        }));
+        extractionSummary = parsed.extraction_summary;
+      } else if ('learning_objectives' in parsed) {
+        // Legacy object format
+        explicitObjectives = (parsed.learning_objectives || []).map(lo => ({
+          ...lo,
+          source_type: 'explicit' as const,
+          confidence: 'high' as const
+        }));
+      }
     } catch (parseError) {
       console.error("Failed to parse AI response:", result.content);
       throw new Error("Failed to parse learning objectives from AI response");
     }
 
-    // BATCHED APPROACH: Build all LOs and insert in one query (15x faster)
-    const losData = learningObjectives.map(lo => {
+    const totalObjectives = explicitObjectives.length + inferredObjectives.length;
+
+    logInfo('extract-learning-objectives', 'extraction_complete', {
+      explicit_count: explicitObjectives.length,
+      inferred_count: inferredObjectives.length,
+      total: totalObjectives
+    });
+
+    // If absolutely nothing found, provide guidance
+    if (totalObjectives === 0) {
+      return createSuccessResponse({
+        success: true,
+        explicit_objectives: [],
+        inferred_objectives: [],
+        count: 0,
+        recommendation: 'No learning objectives could be extracted. The syllabus may be too brief or lacks course content details. Please add objectives manually.',
+      }, corsHeaders);
+    }
+
+    // Helper to build LO data for database (core fields that always exist)
+    const buildCoreLoData = (lo: LearningObjective) => {
       const bloomLevel = lo.bloom_level || "understand";
       const specificity = lo.specificity || "intermediate";
       const expectedDuration = DURATION_MATRIX[bloomLevel]?.[specificity] || 15;
@@ -189,23 +313,93 @@ If no explicit learning objectives are found, infer them from course topics and 
         expected_duration_minutes: expectedDuration,
         verification_state: "unstarted",
       };
+    };
+
+    // New fields for source tracking (added by migration 20260203100000)
+    const buildSourceFields = (lo: LearningObjective, isAutoApproved: boolean) => ({
+      source_type: lo.source_type || 'explicit',
+      source_text: lo.source_text || null,
+      confidence: lo.confidence || 'high',
+      approval_status: isAutoApproved ? 'approved' : 'pending_review',
     });
 
-    const { data: savedLOs, error: saveError } = await supabaseClient
-      .from("learning_objectives")
-      .insert(losData)
-      .select();
+    // Try insert with new fields, fallback to core fields if migration hasn't run
+    const insertLOs = async (los: LearningObjective[], isAutoApproved: boolean) => {
+      if (los.length === 0) return [];
 
-    if (saveError) {
-      console.error("Error batch saving learning objectives:", saveError);
-    }
+      // First try with all fields (including new source tracking columns)
+      const fullData = los.map(lo => ({
+        ...buildCoreLoData(lo),
+        ...buildSourceFields(lo, isAutoApproved),
+      }));
 
-    logInfo('extract-learning-objectives', 'complete', { count: savedLOs?.length || 0 });
+      const { data, error } = await supabaseClient
+        .from("learning_objectives")
+        .insert(fullData)
+        .select();
+
+      if (!error) {
+        return data || [];
+      }
+
+      // If error mentions unknown column, retry without new fields (migration not yet run)
+      if (error.message?.includes('column') || error.code === '42703') {
+        console.warn('[extract-learning-objectives] New columns not available, using core fields only');
+        const coreData = los.map(lo => buildCoreLoData(lo));
+        const { data: fallbackData, error: fallbackError } = await supabaseClient
+          .from("learning_objectives")
+          .insert(coreData)
+          .select();
+
+        if (fallbackError) {
+          console.error("Error saving learning objectives (fallback):", fallbackError);
+          return [];
+        }
+
+        // Add source metadata to returned objects for response (even if not in DB)
+        return (fallbackData || []).map((savedLo, idx) => ({
+          ...savedLo,
+          ...buildSourceFields(los[idx], isAutoApproved),
+        }));
+      }
+
+      console.error("Error saving learning objectives:", error);
+      return [];
+    };
+
+    // SAVE EXPLICIT OBJECTIVES (auto-approved)
+    const savedExplicitLOs = await insertLOs(explicitObjectives, true);
+
+    // SAVE INFERRED OBJECTIVES (pending review - instructor must approve)
+    const savedInferredLOs = await insertLOs(inferredObjectives, false);
+
+    const totalSaved = savedExplicitLOs.length + savedInferredLOs.length;
+    logInfo('extract-learning-objectives', 'complete', {
+      explicit_saved: savedExplicitLOs.length,
+      inferred_saved: savedInferredLOs.length,
+      total: totalSaved
+    });
 
     return createSuccessResponse({
       success: true,
-      learning_objectives: savedLOs || [],
-      count: savedLOs?.length || 0,
+      // Separate explicit and inferred for frontend to handle differently
+      explicit_objectives: savedExplicitLOs,
+      inferred_objectives: savedInferredLOs,
+      // Combined for backwards compatibility
+      learning_objectives: [...savedExplicitLOs, ...savedInferredLOs],
+      count: totalSaved,
+      extraction_summary: extractionSummary || {
+        explicit_count: savedExplicitLOs.length,
+        inferred_count: savedInferredLOs.length,
+        topics_found: [],
+        assignments_found: [],
+        readings_found: []
+      },
+      // Guidance for the user
+      review_required: savedInferredLOs.length > 0,
+      review_message: savedInferredLOs.length > 0
+        ? `Found ${savedExplicitLOs.length} explicit and ${savedInferredLOs.length} inferred learning objectives. Please review the inferred objectives to ensure they match your course intent.`
+        : null,
     }, corsHeaders);
   } catch (error: unknown) {
     logError('extract-learning-objectives', error instanceof Error ? error : new Error(String(error)));

@@ -105,7 +105,7 @@ IMPORTANT:
 - course_title should be the OFFICIAL name, not random text from the document
 - If you can't find a clear title, use the course code + main topic
 
-Return your response using the extract_syllabus_data function.`;
+Return your response using the extract_capabilities function.`;
 
     // Use unified AI client for structured extraction
     const result = await generateStructured<{

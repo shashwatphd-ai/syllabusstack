@@ -111,6 +111,30 @@ QUALITY STANDARDS:
 - Distractors based on common misconceptions
 - Time-appropriate (30-60 seconds per question)
 
+DISTRACTOR GUIDELINES WITH EXAMPLES:
+
+Good distractors are based on common misconceptions:
+
+Example Question: "What is the primary function of mitochondria?"
+Correct: "Generate ATP through cellular respiration"
+Good Distractor: "Store genetic information" (common misconception - that's the nucleus)
+Good Distractor: "Break down waste products" (plausible cell function)
+Bad Distractor: "Make the cell blue" (obviously absurd)
+Bad Distractor: "Generate ATP" (too close to correct answer)
+
+Example Question: "In JavaScript, what does 'const' primarily indicate?"
+Correct: "The variable binding cannot be reassigned"
+Good Distractor: "The value is deeply immutable" (common misconception)
+Good Distractor: "The variable is only accessible in the current block" (true but not primary)
+Bad Distractor: "The variable must be a number" (obviously wrong)
+
+DISTRACTOR RULES:
+1. Each distractor should be grammatically similar to the correct answer
+2. Distractors should be similar in length to the correct answer
+3. At least one distractor should be a common misconception
+4. No distractor should be partially correct
+5. Avoid "all of the above" or "none of the above"
+
 OUTPUT 5-7 QUESTIONS per learning objective.`;
 
 serve(async (req) => {

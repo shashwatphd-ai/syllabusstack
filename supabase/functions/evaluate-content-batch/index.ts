@@ -57,15 +57,53 @@ RED FLAGS TO DETECT:
 - Excessive length without clear structure
 `;
 
-// Scoring calibration guidance
+// Scoring calibration guidance with concrete examples
 const SCORING_CALIBRATION = `
-SCORING CALIBRATION:
-- 90-100: Exceptional - Could be used in a professional course, nearly perfect match
-- 80-89: Excellent - Strong match, minor improvements possible
-- 70-79: Good - Solid content, some gaps or suboptimal aspects
-- 60-69: Acceptable - Usable with caveats, notable weaknesses
-- 50-59: Marginal - Significant concerns, use only if no alternatives
-- Below 50: Not Recommended - Off-topic, wrong level, or quality issues
+SCORING CALIBRATION WITH CONCRETE EXAMPLES:
+
+For a Learning Objective: "Apply the concept of supply and demand to predict market prices"
+
+RELEVANCE SCORING (40% weight):
+- 95-100: Video title is "Supply and Demand: Predicting Prices" AND description mentions price prediction
+  Example: Khan Academy "Supply and Demand and Market Equilibrium" for an LO about supply/demand = 95
+- 85-94: Video covers the concept but as part of a broader topic
+  Example: "Introduction to Supply and Demand" (covers concept but not application aspect) = 88
+- 70-84: Video is "Microeconomics Basics" (includes supply/demand as one topic among many) = 75
+- 50-69: Video is "Economics Overview" (briefly mentions supply/demand) = 55
+- 0-49: Video is "Macroeconomics: GDP and Inflation" (wrong topic entirely) = 30
+
+PEDAGOGY SCORING (35% weight):
+- 95-100: Uses diagrams, walks through example step-by-step, includes practice problem
+  Example: Khan Academy style with graph animations and "now you try" moment = 95
+- 85-94: Clear explanation with visuals but no practice component
+  Example: University lecture with good slides but no interaction = 87
+- 70-84: Verbal explanation only, assumes some prior knowledge
+  Example: Podcast discussing the concept conversationally = 75
+- 50-69: Explains concept but too fast, no structure
+  Example: Quick tips video that rushes through = 58
+- 0-49: Confusing, disorganized, or lecture-style with no aids
+  Example: Recorded classroom with poor audio, no slides = 35
+
+QUALITY SCORING (25% weight):
+- 95-100: Professional production - studio lighting, clear audio, HD video, well-edited
+- 85-94: Good quality - clear audio, decent video, minor issues (occasional background noise)
+- 70-84: Acceptable - some background noise, standard definition, basic editing
+- 50-69: Distracting issues - echo, poor lighting, shaky camera
+- 0-49: Unwatchable - can't hear speaker, video freezes, major quality issues
+
+BLOOM'S LEVEL ALIGNMENT (Critical for final score):
+- For "Apply" objectives: Prioritize tutorials, worked examples, demonstrations
+- For "Understand" objectives: Prioritize explanatory videos, lectures, conceptual overviews
+- For "Analyze" objectives: Prioritize case studies, comparisons, breakdowns
+- For "Evaluate" objectives: Prioritize critiques, reviews, debates
+- For "Create" objectives: Prioritize project walkthroughs, design processes, building tutorials
+
+SCORING CONSISTENCY RULES:
+1. A Khan Academy video on the exact topic should score 88-95
+2. A good YouTube tutorial from a reputable channel should score 70-85
+3. A tangentially related video should NEVER score above 65
+4. Same video evaluated twice must score within 5 points
+5. Most videos are mediocre - 60-75 range is typical, NOT 85-95
 `;
 
 const handler = async (req: Request): Promise<Response> => {
