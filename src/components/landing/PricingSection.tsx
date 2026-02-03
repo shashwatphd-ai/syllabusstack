@@ -9,13 +9,11 @@ const plans = [
     name: "Free",
     icon: GraduationCap,
     price: "$0",
-    tagline: "Get started and explore.",
+    tagline: "Try it out.",
     features: [
-      "Up to 3 course uploads",
-      "1 dream job analysis",
-      "20 AI calls per month",
-      "$1 per course enrollment",
-      "$1 per course creation",
+      "3 courses",
+      "1 dream job",
+      "Basic features",
     ],
     cta: "Get Started",
     href: "/auth",
@@ -25,16 +23,14 @@ const plans = [
     name: "Pro",
     icon: BookOpen,
     price: "$9.99",
-    priceDetail: "/month",
-    tagline: "Remove all limits.",
+    priceDetail: "/mo",
+    tagline: "Everything, no limits.",
     features: [
-      "Unlimited course uploads",
-      "5 dream job analyses",
-      "200 AI calls per month",
-      "Free enrollments & course creation",
-      "PDF export & advanced analytics",
+      "Unlimited courses",
+      "5 dream jobs",
+      "All features included",
     ],
-    cta: "Upgrade to Pro",
+    cta: "Go Pro",
     href: "/checkout?plan=pro",
     highlight: true,
   },
@@ -42,13 +38,11 @@ const plans = [
     name: "University",
     icon: Building2,
     price: "Custom",
-    tagline: "For institutions and teams.",
+    tagline: "For teams.",
     features: [
-      "Everything in Pro, unlimited",
-      "Multi-instructor support",
-      "Custom branding",
-      "Priority support",
-      "LMS integration (coming soon)",
+      "Everything unlimited",
+      "Multiple instructors",
+      "Your branding",
     ],
     cta: "Contact Us",
     href: "/universities",
@@ -66,10 +60,10 @@ export const PricingSection = forwardRef<HTMLElement>(function PricingSection(_p
             Pricing
           </div>
           <h2 className="text-3xl sm:text-4xl font-bold text-foreground mb-4">
-            Simple, honest pricing
+            Pricing
           </h2>
           <p className="text-muted-foreground text-lg">
-            Start free with limits. Upgrade to Pro to remove them.
+            Free to start. Pro when you're ready.
           </p>
         </div>
 
