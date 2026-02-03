@@ -173,7 +173,7 @@ function StudentHero() {
       <div className="flex flex-wrap items-center justify-center gap-6 text-primary-foreground/50 text-sm animate-fade-up" style={{ animationDelay: '0.4s' }}>
         <span className="flex items-center gap-2">
           <CheckCircle className="w-4 h-4 text-coral-400" />
-          Free for students
+          Free to start
         </span>
         <span className="flex items-center gap-2">
           <CheckCircle className="w-4 h-4 text-coral-400" />

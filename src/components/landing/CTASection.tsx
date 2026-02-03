@@ -49,7 +49,7 @@ export const CTASection = forwardRef<HTMLElement>(function CTASection(_props, re
             </span>
             <span className="flex items-center gap-2">
               <CheckCircle className="w-4 h-4 text-coral-400" />
-              Free for students & educators
+              Free tier available
             </span>
             <span className="flex items-center gap-2">
               <CheckCircle className="w-4 h-4 text-coral-400" />
