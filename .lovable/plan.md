@@ -1,242 +1,314 @@
 
+# Pricing Transparency Fix Plan
 
-# UNIFIED_IMPLEMENTATION_PATH.md - Comprehensive Review
+## Problem Summary
 
-## Executive Summary
+The landing page presents misleading pricing information:
 
-The `UNIFIED_IMPLEMENTATION_PATH.md` is a **well-structured and thorough** implementation roadmap. However, there are **critical build-blocking issues** that must be resolved before any planned work can proceed. Additionally, some claims about "completed work" are inaccurate - the code exists but contains errors.
+### Current Misleading Claims
 
----
+| Location | Current Text | Reality (in code) |
+|----------|--------------|-------------------|
+| Hero Section | "No credit card required" | $1 payment gates exist for course creation/enrollment |
+| Hero Section | "Free to start" | True for browsing, but actions cost $1 |
+| CTA Section | "Free to Get Started" | Partially true |
+| CTA Section | "Free tier available" | Hides $1 per-action fees |
+| Pricing Card | "Free - $0" | $1/course creation, $1/enrollment |
+| Pricing Features | Shows only 3 limits | Missing $1 payment gate disclosure |
 
-## 🔴 CRITICAL: Build-Blocking Issues (Must Fix First)
-
-The codebase currently has **9+ build errors** that will prevent deployment. These must be fixed **before** any Phase 1 work begins.
-
-### Issue 1: `withErrorHandling` Signature Mismatch
-
-**Files Affected:**
-- `supabase/functions/complete-assessment/index.ts` (line 297)
-- `supabase/functions/start-assessment/index.ts` (line 204)
-- `supabase/functions/submit-assessment-answer/index.ts` (line 302)
-
-**Problem:** The `withErrorHandling` function signature expects `corsHeaders: Record<string, string>`, but these files pass `getCorsHeaders` (a function, not an object).
-
-**Current Code:**
-```typescript
-serve(withErrorHandling(handler, getCorsHeaders));
-```
-
-**Fix Required:**
-Either call `getCorsHeaders` with a mock request, or update `withErrorHandling` to accept a function.
-
----
-
-### Issue 2: `instructorCourse` Type Safety
-
-**File:** `supabase/functions/complete-assessment/index.ts` (lines 210-211)
-
-**Problem:** TypeScript cannot determine if `instructorCourse` is a single object or array.
-
-**Current Code:**
-```typescript
-if (instructorCourse?.title) {
-  sourceName = instructorCourse.title;
-```
-
-**Fix Required:**
-```typescript
-const instructorCourseData = Array.isArray(instructorCourse)
-  ? instructorCourse[0]
-  : instructorCourse;
-if (instructorCourseData?.title) {
-  sourceName = instructorCourseData.title;
-```
-
----
-
-### Issue 3: Variable Redeclaration
-
-**Files Affected:**
-- `supabase/functions/generate-assessment-questions/index.ts` (lines 137, 247)
-- `supabase/functions/generate-recommendations/index.ts` (lines 55, 254)
-
-**Problem:** `serviceClient` is declared twice with `const` in the same scope.
-
-**Fix Required:** Rename second declaration or restructure the function.
-
----
-
-### Issue 4: Missing `last_accessed_at` Column
-
-**Database Reality:**
-```
-course_enrollments columns:
-- id, student_id, instructor_course_id, enrolled_at, completed_at,
-- overall_progress, certificate_id, certificate_eligible
-```
-
-**The column `last_accessed_at` does NOT exist.**
-
-**Files Affected:**
-- `src/hooks/useCourseProgress.ts` (lines 147, 294)
-- `src/hooks/useGradebook.ts` (multiple references)
-- `src/hooks/useInstructorAnalytics.ts` (multiple references)
-
-**Fix Required:** Either:
-1. Remove all references to `last_accessed_at`, OR
-2. Add the column via database migration
-
----
-
-## ⚠️ Plan Accuracy Issues
-
-### Inaccurate "Completed" Claims
-
-The plan states these items are "Done":
-
-| Claimed Complete | Reality |
-|-----------------|---------|
-| `useCourseProgress.ts` created | ✅ File exists but ❌ has 30+ type errors |
-| Assessment function migration | ✅ Migrated but ❌ has signature errors |
-| CORS Handler implementation | ✅ Done correctly |
-| Loading Skeletons | ✅ Done correctly |
-| Algorithm Foundations | ✅ Done correctly |
-
-**Recommendation:** Update the plan to distinguish between "code written" and "code working/tested".
-
----
-
-## ✅ Correctly Documented Items
-
-| Item | Status | Verification |
-|------|--------|-------------|
-| CORS Handler in `_shared/cors.ts` | ✅ Correct | File exists with proper implementation |
-| Error Handler in `_shared/error-handler.ts` | ✅ Correct | File exists with proper implementation |
-| 79 Edge Functions total | ✅ Correct | Directory count verified |
-| 5/79 using CORS Handler | ✅ Correct | Pattern verified |
-| Week 4-6 migration schedule | ✅ Reasonable | 6 functions/day is achievable |
-| Zod validation templates | ✅ Well-designed | Schemas are appropriate |
-
----
-
-## 📋 Recommended Pre-Requisite Phase
-
-**Before Phase 1 begins, add a "Phase 0: Build Stabilization" section:**
-
-### Phase 0: Build Stabilization (2-4 hours)
+### Actual Economics (from code)
 
 ```text
-┌─────────────────────────────────────────────────────────────┐
-│  TASK 0.1: Fix withErrorHandling Signature                  │
-├─────────────────────────────────────────────────────────────┤
-│  Option A: Update error-handler.ts to accept a function     │
-│                                                             │
-│  export function withErrorHandling(                         │
-│    handler: (req: Request) => Promise<Response>,            │
-│    getCorsHeadersFn: (req: Request) => Record<string,       │
-│                                                 string>     │
-│  ): (req: Request) => Promise<Response>                     │
-│                                                             │
-│  Option B: Create static default CORS headers               │
-│  for the wrapper (less dynamic but simpler)                 │
-└─────────────────────────────────────────────────────────────┘
+FREE TIER:
++- Monthly subscription: $0
++- Course Creation: $1 per course
++- Course Enrollment: $1 per enrollment
++- AI Calls: 20/month
++- Max Courses: 3
++- Dream Jobs: 1
 
-┌─────────────────────────────────────────────────────────────┐
-│  TASK 0.2: Fix Type Safety in complete-assessment           │
-├─────────────────────────────────────────────────────────────┤
-│  Add array narrowing for instructorCourse access            │
-│  (Lines 206-211)                                            │
-└─────────────────────────────────────────────────────────────┘
+PRO TIER ($9.99/mo):
++- Course Creation: Unlimited (no fee)
++- Course Enrollment: Unlimited (no fee)
++- AI Calls: 200/month
++- Max Courses: Unlimited
++- Dream Jobs: 5
 
-┌─────────────────────────────────────────────────────────────┐
-│  TASK 0.3: Fix Variable Redeclaration                       │
-├─────────────────────────────────────────────────────────────┤
-│  Rename duplicate serviceClient declarations in:            │
-│  - generate-assessment-questions/index.ts                   │
-│  - generate-recommendations/index.ts                        │
-└─────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────┐
-│  TASK 0.4: Handle Missing last_accessed_at                  │
-├─────────────────────────────────────────────────────────────┤
-│  DECISION NEEDED:                                           │
-│  A) Add database migration for column                       │
-│  B) Remove all references from hooks                        │
-│                                                             │
-│  Recommendation: Option A - the column is useful for        │
-│  analytics and "continue where left off" features           │
-└─────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────┐
-│  TASK 0.5: Fix useCourseProgress.ts Type Errors             │
-├─────────────────────────────────────────────────────────────┤
-│  Apply (supabase as any).from() pattern for untyped         │
-│  queries until types regenerate, OR fix the select          │
-│  statements to match actual schema                          │
-└─────────────────────────────────────────────────────────────┘
+CERTIFICATES (all tiers):
++- Completion Badge: Free
++- Verified Certificate: $25
++- Assessed Certificate: $49
 ```
 
 ---
 
-## 📝 Structural Recommendations
+## Solution Strategy
 
-### 1. Add Completion Criteria
+**Two options** for solving this:
 
-Each task should have explicit success criteria:
+### Option A: Full Disclosure (Recommended)
+Update the landing page to honestly show the $1 payment gates while positioning Pro as the better value.
 
-```markdown
-#### Task 4.1: Search Functions Migration
-**Estimated Hours:** 6
-**Success Criteria:**
-- [ ] npm run build passes
-- [ ] All 5 functions return correct CORS headers
-- [ ] Error responses use standardized format
-- [ ] Functions deployed and tested via curl
+### Option B: Remove Payment Gates
+Remove the $1 fees entirely from the code to match the marketing claims.
+
+I recommend **Option A** because:
+1. The payment gates are already coded and working
+2. It creates a natural upsell path to Pro
+3. It filters for serious users on Free tier
+4. Removing them requires backend changes across multiple edge functions
+
+---
+
+## Implementation Plan (Option A)
+
+### Phase 1: Update PricingSection.tsx
+
+**Changes to make:**
+
+1. Change Free tier price display from `$0` to `$0*`
+2. Add subtext explaining `*$1 per course or enrollment`
+3. Add a new feature line: `$1 per course action`
+4. Update Pro features to emphasize: `No per-action fees`
+
+**Updated plans array:**
+
+```text
+FREE TIER:
+- name: "Free"
+- price: "$0*"
+- tagline: "Try the basics."
+- features:
+  + "Up to 3 courses"
+  + "1 dream job analysis"
+  + "20 AI calls/month"
+  + "$1 per course/enrollment" (NEW - with info tooltip)
+
+PRO TIER:
+- features:
+  + "Unlimited courses"
+  + "No per-action fees" (NEW - highlighted)
+  + "Up to 5 dream jobs"
+  + "200 AI calls/month"
+  + "PDF export"
 ```
 
-### 2. Add Rollback Instructions
-
-For edge function migrations:
-
-```markdown
-**Rollback:**
-If migration causes issues, revert by:
-1. git checkout HEAD~1 -- supabase/functions/[function-name]/
-2. Redeploy function
+**Add footnote below pricing grid:**
+```text
+* Free tier includes $1 fee per course creation or enrollment
+  to ensure quality. Pro subscribers have no per-action fees.
 ```
 
-### 3. Clarify the `withErrorHandling` Pattern
+---
 
-The current Quick Reference template (lines 797-851) shows:
+### Phase 2: Update HeroSection.tsx
+
+**StudentHero changes:**
+
+Replace:
+```text
+"No credit card required"
+```
+
+With:
+```text
+"First analysis free"
+```
+
+Keep but clarify:
+```text
+"Free to start" -> "Free to explore"
+```
+
+**InstructorHero changes:**
+
+Replace:
+```text
+"Free to start"
+```
+
+With:
+```text
+"Create for $1 or upgrade to Pro"
+```
+
+Or simpler:
+```text
+"Start for just $1"
+```
+
+---
+
+### Phase 3: Update CTASection.tsx
+
+**Changes:**
+
+1. Badge: `"Free to Get Started"` -> `"Try Free Today"`
+
+2. Trust indicators - replace:
+```text
+- "No credit card required" -> "No monthly commitment"
+- "Free tier available" -> "Pay per action or subscribe"
+```
+
+Or keep it simple:
+```text
+- "Start exploring free"
+- "Pro unlocks everything"
+- "Set up in minutes"
+```
+
+---
+
+### Phase 4: Add Feature Comparison to Landing Page
+
+Create a new section or expand PricingSection to include a clear comparison table showing:
+
+```text
++-------------------------+----------+----------+
+| Feature                 | Free     | Pro      |
++-------------------------+----------+----------+
+| Syllabus Analysis       | Free     | Free     |
+| Gap Analysis            | Free     | Advanced |
+| Course Creation         | $1 each  | Included |
+| Course Enrollment       | $1 each  | Included |
+| AI Calls                | 20/mo    | 200/mo   |
+| PDF Export              | -        | Yes      |
+| Verified Certificate    | $25      | $25      |
+| Assessed Certificate    | $49      | $49      |
++-------------------------+----------+----------+
+```
+
+---
+
+### Phase 5: Update TIER_INFO in useSubscription.ts
+
+Add disclosure to the features array:
 
 ```typescript
-serve(withErrorHandling(handler, getCorsHeaders));
+free: {
+  features: [
+    'Up to 3 course syllabi',
+    '1 dream job profile',
+    '20 AI analyses/month',
+    'Basic gap analysis',
+    '$1 per course action', // NEW
+  ],
+},
+pro: {
+  features: [
+    'Unlimited course syllabi',
+    'No per-action fees',  // NEW - moved to top
+    'Up to 5 dream job profiles',
+    '200 AI analyses/month',
+    // ...rest
+  ],
+},
 ```
 
-This is **incorrect** based on the current `error-handler.ts` signature. Either:
-1. Update the template to match current signature
-2. Update `error-handler.ts` to support the template pattern
+---
+
+### Phase 6: Update PricingTable.tsx (Billing Page)
+
+Add a row to the FeatureComparison table:
+
+```typescript
+{ name: 'Course/Enrollment Fee', free: '$1 each', pro: 'Included', university: 'Included' },
+```
 
 ---
 
-## 🎯 Final Verdict
+## Files to Modify
 
-| Aspect | Assessment |
-|--------|------------|
-| **Overall Structure** | ✅ Excellent - clear phases, good detail |
-| **Time Estimates** | ✅ Reasonable - 234 hours to production |
-| **Technical Accuracy** | ⚠️ Needs fixes - build errors not addressed |
-| **Completeness** | ⚠️ Missing Phase 0 for stabilization |
-| **Actionability** | ✅ Good step-by-step instructions |
-| **Ready to Execute?** | ❌ Not until build errors fixed |
+| File | Changes |
+|------|---------|
+| `src/components/landing/PricingSection.tsx` | Update Free tier display, add footnote, highlight Pro value |
+| `src/components/landing/HeroSection.tsx` | Update trust indicators for both Student and Instructor hero |
+| `src/components/landing/CTASection.tsx` | Update badge and trust indicators |
+| `src/hooks/useSubscription.ts` | Update TIER_INFO features array |
+| `src/components/billing/PricingTable.tsx` | Add row for per-action fees |
 
 ---
 
-## Recommended Action Sequence
+## Copy Recommendations
 
-1. **Approve with amendments** - Add Phase 0 to the plan
-2. **Fix build errors first** (2-4 hours of work)
-3. **Then proceed with Phase 1** as documented
+### Option 1: Honest + Value-Focused
+- **Free**: "$0 + $1/action"
+- **Tagline**: "Pay as you go"
+- **Trust**: "Start exploring free"
 
-**My recommendation:** The plan is fundamentally sound and should be approved, but execution must begin with fixing the 9 build errors before any new work. The plan document should be updated to reflect this reality.
+### Option 2: Pro-Forward
+- **Free**: "$0*" (with asterisk)
+- **Tagline**: "Try the basics"
+- **Trust**: "Pro unlocks unlimited access"
+
+### Option 3: Minimal Change
+- Keep "$0" but add small footnote
+- Add one line to features: "Per-action fees apply"
+- Update one trust indicator
+
+---
+
+## Technical Implementation Details
+
+### PricingSection.tsx Changes
+
+1. Add price footnote indicator:
+```tsx
+<span className="text-2xl font-bold">
+  {plan.price}
+  {plan.name === "Free" && <sup className="text-xs">*</sup>}
+</span>
+```
+
+2. Add footnote component below grid:
+```tsx
+<p className="text-center text-sm text-muted-foreground mt-6">
+  * Free tier includes $1 fee per course creation or enrollment.
+  <Link to="/pricing" className="text-coral-500 ml-1">
+    See full pricing details
+  </Link>
+</p>
+```
+
+3. Update features array to add "$1 per course/enrollment" line
+
+### HeroSection.tsx Changes
+
+Update trust indicators in StudentHero and InstructorHero:
+```tsx
+<span className="flex items-center gap-2">
+  <CheckCircle className="w-4 h-4 text-coral-400" />
+  First analysis free
+</span>
+```
+
+### CTASection.tsx Changes
+
+Update badge and trust indicators to be accurate while still appealing.
+
+---
+
+## Testing Checklist
+
+After implementation:
+- [ ] Verify PricingSection shows asterisk on Free tier
+- [ ] Verify footnote appears and links correctly
+- [ ] Verify HeroSection trust indicators are accurate
+- [ ] Verify CTASection trust indicators are accurate
+- [ ] Verify PricingTable includes fee comparison row
+- [ ] Mobile responsive check for new text
+- [ ] Dark mode check for new text styling
+
+---
+
+## Impact Assessment
+
+**Before:**
+- Potentially misleading - users may feel deceived when hitting $1 payment gate
+
+**After:**
+- Clear expectations - users know about $1 fees upfront
+- Better Pro conversion - $1 fees make $9.99/mo look like great value
+- Trust building - honesty improves brand perception
 
