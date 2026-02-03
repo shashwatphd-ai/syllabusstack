@@ -71,12 +71,8 @@ export const PricingSection = forwardRef<HTMLElement>(function PricingSection(_p
       <div className="container mx-auto px-6 relative">
         {/* Header */}
         <div className="text-center max-w-2xl mx-auto mb-16">
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary/10 text-primary text-sm font-medium mb-6 border border-primary/20">
-            <Sparkles className="w-4 h-4" />
-            Pricing
-          </div>
           <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-foreground mb-4">
-            Choose Your Plan
+            Pricing
           </h2>
           <p className="text-muted-foreground text-lg">
             Free to start. Pro when you're ready.
