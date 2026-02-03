@@ -105,8 +105,8 @@ export const HeroSection = forwardRef<HTMLElement>(function HeroSection(_props, 
                     <Video className="w-5 h-5 text-coral-400" />
                   </div>
                   <div>
-                    <div className="text-sm font-semibold text-primary-foreground">AI Curation</div>
-                    <div className="text-xs text-primary-foreground/50">Finds the best content</div>
+                    <div className="text-sm font-semibold text-primary-foreground">Videos Matched</div>
+                    <div className="text-xs text-primary-foreground/50">Quality content for each topic</div>
                   </div>
                 </div>
               </div>
@@ -119,8 +119,8 @@ export const HeroSection = forwardRef<HTMLElement>(function HeroSection(_props, 
                     <Users className="w-5 h-5 text-coral-400" />
                   </div>
                   <div>
-                    <div className="text-sm font-semibold text-primary-foreground">Verified Learning</div>
-                    <div className="text-xs text-primary-foreground/50">Track real mastery</div>
+                    <div className="text-sm font-semibold text-primary-foreground">See Who's Learning</div>
+                    <div className="text-xs text-primary-foreground/50">Know who needs help</div>
                   </div>
                 </div>
               </div>
@@ -204,9 +204,9 @@ function InstructorHero() {
 
       {/* Subheadline */}
       <p className="text-lg sm:text-xl text-primary-foreground/70 max-w-2xl mx-auto mb-10 animate-fade-up" style={{ animationDelay: '0.2s' }}>
-        Upload your syllabus. AI extracts learning objectives and curates 
-        <span className="text-coral-300 font-semibold"> the best YouTube content</span>. 
-        Track student mastery with verified watching.
+        Upload your syllabus. We match each topic with
+        <span className="text-coral-300 font-semibold"> quality video content</span>.
+        See exactly who's learning and who needs help.
       </p>
 
       {/* CTA buttons */}
@@ -230,11 +230,11 @@ function InstructorHero() {
         </span>
         <span className="flex items-center gap-2">
           <CheckCircle className="w-4 h-4 text-coral-400" />
-          AI-powered curation
+          Ready in minutes
         </span>
         <span className="flex items-center gap-2">
           <CheckCircle className="w-4 h-4 text-coral-400" />
-          Verified student engagement
+          Know who's paying attention
         </span>
       </div>
     </>

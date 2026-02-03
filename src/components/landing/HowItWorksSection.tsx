@@ -9,7 +9,7 @@ const studentSteps = [
     number: "01",
     icon: Upload,
     title: "Upload Your Courses",
-    description: "Add your course syllabi—PDF, DOCX, or paste text. Our AI extracts what you actually learned.",
+    description: "Add your course syllabi—PDF, DOCX, or paste text. We identify the skills you've built.",
     visual: (
       <div className="bg-muted/50 rounded-xl p-4 border border-border">
         <div className="flex items-center gap-3 mb-3">
@@ -127,7 +127,7 @@ const instructorSteps = [
     number: "01",
     icon: FileText,
     title: "Upload Your Syllabus",
-    description: "Paste or upload your syllabus. Our AI parses it and extracts structured learning objectives.",
+    description: "Paste or upload your syllabus. We turn it into clear topics your students can follow.",
     visual: (
       <div className="bg-muted/50 rounded-xl p-4 border border-border">
         <div className="flex items-center gap-3 mb-3">
@@ -139,11 +139,11 @@ const instructorSteps = [
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <CheckCircle className="w-3 h-3 text-success" />
-            <span className="text-xs text-muted-foreground">12 learning objectives extracted</span>
+            <span className="text-xs text-muted-foreground">12 topics ready to go</span>
           </div>
           <div className="flex items-center gap-2">
             <CheckCircle className="w-3 h-3 text-success" />
-            <span className="text-xs text-muted-foreground">Bloom's levels identified</span>
+            <span className="text-xs text-muted-foreground">Organized by difficulty</span>
           </div>
         </div>
       </div>
@@ -152,8 +152,8 @@ const instructorSteps = [
   {
     number: "02",
     icon: Video,
-    title: "AI Curates Content",
-    description: "For each objective, AI finds and ranks the best YouTube videos. You review or auto-approve.",
+    title: "Videos Get Matched",
+    description: "Each topic gets matched with quality YouTube videos. Review them or let it run automatically.",
     visual: (
       <div className="bg-muted/50 rounded-xl p-4 border border-border">
         <div className="text-xs text-muted-foreground mb-2">For: "Understand variables and data types"</div>
