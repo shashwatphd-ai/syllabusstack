@@ -39,7 +39,7 @@ export const TestimonialsSection = forwardRef<HTMLElement>(function Testimonials
             <span className="text-gradient bg-gradient-to-r from-success to-teal-500">Real Results</span>
           </h2>
           <p className="text-muted-foreground text-lg">
-            Join thousands of students who stopped guessing and started acting with confidence.
+            Students who stopped guessing and started acting with confidence.
           </p>
         </div>
 
@@ -80,17 +80,7 @@ export const TestimonialsSection = forwardRef<HTMLElement>(function Testimonials
           ))}
         </div>
 
-        {/* Social proof bar */}
-        <div className="mt-16 text-center">
-          <p className="text-muted-foreground text-sm mb-4">Trusted by students from</p>
-          <div className="flex flex-wrap justify-center gap-8 items-center opacity-60">
-            {['Stanford', 'MIT', 'Harvard', 'Berkeley', 'NYU', 'Michigan'].map((uni) => (
-              <span key={uni} className="text-lg font-semibold text-muted-foreground">
-                {uni}
-              </span>
-            ))}
-          </div>
-        </div>
+        {/* Social proof bar - removed to avoid overclaiming */}
       </div>
     </section>
   );

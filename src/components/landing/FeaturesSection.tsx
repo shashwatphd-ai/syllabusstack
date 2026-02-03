@@ -11,46 +11,46 @@ type Audience = "students" | "instructors";
 const studentFeatures = [
   {
     icon: FileText,
-    title: "Smart Syllabus Analysis",
-    description: "Upload your course syllabi and our AI extracts real capabilities—what you can actually DO, not just what you studied.",
+    title: "Upload Your Courses",
+    description: "Add your syllabi and see what skills you've actually built—not just course names, but what you can do.",
   },
   {
     icon: Target,
-    title: "Honest Gap Analysis",
-    description: "No sugar-coating. Get a clear assessment of where you stand against job requirements and what's blocking you.",
+    title: "See Where You Stand",
+    description: "Compare your skills to real job requirements. Find out what's missing before you apply.",
   },
   {
     icon: Lightbulb,
-    title: "Specific Recommendations",
-    description: "Not 'learn SQL'. Instead: 'Complete Mode Analytics tutorial (15 hrs) to address your data querying gap.'",
+    title: "Know What to Do Next",
+    description: "Get specific steps: which courses, tutorials, or projects will close your gaps fastest.",
   },
   {
     icon: TrendingUp,
-    title: "Progress Tracking",
-    description: "Track your skill-building journey with clear milestones. See exactly how each action moves you toward your goal.",
+    title: "Track Your Progress",
+    description: "See how each action moves you closer to your goal. Know when you're ready.",
   },
 ];
 
 const instructorFeatures = [
   {
     icon: Brain,
-    title: "AI Learning Objectives",
-    description: "Upload your syllabus and our AI extracts structured learning objectives with Bloom's taxonomy levels.",
+    title: "Upload Your Syllabus",
+    description: "Paste or upload your syllabus. We turn it into clear learning goals your students can follow.",
   },
   {
     icon: Video,
-    title: "Smart Content Curation",
-    description: "AI finds and ranks the best YouTube videos for each learning objective. Review and approve, or let it run automatically.",
+    title: "Videos Matched to Your Course",
+    description: "Each topic gets matched with quality YouTube content. Review it or let it run automatically.",
   },
   {
     icon: CheckCircle2,
-    title: "Verified Watching",
-    description: "Students can't just skip ahead. Micro-checks during videos ensure actual engagement and comprehension.",
+    title: "Know They Actually Watched",
+    description: "Quick checks during videos confirm students are paying attention. No more skipping ahead.",
   },
   {
     icon: Users,
-    title: "Student Progress Dashboard",
-    description: "See which students are struggling, what content works best, and who's ready for assessments.",
+    title: "See Who Needs Help",
+    description: "Know which students are struggling and where. Step in before they fall behind.",
   },
 ];
 
@@ -73,12 +73,11 @@ export const FeaturesSection = forwardRef<HTMLElement>(function FeaturesSection(
             Features
           </div>
           <h2 className="text-3xl sm:text-4xl font-bold text-foreground mb-4">
-            Built for{" "}
-            <span className="text-gradient bg-gradient-to-r from-amber-400 to-amber-500">How You Actually Learn</span>
+            What You{" "}
+            <span className="text-gradient bg-gradient-to-r from-amber-400 to-amber-500">Get</span>
           </h2>
           <p className="text-muted-foreground text-lg">
-            Whether you're a student navigating your career or an educator building courses, 
-            SyllabusStack has the tools you need.
+            Simple tools that show you where you are and what to do next.
           </p>
         </div>
 
