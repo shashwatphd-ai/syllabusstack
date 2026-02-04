@@ -413,34 +413,20 @@ export async function generateImage(request: {
 
       const data = await response.json();
 
-      // Extract image from response
-      const content = data.choices?.[0]?.message?.content;
+      // CRITICAL FIX (2026-02-04): OpenRouter's Gemini 3 Pro Image returns content: null
+      // but places the generated image in message.images array.
+      // We MUST check message.images FIRST, before bailing on empty content.
+      const message = data.choices?.[0]?.message;
+      const content = message?.content;
 
-      if (!content) {
-        console.error(`${logPrefix} OpenRouter returned empty content for model ${model}`);
-        
-        // If primary model returns empty, try fallback (known issue with gemini-3-pro-image-preview)
-        if (model === primaryModel) {
-          console.warn(`${logPrefix} Empty content from ${model}, trying fallback...`);
-          continue;
-        }
-        
-        return {
-          success: false,
-          error: {
-            code: 'INVALID_RESPONSE',
-            message: 'OpenRouter returned empty content in response (all models failed)',
-            provider: 'openrouter',
-            model,
-          },
-        };
-      }
-
-      // Parse the response to extract base64 image
-      const extracted = extractImageFromResponse(content, data.choices?.[0]?.message, logPrefix);
+      // Parse the response to extract base64 image - pass full message for images array access
+      const extracted = extractImageFromResponse(content, message, logPrefix);
 
       if (!extracted) {
+        // Log detailed response structure for debugging
+        const hasImages = Array.isArray(message?.images) && message.images.length > 0;
         console.error(`${logPrefix} Could not extract image from response`);
+        console.error(`${logPrefix} Response structure: content=${content === null ? 'null' : typeof content}, isArray=${Array.isArray(content)}, message.images=${hasImages ? message.images.length : 'none'}`);
         
         // If primary model fails extraction, try fallback
         if (model === primaryModel) {
@@ -455,7 +441,7 @@ export async function generateImage(request: {
             message: 'Could not extract image data from OpenRouter response. Response format may have changed.',
             provider: 'openrouter',
             model,
-            rawError: JSON.stringify(content).substring(0, 500),
+            rawError: JSON.stringify({ content: typeof content, images: hasImages }).substring(0, 500),
           },
         };
       }
@@ -521,7 +507,26 @@ function extractImageFromResponse(
   logPrefix: string
 ): { base64: string; mimeType: string; textResponse?: string } | null {
 
-  // Format 1: content is an array with type: 'image' or 'image_url' items
+  // FORMAT 1 (PRIORITY): images array on message object
+  // This is OpenRouter's DOCUMENTED format for image generation models
+  // https://openrouter.ai/docs - message.images[].image_url.url contains the base64 data URL
+  // CRITICAL: Gemini 3 Pro Image returns content: null but images in message.images
+  const images = message?.images as Array<Record<string, unknown>> | undefined;
+  if (images?.length && images.length > 0) {
+    const imageObj = images[0];
+    const imageUrl = (imageObj?.image_url as Record<string, unknown>)?.url || imageObj?.url;
+
+    if (typeof imageUrl === 'string' && imageUrl.startsWith('data:image/')) {
+      const match = imageUrl.match(/^data:image\/(\w+);base64,(.+)$/);
+      if (match) {
+        console.log(`${logPrefix} Extracted image from message.images (OpenRouter format)`);
+        return { base64: match[2], mimeType: `image/${match[1]}` };
+      }
+    }
+  }
+
+  // FORMAT 2: content is an array with type: 'image' or 'image_url' items
+  // Some models (Gemini 2.5 Flash) may use this format
   if (Array.isArray(content)) {
     for (const item of content) {
       if (item.type === 'image' || item.type === 'image_url') {
@@ -537,22 +542,7 @@ function extractImageFromResponse(
     }
   }
 
-  // Format 2: images array on message object (legacy format)
-  const images = message?.images as Array<Record<string, unknown>> | undefined;
-  if (images?.length && images.length > 0) {
-    const imageObj = images[0];
-    const imageUrl = (imageObj?.image_url as Record<string, unknown>)?.url || imageObj?.url;
-
-    if (typeof imageUrl === 'string' && imageUrl.startsWith('data:image/')) {
-      const match = imageUrl.match(/^data:image\/(\w+);base64,(.+)$/);
-      if (match) {
-        console.log(`${logPrefix} Extracted image from images array`);
-        return { base64: match[2], mimeType: `image/${match[1]}` };
-      }
-    }
-  }
-
-  // Format 3: content is a string containing inline base64 data URL
+  // FORMAT 3: content is a string containing inline base64 data URL
   if (typeof content === 'string' && content.includes('data:image/')) {
     const dataMatch = content.match(/data:image\/([^;]+);base64,([A-Za-z0-9+/=]+)/);
     if (dataMatch) {
@@ -562,7 +552,8 @@ function extractImageFromResponse(
   }
 
   // No image found in any expected format
-  console.warn(`${logPrefix} No image found. Content type: ${typeof content}, isArray: ${Array.isArray(content)}`);
+  const imagesCount = images?.length || 0;
+  console.warn(`${logPrefix} No image found. Content type: ${content === null ? 'null' : typeof content}, isArray: ${Array.isArray(content)}, message.images: ${imagesCount}`);
   return null;
 }
 
