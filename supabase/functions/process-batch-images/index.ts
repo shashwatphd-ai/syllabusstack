@@ -42,8 +42,10 @@ import {
 // CONFIGURATION
 // ============================================================================
 
-// Process this many items per invocation (stay well under 60s timeout)
-const BATCH_SIZE = 3;
+// Process this many items per invocation (stay well under timeout).
+// Image generation latency can be unpredictable; keep this low so we always
+// have time to sync lecture_slides JSON back to the UI.
+const BATCH_SIZE = 1;
 
 // Max concurrent image generations per batch (reduced to avoid rate limits)
 const MAX_CONCURRENT = 1;
@@ -204,6 +206,37 @@ IMPORTANT: Generate a clear, educational diagram. Do NOT generate photos of peop
 // ============================================================================
 // QUEUE OPERATIONS
 // ============================================================================
+
+/**
+ * Reset stale 'processing' items back to 'pending' so they can be retried.
+ * Protects against timeouts/crashes between markAsProcessing() and updateQueueItem().
+ */
+async function resetStaleProcessingItems(
+  supabase: SupabaseClient,
+  staleMinutes = 15
+): Promise<void> {
+  const cutoffIso = new Date(Date.now() - staleMinutes * 60 * 1000).toISOString();
+
+  const { data, error } = await supabase
+    .from('image_generation_queue')
+    .update({
+      status: 'pending',
+      error_message: 'Reset stale processing item for retry',
+    })
+    .eq('status', 'processing')
+    .lt('started_at', cutoffIso)
+    .select('id');
+
+  if (error) {
+    console.error('[Queue] Failed to reset stale processing items:', error);
+    return;
+  }
+
+  const resetCount = (data || []).length;
+  if (resetCount > 0) {
+    console.log(`[Queue] Reset ${resetCount} stale processing item(s) to pending`);
+  }
+}
 
 /**
  * Fetch pending items from the queue
@@ -621,6 +654,9 @@ const handler = async (req: Request): Promise<Response> => {
     // ========================================================================
     if (continueProcessing) {
       console.log(`${functionName} Continue mode - processing from queue`);
+
+      // Safety: reset any stale "processing" items so they don't get stuck forever
+      await resetStaleProcessingItems(supabase);
       
       // Fetch pending items
       const pendingItems = await fetchPendingItems(supabase, BATCH_SIZE);
@@ -642,7 +678,6 @@ const handler = async (req: Request): Promise<Response> => {
       // Process in concurrent batches
       let processedCount = 0;
       let successCount = 0;
-      const affectedLectures = new Set<string>();
 
       for (let i = 0; i < pendingItems.length; i += MAX_CONCURRENT) {
         const batch = pendingItems.slice(i, i + MAX_CONCURRENT);
@@ -662,7 +697,9 @@ const handler = async (req: Request): Promise<Response> => {
               item.max_attempts
             );
 
-            affectedLectures.add(item.lecture_slides_id);
+             // CRITICAL: sync lecture_slides JSON immediately so UI updates even
+             // if this invocation times out later.
+             await updateLectureSlides(supabase, item.lecture_slides_id);
             processedCount++;
             if (result.success) successCount++;
 
@@ -674,11 +711,6 @@ const handler = async (req: Request): Promise<Response> => {
         if (i + MAX_CONCURRENT < pendingItems.length) {
           await sleep(BATCH_DELAY_MS);
         }
-      }
-
-      // Update affected lecture_slides records
-      for (const lectureId of affectedLectures) {
-        await updateLectureSlides(supabase, lectureId);
       }
 
       // Check if more items remain
