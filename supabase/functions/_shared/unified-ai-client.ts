@@ -336,130 +336,177 @@ export async function generateImage(request: {
     };
   }
 
-  // Select model: free tier for testing, paid for production
-  // Now using Gemini 3 Pro Image Preview for highest quality
-  const model = request.useFreeModel
-    ? MODELS.IMAGE_FREE    // 'google/gemini-2.5-flash-image-preview:free'
-    : MODELS.IMAGE;        // 'google/gemini-3-pro-image-preview'
+  // Model selection with fallback chain
+  // Primary: Gemini 3 Pro Image Preview (highest quality)
+  // Fallback: Gemini 2.5 Flash Image (more reliable, GA version)
+  const primaryModel = request.useFreeModel
+    ? MODELS.IMAGE_FREE
+    : MODELS.IMAGE;
+  const fallbackModel = MODELS.IMAGE_FALLBACK;
 
-  console.log(`${logPrefix} Generating image via OpenRouter (${model})`);
-  console.log(`${logPrefix} Prompt: ${request.prompt.substring(0, 100)}...`);
-
-  try {
-    // Build request body with modalities for image output
-    // CRITICAL: modalities: ['image', 'text'] is REQUIRED for OpenRouter image generation
-    const body: Record<string, unknown> = {
-      model,
-      messages: [
-        {
-          role: 'user',
-          content: request.prompt,
-        },
-      ],
-      modalities: ['image', 'text'],  // Required for image generation output
-    };
-
-    // Add aspect ratio configuration if specified
-    // OpenRouter supports image_config for Gemini image models
-    if (request.aspectRatio) {
-      body.image_config = {
-        aspect_ratio: request.aspectRatio,
-      };
+  // Try primary model first, then fallback if empty content
+  for (const model of [primaryModel, fallbackModel]) {
+    const isRetry = model === fallbackModel;
+    
+    if (isRetry) {
+      console.log(`${logPrefix} Retrying with fallback model: ${model}`);
+    } else {
+      console.log(`${logPrefix} Generating image via OpenRouter (${model})`);
     }
+    console.log(`${logPrefix} Prompt: ${request.prompt.substring(0, 100)}...`);
 
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': appUrl,
-        'X-Title': 'SyllabusStack',
-      },
-      body: JSON.stringify(body),
-    });
+    try {
+      // Build request body with modalities for image output
+      // CRITICAL: modalities: ['image', 'text'] is REQUIRED for OpenRouter image generation
+      const body: Record<string, unknown> = {
+        model,
+        messages: [
+          {
+            role: 'user',
+            content: request.prompt,
+          },
+        ],
+        modalities: ['image', 'text'],  // Required for image generation output
+      };
 
-    // Handle HTTP errors explicitly
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`${logPrefix} OpenRouter error ${response.status}:`, errorText.substring(0, 300));
+      // Add aspect ratio configuration if specified
+      if (request.aspectRatio) {
+        body.image_config = {
+          aspect_ratio: request.aspectRatio,
+        };
+      }
+
+      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': appUrl,
+          'X-Title': 'SyllabusStack',
+        },
+        body: JSON.stringify(body),
+      });
+
+      // Handle HTTP errors explicitly
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`${logPrefix} OpenRouter error ${response.status}:`, errorText.substring(0, 300));
+
+        // If it's a 5xx error, try fallback
+        if (response.status >= 500 && model === primaryModel) {
+          console.warn(`${logPrefix} Server error, trying fallback model...`);
+          continue;
+        }
+
+        return {
+          success: false,
+          error: {
+            code: 'OPENROUTER_ERROR',
+            message: `OpenRouter returned HTTP ${response.status}: ${response.statusText}`,
+            provider: 'openrouter',
+            model,
+            httpStatus: response.status,
+            rawError: errorText.substring(0, 500),
+          },
+        };
+      }
+
+      const data = await response.json();
+
+      // Extract image from response
+      const content = data.choices?.[0]?.message?.content;
+
+      if (!content) {
+        console.error(`${logPrefix} OpenRouter returned empty content for model ${model}`);
+        
+        // If primary model returns empty, try fallback (known issue with gemini-3-pro-image-preview)
+        if (model === primaryModel) {
+          console.warn(`${logPrefix} Empty content from ${model}, trying fallback...`);
+          continue;
+        }
+        
+        return {
+          success: false,
+          error: {
+            code: 'INVALID_RESPONSE',
+            message: 'OpenRouter returned empty content in response (all models failed)',
+            provider: 'openrouter',
+            model,
+          },
+        };
+      }
+
+      // Parse the response to extract base64 image
+      const extracted = extractImageFromResponse(content, data.choices?.[0]?.message, logPrefix);
+
+      if (!extracted) {
+        console.error(`${logPrefix} Could not extract image from response`);
+        
+        // If primary model fails extraction, try fallback
+        if (model === primaryModel) {
+          console.warn(`${logPrefix} Failed extraction from ${model}, trying fallback...`);
+          continue;
+        }
+        
+        return {
+          success: false,
+          error: {
+            code: 'INVALID_RESPONSE',
+            message: 'Could not extract image data from OpenRouter response. Response format may have changed.',
+            provider: 'openrouter',
+            model,
+            rawError: JSON.stringify(content).substring(0, 500),
+          },
+        };
+      }
+
+      const latency_ms = Date.now() - startTime;
+      console.log(`${logPrefix} ✓ Image generated successfully in ${latency_ms}ms (${Math.round(extracted.base64.length / 1024)}KB)${isRetry ? ' [fallback]' : ''}`);
 
       return {
-        success: false,
-        error: {
-          code: 'OPENROUTER_ERROR',
-          message: `OpenRouter returned HTTP ${response.status}: ${response.statusText}`,
-          provider: 'openrouter',
-          model,
-          httpStatus: response.status,
-          rawError: errorText.substring(0, 500),
-        },
-      };
-    }
-
-    const data = await response.json();
-
-    // Extract image from response
-    const content = data.choices?.[0]?.message?.content;
-
-    if (!content) {
-      console.error(`${logPrefix} OpenRouter returned empty content`);
-      return {
-        success: false,
-        error: {
-          code: 'INVALID_RESPONSE',
-          message: 'OpenRouter returned empty content in response',
-          provider: 'openrouter',
-          model,
-        },
-      };
-    }
-
-    // Parse the response to extract base64 image
-    const extracted = extractImageFromResponse(content, data.choices?.[0]?.message, logPrefix);
-
-    if (!extracted) {
-      console.error(`${logPrefix} Could not extract image from response`);
-      return {
-        success: false,
-        error: {
-          code: 'INVALID_RESPONSE',
-          message: 'Could not extract image data from OpenRouter response. Response format may have changed.',
-          provider: 'openrouter',
-          model,
-          rawError: JSON.stringify(content).substring(0, 500),
-        },
-      };
-    }
-
-    const latency_ms = Date.now() - startTime;
-    console.log(`${logPrefix} ✓ Image generated successfully in ${latency_ms}ms (${Math.round(extracted.base64.length / 1024)}KB)`);
-
-    return {
-      success: true,
-      base64: extracted.base64,
-      mimeType: extracted.mimeType,
-      textResponse: extracted.textResponse,
-      provider: 'openrouter',
-      model,
-      cost_usd: IMAGE_COST_USD,
-      latency_ms,
-    };
-
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`${logPrefix} Exception during image generation:`, errorMessage);
-
-    return {
-      success: false,
-      error: {
-        code: 'IMAGE_GENERATION_FAILED',
-        message: `Image generation failed with exception: ${errorMessage}`,
+        success: true,
+        base64: extracted.base64,
+        mimeType: extracted.mimeType,
+        textResponse: extracted.textResponse,
         provider: 'openrouter',
         model,
-        rawError: errorMessage,
-      },
-    };
+        cost_usd: IMAGE_COST_USD,
+        latency_ms,
+      };
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`${logPrefix} Exception during image generation with ${model}:`, errorMessage);
+
+      // If primary model throws, try fallback
+      if (model === primaryModel) {
+        console.warn(`${logPrefix} Exception with ${model}, trying fallback...`);
+        continue;
+      }
+
+      return {
+        success: false,
+        error: {
+          code: 'IMAGE_GENERATION_FAILED',
+          message: `Image generation failed with exception: ${errorMessage}`,
+          provider: 'openrouter',
+          model,
+          rawError: errorMessage,
+        },
+      };
+    }
   }
+
+  // If we get here, all models failed
+  return {
+    success: false,
+    error: {
+      code: 'IMAGE_GENERATION_FAILED',
+      message: 'All image generation models failed',
+      provider: 'openrouter',
+      model: primaryModel,
+    },
+  };
 }
 
 /**
