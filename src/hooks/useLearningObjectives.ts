@@ -17,6 +17,7 @@ export interface LearningObjective {
   search_keywords: string[] | null;
   expected_duration_minutes: number | null;
   verification_state: string;
+  decomposition_status: string | null;
   sequence_order: number;
   created_at: string;
   updated_at: string;

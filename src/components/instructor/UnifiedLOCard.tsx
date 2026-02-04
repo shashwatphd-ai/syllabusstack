@@ -366,15 +366,15 @@ export const UnifiedLOCard = memo(function UnifiedLOCard({ learningObjective, co
                       <Button
                         size="sm"
                         onClick={() => decomposeMutation.mutate(learningObjective.id)}
-                        disabled={decomposeMutation.isPending}
+                        disabled={decomposeMutation.isPending || learningObjective.decomposition_status === 'in_progress'}
                         className="gap-1.5"
                       >
-                        {decomposeMutation.isPending ? (
+                        {decomposeMutation.isPending || learningObjective.decomposition_status === 'in_progress' ? (
                           <Loader2 className="h-3 w-3 animate-spin" />
                         ) : (
                           <Sparkles className="h-3 w-3" />
                         )}
-                        Analyze & Break Down
+                        {decomposeMutation.isPending || learningObjective.decomposition_status === 'in_progress' ? 'Analyzing...' : 'Analyze & Break Down'}
                       </Button>
                     </div>
                   )}
