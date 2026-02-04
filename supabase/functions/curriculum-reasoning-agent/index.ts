@@ -265,6 +265,47 @@ serve(async (req) => {
       throw new Error(`Learning objective not found: ${learning_objective_id}`);
     }
 
+    // IDEMPOTENCY CHECK: Prevent duplicate processing
+    if (lo.decomposition_status === 'in_progress') {
+      console.log('[curriculum-reasoning-agent] Analysis already in progress for LO:', learning_objective_id);
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          error: 'Analysis already in progress',
+          already_in_progress: true
+        }),
+        { 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 409 // Conflict
+        }
+      );
+    }
+
+    if (lo.decomposition_status === 'completed') {
+      // Return existing teaching units instead of regenerating
+      const { data: existingUnits } = await supabase
+        .from('teaching_units')
+        .select('*')
+        .eq('learning_objective_id', learning_objective_id)
+        .order('sequence_order', { ascending: true });
+
+      if (existingUnits && existingUnits.length > 0) {
+        console.log('[curriculum-reasoning-agent] Returning existing units for completed LO:', learning_objective_id);
+        return new Response(
+          JSON.stringify({
+            success: true,
+            teaching_units: existingUnits,
+            already_exists: true,
+            message: 'Teaching units already exist for this learning objective'
+          }),
+          { 
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            status: 200 
+          }
+        );
+      }
+    }
+
     // Update status to in_progress
     await supabase
       .from('learning_objectives')
