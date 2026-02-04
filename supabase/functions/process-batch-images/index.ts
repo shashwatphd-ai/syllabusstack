@@ -590,12 +590,31 @@ const handler = async (req: Request): Promise<Response> => {
       lecture_slides_ids,
       batch_job_id,
       instructor_course_id,
+      sync_only, // New: just sync completed images to slides without generating
     } = body;
 
     // Initialize Supabase
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, serviceRoleKey);
+
+    // ========================================================================
+    // MODE 0: Sync Only - Sync completed images to lecture_slides
+    // ========================================================================
+    if (sync_only && (lecture_slides_id || lecture_slides_ids)) {
+      const ids = lecture_slides_ids || [lecture_slides_id];
+      console.log(`${functionName} Sync-only mode for ${ids.length} lectures`);
+      
+      for (const id of ids) {
+        await updateLectureSlides(supabase, id);
+      }
+      
+      return createSuccessResponse({
+        success: true,
+        message: `Synced images for ${ids.length} lectures`,
+        synced: ids.length,
+      }, corsHeaders);
+    }
 
     // ========================================================================
     // MODE 1: Continue processing from queue
