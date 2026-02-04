@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden';
 import { Button } from '@/components/ui/button';
@@ -61,6 +61,25 @@ export function LectureSlideViewer({
   const currentSlide = slides[currentSlideIndex];
   const hasAudio = lectureSlide.has_audio;
   const audioStatus = lectureSlide.audio_status;
+
+  // Extract citations from research_context for rendering
+  const citations = useMemo(() => {
+    const researchContext = lectureSlide.research_context as {
+      grounded_content?: Array<{
+        claim: string;
+        source_url: string;
+        source_title: string;
+        confidence?: number;
+      }>;
+    } | null;
+    
+    return researchContext?.grounded_content?.map(item => ({
+      claim: item.claim || '',
+      source_url: item.source_url || '',
+      source_title: item.source_title || '',
+      confidence: item.confidence,
+    })) || [];
+  }, [lectureSlide.research_context]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -300,6 +319,7 @@ export function LectureSlideViewer({
                   slideNumber={currentSlideIndex + 1}
                   totalSlides={slides.length}
                   showSpeakerNotes={showSpeakerNotes}
+                  citations={citations}
                   className="h-full"
                 />
               )}
