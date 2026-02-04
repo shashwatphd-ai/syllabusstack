@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Switch } from '@/components/ui/switch';
@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { SlideRenderer } from './SlideRenderer';
 import type { LectureSlide, Slide, ProfessorSlide, EnhancedSlide } from '@/hooks/useLectureSlides';
+import type { Citation } from '@/lib/citationParser';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { useSlideSync, parseSegmentMap, type AudioSegment } from '@/hooks/useSlideSync';
@@ -62,7 +63,18 @@ export function StudentSlideViewer({
     enabled: hasAudio && isAudioPlaying,
   });
 
-  // Track highest slide viewed
+  // Extract citations from research_context.grounded_content for [Source N] rendering
+  const citations = useMemo((): Citation[] => {
+    const researchContext = lectureSlide.research_context as any;
+    if (!researchContext?.grounded_content) return [];
+    
+    return researchContext.grounded_content.map((item: any) => ({
+      claim: item.claim || '',
+      source_url: item.source_url || '',
+      source_title: item.source_title || '',
+      confidence: item.confidence,
+    }));
+  }, [lectureSlide.research_context]);
   useEffect(() => {
     if (currentSlideIndex > highestSlideViewed) {
       setHighestSlideViewed(currentSlideIndex);
@@ -351,6 +363,7 @@ export function StudentSlideViewer({
               totalSlides={slides.length}
               showSpeakerNotes={showSpeakerNotes}
               activeBlockId={activeBlockId}
+              citations={citations}
               className="h-full"
             />
           )}

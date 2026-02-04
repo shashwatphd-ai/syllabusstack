@@ -19,6 +19,9 @@ import type { Slide, EnhancedSlide, ProfessorSlide, KeyPointWithHint, LayoutHint
 import { AuthenticatedImage } from './AuthenticatedImage';
 import SlideContentBlock from './SlideContentBlock';
 import ImageLightbox from './ImageLightbox';
+import { CitationText } from './CitationText';
+import { TooltipProvider } from '@/components/ui/tooltip';
+import type { Citation } from '@/lib/citationParser';
 
 interface SlideRendererProps {
   slide: Slide | EnhancedSlide | ProfessorSlide;
@@ -28,6 +31,7 @@ interface SlideRendererProps {
   showPedagogy?: boolean;
   className?: string;
   activeBlockId?: string | null; // For audio-visual sync highlighting
+  citations?: Citation[]; // Research context citations for [Source N] rendering
 }
 
 // Helper to normalize key_points to always have text and optional layout_hint
@@ -190,7 +194,8 @@ export function SlideRenderer({
   showSpeakerNotes = false,
   showPedagogy = false,
   className,
-  activeBlockId = null
+  activeBlockId = null,
+  citations = []
 }: SlideRendererProps) {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [signedImageUrl, setSignedImageUrl] = useState('');
@@ -199,6 +204,14 @@ export function SlideRenderer({
   const Icon = config.icon;
   const enhanced = isEnhanced(slide);
   const professor = isProfessor(slide);
+  
+  // Helper to render text with citation support
+  const renderWithCitations = (text: string, className?: string) => {
+    if (citations.length > 0) {
+      return <CitationText text={text} citations={citations} className={className} />;
+    }
+    return <span className={className}>{text}</span>;
+  };
 
   // Helper to get definition text (handles both v2 and v3 formats)
   const getDefinitionText = () => {
@@ -262,6 +275,7 @@ export function SlideRenderer({
   };
 
   return (
+    <TooltipProvider>
     <div className={cn('flex flex-col h-full', className)}>
       {/* Main slide content */}
       <div className={cn(
@@ -320,7 +334,7 @@ export function SlideRenderer({
                       "text-base leading-relaxed transition-colors duration-300",
                       isActive && "text-foreground font-medium"
                     )}>
-                      {normalized.text}
+                      {renderWithCitations(normalized.text)}
                     </span>
                   </div>
                 );
@@ -356,7 +370,7 @@ export function SlideRenderer({
               >
               {/* Main text */}
               {slide.content.main_text && (
-                <p className="text-sm leading-relaxed">{slide.content.main_text}</p>
+                <p className="text-sm leading-relaxed">{renderWithCitations(slide.content.main_text)}</p>
               )}
               
               {/* Definition box */}
@@ -365,7 +379,7 @@ export function SlideRenderer({
                   <p className="font-semibold text-blue-600 dark:text-blue-400 text-xs mb-0.5">
                     {slide.content.definition.term}
                   </p>
-                  <p className="text-xs">{getDefinitionText()}</p>
+                  <p className="text-xs">{renderWithCitations(getDefinitionText() || '')}</p>
                   {getDefinitionSource() && (
                     <p className="text-[10px] text-muted-foreground mt-0.5">
                       Source: {getDefinitionSource()}
@@ -382,13 +396,13 @@ export function SlideRenderer({
                     const misconception = (slide.content as any).misconception;
                     return typeof misconception === 'string' ? (
                       // Legacy string format
-                      <p className="text-sm">{misconception}</p>
+                      <p className="text-sm">{renderWithCitations(misconception)}</p>
                     ) : (
                       // V3 object format
                       <>
-                        <p className="text-sm mb-1"><strong>Wrong belief:</strong> {misconception.wrong_belief}</p>
-                        <p className="text-sm mb-1"><strong>Why it's wrong:</strong> {misconception.why_wrong}</p>
-                        <p className="text-sm text-green-600 dark:text-green-400"><strong>Correct:</strong> {misconception.correct_understanding}</p>
+                        <p className="text-sm mb-1"><strong>Wrong belief:</strong> {renderWithCitations(misconception.wrong_belief)}</p>
+                        <p className="text-sm mb-1"><strong>Why it's wrong:</strong> {renderWithCitations(misconception.why_wrong)}</p>
+                        <p className="text-sm text-green-600 dark:text-green-400"><strong>Correct:</strong> {renderWithCitations(misconception.correct_understanding)}</p>
                       </>
                     );
                   })()}
@@ -420,12 +434,12 @@ export function SlideRenderer({
                     const example = slide.content.example;
                     return typeof example === 'string' ? (
                       // Legacy string format
-                      <p className="text-sm">{example}</p>
+                      <p className="text-sm">{renderWithCitations(example)}</p>
                     ) : (
                       // V3 object format
                       <>
-                        <p className="text-sm mb-1">{example.scenario}</p>
-                        <p className="text-sm text-muted-foreground">{getExampleExplanation()}</p>
+                        <p className="text-sm mb-1">{renderWithCitations(example.scenario)}</p>
+                        <p className="text-sm text-muted-foreground">{renderWithCitations(getExampleExplanation())}</p>
                       </>
                     );
                   })()}
@@ -462,7 +476,7 @@ export function SlideRenderer({
                         )}
                       >
                         <span className={cn('mt-1.5 h-1.5 w-1.5 rounded-full flex-shrink-0', config.iconBg)} />
-                        <span className="text-base leading-relaxed">{normalized.text}</span>
+                        <span className="text-base leading-relaxed">{renderWithCitations(normalized.text)}</span>
                       </div>
                     );
                   })}
@@ -581,6 +595,7 @@ export function SlideRenderer({
         onClose={() => setLightboxOpen(false)}
       />
     </div>
+    </TooltipProvider>
   );
 }
 
