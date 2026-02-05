@@ -174,29 +174,30 @@ interface TeachingUnitContext {
 // ============================================================================
 //
 // CURRENT ROUTING:
-//   | Operation      | Provider   | Model                          |
-//   |----------------|------------|--------------------------------|
-//   | Professor AI   | OpenRouter | google/gemini-2.5-flash        |
-//   | Images         | OpenRouter | google/gemini-2.5-flash-image  |
-//   | Research Agent | Google     | gemini-2.5-flash + googleSearch|
+//   | Operation      | Provider   | Model                              |
+//   |----------------|------------|------------------------------------|
+//   | Professor AI   | OpenRouter | google/gemini-3-flash-preview      |
+//   | Images         | OpenRouter | google/gemini-3-pro-image-preview  |
+//   | Research Agent | OpenRouter | perplexity/sonar-pro               |
 //
 // WHY THIS SPLIT:
-//   - OpenRouter: Unified billing, fallback chains, cost optimization
-//   - Google Direct (Research only): Search grounding not available on OpenRouter
+//   - OpenRouter: Unified billing, fallback chains, cost optimization for all operations
+//   - Perplexity: Web search with citations via OpenRouter
 //
 // IMPORTS:
 //   - generateText, MODELS from '../_shared/unified-ai-client.ts'
-//   - runResearchAgent (below) for research with Google Search grounding
+//   - searchGrounded for research via Perplexity
 //
 // MODEL CONSTANTS (from openrouter-client.ts):
-//   - MODELS.PROFESSOR_AI = 'google/gemini-2.5-flash'
-//   - MODELS.PROFESSOR_AI_FALLBACK = 'google/gemini-flash-1.5'
-//   - MODELS.IMAGE = 'google/gemini-2.5-flash-image'
+//   - MODELS.PROFESSOR_AI = 'google/gemini-3-flash-preview'
+//   - MODELS.PROFESSOR_AI_FALLBACK = 'google/gemini-2.5-flash'
+//   - MODELS.IMAGE = 'google/gemini-3-pro-image-preview'
 //
 
-// NOTE: All AI operations now route through OpenRouter via unified-ai-client.ts
-// Research uses Perplexity (perplexity/sonar-pro) for web search with citations
-// Professor AI uses google/gemini-3-flash-preview for slide content generation
+// NOTE (Verified 2026-02): All AI operations route through OpenRouter via unified-ai-client.ts
+// - Research: Perplexity (perplexity/sonar-pro) for web search with citations
+// - Professor AI: google/gemini-3-flash-preview for slide content generation
+// - Images: google/gemini-3-pro-image-preview for visual generation
 
 function parseJsonFromAI(content: string): any {
   // Extract JSON from markdown code blocks if present
@@ -675,6 +676,16 @@ Specify visuals that genuinely enhance understanding:
 - style: "clean technical diagram", "annotated screenshot", "minimalist academic", "data visualization", etc.
 - educational_purpose: What concept this visual helps explain
 
+VISUAL DIRECTIVE QUALITY REQUIREMENTS (CRITICAL):
+- description: Must be 50+ words, highly specific to the educational content
+- Avoid generic visuals like "people connecting", "trophy", "lightbulb", "gears turning"
+- Describe the EXACT visual representation of the concept being taught
+- Include specific labels, data points, or framework components in the description
+- Match the domain terminology (e.g., for management: "Strategic Analysis Matrix with 4 quadrants labeled...")
+
+BAD EXAMPLE: "A diagram showing communication between people"
+GOOD EXAMPLE: "A horizontal flowchart showing the AIDA model: four connected boxes labeled 'Attention' (with eye icon), 'Interest' (with lightbulb), 'Desire' (with heart), and 'Action' (with checkmark). Arrows flow left to right. Below each box, include a one-line example from digital marketing context. Use clean academic style with blue gradient headers."
+
 QUALITY STANDARDS:
 - NO vague phrases like "important for business" or "useful in practice"—be SPECIFIC
 - NO unexplained jargon—every technical term gets a definition
@@ -773,6 +784,20 @@ CRITICAL REQUIREMENTS:
    - Multiple items in a list → type: "list"
    - Simple paragraph → type: "plain"
    - Always include emphasis_words: 2-4 critical terms to highlight
+
+7. OPTIONAL FIELDS HANDLING (CRITICAL):
+   - The fields "definition", "example", "misconception", and "steps" are OPTIONAL
+   - ONLY include these fields if the slide type genuinely warrants them
+   - DO NOT fill optional fields with "N/A", "Not applicable", placeholder text, or empty values
+   - If a field doesn't apply to the slide type, OMIT the key entirely from the JSON
+   - For example: a "title" slide should NOT have a "misconception" or "example" block
+   - A "definition" slide SHOULD have a "definition" block but NOT "misconception"
+   
+   WRONG (do not do this):
+   "misconception": { "wrong_belief": "N/A", "why_wrong": "N/A", "correct_understanding": "N/A" }
+   
+   CORRECT (omit entirely when not applicable):
+   // No misconception key at all for title/definition slides
 
 OUTPUT (JSON array of slides):
 {
@@ -910,18 +935,18 @@ Generate all ${targetSlides} slides now with RICH, EDUCATIONAL content and LAYOU
   // Use unified AI client for Professor AI (with fallbacks)
   // NOTE: Do NOT use json: true - the prompt expects markdown-wrapped JSON which parseJsonFromAI handles
   //
-  // ROUTING (Updated 2026-01-22):
-  //   Primary: MODELS.PROFESSOR_AI = 'google/gemini-2.5-flash' (fast, cost-effective)
-  //   Fallback: MODELS.PROFESSOR_AI_FALLBACK = 'google/gemini-flash-1.5' (even faster)
+  // ROUTING (Verified 2026-02):
+  //   Primary: MODELS.PROFESSOR_AI = 'google/gemini-3-flash-preview'
+  //   Fallback: MODELS.PROFESSOR_AI_FALLBACK = 'google/gemini-2.5-flash'
   //
   const aiResult = await generateText({
     prompt: userPrompt,
     systemPrompt: PROFESSOR_SYSTEM_PROMPT,
-    model: MODELS.PROFESSOR_AI,              // 'google/gemini-2.5-flash'
+    model: MODELS.PROFESSOR_AI,              // 'google/gemini-3-flash-preview'
     temperature: 0.7,
     maxTokens: 16000,
     // json: true, // DO NOT USE: prompt expects markdown blocks, parseJsonFromAI handles this
-    fallbacks: [MODELS.PROFESSOR_AI_FALLBACK], // 'google/gemini-flash-1.5'
+    fallbacks: [MODELS.PROFESSOR_AI_FALLBACK], // 'google/gemini-2.5-flash'
     logPrefix: '[Professor AI]'
   });
   const result = aiResult.content;
