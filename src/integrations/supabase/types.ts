@@ -456,6 +456,7 @@ export type Database = {
           output_uri: string | null
           provider: string | null
           request_mapping: Json
+          research_data: Json | null
           status: string
           succeeded_count: number | null
           total_requests: number
@@ -476,6 +477,7 @@ export type Database = {
           output_uri?: string | null
           provider?: string | null
           request_mapping?: Json
+          research_data?: Json | null
           status?: string
           succeeded_count?: number | null
           total_requests: number
@@ -496,6 +498,7 @@ export type Database = {
           output_uri?: string | null
           provider?: string | null
           request_mapping?: Json
+          research_data?: Json | null
           status?: string
           succeeded_count?: number | null
           total_requests?: number

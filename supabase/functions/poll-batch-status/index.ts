@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
 import { MODEL_CONFIG } from '../_shared/ai-orchestrator.ts';
+import { MODELS } from '../_shared/unified-ai-client.ts';
 import { createVertexAIAuth } from '../_shared/vertex-ai-auth.ts';
 import { createGCSClient, GCSClient } from '../_shared/gcs-client.ts';
 import { createVertexAIBatchClient, VertexAIBatchClient } from '../_shared/vertex-ai-batch.ts';
@@ -785,7 +786,24 @@ async function processCompletedBatch(
       }));
 
       // Update lecture_slides record
-      // Note: Uses GEMINI_PRO because batch now uses same model as v3
+      // ====================================================================
+      // V3 PARITY: Calculate quality score (same logic as v3)
+      // ====================================================================
+      const avgSpeakerNotesLength = formattedSlides.reduce(
+        (sum: number, s: any) => sum + (s.speaker_notes?.length || 0), 0
+      ) / formattedSlides.length;
+
+      let qualityScore = 70;
+      if (avgSpeakerNotesLength > 500) qualityScore += 10;
+      if (formattedSlides.some((s: any) => s.type === 'misconception')) qualityScore += 5;
+      if (formattedSlides.some((s: any) => s.content?.definition)) qualityScore += 5;
+
+      // Get research context from batch_jobs.research_data (populated by process-batch-research)
+      const researchContext = batchJob.research_data?.[teachingUnitId];
+      const hasResearch = researchContext?.grounded_content?.length > 0;
+      const citationCount = researchContext?.grounded_content?.length || 0;
+
+      // V3 PARITY: Update lecture_slides record with all metadata
       await supabase
         .from('lecture_slides')
         .update({
@@ -793,13 +811,19 @@ async function processCompletedBatch(
           total_slides: formattedSlides.length,
           status: 'ready', // Will change to 'images_pending' when image queue is added
           error_message: null, // Clear any previous error from failed attempts
-          generation_model: MODEL_CONFIG.GEMINI_PRO, // v3 parity: batch now uses PRO
+          batch_job_id: batchJob.id, // CRITICAL: Preserve batch_job_id for image queue
+          generation_model: MODEL_CONFIG.GEMINI_3_FLASH, // v3 parity: match v3 model
           estimated_duration_minutes: Math.round(formattedSlides.length * 1.5),
           generation_phases: {
             method: 'vertex_ai_batch',
             research_included: true, // v3 parity: research is now included
             completed_at: new Date().toISOString(),
           },
+          // V3 PARITY: Add quality metadata fields
+          quality_score: qualityScore,
+          is_research_grounded: hasResearch,
+          citation_count: citationCount,
+          research_context: hasResearch ? researchContext : null,
         })
         .eq('teaching_unit_id', teachingUnitId);
 
