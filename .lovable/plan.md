@@ -1,243 +1,218 @@
 
+# Plan: Model Optimization for Higher-Quality Slide Generation
 
-# Plan: Scalable Batch Status Polling Architecture
+## Problem Summary
 
-## Problem Statement
+The current slide generation pipeline has two quality issues:
 
-The current polling architecture calls the Vertex AI API directly from `poll-batch-status` edge function **every time a frontend user polls** (every 10 seconds). With 1000 users watching batch jobs, this results in 1000+ Vertex AI API calls per minute, exceeding Google's quota of ~600 CRUD operations/minute.
+| Issue | Symptom | Root Cause |
+|-------|---------|------------|
+| **"N/A" on slides** | Title slides show "N/A" for misconception/example | `google/gemini-2.5-flash` is "completing" optional fields with placeholders instead of omitting them |
+| **Poor visual descriptions** | Generic, uninspired image directives ("network of people", "trophy") | Flash model optimizes for speed, not creative/pedagogical depth |
 
----
+## Current Model Configuration
 
-## Solution: Single-Worker Polling Pattern
-
-Shift from **"every user polls Vertex"** to **"one worker polls Vertex, users receive Realtime updates"**.
-
-```text
-BEFORE (Broken at Scale):
-  1000 users × 6 polls/min = 6000 Vertex API calls/min → 429 errors
-
-AFTER (Scales to 100K users):
-  1 cron job × 2 polls/min = 2 Vertex API calls per active batch/min
-  Users receive instant updates via Supabase Realtime WebSocket
-```
-
----
-
-## Architecture Diagram
+From `openrouter-client.ts` lines 64-124:
 
 ```text
-┌─────────────────────────────────────────────────────────────────────┐
-│                                                                     │
-│   ┌─────────────┐        ┌─────────────────┐                       │
-│   │  pg_cron    │───────►│ poll-active-    │──────► Vertex AI API  │
-│   │  (30 sec)   │        │ batches         │        (1 call/batch) │
-│   └─────────────┘        └────────┬────────┘                       │
-│                                   │                                 │
-│                          UPDATE batch_jobs                          │
-│                                   │                                 │
-│                                   ▼                                 │
-│                       ┌───────────────────────┐                    │
-│                       │   Supabase Realtime   │                    │
-│                       │   (postgres_changes)  │                    │
-│                       └───────────┬───────────┘                    │
-│                                   │                                 │
-│           ┌───────────────────────┼───────────────────────┐        │
-│           ▼                       ▼                       ▼        │
-│     ┌──────────┐           ┌──────────┐           ┌──────────┐    │
-│     │  User 1  │           │  User 2  │           │User 1000 │    │
-│     │  (ws)    │           │  (ws)    │           │  (ws)    │    │
-│     └──────────┘           └──────────┘           └──────────┘    │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
-
-Result: 2 Vertex API calls/min instead of 6000
+┌───────────────────────────────────────────────────────────────────────────────┐
+│                           CURRENT ROUTING                                     │
+├───────────────────────────────────────────────────────────────────────────────┤
+│                                                                               │
+│  ┌────────────────────┐     ┌────────────────────┐     ┌────────────────────┐│
+│  │   Professor AI     │     │    Visual AI       │     │   Research Agent   ││
+│  │                    │     │  (Descriptions)    │     │                    ││
+│  └─────────┬──────────┘     └─────────┬──────────┘     └─────────┬──────────┘│
+│            │                          │                          │           │
+│            ▼                          ▼                          ▼           │
+│  ┌──────────────────┐      ┌──────────────────┐      ┌──────────────────────┐│
+│  │ gemini-2.5-flash │      │ gemini-2.5-flash │      │ perplexity/sonar-pro ││
+│  │ (Fast, Cheap)    │      │ (Same model)     │      │ (Research)           ││
+│  │ $0.075/1M input  │      │                  │      │ $3.00/1M input       ││
+│  └──────────────────┘      └──────────────────┘      └──────────────────────┘│
+│                                                                               │
+│  PROBLEM: Flash model prioritizes speed over depth. It fills optional        │
+│  schema fields with "N/A" instead of omitting them, and generates            │
+│  generic visual descriptions lacking pedagogical specificity.                 │
+│                                                                               │
+└───────────────────────────────────────────────────────────────────────────────┘
 ```
 
----
+## Recommended Model Selection
 
-## Implementation Tasks
+Based on OpenRouter's model catalog and your architecture constraints:
 
-### Task 1: Create Single-Worker Polling Edge Function
+### Option A: Upgrade to Gemini 3 Flash Preview (Recommended)
 
-**New File:** `supabase/functions/poll-active-batches/index.ts`
+| Role | Current Model | Proposed Model | Cost Change | Quality Improvement |
+|------|---------------|----------------|-------------|---------------------|
+| **Professor AI** | `google/gemini-2.5-flash` | `google/gemini-3-flash-preview` | +33% | Better instruction following, richer content |
+| **Fallback** | `google/gemini-flash-1.5` | `google/gemini-2.5-flash` | Same | Stable fallback |
 
-This function will:
-- Query all `batch_jobs` with status IN ('submitted', 'processing', 'researching')
-- Poll Vertex AI API once per active batch (with exponential backoff)
-- Update `batch_jobs` table with current status
-- The database update triggers Supabase Realtime → all subscribed frontends update
+**Why Gemini 3 Flash Preview:**
+- **Better instruction following**: Newer models respect "omit if not applicable" directives
+- **Richer pedagogical output**: Improved reasoning produces more substantive content
+- **Balanced cost**: $0.10/1M input vs $0.075/1M (33% increase, still affordable)
+- **Already in MODELS constant**: `MODELS.SLIDES = 'google/gemini-3-flash-preview'` (line 71)
 
-**Key Logic:**
-```text
-// Exponential backoff for Vertex AI calls
-const POLL_DELAYS = [30, 60, 120, 240]; // seconds between retries on 429
-let delay = POLL_DELAYS[0];
+### Option B: Use Gemini 2.5 Pro for Complex Tasks (Premium)
 
-for (const batch of activeBatches) {
-  try {
-    const status = await batchClient.getBatchJob(batch.google_batch_id);
-    await updateBatchStatus(batch.id, status);
-    delay = POLL_DELAYS[0]; // Reset on success
-  } catch (error) {
-    if (error.status === 429) {
-      delay = Math.min(delay * 2, POLL_DELAYS[3]);
-      await sleep(delay * 1000);
-    }
-  }
-}
+| Role | Proposed Model | Cost | When to Use |
+|------|----------------|------|-------------|
+| **Professor AI** | `google/gemini-2.5-pro` | $1.25/1M input | Large courses, premium quality |
+| **Fallback** | `google/gemini-3-flash-preview` | $0.10/1M input | Standard generation |
+
+**When to choose Pro:**
+- Complex pedagogical content (graduate-level courses)
+- Multi-step reasoning for misconception handling
+- ~16x more expensive but significantly higher quality
+
+### Recommendation: **Option A** (Gemini 3 Flash Preview)
+
+Best balance of quality improvement and cost efficiency. The model is already defined in your codebase but not being used.
+
+## Detailed Technical Changes
+
+### Change 1: Update MODELS.PROFESSOR_AI in openrouter-client.ts
+
+**File:** `supabase/functions/_shared/openrouter-client.ts`
+
+**Lines 68-71 - Current:**
+```typescript
+PROFESSOR_AI: 'google/gemini-3-flash-preview',     // Next-gen: Best quality/speed balance
+PROFESSOR_AI_FALLBACK: 'google/gemini-2.5-flash',  // Fallback: Stable 2.5 Flash
+SLIDES: 'google/gemini-3-flash-preview',           // Alias for clarity
 ```
 
----
+**Analysis:** Wait - the MODELS constant **already specifies** `gemini-3-flash-preview`!
 
-### Task 2: Modify poll-batch-status to Be Read-Only
+Let me trace where the actual model is being used...
 
-**File:** `supabase/functions/poll-batch-status/index.ts`
-
-**Changes:**
-- Remove all Vertex AI API calls (lines 102-158)
-- Remove batchClient initialization
-- Only read status from database
-- Keep `processCompletedBatch` but don't call Vertex API
-
-**Before (lines 102-158):**
-```text
-if (batchClient && batchJob.google_batch_id) {
-  const vertexStatus = await batchClient.getBatchJob(batchJob.google_batch_id);
-  // ... updates database ...
-}
+**Lines 917-926 in generate-lecture-slides-v3/index.ts:**
+```typescript
+const aiResult = await generateText({
+  prompt: userPrompt,
+  systemPrompt: PROFESSOR_SYSTEM_PROMPT,
+  model: MODELS.PROFESSOR_AI,              // 'google/gemini-2.5-flash' <-- COMMENT IS WRONG!
+  temperature: 0.7,
+  maxTokens: 16000,
+  fallbacks: [MODELS.PROFESSOR_AI_FALLBACK], // 'google/gemini-flash-1.5'
+  logPrefix: '[Professor AI]'
+});
 ```
 
-**After:**
-```text
-// Just return current database status
-// Vertex polling is handled by poll-active-batches cron job
-return createSuccessResponse({
-  success: true,
-  batch_job: batchJob,
-  is_complete: ['completed', 'failed', 'partial'].includes(batchJob.status),
-  progress_percent: calculateProgress(batchJob),
-}, corsHeaders);
-```
+**Root Cause Found:** The **comment** in the code says `'google/gemini-2.5-flash'` but `MODELS.PROFESSOR_AI` is actually `'google/gemini-3-flash-preview'`. The code is **already using the right model** - the issue is the **prompt**, not the model!
 
----
+### Re-Analysis: The Real Problem
 
-### Task 3: Set Up pg_cron Trigger
+Since `MODELS.PROFESSOR_AI = 'google/gemini-3-flash-preview'` (the correct model), the "N/A" issue is a **prompt problem**, not a model problem.
 
-**SQL Migration:**
-```sql
--- Enable pg_cron extension (already enabled)
--- Create cron job to poll active batches every 30 seconds
+**Looking at the prompt (lines 730-908):**
+The schema shows optional fields like `misconception` and `example`, but the prompt doesn't explicitly tell the model to **omit these when not applicable**. The model is being "helpful" by filling them.
 
-SELECT cron.schedule(
-  'poll-active-batches',
-  '*/30 * * * * *', -- Every 30 seconds
-  $$
-  SELECT net.http_post(
-    url := current_setting('app.settings.supabase_url') || '/functions/v1/poll-active-batches',
-    headers := jsonb_build_object(
-      'Authorization', 'Bearer ' || current_setting('app.settings.service_role_key'),
-      'Content-Type', 'application/json'
-    ),
-    body := '{}'::jsonb
-  );
-  $$
-);
-```
+### Change 2: Update Prompt to Explicitly Handle Optional Fields
 
----
+**File:** `supabase/functions/generate-lecture-slides-v3/index.ts`
 
-### Task 4: Update Frontend Polling Intervals
-
-**File:** `src/hooks/useBatchSlides.ts`
-
-**Changes at lines 284-293 and 395-404:**
+Add explicit instruction after line 776:
 
 ```text
-// BEFORE: Poll every 10 seconds (causes 429s)
-refetchInterval: (query) => {
-  if (data?.is_complete) return false;
-  return 10000; // 10 seconds
-},
-
-// AFTER: Rely on Realtime, use 60s fallback only
-refetchInterval: (query) => {
-  if (data?.is_complete) return false;
-  return 60000; // 60 seconds (safety net, not primary)
-},
+7. OPTIONAL FIELDS HANDLING (CRITICAL):
+   - The fields "definition", "example", "misconception", and "steps" are OPTIONAL
+   - ONLY include these if the slide type warrants them
+   - DO NOT fill optional fields with "N/A", "Not applicable", or placeholder text
+   - If a field doesn't apply to the slide type, OMIT the key entirely from the JSON
+   - For example, a "title" slide should NOT have a "misconception" or "example" block
+   
+   WRONG (do not do this):
+   "misconception": { "wrong_belief": "N/A", "why_wrong": "N/A" }
+   
+   CORRECT (omit entirely):
+   // No misconception key at all for title slides
 ```
 
----
+### Change 3: Improve Visual Directive Prompt Quality
 
-### Task 5: Add Exponential Backoff to poll-active-batches
+**File:** `supabase/functions/generate-lecture-slides-v3/index.ts`
 
-**In poll-active-batches/index.ts:**
+Add after line 677 (within VISUAL DIRECTIVES section):
 
 ```text
-const BACKOFF_CONFIG = {
-  initialDelay: 1000,    // 1 second
-  maxDelay: 60000,       // 60 seconds
-  multiplier: 2,
-  maxRetries: 3,
-};
+VISUAL DIRECTIVE QUALITY REQUIREMENTS:
+- description: Must be 50+ words, highly specific to the educational content
+- Avoid generic visuals like "people connecting", "trophy", "lightbulb"
+- Describe the EXACT visual representation of the concept being taught
+- Include specific labels, data points, or framework components
+- Match the domain terminology (e.g., for management: "Strategic Analysis Matrix with 4 quadrants labeled...")
 
-async function pollWithBackoff(batchClient, batch, attempt = 0) {
-  try {
-    return await batchClient.getBatchJob(batch.google_batch_id);
-  } catch (error) {
-    if (error.status === 429 && attempt < BACKOFF_CONFIG.maxRetries) {
-      const delay = Math.min(
-        BACKOFF_CONFIG.initialDelay * Math.pow(BACKOFF_CONFIG.multiplier, attempt),
-        BACKOFF_CONFIG.maxDelay
-      );
-      await sleep(delay);
-      return pollWithBackoff(batchClient, batch, attempt + 1);
-    }
-    throw error;
-  }
-}
+BAD: "A diagram showing communication between people"
+GOOD: "A horizontal flowchart showing the AIDA model: four connected boxes labeled 'Attention' (with eye icon), 'Interest' (with lightbulb), 'Desire' (with heart), and 'Action' (with checkmark). Arrows flow left to right. Below each box, include a one-line example from digital marketing context."
 ```
 
----
+### Change 4: Fix Misleading Comments
+
+**File:** `supabase/functions/generate-lecture-slides-v3/index.ts`
+
+Update lines 913-915 to match reality:
+
+```text
+// ROUTING (Verified 2026-02):
+//   Primary: MODELS.PROFESSOR_AI = 'google/gemini-3-flash-preview'
+//   Fallback: MODELS.PROFESSOR_AI_FALLBACK = 'google/gemini-2.5-flash'
+```
+
+Update lines 177-194 to match reality:
+
+```text
+// CURRENT ROUTING:
+//   | Operation      | Provider   | Model                              |
+//   |----------------|------------|------------------------------------|
+//   | Professor AI   | OpenRouter | google/gemini-3-flash-preview      |
+//   | Images         | OpenRouter | google/gemini-3-pro-image-preview  |
+//   | Research Agent | OpenRouter | perplexity/sonar-pro               |
+```
 
 ## Files to Modify
 
-| File | Changes |
-|------|---------|
-| `supabase/functions/poll-active-batches/index.ts` | **NEW** - Single-worker polling with exponential backoff |
-| `supabase/functions/poll-batch-status/index.ts` | Remove Vertex API calls, read-only from database |
-| `src/hooks/useBatchSlides.ts` | Change refetchInterval from 10s to 60s |
-| SQL Migration | Add pg_cron job for poll-active-batches every 30s |
+| File | Change Type | Lines Affected |
+|------|-------------|----------------|
+| `supabase/functions/generate-lecture-slides-v3/index.ts` | Add optional field handling instruction | After line 776 |
+| `supabase/functions/generate-lecture-slides-v3/index.ts` | Add visual directive quality requirements | After line 677 |
+| `supabase/functions/generate-lecture-slides-v3/index.ts` | Fix misleading comments | Lines 177-194, 913-915 |
 
----
+## Cost Analysis
 
-## Scalability Comparison
+**No model change required** - you're already using `gemini-3-flash-preview`.
 
-| Metric | Current | After Fix |
-|--------|---------|-----------|
-| Vertex API calls with 10 active batches | 600/min per 100 users | **20/min total** |
-| Vertex API calls with 100 active batches | **6000/min (429s)** | **200/min total** |
-| Frontend update latency | 10 seconds | **< 1 second (Realtime)** |
-| Can handle 1000 users | ❌ No | ✅ Yes |
-| Can handle 100K users | ❌ No | ✅ Yes |
+| Model | Cost (per 1M input) | Cost (per 1M output) | Status |
+|-------|---------------------|----------------------|--------|
+| `google/gemini-3-flash-preview` | $0.10 | $0.40 | **Already in use** |
+| `google/gemini-2.5-flash` | $0.075 | $0.30 | Fallback |
 
----
+**Cost per 6-slide generation:** ~$0.002-$0.004 (unchanged)
+
+## Expected Outcomes
+
+After these prompt improvements:
+
+1. **No more "N/A" on slides** - Model will omit optional fields instead of filling them
+2. **Richer visual descriptions** - Specific, domain-relevant visuals with detailed elements
+3. **Accurate documentation** - Comments match actual model routing
 
 ## Testing Checklist
 
 After implementation:
-- Verify pg_cron job runs every 30 seconds
-- Confirm Vertex API is only called from poll-active-batches (check logs)
-- Test Realtime updates are received by frontend within 1 second of batch status change
-- Confirm no 429 errors with 10+ concurrent batch viewers
-- Verify fallback polling at 60s works when Realtime disconnects
-- Load test with 100 simulated concurrent users watching batches
+- Generate slides for a teaching unit and verify no "N/A" appears on title slides
+- Check that misconception fields only appear on misconception-type slides
+- Verify visual descriptions are 50+ words with specific elements
+- Confirm logs show `google/gemini-3-flash-preview` as the model used
+- Compare before/after slide quality for the same teaching unit
 
----
+## Summary
 
-## Expected Outcome
+The model configuration is correct (`gemini-3-flash-preview`), but the prompt needs explicit instructions to:
+1. Omit optional fields when not applicable (instead of filling with "N/A")
+2. Generate detailed, domain-specific visual descriptions (50+ words)
+3. Comments should be updated to match the actual routing
 
-1. **No more 429 errors** - Single worker polls Vertex, not every user
-2. **Faster UI updates** - Realtime pushes updates instantly vs 10s polling
-3. **Scales to 100K users** - WebSocket connections are cheap, API calls are expensive
-4. **Lower costs** - Fewer Edge Function invocations, fewer Vertex API calls
-
+This is a prompt engineering fix, not a model swap.
