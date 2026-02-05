@@ -286,7 +286,7 @@ export function useBatchStatus(batchJobId?: string | null) {
       if (data?.is_complete) {
         return false;
       }
-      return 10000; // 10 seconds for responsive UX
+      return 60000; // 60 seconds - Realtime handles instant updates, this is safety net
     },
 
     staleTime: 3000,
@@ -396,7 +396,7 @@ export function useCourseSlideStatus(instructorCourseId?: string) {
       const data = query.state.data;
       const hasWorkInFlight = !!data?.active_batch || (data?.batch_pending ?? 0) > 0 || (data?.generating ?? 0) > 0;
       if (hasWorkInFlight) {
-        return 10000; // Poll every 10 seconds for responsive UX
+        return 60000; // 60 seconds - Realtime handles instant updates, this is safety net
       }
       return false;
     },
