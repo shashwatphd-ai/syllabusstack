@@ -1,293 +1,200 @@
 
-# Plan: Batch Pipeline Alignment with Individual v3 Quality
 
-## Executive Summary
+# Plan: Scalable Batch Status Polling Architecture
 
-This plan addresses the root causes of why batch-generated slides differ from individual v3 slides in terms of missing images, missing citations, and content quality differences.
+## Problem Statement
+
+The current polling architecture calls the Vertex AI API directly from `poll-batch-status` edge function **every time a frontend user polls** (every 10 seconds). With 1000 users watching batch jobs, this results in 1000+ Vertex AI API calls per minute, exceeding Google's quota of ~600 CRUD operations/minute.
 
 ---
 
-## Technical Analysis: Why Batch Output Differs from v3
+## Solution: Single-Worker Polling Pattern
 
-### Issue 1: Images Not Generating (CRITICAL)
-
-**Root Cause:** In `poll-batch-status/index.ts` at lines 789-804, when slides are updated to `ready` status, the `batch_job_id` field is NOT included in the update. The update uses `.eq('teaching_unit_id', teachingUnitId)` but doesn't preserve `batch_job_id: batchJob.id`.
-
-**Impact:** After the update, when the image queue population code at lines 862-867 queries for slides with `.eq('batch_job_id', batchJob.id)`, it finds 0 results because all those slides now have `batch_job_id = NULL`.
+Shift from **"every user polls Vertex"** to **"one worker polls Vertex, users receive Realtime updates"**.
 
 ```text
-Current update (line 789-804):
-  .update({
-    slides: formattedSlides,
-    status: 'ready',
-    // batch_job_id NOT preserved!
-  })
-  .eq('teaching_unit_id', teachingUnitId)
+BEFORE (Broken at Scale):
+  1000 users × 6 polls/min = 6000 Vertex API calls/min → 429 errors
+
+AFTER (Scales to 100K users):
+  1 cron job × 2 polls/min = 2 Vertex API calls per active batch/min
+  Users receive instant updates via Supabase Realtime WebSocket
 ```
 
 ---
 
-### Issue 2: Research Context Structure Mismatch (CRITICAL)
+## Architecture Diagram
 
-**v3 Structure (`generate-lecture-slides-v3/index.ts` lines 106-125):**
 ```text
-ResearchContext {
-  topic: string;
-  grounded_content: {      // Frontend expects THIS
-    claim: string;
-    source_url: string;
-    source_title: string;
-    confidence: number;
-  }[];
-  recommended_reading: {...}[];
-  visual_descriptions: {...}[];
-}
+┌─────────────────────────────────────────────────────────────────────┐
+│                                                                     │
+│   ┌─────────────┐        ┌─────────────────┐                       │
+│   │  pg_cron    │───────►│ poll-active-    │──────► Vertex AI API  │
+│   │  (30 sec)   │        │ batches         │        (1 call/batch) │
+│   └─────────────┘        └────────┬────────┘                       │
+│                                   │                                 │
+│                          UPDATE batch_jobs                          │
+│                                   │                                 │
+│                                   ▼                                 │
+│                       ┌───────────────────────┐                    │
+│                       │   Supabase Realtime   │                    │
+│                       │   (postgres_changes)  │                    │
+│                       └───────────┬───────────┘                    │
+│                                   │                                 │
+│           ┌───────────────────────┼───────────────────────┐        │
+│           ▼                       ▼                       ▼        │
+│     ┌──────────┐           ┌──────────┐           ┌──────────┐    │
+│     │  User 1  │           │  User 2  │           │User 1000 │    │
+│     │  (ws)    │           │  (ws)    │           │  (ws)    │    │
+│     └──────────┘           └──────────┘           └──────────┘    │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+
+Result: 2 Vertex API calls/min instead of 6000
 ```
-
-**Batch Structure (`process-batch-research/index.ts` lines 227-238):**
-```text
-ResearchContext {
-  grounding_sources: {...}[];  // Different field name!
-  key_facts: string[];
-  current_developments: string[];
-  expert_perspectives: string[];
-  statistics: string[];
-  case_studies: string[];
-}
-```
-
-**Impact:** The frontend LectureSlideViewer extracts citations from `research_context.grounded_content`. Batch slides have `grounding_sources` instead, so citations don't render.
-
----
-
-### Issue 3: Research Merging Differences
-
-**v3 (`generate-lecture-slides-v3/index.ts` lines 546-577):**
-- Uses `grounded_content` array with source attribution
-- Includes `[Source N]` citation markers with full URLs
-- Adds `recommended_reading` section
-- Adds `visual_descriptions` with exact framework structures
-- Has explicit "CITATION RULES" enforcement
-
-**Batch (`process-batch-research/index.ts` lines 464-496):**
-- Uses simplified `grounding_sources` (title, url, snippet only)
-- Uses `key_facts` (plain strings, no source attribution)
-- Uses `statistics`, `case_studies` (no URLs)
-- Missing `recommended_reading` and `visual_descriptions` entirely
-
----
-
-### Issue 4: Missing Metadata Fields
-
-| Field | v3 (Line 1176-1180) | Batch (Line 789-804) |
-|-------|---------------------|----------------------|
-| `quality_score` | Calculated dynamically (70+) | Not set |
-| `is_research_grounded` | `researchContext.grounded_content.length > 0` | Not set |
-| `citation_count` | `researchContext.grounded_content.length` | Not set |
-| `research_context` | Full v3 structure | Not passed through |
-
----
-
-### Issue 5: Model Configuration
-
-**Current State:**
-- v3: Uses `google/gemini-3-flash-preview` via OpenRouter
-- Batch: Uses `MODEL_CONFIG.GEMINI_PRO` = `gemini-3-pro-preview` via Vertex
-
-**Requested Change:** Align batch to use `gemini-3-flash-preview` via Vertex.
 
 ---
 
 ## Implementation Tasks
 
-### Task 1: Preserve batch_job_id in poll-batch-status
+### Task 1: Create Single-Worker Polling Edge Function
 
-**File:** `supabase/functions/poll-batch-status/index.ts`
+**New File:** `supabase/functions/poll-active-batches/index.ts`
 
-**Location:** Lines 789-804
+This function will:
+- Query all `batch_jobs` with status IN ('submitted', 'processing', 'researching')
+- Poll Vertex AI API once per active batch (with exponential backoff)
+- Update `batch_jobs` table with current status
+- The database update triggers Supabase Realtime → all subscribed frontends update
 
-**Change:** Add `batch_job_id: batchJob.id` to the update query:
-
+**Key Logic:**
 ```text
-await supabase
-  .from('lecture_slides')
-  .update({
-    slides: formattedSlides,
-    total_slides: formattedSlides.length,
-    status: 'ready',
-    error_message: null,
-    batch_job_id: batchJob.id,  // ADD THIS LINE
-    // ... rest of fields
-  })
-  .eq('teaching_unit_id', teachingUnitId);
+// Exponential backoff for Vertex AI calls
+const POLL_DELAYS = [30, 60, 120, 240]; // seconds between retries on 429
+let delay = POLL_DELAYS[0];
+
+for (const batch of activeBatches) {
+  try {
+    const status = await batchClient.getBatchJob(batch.google_batch_id);
+    await updateBatchStatus(batch.id, status);
+    delay = POLL_DELAYS[0]; // Reset on success
+  } catch (error) {
+    if (error.status === 429) {
+      delay = Math.min(delay * 2, POLL_DELAYS[3]);
+      await sleep(delay * 1000);
+    }
+  }
+}
 ```
 
 ---
 
-### Task 2: Align Research Context Structure
+### Task 2: Modify poll-batch-status to Be Read-Only
 
-**File:** `supabase/functions/process-batch-research/index.ts`
-
-**Location:** Lines 227-238 (interface) and Lines 380-394 (transformation)
+**File:** `supabase/functions/poll-batch-status/index.ts`
 
 **Changes:**
+- Remove all Vertex AI API calls (lines 102-158)
+- Remove batchClient initialization
+- Only read status from database
+- Keep `processCompletedBatch` but don't call Vertex API
 
-1. Update the `ResearchContext` interface to match v3:
-
+**Before (lines 102-158):**
 ```text
-interface ResearchContext {
-  topic: string;
-  grounded_content: Array<{
-    claim: string;
-    source_url: string;
-    source_title: string;
-    confidence: number;
-  }>;
-  recommended_reading: Array<{
-    title: string;
-    url: string;
-    type: 'Academic' | 'Industry' | 'Case Study' | 'Documentation';
-  }>;
-  visual_descriptions: Array<{
-    framework_name: string;
-    description: string;
-    elements: string[];
-  }>;
+if (batchClient && batchJob.google_batch_id) {
+  const vertexStatus = await batchClient.getBatchJob(batchJob.google_batch_id);
+  // ... updates database ...
 }
 ```
 
-2. Update the transformation logic at lines 380-394:
-
+**After:**
 ```text
-// Transform to v3-compatible format (NOT simplified batch format)
-const research: ResearchContext = {
-  topic: unitData.title,
-  grounded_content: result.grounded_content.map(gc => ({
-    claim: gc.claim,
-    source_url: gc.source_url,
-    source_title: gc.source_title,
-    confidence: gc.confidence || 0.8,
-  })),
-  recommended_reading: result.recommended_reading || [],
-  visual_descriptions: result.visual_descriptions || [],
-};
+// Just return current database status
+// Vertex polling is handled by poll-active-batches cron job
+return createSuccessResponse({
+  success: true,
+  batch_job: batchJob,
+  is_complete: ['completed', 'failed', 'partial'].includes(batchJob.status),
+  progress_percent: calculateProgress(batchJob),
+}, corsHeaders);
 ```
 
 ---
 
-### Task 3: Update mergeResearchIntoBrief for Batch
+### Task 3: Set Up pg_cron Trigger
 
-**File:** `supabase/functions/process-batch-research/index.ts`
-
-**Location:** Lines 464-496
-
-**Change:** Replace the simplified merger with v3-style research merging that includes citation markers, recommended reading, and visual descriptions.
-
----
-
-### Task 4: Add Missing Metadata Fields to Batch
-
-**File:** `supabase/functions/poll-batch-status/index.ts`
-
-**Location:** Lines 789-804
-
-**Changes:** Add v3 parity fields to the update:
-
-```text
-// Calculate quality score (same logic as v3)
-const avgSpeakerNotesLength = formattedSlides.reduce(
-  (sum, s) => sum + (s.speaker_notes?.length || 0), 0
-) / formattedSlides.length;
-
-let qualityScore = 70;
-if (avgSpeakerNotesLength > 500) qualityScore += 10;
-if (formattedSlides.some(s => s.type === 'misconception')) qualityScore += 5;
-if (formattedSlides.some(s => s.content?.definition)) qualityScore += 5;
-
-// Get research from teaching unit (passed during batch)
-// NOTE: Requires Task 5 to pass research data through
-
-await supabase
-  .from('lecture_slides')
-  .update({
-    // ... existing fields ...
-    batch_job_id: batchJob.id,
-    quality_score: qualityScore,
-    is_research_grounded: hasResearch,
-    citation_count: researchContext?.grounded_content?.length || 0,
-    research_context: hasResearch ? researchContext : null,
-  })
-  .eq('teaching_unit_id', teachingUnitId);
-```
-
----
-
-### Task 5: Pass Research Context Through Pipeline
-
-**Problem:** Research is gathered in `process-batch-research` but is NOT available in `poll-batch-status` when slides are saved.
-
-**Solution:** Store research data in the `batch_jobs` table.
-
-**Database Migration Required:**
+**SQL Migration:**
 ```sql
-ALTER TABLE batch_jobs 
-ADD COLUMN IF NOT EXISTS research_data JSONB;
+-- Enable pg_cron extension (already enabled)
+-- Create cron job to poll active batches every 30 seconds
 
-COMMENT ON COLUMN batch_jobs.research_data IS 
-  'Research context data keyed by teaching_unit_id for v3 parity';
-```
-
-**File:** `supabase/functions/process-batch-research/index.ts`
-
-After running research (around line 931), save research to batch_jobs:
-
-```text
-// Save research data to batch_jobs for poll-batch-status
-const researchDataMap: Record<string, ResearchContext> = {};
-for (const { unitId, research } of researchResults) {
-  researchDataMap[unitId] = research;
-}
-
-await supabase
-  .from('batch_jobs')
-  .update({ research_data: researchDataMap })
-  .eq('id', batch_job_id);
-```
-
-**File:** `supabase/functions/poll-batch-status/index.ts`
-
-Retrieve research when processing completed batch:
-
-```text
-// Get research data from batch job
-const researchContext = batchJob.research_data?.[teachingUnitId];
-const hasResearch = researchContext?.grounded_content?.length > 0;
+SELECT cron.schedule(
+  'poll-active-batches',
+  '*/30 * * * * *', -- Every 30 seconds
+  $$
+  SELECT net.http_post(
+    url := current_setting('app.settings.supabase_url') || '/functions/v1/poll-active-batches',
+    headers := jsonb_build_object(
+      'Authorization', 'Bearer ' || current_setting('app.settings.service_role_key'),
+      'Content-Type', 'application/json'
+    ),
+    body := '{}'::jsonb
+  );
+  $$
+);
 ```
 
 ---
 
-### Task 6: Update Model to Gemini 3 Flash
+### Task 4: Update Frontend Polling Intervals
 
-**File:** `supabase/functions/process-batch-research/index.ts`
+**File:** `src/hooks/useBatchSlides.ts`
 
-**Location:** Line 62
+**Changes at lines 284-293 and 395-404:**
 
-**Change:**
 ```text
-// FROM:
-const BATCH_MODEL = MODEL_CONFIG.GEMINI_PRO;
+// BEFORE: Poll every 10 seconds (causes 429s)
+refetchInterval: (query) => {
+  if (data?.is_complete) return false;
+  return 10000; // 10 seconds
+},
 
-// TO:
-const BATCH_MODEL = MODEL_CONFIG.GEMINI_3_FLASH;  // gemini-3-flash-preview
+// AFTER: Rely on Realtime, use 60s fallback only
+refetchInterval: (query) => {
+  if (data?.is_complete) return false;
+  return 60000; // 60 seconds (safety net, not primary)
+},
 ```
 
-**Also update poll-batch-status.ts line 796:**
-```text
-// FROM:
-generation_model: MODEL_CONFIG.GEMINI_PRO,
+---
 
-// TO:
-generation_model: MODEL_CONFIG.GEMINI_3_FLASH,
+### Task 5: Add Exponential Backoff to poll-active-batches
+
+**In poll-active-batches/index.ts:**
+
+```text
+const BACKOFF_CONFIG = {
+  initialDelay: 1000,    // 1 second
+  maxDelay: 60000,       // 60 seconds
+  multiplier: 2,
+  maxRetries: 3,
+};
+
+async function pollWithBackoff(batchClient, batch, attempt = 0) {
+  try {
+    return await batchClient.getBatchJob(batch.google_batch_id);
+  } catch (error) {
+    if (error.status === 429 && attempt < BACKOFF_CONFIG.maxRetries) {
+      const delay = Math.min(
+        BACKOFF_CONFIG.initialDelay * Math.pow(BACKOFF_CONFIG.multiplier, attempt),
+        BACKOFF_CONFIG.maxDelay
+      );
+      await sleep(delay);
+      return pollWithBackoff(batchClient, batch, attempt + 1);
+    }
+    throw error;
+  }
+}
 ```
 
 ---
@@ -296,44 +203,41 @@ generation_model: MODEL_CONFIG.GEMINI_3_FLASH,
 
 | File | Changes |
 |------|---------|
-| `supabase/functions/poll-batch-status/index.ts` | Add batch_job_id preservation, add quality_score/is_research_grounded/citation_count/research_context, update generation_model |
-| `supabase/functions/process-batch-research/index.ts` | Update ResearchContext interface to v3 format, update transformation logic, update mergeResearchIntoBrief, save research_data to batch_jobs, change BATCH_MODEL to GEMINI_3_FLASH |
+| `supabase/functions/poll-active-batches/index.ts` | **NEW** - Single-worker polling with exponential backoff |
+| `supabase/functions/poll-batch-status/index.ts` | Remove Vertex API calls, read-only from database |
+| `src/hooks/useBatchSlides.ts` | Change refetchInterval from 10s to 60s |
+| SQL Migration | Add pg_cron job for poll-active-batches every 30s |
 
 ---
 
-## Database Migration
+## Scalability Comparison
 
-Add `research_data` column to `batch_jobs` table:
-
-```sql
-ALTER TABLE batch_jobs 
-ADD COLUMN IF NOT EXISTS research_data JSONB;
-
-COMMENT ON COLUMN batch_jobs.research_data IS 
-  'Research context data keyed by teaching_unit_id for v3 parity';
-```
+| Metric | Current | After Fix |
+|--------|---------|-----------|
+| Vertex API calls with 10 active batches | 600/min per 100 users | **20/min total** |
+| Vertex API calls with 100 active batches | **6000/min (429s)** | **200/min total** |
+| Frontend update latency | 10 seconds | **< 1 second (Realtime)** |
+| Can handle 1000 users | ❌ No | ✅ Yes |
+| Can handle 100K users | ❌ No | ✅ Yes |
 
 ---
 
 ## Testing Checklist
 
 After implementation:
-- Verify `batch_job_id` is preserved after `processCompletedBatch()` runs
-- Confirm image queue populates correctly (check `image_generation_queue` table)
-- Verify images generate for batch slides using `gemini-3-pro-image-preview`
-- Confirm `is_research_grounded = true` when research exists
-- Verify citation markers `[Source 1]`, `[Source 2]` appear in batch slide content
-- Confirm `quality_score` displays in UI
-- Verify `research_context` has `grounded_content` array (not `grounding_sources`)
-- Test model is `gemini-3-flash-preview` via Vertex AI
+- Verify pg_cron job runs every 30 seconds
+- Confirm Vertex API is only called from poll-active-batches (check logs)
+- Test Realtime updates are received by frontend within 1 second of batch status change
+- Confirm no 429 errors with 10+ concurrent batch viewers
+- Verify fallback polling at 60s works when Realtime disconnects
+- Load test with 100 simulated concurrent users watching batches
 
 ---
 
 ## Expected Outcome
 
-After these changes, batch-generated slides will have:
-- Proper citation markers with hover tooltips showing source URLs
-- Images generated via gemini-3-pro-image-preview (same as v3)
-- Quality scores calculated dynamically
-- Research context in v3-compatible format
-- Full feature and quality parity with individual slide generation
+1. **No more 429 errors** - Single worker polls Vertex, not every user
+2. **Faster UI updates** - Realtime pushes updates instantly vs 10s polling
+3. **Scales to 100K users** - WebSocket connections are cheap, API calls are expensive
+4. **Lower costs** - Fewer Edge Function invocations, fewer Vertex API calls
+
