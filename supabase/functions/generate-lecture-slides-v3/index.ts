@@ -206,6 +206,105 @@ function parseJsonFromAI(content: string): any {
   return JSON.parse(jsonStr);
 }
 
+ // ============================================================================
+ // QUALITY METRICS - Logging only, not a gate
+ // ============================================================================
+ 
+ function calculateQualityMetrics(slides: ProfessorSlide[]): {
+   score: number;
+   metrics: Record<string, number>;
+   warnings: string[];
+ } {
+   const warnings: string[] = [];
+   const metrics: Record<string, number> = {
+     avgMainTextWords: 0,
+     avgSpeakerNotesWords: 0,
+     avgKeyPointsPerSlide: 0,
+     citationCount: 0,
+     slidesWithMisconception: 0,
+     slidesWithDefinition: 0,
+     shortVisualDescriptions: 0,
+   };
+ 
+   let totalMainTextWords = 0;
+   let totalSpeakerNotesWords = 0;
+   let totalKeyPoints = 0;
+ 
+   for (let i = 0; i < slides.length; i++) {
+     const slide = slides[i];
+     const slideLabel = `Slide ${i + 1} (${slide.type})`;
+ 
+     // Main text length
+     const mainTextWords = (slide.content?.main_text || '').split(/\s+/).filter(Boolean).length;
+     totalMainTextWords += mainTextWords;
+     if (mainTextWords < 30) {
+       warnings.push(`${slideLabel}: main_text only ${mainTextWords} words (target: 50+)`);
+     }
+ 
+     // Speaker notes length
+     const speakerNotesWords = (slide.speaker_notes || '').split(/\s+/).filter(Boolean).length;
+     totalSpeakerNotesWords += speakerNotesWords;
+     if (speakerNotesWords < 150) {
+       warnings.push(`${slideLabel}: speaker_notes only ${speakerNotesWords} words (target: 200+)`);
+     }
+ 
+     // Key points count
+     const keyPointsCount = slide.content?.key_points?.length || 0;
+     totalKeyPoints += keyPointsCount;
+ 
+     // Visual directive length
+     const visualDescWords = (slide.visual_directive?.description || '').split(/\s+/).filter(Boolean).length;
+     if (slide.visual_directive?.type && slide.visual_directive.type !== 'none' && visualDescWords < 50) {
+       metrics.shortVisualDescriptions++;
+       warnings.push(`${slideLabel}: visual description only ${visualDescWords} words (target: 50+)`);
+     }
+ 
+     // Misconception/definition presence
+     if (slide.content?.misconception) metrics.slidesWithMisconception++;
+     if (slide.content?.definition) metrics.slidesWithDefinition++;
+ 
+     // Check for N/A placeholders
+     const jsonStr = JSON.stringify(slide.content);
+     if (jsonStr.includes('"N/A"') || jsonStr.includes('"Not applicable"') || jsonStr.includes('"n/a"')) {
+       warnings.push(`${slideLabel}: Contains N/A placeholder`);
+     }
+   }
+ 
+   // Citation count across all content
+   const allContent = slides.map(s => JSON.stringify(s.content)).join(' ');
+   const citationMatches = allContent.match(/\[Source \d+\]/g) || [];
+   metrics.citationCount = citationMatches.length;
+ 
+   // Calculate averages
+   metrics.avgMainTextWords = Math.round(totalMainTextWords / slides.length);
+   metrics.avgSpeakerNotesWords = Math.round(totalSpeakerNotesWords / slides.length);
+   metrics.avgKeyPointsPerSlide = Math.round((totalKeyPoints / slides.length) * 10) / 10;
+ 
+   // Score calculation (improved from current simplistic version)
+   let score = 70; // Base score
+ 
+   // Content depth bonuses
+   if (metrics.avgMainTextWords >= 50) score += 5;
+   if (metrics.avgSpeakerNotesWords >= 200) score += 10;
+   if (metrics.avgKeyPointsPerSlide >= 3) score += 5;
+ 
+   // Structure bonuses
+   if (metrics.slidesWithMisconception > 0) score += 5;
+   if (metrics.slidesWithDefinition > 0) score += 5;
+ 
+   // Citation bonus
+   if (metrics.citationCount >= 3) score += 5;
+ 
+   // Penalties
+   score -= warnings.length * 2; // 2 points per warning
+ 
+   return {
+     score: Math.max(0, Math.min(100, score)),
+     metrics,
+     warnings,
+   };
+ }
+ 
 // ============================================================================
 // CONTEXT FETCHING - Comprehensive data gathering
 // ============================================================================
@@ -693,6 +792,47 @@ QUALITY STANDARDS:
 - NO abstract-only explanations—always ground in concrete examples
 - NO filler content—every sentence must teach something
 
+ BANNED RHETORICAL PATTERNS (hollow content that sounds profound but teaches nothing):
+ 
+ 1. CONTRAST FRAMING: "This isn't about tools. It's about mindset."
+    → Delete and rewrite with specifics: WHAT about mindset? HOW does it differ?
+ 
+ 2. SYNTHETIC REPETITION: "Clarity matters. Precision matters. Intent matters."
+    → Delete: three synonyms, zero new information.
+ 
+ 3. TRIADIC CLOSURE: "People. Process. Technology."
+    → Delete: three nouns without explanation. What ABOUT them?
+ 
+ 4. DECLARATIVE AUTHORITY: "AI is reshaping the future of work."
+    → Delete: unfalsifiable. Which AI? Which work? How? When?
+ 
+ 5. PERFORMATIVE VULNERABILITY: "I used to think this way. I was wrong."
+    → Delete: borrows credibility without contributing detail.
+ 
+ 6. DISCOMFORT SIGNALING: "Here's an uncomfortable truth..."
+    → Delete: the framing carries weight the argument hasn't earned.
+ 
+ If you catch yourself using these patterns, the sentence is carrying no educational weight.
+ State claims with specifics, evidence, and mechanisms instead.
+ 
+ QUALITY REFERENCE EXAMPLES:
+ 
+ === main_text (50-80 words, not essay-length) ===
+ BAD: "Leadership is important for organizations. It helps teams succeed."
+ GOOD: "Teams with highly engaged leaders outperform peers by 147% in earnings per share, according to Gallup's 2023 State of the Workplace report [Source 1]. The mechanism is psychological safety—when team members can take risks without fear of punishment, problems surface earlier and solutions emerge faster."
+ 
+ === misconception block (structured, evidence-based) ===
+ BAD: { "wrong_belief": "Communication is easy", "why_wrong": "It's hard", "correct_understanding": "Do it right" }
+ GOOD: {
+   "wrong_belief": "Managers believe sending a well-crafted email constitutes 'communication.' Once sent, job done.",
+   "why_wrong": "Communication isn't 'received' because it was 'sent.' Sull et al. (2015) found strategic messages lose 50-80% of meaning through organizational layers—the 'resemblance gap' [Source 2].",
+   "correct_understanding": "Effective communication requires: (1) multi-channel delivery, (2) feedback to confirm understanding ('explain this to a new hire'), (3) contextual relevance for each team's daily work."
+ }
+ 
+ === visual_directive (50+ words, domain-specific elements) ===
+ BAD: { "description": "A diagram showing communication", "elements": ["people", "arrows"] }
+ GOOD: { "description": "Vertical flowchart: 'Strategy Communication Cascade.' Top box 'Executive Vision' (100% message fidelity). Three arrows down to 'Division Translation' (70%), 'Team Contextualization' (45%), 'Individual Action' (23%). Right side: orange 'Feedback Loop' arrow pointing up with checkpoints 'Comprehension Check', 'Barrier Identification', 'Adaptation Signal'.", "elements": ["Executive Vision box", "Division/Team/Individual boxes with % labels", "Feedback Loop arrow with 3 checkpoints"], "educational_purpose": "Visualize message degradation through organizational layers" }
+ 
 RAG (RETRIEVAL-AUGMENTED GENERATION) RULES:
 When a "RESEARCH GROUNDING" section is provided in the brief:
 
@@ -943,7 +1083,7 @@ Generate all ${targetSlides} slides now with RICH, EDUCATIONAL content and LAYOU
     prompt: userPrompt,
     systemPrompt: PROFESSOR_SYSTEM_PROMPT,
     model: MODELS.PROFESSOR_AI,              // 'google/gemini-3-flash-preview'
-    temperature: 0.7,
+    temperature: 0.4,  // Factual educational content benefits from lower temperature
     maxTokens: 16000,
     // json: true, // DO NOT USE: prompt expects markdown blocks, parseJsonFromAI handles this
     fallbacks: [MODELS.PROFESSOR_AI_FALLBACK], // 'google/gemini-2.5-flash'
@@ -1174,15 +1314,15 @@ const handler = async (req: Request): Promise<Response> => {
         quality_score: 80,
       }));
 
-      // Calculate initial quality score
-      const avgSpeakerNotesLength = initialSlides.reduce(
-        (sum, s) => sum + (s.speaker_notes?.length || 0), 0
-      ) / initialSlides.length;
-      
-      let qualityScore = 70;
-      if (avgSpeakerNotesLength > 500) qualityScore += 10;
-      if (initialSlides.some(s => s.type === 'misconception')) qualityScore += 5;
-      if (initialSlides.some(s => s.content?.definition)) qualityScore += 5;
+      // Calculate quality metrics with detailed logging (using original ProfessorSlide[] format)
+      const qualityResult = calculateQualityMetrics(slides);
+      const qualityScore = qualityResult.score;
+
+      console.log('[Main] Quality metrics:', JSON.stringify(qualityResult.metrics));
+      if (qualityResult.warnings.length > 0) {
+        console.warn(`[Main] Quality warnings (${qualityResult.warnings.length}):`, 
+          qualityResult.warnings.slice(0, 5).join('; '));
+      }
 
       // Save slides immediately (before image generation)
       const { error: saveError } = await supabase
