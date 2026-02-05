@@ -59,7 +59,7 @@ import {
 //   - 'openrouter': Process sequentially via OpenRouter (default)
 //   - 'vertex': Use Vertex AI Batch Prediction (50% discount)
 const BATCH_PROVIDER = Deno.env.get('BATCH_PROVIDER') || 'openrouter';
-const BATCH_MODEL = MODEL_CONFIG.GEMINI_PRO; // Used only for Vertex AI mode
+const BATCH_MODEL = MODEL_CONFIG.GEMINI_3_FLASH; // V3 parity: use same model as individual slides
 
 // Research cache configuration
 const CACHE_TTL_DAYS = 7;
@@ -224,17 +224,31 @@ interface TeachingUnitData {
   research_context?: ResearchContext;
 }
 
+// V3 PARITY: ResearchContext interface matches generate-lecture-slides-v3
+interface GroundedContent {
+  claim: string;
+  source_url: string;
+  source_title: string;
+  confidence: number;
+}
+
+interface RecommendedReading {
+  title: string;
+  url: string;
+  type: 'Academic' | 'Industry' | 'Case Study' | 'Documentation';
+}
+
+interface VisualDescription {
+  framework_name: string;
+  description: string;
+  elements: string[];
+}
+
 interface ResearchContext {
-  grounding_sources: Array<{
-    title: string;
-    url: string;
-    snippet: string;
-  }>;
-  key_facts: string[];
-  current_developments: string[];
-  expert_perspectives: string[];
-  statistics: string[];
-  case_studies: string[];
+  topic: string;
+  grounded_content: GroundedContent[];
+  recommended_reading: RecommendedReading[];
+  visual_descriptions: VisualDescription[];
 }
 
 interface BatchRequest {
@@ -377,20 +391,17 @@ Research and provide:
       logPrefix: '[Research Agent]',
     });
 
-    // Transform unified SearchResult to batch ResearchContext format
+    // V3 PARITY: Transform unified SearchResult to v3-compatible ResearchContext format
     const research: ResearchContext = {
-      grounding_sources: result.grounded_content.map(gc => ({
-        title: gc.source_title,
-        url: gc.source_url,
-        snippet: gc.claim,
+      topic: unitData.title,
+      grounded_content: result.grounded_content.map(gc => ({
+        claim: gc.claim,
+        source_url: gc.source_url,
+        source_title: gc.source_title,
+        confidence: gc.confidence || 0.8,
       })),
-      key_facts: result.grounded_content.slice(0, 3).map(gc => gc.claim),
-      current_developments: [],
-      expert_perspectives: [],
-      statistics: result.grounded_content
-        .filter(gc => /\d+%|\d+\s*(billion|million|thousand)/i.test(gc.claim))
-        .map(gc => gc.claim),
-      case_studies: result.visual_descriptions.map(vd => vd.description),
+      recommended_reading: result.recommended_reading || [],
+      visual_descriptions: result.visual_descriptions || [],
     };
 
     // Cache the successful result
@@ -398,7 +409,7 @@ Research and provide:
       await cacheResearch(supabase, searchTerms, domain, research);
     }
 
-    console.log(`[Research Agent] ✓ Found ${research.grounding_sources.length} sources for ${unitData.title}`);
+    console.log(`[Research Agent] ✓ Found ${research.grounded_content.length} sources for ${unitData.title}`);
     return research;
 
   } catch (error) {
@@ -409,12 +420,10 @@ Research and provide:
 
 function getEmptyResearchContext(title: string): ResearchContext {
   return {
-    grounding_sources: [],
-    key_facts: [`This lecture covers ${title}`],
-    current_developments: [],
-    expert_perspectives: [],
-    statistics: [],
-    case_studies: [],
+    topic: title,
+    grounded_content: [],
+    recommended_reading: [],
+    visual_descriptions: [],
   };
 }
 
@@ -462,36 +471,46 @@ function buildLectureBrief(unitData: TeachingUnitData): string {
 }
 
 function mergeResearchIntoBrief(brief: string, research: ResearchContext): string {
+  // V3 PARITY: Match the research merging format from generate-lecture-slides-v3
+  if (!research.grounded_content || research.grounded_content.length === 0) {
+    return brief + `
+
+=== RESEARCH GROUNDING ===
+No external research available. Generate content from your training data.
+Mark any statistics or case studies as "illustrative examples" rather than verified facts.`;
+  }
+
   const researchSection = [
-    '\n## Research Grounding (Use these sources)',
+    '\n\n=== RESEARCH GROUNDING (MANDATORY TO USE) ===',
   ];
 
-  if (research.grounding_sources.length > 0) {
-    researchSection.push('\n### Sources');
-    research.grounding_sources.slice(0, 5).forEach(s => {
-      researchSection.push(`- [${s.title}](${s.url})`);
+  researchSection.push('\nVERIFIED DEFINITIONS AND FACTS:');
+  research.grounded_content.slice(0, 10).forEach((c, i) => {
+    researchSection.push(`[Source ${i + 1}] "${c.claim}"
+   Citation: ${c.source_title} (${c.source_url})`);
+  });
+
+  if (research.recommended_reading && research.recommended_reading.length > 0) {
+    researchSection.push('\n\nRECOMMENDED READING (for "Further Reading" slide):');
+    research.recommended_reading.slice(0, 5).forEach(r => {
+      researchSection.push(`- ${r.title} [${r.type}]: ${r.url}`);
     });
   }
 
-  if (research.key_facts.length > 0) {
-    researchSection.push('\n### Key Facts');
-    research.key_facts.forEach(f => researchSection.push(`- ${f}`));
+  if (research.visual_descriptions && research.visual_descriptions.length > 0) {
+    researchSection.push('\n\nVISUAL FRAMEWORK DESCRIPTIONS (use EXACT structure for diagrams):');
+    research.visual_descriptions.forEach(v => {
+      researchSection.push(`- ${v.framework_name}: ${v.description}
+   Elements: ${v.elements.join(', ')}`);
+    });
   }
 
-  if (research.statistics.length > 0) {
-    researchSection.push('\n### Statistics');
-    research.statistics.forEach(s => researchSection.push(`- ${s}`));
-  }
-
-  if (research.current_developments.length > 0) {
-    researchSection.push('\n### Current Developments');
-    research.current_developments.forEach(d => researchSection.push(`- ${d}`));
-  }
-
-  if (research.case_studies.length > 0) {
-    researchSection.push('\n### Case Studies');
-    research.case_studies.forEach(c => researchSection.push(`- ${c}`));
-  }
+  researchSection.push(`\n\nCITATION RULES (CRITICAL):
+- You MUST use the verified definitions above, NOT your training data
+- Every factual claim must include [Source N] marker in the slide content
+- If a statistic is NOT in the research, clearly mark as "According to industry practice..."
+- Use the visual descriptions to guide EXACT diagram element composition
+- Include a "Sources" or "Further Reading" slide at the end`);
 
   return brief + researchSection.join('\n');
 }
@@ -929,6 +948,24 @@ serve(async (req) => {
     }
 
     console.log(`[Research] Research complete for ${researchResults.length} units`);
+
+    // ========================================================================
+    // 4.5 SAVE RESEARCH DATA TO BATCH_JOBS (V3 PARITY)
+    // ========================================================================
+    // Store research data in batch_jobs so poll-batch-status can access it
+    // when updating lecture_slides with quality_score, is_research_grounded, etc.
+
+    const researchDataMap: Record<string, ResearchContext> = {};
+    for (const { unitId, research } of researchResults) {
+      researchDataMap[unitId] = research;
+    }
+
+    await supabase
+      .from('batch_jobs')
+      .update({ research_data: researchDataMap })
+      .eq('id', batch_job_id);
+
+    console.log(`[Research] Saved research data for ${Object.keys(researchDataMap).length} units to batch_jobs`);
 
     // ========================================================================
     // 5. BUILD BATCH REQUESTS
