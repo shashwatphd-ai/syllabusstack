@@ -1,287 +1,339 @@
 
-# Fix Citation Rendering System
+# Plan: Batch Pipeline Alignment with Individual v3 Quality
 
-## Problem Summary
+## Executive Summary
 
-Slide content contains `[Source N]` markers (e.g., `[Source 6]`) that should render as clickable links to actual sources, but they currently appear as raw text.
+This plan addresses the root causes of why batch-generated slides differ from individual v3 slides in terms of missing images, missing citations, and content quality differences.
 
-**Current Flow:**
+---
+
+## Technical Analysis: Why Batch Output Differs from v3
+
+### Issue 1: Images Not Generating (CRITICAL)
+
+**Root Cause:** In `poll-batch-status/index.ts` at lines 789-804, when slides are updated to `ready` status, the `batch_job_id` field is NOT included in the update. The update uses `.eq('teaching_unit_id', teachingUnitId)` but doesn't preserve `batch_job_id: batchJob.id`.
+
+**Impact:** After the update, when the image queue population code at lines 862-867 queries for slides with `.eq('batch_job_id', batchJob.id)`, it finds 0 results because all those slides now have `batch_job_id = NULL`.
+
 ```text
-Research Agent → grounded_content[{claim, source_url, source_title}]
-       ↓
-Prompt Injection → "[Source 1] = claim 1, [Source 2] = claim 2..."
-       ↓
-Professor AI → Embeds [Source N] markers in slide text
-       ↓
-Database → Slides saved WITH markers, research_context saved separately
-       ↓
-Frontend → Renders [Source N] as literal text (BUG)
-```
-
-**Evidence from Database:**
-- `main_text`: "...beyond a firm's direct control but significantly impact its long-term viability [Source 6]."
-- `research_context.grounded_content[5]`: Contains `source_url: "https://openstax.org/..."`
-- But no mapping exists between `[Source 6]` and `grounded_content[5]`
-
----
-
-## Solution Architecture
-
-### Two-Phase Fix (Frontend + Backend Enhancement)
-
-**Phase 1: Frontend Citation Renderer (Immediate Fix)**
-Create a utility that parses `[Source N]` markers and renders them as clickable tooltips/links using the `research_context.grounded_content` array from the lecture slide record.
-
-**Phase 2: Backend Citation Embedding (Robust Fix)**  
-Update the slide generation to embed the actual citation objects per-slide, making the system self-contained and portable.
-
----
-
-## Phase 1: Frontend Citation Renderer
-
-### File: `src/lib/citationParser.ts` (NEW)
-
-Utility to parse text containing `[Source N]` markers:
-
-```typescript
-interface Citation {
-  claim: string;
-  source_url: string;
-  source_title: string;
-  confidence?: number;
-}
-
-interface ParsedTextSegment {
-  type: 'text' | 'citation';
-  content: string;
-  citation?: Citation;
-  sourceIndex?: number;
-}
-
-export function parseTextWithCitations(
-  text: string,
-  citations: Citation[] = []
-): ParsedTextSegment[] {
-  const segments: ParsedTextSegment[] = [];
-  const regex = /\[Source (\d+)\]/g;
-  let lastIndex = 0;
-  let match;
-
-  while ((match = regex.exec(text)) !== null) {
-    // Add text before the citation
-    if (match.index > lastIndex) {
-      segments.push({
-        type: 'text',
-        content: text.slice(lastIndex, match.index),
-      });
-    }
-
-    // Add citation segment
-    const sourceIndex = parseInt(match[1], 10) - 1; // Convert to 0-indexed
-    const citation = citations[sourceIndex];
-    
-    segments.push({
-      type: 'citation',
-      content: match[0],
-      sourceIndex: sourceIndex + 1,
-      citation: citation || undefined,
-    });
-
-    lastIndex = regex.lastIndex;
-  }
-
-  // Add remaining text after last citation
-  if (lastIndex < text.length) {
-    segments.push({
-      type: 'text',
-      content: text.slice(lastIndex),
-    });
-  }
-
-  return segments;
-}
-```
-
-### File: `src/components/slides/CitationText.tsx` (NEW)
-
-Component to render text with inline clickable citations:
-
-```typescript
-interface CitationTextProps {
-  text: string;
-  citations: Citation[];
-  className?: string;
-}
-
-export function CitationText({ text, citations, className }: CitationTextProps) {
-  const segments = parseTextWithCitations(text, citations);
-  
-  return (
-    <span className={className}>
-      {segments.map((segment, i) => {
-        if (segment.type === 'text') {
-          return <span key={i}>{segment.content}</span>;
-        }
-        
-        // Citation segment - render as tooltip/link
-        return (
-          <Tooltip key={i}>
-            <TooltipTrigger asChild>
-              <a
-                href={segment.citation?.source_url || '#'}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-primary hover:underline font-medium cursor-pointer"
-                onClick={(e) => {
-                  if (!segment.citation?.source_url) {
-                    e.preventDefault();
-                  }
-                }}
-              >
-                [{segment.sourceIndex}]
-              </a>
-            </TooltipTrigger>
-            <TooltipContent side="top" className="max-w-xs">
-              {segment.citation ? (
-                <div className="text-xs">
-                  <p className="font-medium">{segment.citation.source_title}</p>
-                  <p className="text-muted-foreground mt-1 line-clamp-2">
-                    {segment.citation.claim}
-                  </p>
-                </div>
-              ) : (
-                <p className="text-xs text-muted-foreground">Source not found</p>
-              )}
-            </TooltipContent>
-          </Tooltip>
-        );
-      })}
-    </span>
-  );
-}
-```
-
-### File: `src/components/slides/SlideRenderer.tsx` (UPDATE)
-
-Pass citations to text rendering and use `CitationText`:
-
-**Changes needed:**
-1. Accept `citations` prop from parent (fetched from `research_context.grounded_content`)
-2. Replace direct text rendering with `<CitationText>` for:
-   - `main_text`
-   - `key_points` items
-   - `definition.formal_definition` / `simple_explanation`
-   - `example.scenario` / `walkthrough`
-   - `misconception.wrong_belief` / `why_wrong` / `correct_understanding`
-
-### File: `src/components/slides/StudentSlideViewer.tsx` (UPDATE)
-
-Extract `grounded_content` from `research_context` and pass to `SlideRenderer`:
-
-```typescript
-// Extract citations from research_context
-const citations = useMemo(() => {
-  return lectureSlide.research_context?.grounded_content || [];
-}, [lectureSlide.research_context]);
-
-// Pass to SlideRenderer
-<SlideRenderer
-  slide={currentSlide}
-  citations={citations}
-  // ... other props
-/>
+Current update (line 789-804):
+  .update({
+    slides: formattedSlides,
+    status: 'ready',
+    // batch_job_id NOT preserved!
+  })
+  .eq('teaching_unit_id', teachingUnitId)
 ```
 
 ---
 
-## Phase 2: Backend Citation Embedding (Optional Enhancement)
+### Issue 2: Research Context Structure Mismatch (CRITICAL)
 
-For a more robust solution, the backend should map citations per-slide:
-
-### File: `supabase/functions/generate-lecture-slides-v3/index.ts`
-
-**Enhancement to `initialSlides` mapping (around line 1119):**
-
-```typescript
-// After generating slides, extract citation references and map them
-const initialSlides = slides.map(slide => {
-  // Extract [Source N] markers from all text content
-  const textContent = [
-    slide.content?.main_text || '',
-    ...(slide.content?.key_points || []).map(kp => typeof kp === 'string' ? kp : kp.text),
-    slide.content?.definition?.formal_definition || '',
-    slide.content?.example?.scenario || '',
-    slide.content?.misconception?.wrong_belief || '',
-  ].join(' ');
-
-  // Find all source references
-  const sourceMatches = textContent.matchAll(/\[Source (\d+)\]/g);
-  const usedCitations = [];
-  
-  for (const match of sourceMatches) {
-    const index = parseInt(match[1], 10) - 1;
-    if (researchContext.grounded_content[index]) {
-      usedCitations.push({
-        marker: `[Source ${index + 1}]`,
-        ...researchContext.grounded_content[index],
-      });
-    }
-  }
-
-  return {
-    // ... existing slide fields
-    citations: usedCitations.length > 0 ? usedCitations : undefined,
-  };
-});
+**v3 Structure (`generate-lecture-slides-v3/index.ts` lines 106-125):**
+```text
+ResearchContext {
+  topic: string;
+  grounded_content: {      // Frontend expects THIS
+    claim: string;
+    source_url: string;
+    source_title: string;
+    confidence: number;
+  }[];
+  recommended_reading: {...}[];
+  visual_descriptions: {...}[];
+}
 ```
 
-This makes each slide self-contained with its own citations array.
+**Batch Structure (`process-batch-research/index.ts` lines 227-238):**
+```text
+ResearchContext {
+  grounding_sources: {...}[];  // Different field name!
+  key_facts: string[];
+  current_developments: string[];
+  expert_perspectives: string[];
+  statistics: string[];
+  case_studies: string[];
+}
+```
+
+**Impact:** The frontend LectureSlideViewer extracts citations from `research_context.grounded_content`. Batch slides have `grounding_sources` instead, so citations don't render.
 
 ---
 
-## Summary of Changes
+### Issue 3: Research Merging Differences
 
-| Component | File | Change |
-|-----------|------|--------|
-| Citation Parser | `src/lib/citationParser.ts` | NEW: Utility to parse `[Source N]` markers |
-| Citation Renderer | `src/components/slides/CitationText.tsx` | NEW: Component with tooltips and links |
-| Slide Renderer | `src/components/slides/SlideRenderer.tsx` | UPDATE: Use CitationText for all text fields |
-| Student Viewer | `src/components/slides/StudentSlideViewer.tsx` | UPDATE: Extract and pass citations |
-| Instructor Viewer | `src/components/slides/instructor/SlidePreview.tsx` | UPDATE: Extract and pass citations |
-| Type Definitions | `src/hooks/lectureSlides/types.ts` | UPDATE: Add `citations` to ProfessorSlide interface |
-| Backend (Optional) | `generate-lecture-slides-v3/index.ts` | ENHANCE: Embed citations per-slide |
+**v3 (`generate-lecture-slides-v3/index.ts` lines 546-577):**
+- Uses `grounded_content` array with source attribution
+- Includes `[Source N]` citation markers with full URLs
+- Adds `recommended_reading` section
+- Adds `visual_descriptions` with exact framework structures
+- Has explicit "CITATION RULES" enforcement
 
----
-
-## Technical Details
-
-### Citation Index Mapping
-
-The research context uses 0-indexed arrays, but the AI generates 1-indexed markers:
-- `[Source 1]` maps to `grounded_content[0]`
-- `[Source 6]` maps to `grounded_content[5]`
-
-### Edge Cases to Handle
-
-1. **Missing citation**: If `[Source 10]` references an index that doesn't exist, show "Source not available"
-2. **No research context**: If `research_context` is null/empty, render markers as plain text
-3. **Malformed markers**: Gracefully ignore markers that don't match the pattern
-
-### Tooltip Content
-
-Each citation tooltip shows:
-- **Title**: `source_title` (e.g., "openstax.org")
-- **Claim excerpt**: First 100 chars of `claim`
-- **Link**: Opens `source_url` in new tab
+**Batch (`process-batch-research/index.ts` lines 464-496):**
+- Uses simplified `grounding_sources` (title, url, snippet only)
+- Uses `key_facts` (plain strings, no source attribution)
+- Uses `statistics`, `case_studies` (no URLs)
+- Missing `recommended_reading` and `visual_descriptions` entirely
 
 ---
 
-## Testing Plan
+### Issue 4: Missing Metadata Fields
+
+| Field | v3 (Line 1176-1180) | Batch (Line 789-804) |
+|-------|---------------------|----------------------|
+| `quality_score` | Calculated dynamically (70+) | Not set |
+| `is_research_grounded` | `researchContext.grounded_content.length > 0` | Not set |
+| `citation_count` | `researchContext.grounded_content.length` | Not set |
+| `research_context` | Full v3 structure | Not passed through |
+
+---
+
+### Issue 5: Model Configuration
+
+**Current State:**
+- v3: Uses `google/gemini-3-flash-preview` via OpenRouter
+- Batch: Uses `MODEL_CONFIG.GEMINI_PRO` = `gemini-3-pro-preview` via Vertex
+
+**Requested Change:** Align batch to use `gemini-3-flash-preview` via Vertex.
+
+---
+
+## Implementation Tasks
+
+### Task 1: Preserve batch_job_id in poll-batch-status
+
+**File:** `supabase/functions/poll-batch-status/index.ts`
+
+**Location:** Lines 789-804
+
+**Change:** Add `batch_job_id: batchJob.id` to the update query:
+
+```text
+await supabase
+  .from('lecture_slides')
+  .update({
+    slides: formattedSlides,
+    total_slides: formattedSlides.length,
+    status: 'ready',
+    error_message: null,
+    batch_job_id: batchJob.id,  // ADD THIS LINE
+    // ... rest of fields
+  })
+  .eq('teaching_unit_id', teachingUnitId);
+```
+
+---
+
+### Task 2: Align Research Context Structure
+
+**File:** `supabase/functions/process-batch-research/index.ts`
+
+**Location:** Lines 227-238 (interface) and Lines 380-394 (transformation)
+
+**Changes:**
+
+1. Update the `ResearchContext` interface to match v3:
+
+```text
+interface ResearchContext {
+  topic: string;
+  grounded_content: Array<{
+    claim: string;
+    source_url: string;
+    source_title: string;
+    confidence: number;
+  }>;
+  recommended_reading: Array<{
+    title: string;
+    url: string;
+    type: 'Academic' | 'Industry' | 'Case Study' | 'Documentation';
+  }>;
+  visual_descriptions: Array<{
+    framework_name: string;
+    description: string;
+    elements: string[];
+  }>;
+}
+```
+
+2. Update the transformation logic at lines 380-394:
+
+```text
+// Transform to v3-compatible format (NOT simplified batch format)
+const research: ResearchContext = {
+  topic: unitData.title,
+  grounded_content: result.grounded_content.map(gc => ({
+    claim: gc.claim,
+    source_url: gc.source_url,
+    source_title: gc.source_title,
+    confidence: gc.confidence || 0.8,
+  })),
+  recommended_reading: result.recommended_reading || [],
+  visual_descriptions: result.visual_descriptions || [],
+};
+```
+
+---
+
+### Task 3: Update mergeResearchIntoBrief for Batch
+
+**File:** `supabase/functions/process-batch-research/index.ts`
+
+**Location:** Lines 464-496
+
+**Change:** Replace the simplified merger with v3-style research merging that includes citation markers, recommended reading, and visual descriptions.
+
+---
+
+### Task 4: Add Missing Metadata Fields to Batch
+
+**File:** `supabase/functions/poll-batch-status/index.ts`
+
+**Location:** Lines 789-804
+
+**Changes:** Add v3 parity fields to the update:
+
+```text
+// Calculate quality score (same logic as v3)
+const avgSpeakerNotesLength = formattedSlides.reduce(
+  (sum, s) => sum + (s.speaker_notes?.length || 0), 0
+) / formattedSlides.length;
+
+let qualityScore = 70;
+if (avgSpeakerNotesLength > 500) qualityScore += 10;
+if (formattedSlides.some(s => s.type === 'misconception')) qualityScore += 5;
+if (formattedSlides.some(s => s.content?.definition)) qualityScore += 5;
+
+// Get research from teaching unit (passed during batch)
+// NOTE: Requires Task 5 to pass research data through
+
+await supabase
+  .from('lecture_slides')
+  .update({
+    // ... existing fields ...
+    batch_job_id: batchJob.id,
+    quality_score: qualityScore,
+    is_research_grounded: hasResearch,
+    citation_count: researchContext?.grounded_content?.length || 0,
+    research_context: hasResearch ? researchContext : null,
+  })
+  .eq('teaching_unit_id', teachingUnitId);
+```
+
+---
+
+### Task 5: Pass Research Context Through Pipeline
+
+**Problem:** Research is gathered in `process-batch-research` but is NOT available in `poll-batch-status` when slides are saved.
+
+**Solution:** Store research data in the `batch_jobs` table.
+
+**Database Migration Required:**
+```sql
+ALTER TABLE batch_jobs 
+ADD COLUMN IF NOT EXISTS research_data JSONB;
+
+COMMENT ON COLUMN batch_jobs.research_data IS 
+  'Research context data keyed by teaching_unit_id for v3 parity';
+```
+
+**File:** `supabase/functions/process-batch-research/index.ts`
+
+After running research (around line 931), save research to batch_jobs:
+
+```text
+// Save research data to batch_jobs for poll-batch-status
+const researchDataMap: Record<string, ResearchContext> = {};
+for (const { unitId, research } of researchResults) {
+  researchDataMap[unitId] = research;
+}
+
+await supabase
+  .from('batch_jobs')
+  .update({ research_data: researchDataMap })
+  .eq('id', batch_job_id);
+```
+
+**File:** `supabase/functions/poll-batch-status/index.ts`
+
+Retrieve research when processing completed batch:
+
+```text
+// Get research data from batch job
+const researchContext = batchJob.research_data?.[teachingUnitId];
+const hasResearch = researchContext?.grounded_content?.length > 0;
+```
+
+---
+
+### Task 6: Update Model to Gemini 3 Flash
+
+**File:** `supabase/functions/process-batch-research/index.ts`
+
+**Location:** Line 62
+
+**Change:**
+```text
+// FROM:
+const BATCH_MODEL = MODEL_CONFIG.GEMINI_PRO;
+
+// TO:
+const BATCH_MODEL = MODEL_CONFIG.GEMINI_3_FLASH;  // gemini-3-flash-preview
+```
+
+**Also update poll-batch-status.ts line 796:**
+```text
+// FROM:
+generation_model: MODEL_CONFIG.GEMINI_PRO,
+
+// TO:
+generation_model: MODEL_CONFIG.GEMINI_3_FLASH,
+```
+
+---
+
+## Files to Modify
+
+| File | Changes |
+|------|---------|
+| `supabase/functions/poll-batch-status/index.ts` | Add batch_job_id preservation, add quality_score/is_research_grounded/citation_count/research_context, update generation_model |
+| `supabase/functions/process-batch-research/index.ts` | Update ResearchContext interface to v3 format, update transformation logic, update mergeResearchIntoBrief, save research_data to batch_jobs, change BATCH_MODEL to GEMINI_3_FLASH |
+
+---
+
+## Database Migration
+
+Add `research_data` column to `batch_jobs` table:
+
+```sql
+ALTER TABLE batch_jobs 
+ADD COLUMN IF NOT EXISTS research_data JSONB;
+
+COMMENT ON COLUMN batch_jobs.research_data IS 
+  'Research context data keyed by teaching_unit_id for v3 parity';
+```
+
+---
+
+## Testing Checklist
 
 After implementation:
-1. Open any existing slide deck with `[Source N]` markers
-2. Verify markers render as clickable `[N]` badges
-3. Hover to see tooltip with source title and claim preview
-4. Click to open source URL in new tab
-5. Verify works for all text fields (main_text, key_points, definitions, examples, misconceptions)
-6. Test with slides that have no research context (should render as plain text)
+- Verify `batch_job_id` is preserved after `processCompletedBatch()` runs
+- Confirm image queue populates correctly (check `image_generation_queue` table)
+- Verify images generate for batch slides using `gemini-3-pro-image-preview`
+- Confirm `is_research_grounded = true` when research exists
+- Verify citation markers `[Source 1]`, `[Source 2]` appear in batch slide content
+- Confirm `quality_score` displays in UI
+- Verify `research_context` has `grounded_content` array (not `grounding_sources`)
+- Test model is `gemini-3-flash-preview` via Vertex AI
+
+---
+
+## Expected Outcome
+
+After these changes, batch-generated slides will have:
+- Proper citation markers with hover tooltips showing source URLs
+- Images generated via gemini-3-pro-image-preview (same as v3)
+- Quality scores calculated dynamically
+- Research context in v3-compatible format
+- Full feature and quality parity with individual slide generation
