@@ -167,3 +167,8 @@ verify_jwt = true
 [functions.verify-certificate]
 # Public endpoint for certificate verification
 verify_jwt = false
+
+[functions.poll-active-batches]
+# Centralized single-worker polling for Vertex AI batch jobs
+# Called by pg_cron every 30 seconds - NOT per-user
+verify_jwt = false
