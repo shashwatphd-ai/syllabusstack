@@ -746,8 +746,6 @@ function extractImageFromGoogleResponse(
     return null;
   }
 }
-  };
-}
 
 /**
  * Extract base64 image from OpenRouter response
