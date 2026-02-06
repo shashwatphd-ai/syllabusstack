@@ -6,9 +6,14 @@
 // architecture. Processes items from image_generation_queue table in small
 // batches to avoid edge function timeouts.
 //
+// PROVIDER TOGGLE (Updated 2026-02-06):
+//   - Controlled by IMAGE_PROVIDER environment variable
+//   - 'openrouter' (default): Uses OpenRouter API (OPENROUTER_API_KEY)
+//   - 'google': Uses native Google Generative Language API (GOOGLE_CLOUD_API_KEY)
+//
 // ARCHITECTURE:
-//   1. Fetch N pending items from queue (batch of 5-8)
-//   2. Generate images via Unified AI Client (OpenRouter with Gemini 2.5 Flash Image)
+//   1. Fetch N pending items from queue (batch of 1-2)
+//   2. Generate images via Unified AI Client (routes based on IMAGE_PROVIDER)
 //   3. Upload to Supabase storage
 //   4. Update queue status + lecture_slides records
 //   5. If more pending items exist, self-invoke to continue
@@ -364,11 +369,12 @@ async function processQueueItem(
   item: QueueItem
 ): Promise<{ success: boolean; imageUrl: string | null; error: string | null }> {
   const logPrefix = `[Image ${item.slide_index}]`;
+  const imageProvider = Deno.env.get('IMAGE_PROVIDER') || 'openrouter';
 
   try {
-    console.log(`${logPrefix} Generating for: ${item.slide_title || 'Untitled'}`);
+    console.log(`${logPrefix} Generating for: ${item.slide_title || 'Untitled'} (provider: ${imageProvider})`);
 
-    // Generate image via Unified AI Client (OpenRouter with Gemini 2.5 Flash Image)
+    // Generate image via Unified AI Client (routes to OpenRouter or Google based on IMAGE_PROVIDER)
     const result = await generateImage({
       prompt: item.prompt,
       slideTitle: item.slide_title || undefined,
