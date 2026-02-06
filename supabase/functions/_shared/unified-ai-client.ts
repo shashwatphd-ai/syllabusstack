@@ -2,31 +2,37 @@
 // UNIFIED AI CLIENT - Single Entry Point for All AI Operations
 // ============================================================================
 //
-// PURPOSE: Consolidate ALL AI routing through OpenRouter for:
+// PURPOSE: Consolidate ALL AI routing with provider toggles for:
 //   1. Unified billing and cost tracking
 //   2. Automatic fallbacks
 //   3. Consistent API format across all providers
+//   4. Single-switch provider routing via environment variables
 //
-// ARCHITECTURE (Updated 2026-01-25 - Full OpenRouter Consolidation):
-//   - ALL text generation → OpenRouter (MODELS.PROFESSOR_AI, MODELS.FAST, etc.)
-//   - ALL image generation → OpenRouter (MODELS.IMAGE = gemini-3-pro-image-preview)
-//   - ALL research/grounding → OpenRouter (MODELS.RESEARCH = perplexity/sonar-pro)
-//   - ALL syllabus parsing → OpenRouter (MODELS.PARSING = gemini-2.5-flash)
+// ARCHITECTURE (Updated 2026-02-06 - Provider Toggle Support):
+//   - Text generation → OpenRouter (MODELS.PROFESSOR_AI, MODELS.FAST, etc.)
+//   - Image generation → Controlled by IMAGE_PROVIDER env var:
+//       • 'openrouter' (default): OpenRouter API
+//       • 'google': Native Google Generative Language API
+//   - Research/grounding → OpenRouter (MODELS.RESEARCH = perplexity/sonar-pro)
+//   - Syllabus parsing → OpenRouter (MODELS.PARSING = gemini-2.5-flash)
 //
-// NO MORE GOOGLE DIRECT:
-//   - Previously used Google Direct for search grounding (googleSearch tool)
-//   - Now using Perplexity via OpenRouter for equivalent functionality
-//   - Eliminates 15-20% cost markup and simplifies architecture
+// PROVIDER TOGGLES:
+//   | Env Variable     | Options               | Controls          |
+//   |------------------|----------------------|-------------------|
+//   | IMAGE_PROVIDER   | 'openrouter' (def)   | Image generation  |
+//   |                  | 'google'             | → GCP credits     |
+//   | BATCH_PROVIDER   | 'openrouter' (def)   | Batch slides      |
+//   |                  | 'vertex'             | → 50% discount    |
 //
 // ROUTING SUMMARY:
-//   | Operation     | Provider   | Model                           |
-//   |---------------|------------|----------------------------------|
-//   | Slide Content | OpenRouter | google/gemini-3-flash-preview    |
-//   | Images        | OpenRouter | google/gemini-3-pro-image-preview|
-//   | Research      | OpenRouter | perplexity/sonar-pro             |
-//   | Parsing       | OpenRouter | google/gemini-2.5-flash          |
-//   | Reasoning     | OpenRouter | deepseek/deepseek-r1             |
-//   | Fast Tasks    | OpenRouter | google/gemini-2.5-flash-lite     |
+//   | Operation     | Provider         | Model                           |
+//   |---------------|------------------|----------------------------------|
+//   | Slide Content | OpenRouter/Vertex| google/gemini-3-flash-preview    |
+//   | Images        | OpenRouter/Google| gemini-3-pro-image-preview       |
+//   | Research      | OpenRouter       | perplexity/sonar-pro             |
+//   | Parsing       | OpenRouter       | google/gemini-2.5-flash          |
+//   | Reasoning     | OpenRouter       | deepseek/deepseek-r1             |
+//   | Fast Tasks    | OpenRouter       | google/gemini-2.5-flash-lite     |
 //
 // USAGE:
 //   import { generateText, generateImage, searchGrounded, MODELS } from '../_shared/unified-ai-client.ts';
@@ -35,10 +41,11 @@
 //   const text = await generateText({ prompt: 'Hello', systemPrompt: 'Be helpful' });
 //
 //   // Image generation (returns structured result or error - never null)
+//   // Automatically routes to OpenRouter or Google based on IMAGE_PROVIDER
 //   const image = await generateImage({ prompt: 'A diagram of...' });
 //   if (!image.success) console.error(image.error.message);
 //
-//   // Search-grounded research (NOW via Perplexity on OpenRouter)
+//   // Search-grounded research (via Perplexity on OpenRouter)
 //   const research = await searchGrounded({ query: 'Latest statistics on...' });
 //
 // ============================================================================
@@ -55,7 +62,16 @@ export type TaskType =
   | 'image_generation'     // → OpenRouter (Gemini Image)
   | 'search_grounding';    // → OpenRouter (Perplexity)
 
-export type Provider = 'openrouter' | 'google_direct';
+export type Provider = 'openrouter' | 'google_direct' | 'google';
+
+// Image provider configuration - read from environment
+const IMAGE_PROVIDER = Deno.env.get('IMAGE_PROVIDER') || 'openrouter';
+
+// Google native image models
+const GOOGLE_IMAGE_MODELS = {
+  PRIMARY: 'gemini-2.0-flash-exp',  // Fast, reliable
+  FALLBACK: 'gemini-2.0-flash-exp', // Same for now
+} as const;
 
 export interface AIRequest {
   task: TaskType;
@@ -91,7 +107,7 @@ export interface ImageResultSuccess {
   base64: string;
   mimeType: string;
   textResponse?: string;
-  provider: 'openrouter';
+  provider: 'openrouter' | 'google';
   model: string;
   cost_usd: number;
   latency_ms: number;
@@ -101,9 +117,9 @@ export interface ImageResultSuccess {
 export interface ImageResultError {
   success: false;
   error: {
-    code: 'IMAGE_GENERATION_FAILED' | 'OPENROUTER_ERROR' | 'INVALID_RESPONSE' | 'CONFIG_ERROR';
+    code: 'IMAGE_GENERATION_FAILED' | 'OPENROUTER_ERROR' | 'GOOGLE_ERROR' | 'INVALID_RESPONSE' | 'CONFIG_ERROR';
     message: string;
-    provider: 'openrouter';
+    provider: 'openrouter' | 'google';
     model: string;
     httpStatus?: number;
     rawError?: string;
@@ -280,26 +296,28 @@ export async function generateStructured<T>(request: {
 }
 
 // ============================================================================
-// IMAGE GENERATION - OpenRouter Only (Gemini 2.5 Flash Image)
+// IMAGE GENERATION - Provider Toggle (OpenRouter or Google Native)
 // ============================================================================
 //
-// ARCHITECTURE (Updated 2026-01-22):
-//   - Provider: OpenRouter only (no Google Direct)
-//   - Model: google/gemini-2.5-flash-image ("Nano Banana")
-//   - Cost: ~$0.039 per image
-//   - Fallback: NONE - returns explicit error on failure
+// ARCHITECTURE (Updated 2026-02-06 - Provider Toggle):
+//   - Controlled by IMAGE_PROVIDER environment variable
+//   - 'openrouter' (default): Uses OpenRouter API with Gemini models
+//   - 'google': Uses native Google Generative Language API (GCP billing)
 //
-// WHY NO FALLBACK:
-//   - User preference: explicit errors over silent degradation
-//   - Debugging: easier to identify issues when errors are explicit
-//   - Cost control: prevents unexpected model switches
+// BENEFITS OF PROVIDER TOGGLE:
+//   - Single switch to change billing destination
+//   - Same UI flow regardless of provider
+//   - Use GCP credits when OpenRouter is unavailable
+//   - Matches BATCH_PROVIDER toggle architecture
 //
 // ============================================================================
 
 /**
- * Generate an image using OpenRouter's Gemini 3 Pro Image model
+ * Generate an image using the configured provider (OpenRouter or Google Native)
  *
- * Uses modalities: ['image', 'text'] as required by OpenRouter for image output.
+ * Provider is controlled by IMAGE_PROVIDER environment variable:
+ * - 'openrouter' (default): Uses OpenRouter API
+ * - 'google': Uses native Google Generative Language API
  *
  * @param request.prompt - The image generation prompt
  * @param request.aspectRatio - Optional aspect ratio (1:1, 16:9, 9:16, 4:3, 3:4)
@@ -316,8 +334,31 @@ export async function generateImage(request: {
   useFreeModel?: boolean;
   logPrefix?: string;
 }): Promise<ImageResult> {
-  const startTime = Date.now();
   const logPrefix = request.logPrefix || '[Image]';
+  
+  // Route based on IMAGE_PROVIDER environment variable
+  console.log(`${logPrefix} Using provider: ${IMAGE_PROVIDER}`);
+  
+  if (IMAGE_PROVIDER === 'google') {
+    return generateImageGoogle(request);
+  }
+  
+  return generateImageOpenRouter(request);
+}
+
+/**
+ * Generate an image using OpenRouter's Gemini Image models
+ * @internal
+ */
+async function generateImageOpenRouter(request: {
+  prompt: string;
+  slideTitle?: string;
+  aspectRatio?: '1:1' | '16:9' | '9:16' | '4:3' | '3:4';
+  useFreeModel?: boolean;
+  logPrefix?: string;
+}): Promise<ImageResult> {
+  const startTime = Date.now();
+  const logPrefix = request.logPrefix || '[Image-OpenRouter]';
 
   // Validate configuration
   const apiKey = Deno.env.get('OPENROUTER_API_KEY');
@@ -492,6 +533,219 @@ export async function generateImage(request: {
       provider: 'openrouter',
       model: primaryModel,
     },
+  };
+}
+
+/**
+ * Generate an image using native Google Generative Language API
+ * 
+ * Uses the same GOOGLE_CLOUD_API_KEY used for Vertex AI batch and syllabus parsing.
+ * Endpoint: https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent
+ * 
+ * @internal
+ */
+async function generateImageGoogle(request: {
+  prompt: string;
+  slideTitle?: string;
+  aspectRatio?: '1:1' | '16:9' | '9:16' | '4:3' | '3:4';
+  useFreeModel?: boolean;
+  logPrefix?: string;
+}): Promise<ImageResult> {
+  const startTime = Date.now();
+  const logPrefix = request.logPrefix || '[Image-Google]';
+
+  // Validate configuration - uses same key as Vertex AI batch
+  const apiKey = Deno.env.get('GOOGLE_CLOUD_API_KEY');
+
+  if (!apiKey) {
+    console.error(`${logPrefix} GOOGLE_CLOUD_API_KEY not configured`);
+    return {
+      success: false,
+      error: {
+        code: 'CONFIG_ERROR',
+        message: 'GOOGLE_CLOUD_API_KEY environment variable is not configured. Set IMAGE_PROVIDER=openrouter to use OpenRouter instead.',
+        provider: 'google',
+        model: 'none',
+      },
+    };
+  }
+
+  // Model selection - using Gemini 2.0 Flash for image generation
+  const model = GOOGLE_IMAGE_MODELS.PRIMARY;
+  
+  console.log(`${logPrefix} Generating image via Google Native API (${model})`);
+  console.log(`${logPrefix} Prompt: ${request.prompt.substring(0, 100)}...`);
+
+  try {
+    // Build request body for Google Generative Language API
+    // Format: https://ai.google.dev/gemini-api/docs/image-generation
+    const body = {
+      contents: [
+        {
+          role: 'user',
+          parts: [{ text: request.prompt }],
+        },
+      ],
+      generationConfig: {
+        responseModalities: ['TEXT', 'IMAGE'],
+      },
+    };
+
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+    
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
+      body: JSON.stringify(body),
+    });
+
+    // Handle HTTP errors explicitly
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`${logPrefix} Google API error ${response.status}:`, errorText.substring(0, 300));
+
+      return {
+        success: false,
+        error: {
+          code: 'GOOGLE_ERROR',
+          message: `Google API returned HTTP ${response.status}: ${response.statusText}`,
+          provider: 'google',
+          model,
+          httpStatus: response.status,
+          rawError: errorText.substring(0, 500),
+        },
+      };
+    }
+
+    const data = await response.json();
+
+    // Parse Google's response format
+    // Response structure: { candidates: [{ content: { parts: [{ inlineData: { data, mimeType } }] } }] }
+    const extracted = extractImageFromGoogleResponse(data, logPrefix);
+
+    if (!extracted) {
+      console.error(`${logPrefix} Could not extract image from Google response`);
+      console.error(`${logPrefix} Response keys:`, Object.keys(data));
+      
+      return {
+        success: false,
+        error: {
+          code: 'INVALID_RESPONSE',
+          message: 'Could not extract image data from Google response. Response format may have changed.',
+          provider: 'google',
+          model,
+          rawError: JSON.stringify(data).substring(0, 500),
+        },
+      };
+    }
+
+    const latency_ms = Date.now() - startTime;
+    console.log(`${logPrefix} ✓ Image generated successfully in ${latency_ms}ms (${Math.round(extracted.base64.length / 1024)}KB)`);
+
+    return {
+      success: true,
+      base64: extracted.base64,
+      mimeType: extracted.mimeType,
+      textResponse: extracted.textResponse,
+      provider: 'google',
+      model,
+      cost_usd: IMAGE_COST_USD, // Same cost estimate for now
+      latency_ms,
+    };
+
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`${logPrefix} Exception during image generation:`, errorMessage);
+
+    return {
+      success: false,
+      error: {
+        code: 'IMAGE_GENERATION_FAILED',
+        message: `Image generation failed with exception: ${errorMessage}`,
+        provider: 'google',
+        model,
+        rawError: errorMessage,
+      },
+    };
+  }
+}
+
+/**
+ * Extract base64 image from Google Generative Language API response
+ * 
+ * Google's response format:
+ * {
+ *   candidates: [{
+ *     content: {
+ *       parts: [
+ *         { text: "..." },
+ *         { inlineData: { data: "base64...", mimeType: "image/png" } }
+ *       ]
+ *     }
+ *   }]
+ * }
+ * 
+ * @internal
+ */
+function extractImageFromGoogleResponse(
+  data: Record<string, unknown>,
+  logPrefix: string
+): { base64: string; mimeType: string; textResponse?: string } | null {
+  try {
+    const candidates = data.candidates as Array<Record<string, unknown>> | undefined;
+    if (!candidates || candidates.length === 0) {
+      console.warn(`${logPrefix} No candidates in response`);
+      return null;
+    }
+
+    const content = candidates[0].content as Record<string, unknown> | undefined;
+    if (!content) {
+      console.warn(`${logPrefix} No content in first candidate`);
+      return null;
+    }
+
+    const parts = content.parts as Array<Record<string, unknown>> | undefined;
+    if (!parts || parts.length === 0) {
+      console.warn(`${logPrefix} No parts in content`);
+      return null;
+    }
+
+    let base64: string | null = null;
+    let mimeType = 'image/png';
+    let textResponse: string | undefined;
+
+    // Look through parts for image data and text
+    for (const part of parts) {
+      // Check for inline image data
+      const inlineData = part.inlineData as Record<string, unknown> | undefined;
+      if (inlineData?.data && inlineData?.mimeType) {
+        base64 = inlineData.data as string;
+        mimeType = inlineData.mimeType as string;
+        console.log(`${logPrefix} Found inlineData image: ${mimeType}`);
+      }
+
+      // Check for text content
+      if (typeof part.text === 'string' && part.text.trim()) {
+        textResponse = part.text;
+      }
+    }
+
+    if (!base64) {
+      console.warn(`${logPrefix} No inlineData found in any part`);
+      console.warn(`${logPrefix} Parts structure:`, parts.map(p => Object.keys(p)));
+      return null;
+    }
+
+    return { base64, mimeType, textResponse };
+
+  } catch (error) {
+    console.error(`${logPrefix} Error parsing Google response:`, error);
+    return null;
+  }
+}
   };
 }
 
