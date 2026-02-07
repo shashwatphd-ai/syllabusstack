@@ -607,7 +607,13 @@ async function generateImageGoogle(request: {
     };
 
     // Vertex AI endpoint format
-    const endpoint = `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:generateContent`;
+    // CRITICAL: 'global' location uses https://aiplatform.googleapis.com (no region prefix)
+    //           Regional locations use https://{region}-aiplatform.googleapis.com
+    // Reference: https://cloud.google.com/vertex-ai/generative-ai/docs/learn/locations
+    const baseUrl = region === 'global'
+      ? 'https://aiplatform.googleapis.com'
+      : `https://${region}-aiplatform.googleapis.com`;
+    const endpoint = `${baseUrl}/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:generateContent`;
     
     console.log(`${logPrefix} Endpoint: ${endpoint}`);
     
