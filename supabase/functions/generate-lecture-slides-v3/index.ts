@@ -1374,31 +1374,31 @@ const handler = async (req: Request): Promise<Response> => {
             const visualType = slide.visual?.type;
             if (!visualType || visualType === 'none') return null;
             
-            // Build prompt from visual metadata
-            const prompt = `Create an educational diagram for a university lecture slide.
+            // CRITICAL: Image generation models cannot reliably render text.
+            // This prompt explicitly avoids requesting text and focuses on abstract visual concepts.
+            const prompt = `Create a visually striking educational ${slide.visual?.type || 'diagram'} for a university lecture.
 
-TOPIC: ${slide.title}
-LECTURE: ${context.title}
-DOMAIN: ${context.domain || 'general education'}
+CONCEPT: ${slide.title}
+CONTEXT: ${context.title} (${context.domain || 'general education'})
 
-VISUAL REQUIREMENTS:
-- Type: ${slide.visual?.type || 'diagram'}
-- Description: ${slide.visual?.alt_text || slide.title}
-- Elements: ${(slide.visual?.elements || []).join(', ') || 'appropriate educational elements'}
-- Style: ${slide.visual?.style || 'clean academic'}
-- Educational purpose: ${slide.visual?.educational_purpose || 'illustrate key concepts'}
+VISUAL APPROACH:
+Create an abstract, conceptual visualization that represents ${slide.visual?.alt_text || slide.title}.
+Use visual metaphors, shapes, icons, and color relationships to convey the concept.
 
-DESIGN RULES:
-- Clean, minimal design suitable for projection
-- High contrast (works on both light/dark backgrounds)
-- Clear labels on all elements
-- No decorative elements, pure information
-- Professional academic style
-- 16:9 aspect ratio
-- Large, readable text
-- Use color strategically to highlight key concepts
+STRICT REQUIREMENTS:
+- DO NOT include any text, labels, words, letters, or numbers in the image
+- Use ONLY abstract shapes, icons, arrows, and visual symbols
+- Communicate through visual metaphor, not text
+- Professional academic illustration style
+- 16:9 aspect ratio, suitable for projection
+- High contrast colors that work on both light and dark backgrounds
+- Clean, minimal, modern design aesthetic
+- Use strategic color to highlight key relationships
 
-IMPORTANT: Generate a clear, educational diagram. Do NOT generate photos of people or realistic photographs.`;
+STYLE: ${slide.visual?.style || 'clean academic'} with abstract iconography
+PURPOSE: Visually represent the concept of "${slide.title}" without any text
+
+IMPORTANT: Generate a purely visual diagram with ZERO text. Any text, labels, or words will appear as gibberish. Use icons and shapes only.`;
 
             return {
               lecture_slides_id: slideRecordId,

@@ -182,30 +182,32 @@ function buildImagePrompt(
   const directive = inferVisualDirective(slide);
   if (!directive) return '';
 
-  return `Create an educational diagram for a university lecture slide.
+  // CRITICAL: Image generation models cannot reliably render text.
+  // This prompt explicitly avoids requesting text and focuses on abstract visual concepts.
+  // Reference: https://uxdesign.cc/lost-for-words-why-text-in-ai-images-still-goes-wrong
+  return `Create a visually striking educational ${directive.type} for a university lecture.
 
-TOPIC: ${slide.title}
-LECTURE: ${lectureTitle}
-${domain ? `DOMAIN: ${domain}` : ''}
+CONCEPT: ${slide.title}
+CONTEXT: ${lectureTitle}${domain ? ` (${domain})` : ''}
 
-VISUAL REQUIREMENTS:
-- Type: ${directive.type}
-- Description: ${directive.description}
-- Must include these elements: ${directive.elements?.join(', ') || 'appropriate educational elements'}
-- Style: ${directive.style || 'clean academic'}
-${directive.educational_purpose ? `- Educational purpose: ${directive.educational_purpose}` : ''}
+VISUAL APPROACH:
+Create an abstract, conceptual visualization that represents ${directive.description?.slice(0, 150) || slide.title}.
+Use visual metaphors, shapes, icons, and color relationships to convey the concept.
 
-DESIGN RULES:
-- Clean, minimal design suitable for projection
-- High contrast (works on both light/dark backgrounds)
-- Clear labels on all elements
-- No decorative elements, pure information
-- Professional academic style
-- 16:9 aspect ratio
-- Large, readable text (minimum 24pt equivalent)
-- Use color strategically to highlight key concepts
+STRICT REQUIREMENTS:
+- DO NOT include any text, labels, words, letters, or numbers in the image
+- Use ONLY abstract shapes, icons, arrows, and visual symbols
+- Communicate through visual metaphor, not text
+- Professional academic illustration style
+- 16:9 aspect ratio, suitable for projection
+- High contrast colors that work on both light and dark backgrounds
+- Clean, minimal, modern design aesthetic
+- Use strategic color to highlight key relationships
 
-IMPORTANT: Generate a clear, educational diagram. Do NOT generate photos of people or realistic photographs.`;
+STYLE: ${directive.style || 'clean academic'} with abstract iconography
+PURPOSE: Visually represent the concept of "${slide.title}" without any text
+
+IMPORTANT: Generate a purely visual diagram with ZERO text. Any text, labels, or words will appear as gibberish. Use icons and shapes only.`;
 }
 
 // ============================================================================
