@@ -209,28 +209,32 @@ function inferVisualDirective(slide: Slide): VisualDirective | null {
 }
 
 /**
- * Simplify a label string for reliable Imagen text rendering.
- * Keeps only 1-3 short words. Strips punctuation.
+ * Simplify a label string for reliable Imagen 4 Ultra text rendering.
+ * Returns max 2 common words, max 20 chars. Shorter = more accurate rendering.
  */
 function simplifyLabel(raw: string): string {
   const cleaned = raw
-    .replace(/[^\w\s\-→/]/g, '') // strip punctuation except hyphens, arrows, slashes
+    .replace(/[^\w\s\-]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
-  // Take first 3 words, max 25 chars total
-  const words = cleaned.split(' ').slice(0, 3).join(' ');
-  return words.slice(0, 25);
+  // 2 words max for reliable rendering (Imagen sweet spot)
+  const words = cleaned.split(' ').slice(0, 2).join(' ');
+  return words.slice(0, 20);
 }
 
 /**
  * Build image generation prompt from slide and directive.
  *
- * OPTIMIZATION STRATEGY (2026-02-07):
- * 1. Use directive.elements[] to generate EXACT quoted text labels
- * 2. Provide explicit spatial layout instructions per element
- * 3. Keep text minimal (1-3 words per label, max 5 labels)
- * 4. Describe shapes and connections concretely, not abstractly
- * 5. Use longer description context (500 chars vs 200)
+ * PROMPT STRATEGY (2026-02-07):
+ * Imagen 4 Ultra produces best results with natural, descriptive language
+ * that reads like a scene description — NOT structured rule-lists or
+ * meta-instructions. Key principles:
+ *   - Describe the finished image as one flowing paragraph
+ *   - Embed exact label text naturally (e.g., "a box labeled 'Input'")
+ *   - Specify spatial positions concretely (left, center, right)
+ *   - End with style — content first, aesthetics second
+ *   - Never include meta-instructions (aspect ratio, font size) as they
+ *     get rendered as visible text by the model
  */
 function buildImagePrompt(
   slide: Slide,
@@ -240,76 +244,60 @@ function buildImagePrompt(
   const directive = inferVisualDirective(slide);
   if (!directive) return '';
 
-  // Build explicit label list from directive.elements (previously ignored)
+  // Extract short labels from directive.elements
   const rawElements = directive.elements || [];
   const labels = rawElements
     .slice(0, 5)
     .map(el => simplifyLabel(el))
-    .filter(l => l.length > 0 && l.length <= 25);
+    .filter(l => l.length > 0);
 
-  // Build explicit text rendering block with quoted labels
-  let labelBlock = '';
-  if (labels.length > 0) {
-    const labelLines = labels.map((label, i) => {
-      return `  - Label ${i + 1}: "${label}" (inside a rounded rectangle, large bold text)`;
-    });
-    labelBlock = `
-EXACT TEXT LABELS (render these words precisely as spelled):
-${labelLines.join('\n')}
-  Total labels: ${labels.length}. No other text in the image.`;
-  } else {
-    labelBlock = `
-TEXT: No text labels. Use only icons, symbols, and arrows.`;
-  }
+  // Full description context (up to 500 chars)
+  const description = directive.description?.slice(0, 500) || slide.title;
+  const topicContext = domain ? `${lectureTitle} in ${domain}` : lectureTitle;
 
-  // Build spatial layout based on visual type
-  let layoutBlock = '';
-  const elementCount = labels.length;
+  // Build natural-language prompt based on visual type
   switch (directive.type) {
     case 'flowchart':
-    case 'flow':
-      layoutBlock = `
-LAYOUT: Horizontal left-to-right flow.${elementCount > 0 ? `
-  ${labels.map((l, i) => `${i > 0 ? '→ ' : ''}[${l}]`).join(' ')}
-  Each label inside a rounded box. Connect boxes with thick directional arrows.` : ''}
-  Clear spacing between elements. White background.`;
-      break;
+    case 'flow': {
+      const stepsNarrative = labels.length > 0
+        ? labels.map((l, i) => {
+            const position = i === 0 ? 'On the far left' : i === labels.length - 1 ? 'On the far right' : 'Next';
+            return `${position}, a rounded blue rectangle with a relevant flat icon and the label "${l}" in bold white text`;
+          }).join('. ') + '.'
+        : `Multiple stages shown as rounded blue rectangles, each with a relevant flat icon, connected left to right. ${description}`;
+
+      return `A clean academic flowchart for a lecture on ${topicContext}. ${stepsNarrative} Each stage is connected to the next by a thick gray arrow pointing right. White background, flat design, professional educational style, widescreen layout.`;
+    }
+
     case 'comparison':
-    case 'infographic':
-      layoutBlock = `
-LAYOUT: ${elementCount === 2 ? 'Side-by-side comparison.' : `Grid of ${elementCount} equal-sized panels.`}${elementCount > 0 ? `
-  ${labels.map((l, i) => `Panel ${i + 1}: "${l}"`).join(' | ')}
-  Each panel is a bordered card with the label as its header.` : ''}
-  Clear dividing lines between panels. Balanced spacing.`;
-      break;
+    case 'infographic': {
+      if (labels.length >= 2) {
+        return `A clean academic comparison diagram for a lecture on ${topicContext}. Two equal-sized panels side by side. The left panel has a light background with the heading "${labels[0]}" in bold dark text and relevant flat icons below. The right panel has a dark background with the heading "${labels[1]}" in bold white text and relevant flat icons below. A large "VS" sits centered between the panels. ${labels.length > 2 ? `Additional elements: ${labels.slice(2).map(l => `"${l}"`).join(', ')}. ` : ''}Professional educational style, balanced layout, widescreen format.`;
+      }
+      return `A clean academic comparison diagram for a lecture on ${topicContext}. ${description}. Two distinct panels with contrasting backgrounds, each with relevant flat icons and bold headings. Professional educational style, balanced layout, widescreen format.`;
+    }
+
+    case 'illustration':
+    case 'chart': {
+      const elementsNarrative = labels.length > 0
+        ? `Key elements shown: ${labels.map(l => `"${l}"`).join(', ')}, each represented with a relevant flat icon.`
+        : '';
+      return `A detailed academic illustration for a lecture on ${topicContext}. ${description}. ${elementsNarrative} Clean flat design with a professional color palette, white background, widescreen educational format.`;
+    }
+
     case 'diagram':
-    default:
-      layoutBlock = `
-LAYOUT: Structured diagram with clear visual hierarchy.${elementCount > 0 ? `
-  ${labels.map(l => `[${l}]`).join(', ')} — each inside a distinct shape (box or circle).
-  Connect related elements with arrows or lines.` : ''}
-  Central concept prominent. Supporting elements arranged around it.`;
-      break;
+    default: {
+      if (labels.length > 0) {
+        const centerLabel = labels[0];
+        const surrounding = labels.slice(1);
+        const surroundingNarrative = surrounding.length > 0
+          ? ` Surrounding it, ${surrounding.map(l => `a shape labeled "${l}"`).join(', ')}, each connected to the center with arrows.`
+          : '';
+        return `A clean academic diagram for a lecture on ${topicContext}. In the center, a prominent shape labeled "${centerLabel}" with a relevant flat icon.${surroundingNarrative} ${description}. Professional educational style with a blue and gray color palette, white background, flat design, widescreen layout.`;
+      }
+      return `A clean academic diagram for a lecture on ${topicContext}. ${description}. Elements shown as labeled shapes connected by arrows, each with relevant flat icons. Professional educational style, blue and gray palette, white background, flat design, widescreen layout.`;
+    }
   }
-
-  // Use full description (500 chars instead of 200)
-  const conceptDescription = directive.description?.slice(0, 500) || slide.title;
-
-  return `Educational ${directive.type} for a university lecture slide on "${slide.title}".
-
-SUBJECT: ${lectureTitle}${domain ? `, ${domain}` : ''}
-CONCEPT: ${conceptDescription}
-${labelBlock}
-${layoutBlock}
-
-STYLE REQUIREMENTS:
-- ${directive.style || 'Clean minimalist academic'} style, 16:9 aspect ratio
-- High contrast: dark shapes on white or light background
-- Bold sans-serif font, equivalent to 48pt or larger
-- All text MUST be inside shapes (boxes, circles, banners) — no floating text
-- Arrows and connectors must clearly touch the shapes they connect
-
-PURPOSE: ${directive.educational_purpose || `Illustrate "${slide.title}"`}`;
 }
 
 // ============================================================================
