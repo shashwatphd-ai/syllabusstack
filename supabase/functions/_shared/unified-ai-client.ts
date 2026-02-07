@@ -51,6 +51,7 @@
 // ============================================================================
 
 import { simpleCompletion, functionCall, callOpenRouter, MODELS, parseJsonResponse } from './openrouter-client.ts';
+import { createVertexAIAuth, getGCPProjectId, getGCPRegion } from './vertex-ai-auth.ts';
 
 // ============================================================================
 // TYPES
@@ -59,18 +60,18 @@ import { simpleCompletion, functionCall, callOpenRouter, MODELS, parseJsonRespon
 export type TaskType = 
   | 'text_generation'      // → OpenRouter (Gemini/GPT)
   | 'function_call'        // → OpenRouter with tools
-  | 'image_generation'     // → OpenRouter (Gemini Image)
+  | 'image_generation'     // → OpenRouter (Gemini Image) or Vertex AI (Google Native)
   | 'search_grounding';    // → OpenRouter (Perplexity)
 
-export type Provider = 'openrouter' | 'google_direct' | 'google';
+export type Provider = 'openrouter' | 'google_direct' | 'google' | 'vertex';
 
 // Image provider configuration - read from environment
 const IMAGE_PROVIDER = Deno.env.get('IMAGE_PROVIDER') || 'openrouter';
 
-// Google native image models
-const GOOGLE_IMAGE_MODELS = {
-  PRIMARY: 'gemini-2.0-flash-exp',  // Fast, reliable
-  FALLBACK: 'gemini-2.0-flash-exp', // Same for now
+// Vertex AI image models (matches documentation: gemini-3-pro-image-preview)
+const VERTEX_IMAGE_MODELS = {
+  PRIMARY: 'gemini-3-pro-image-preview',   // Nano Banana Pro 3 - best quality
+  FALLBACK: 'gemini-3-pro-image-preview',  // Same model, Vertex AI handles availability
 } as const;
 
 export interface AIRequest {
@@ -537,10 +538,12 @@ async function generateImageOpenRouter(request: {
 }
 
 /**
- * Generate an image using native Google Generative Language API
+ * Generate an image using Vertex AI (Google Cloud)
  * 
- * Uses the same GOOGLE_CLOUD_API_KEY used for Vertex AI batch and syllabus parsing.
- * Endpoint: https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent
+ * Uses OAuth authentication via GCP_SERVICE_ACCOUNT_KEY for Vertex AI access.
+ * Endpoint: https://{region}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/google/models/{model}:generateContent
+ * 
+ * Model: gemini-3-pro-image-preview (Nano Banana Pro 3)
  * 
  * @internal
  */
@@ -552,33 +555,41 @@ async function generateImageGoogle(request: {
   logPrefix?: string;
 }): Promise<ImageResult> {
   const startTime = Date.now();
-  const logPrefix = request.logPrefix || '[Image-Google]';
+  const logPrefix = request.logPrefix || '[Image-VertexAI]';
 
-  // Validate configuration - uses same key as Vertex AI batch
-  const apiKey = Deno.env.get('GOOGLE_CLOUD_API_KEY');
+  // Validate configuration - uses GCP service account for OAuth
+  const serviceAccountKey = Deno.env.get('GCP_SERVICE_ACCOUNT_KEY');
 
-  if (!apiKey) {
-    console.error(`${logPrefix} GOOGLE_CLOUD_API_KEY not configured`);
+  if (!serviceAccountKey) {
+    console.error(`${logPrefix} GCP_SERVICE_ACCOUNT_KEY not configured`);
     return {
       success: false,
       error: {
         code: 'CONFIG_ERROR',
-        message: 'GOOGLE_CLOUD_API_KEY environment variable is not configured. Set IMAGE_PROVIDER=openrouter to use OpenRouter instead.',
+        message: 'GCP_SERVICE_ACCOUNT_KEY environment variable is not configured. Set IMAGE_PROVIDER=openrouter to use OpenRouter instead.',
         provider: 'google',
         model: 'none',
       },
     };
   }
 
-  // Model selection - using Gemini 2.0 Flash for image generation
-  const model = GOOGLE_IMAGE_MODELS.PRIMARY;
+  // Model selection - using Gemini 3 Pro Image Preview (Nano Banana Pro 3)
+  const model = VERTEX_IMAGE_MODELS.PRIMARY;
   
-  console.log(`${logPrefix} Generating image via Google Native API (${model})`);
+  console.log(`${logPrefix} Generating image via Vertex AI (${model})`);
   console.log(`${logPrefix} Prompt: ${request.prompt.substring(0, 100)}...`);
 
   try {
-    // Build request body for Google Generative Language API
-    // Format: https://ai.google.dev/gemini-api/docs/image-generation
+    // Initialize Vertex AI auth and get access token
+    const auth = createVertexAIAuth();
+    const accessToken = await auth.getAccessToken();
+    const projectId = getGCPProjectId(auth);
+    const region = getGCPRegion();
+
+    console.log(`${logPrefix} Using project: ${projectId}, region: ${region}`);
+
+    // Build request body for Vertex AI generateContent
+    // Reference: https://cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/3-pro-image
     const body = {
       contents: [
         {
@@ -588,16 +599,23 @@ async function generateImageGoogle(request: {
       ],
       generationConfig: {
         responseModalities: ['TEXT', 'IMAGE'],
+        // Optional: Add aspect ratio if supported
+        ...(request.aspectRatio && {
+          aspectRatio: request.aspectRatio.replace(':', '_'), // Convert 16:9 to 16_9
+        }),
       },
     };
 
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+    // Vertex AI endpoint format
+    const endpoint = `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:generateContent`;
+    
+    console.log(`${logPrefix} Endpoint: ${endpoint}`);
     
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
+        'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
-        'x-goog-api-key': apiKey,
       },
       body: JSON.stringify(body),
     });
@@ -605,13 +623,13 @@ async function generateImageGoogle(request: {
     // Handle HTTP errors explicitly
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`${logPrefix} Google API error ${response.status}:`, errorText.substring(0, 300));
+      console.error(`${logPrefix} Vertex AI error ${response.status}:`, errorText.substring(0, 500));
 
       return {
         success: false,
         error: {
           code: 'GOOGLE_ERROR',
-          message: `Google API returned HTTP ${response.status}: ${response.statusText}`,
+          message: `Vertex AI returned HTTP ${response.status}: ${response.statusText}`,
           provider: 'google',
           model,
           httpStatus: response.status,
@@ -622,19 +640,19 @@ async function generateImageGoogle(request: {
 
     const data = await response.json();
 
-    // Parse Google's response format
+    // Parse Vertex AI response format (same as Generative Language API)
     // Response structure: { candidates: [{ content: { parts: [{ inlineData: { data, mimeType } }] } }] }
     const extracted = extractImageFromGoogleResponse(data, logPrefix);
 
     if (!extracted) {
-      console.error(`${logPrefix} Could not extract image from Google response`);
+      console.error(`${logPrefix} Could not extract image from Vertex AI response`);
       console.error(`${logPrefix} Response keys:`, Object.keys(data));
       
       return {
         success: false,
         error: {
           code: 'INVALID_RESPONSE',
-          message: 'Could not extract image data from Google response. Response format may have changed.',
+          message: 'Could not extract image data from Vertex AI response. Response format may have changed.',
           provider: 'google',
           model,
           rawError: JSON.stringify(data).substring(0, 500),
@@ -666,7 +684,7 @@ async function generateImageGoogle(request: {
         code: 'IMAGE_GENERATION_FAILED',
         message: `Image generation failed with exception: ${errorMessage}`,
         provider: 'google',
-        model,
+        model: VERTEX_IMAGE_MODELS.PRIMARY,
         rawError: errorMessage,
       },
     };
