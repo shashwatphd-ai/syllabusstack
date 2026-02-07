@@ -128,17 +128,31 @@ async function sleep(ms: number): Promise<void> {
 
 /**
  * Infer visual directive from slide content if not explicitly provided
+ * 
+ * Handles both v2 (visual_directive) and v3 (visual) slide formats.
  */
 function inferVisualDirective(slide: Slide): VisualDirective | null {
-  // Skip title slides and summary slides
-  const skipTypes = ['title_slide', 'summary', 'conclusion', 'recap'];
-  if (skipTypes.includes(slide.type?.toLowerCase() || '')) {
-    return null;
-  }
-  
-  // Check if slide already has visual directive with actual type
+  // Check if slide already has visual_directive (v2 format) with actual type
   if (slide.visual_directive?.type && slide.visual_directive.type !== 'none') {
     return slide.visual_directive;
+  }
+  
+  // Check if slide has visual (v3 format) that needs generation
+  // v3 slides use `visual` directly with url: null for images that need generation
+  if (slide.visual?.type && slide.visual.type !== 'none' && !slide.visual.url) {
+    return {
+      type: slide.visual.type,
+      description: slide.visual.fallback_description || slide.visual.alt_text || `Visual for: ${slide.title}`,
+      elements: slide.visual.elements || [],
+      style: slide.visual.style || 'clean academic professional',
+      educational_purpose: slide.visual.educational_purpose || `Illustrate ${slide.title}`,
+    };
+  }
+  
+  // Skip certain slide types that rarely need custom visuals
+  const skipTypes = ['conclusion', 'recap', 'further_reading'];
+  if (skipTypes.includes(slide.type?.toLowerCase() || '')) {
+    return null;
   }
   
   // Infer from slide content
