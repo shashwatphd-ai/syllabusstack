@@ -182,32 +182,30 @@ function buildImagePrompt(
   const directive = inferVisualDirective(slide);
   if (!directive) return '';
 
-  // CRITICAL: Image generation models cannot reliably render text.
-  // This prompt explicitly avoids requesting text and focuses on abstract visual concepts.
-  // Reference: https://uxdesign.cc/lost-for-words-why-text-in-ai-images-still-goes-wrong
-  return `Create a visually striking educational ${directive.type} for a university lecture.
+  // OPTIMIZED TEXT RENDERING: Allow minimal, simple labels that AI can render reliably.
+  // Rules: max 5 labels, 1-3 common words each, inside shapes, large bold font.
+  return `Create an educational ${directive.type} for a university lecture slide.
 
-CONCEPT: ${slide.title}
-CONTEXT: ${lectureTitle}${domain ? ` (${domain})` : ''}
+TOPIC: ${slide.title}
+LECTURE: ${lectureTitle}${domain ? ` (${domain})` : ''}
+CONCEPT: ${directive.description?.slice(0, 200) || slide.title}
 
-VISUAL APPROACH:
-Create an abstract, conceptual visualization that represents ${directive.description?.slice(0, 150) || slide.title}.
-Use visual metaphors, shapes, icons, and color relationships to convey the concept.
-
-STRICT REQUIREMENTS:
-- DO NOT include any text, labels, words, letters, or numbers in the image
-- Use ONLY abstract shapes, icons, arrows, and visual symbols
-- Communicate through visual metaphor, not text
-- Professional academic illustration style
+DESIGN SPECIFICATIONS:
+- Professional academic diagram with clean minimalist style
 - 16:9 aspect ratio, suitable for projection
-- High contrast colors that work on both light and dark backgrounds
-- Clean, minimal, modern design aesthetic
-- Use strategic color to highlight key relationships
+- High contrast colors for readability
 
-STYLE: ${directive.style || 'clean academic'} with abstract iconography
-PURPOSE: Visually represent the concept of "${slide.title}" without any text
+LABEL RULES (CRITICAL):
+- Maximum 5 text labels in the ENTIRE image
+- Each label: 1-3 SIMPLE words only (e.g., "Step 1", "Input", "Output", "Data", "User")
+- Place ALL labels INSIDE shapes (boxes, circles, arrows) — never floating text
+- Use large, bold sans-serif font (equivalent to 48pt or larger)
+- Use common single-syllable words when possible
+- For complex terms: use icons/symbols with ONE-WORD labels
+- Prefer arrows, symbols, and visual flow over text explanations
 
-IMPORTANT: Generate a purely visual diagram with ZERO text. Any text, labels, or words will appear as gibberish. Use icons and shapes only.`;
+STYLE: ${directive.style || 'clean academic'} professional
+PURPOSE: Illustrate "${slide.title}" with minimal labeled elements`;
 }
 
 // ============================================================================
