@@ -28,7 +28,7 @@
 //   | Operation     | Provider         | Model                           |
 //   |---------------|------------------|----------------------------------|
 //   | Slide Content | OpenRouter/Vertex| google/gemini-3-flash-preview    |
-//   | Images        | OpenRouter/Google| gemini-3-pro-image-preview       |
+//   | Images        | OpenRouter/Google| imagen-4.0-ultra-generate-001    |
 //   | Research      | OpenRouter       | perplexity/sonar-pro             |
 //   | Parsing       | OpenRouter       | google/gemini-2.5-flash          |
 //   | Reasoning     | OpenRouter       | deepseek/deepseek-r1             |
@@ -68,10 +68,11 @@ export type Provider = 'openrouter' | 'google_direct' | 'google' | 'vertex';
 // Image provider configuration - read from environment
 const IMAGE_PROVIDER = Deno.env.get('IMAGE_PROVIDER') || 'openrouter';
 
-// Vertex AI image models (matches documentation: gemini-3-pro-image-preview)
+// Vertex AI image models - using Imagen 4 Ultra for GA auto-scaling quotas
+// Reference: https://cloud.google.com/vertex-ai/generative-ai/docs/models/imagen/4-0-ultra-generate-001
 const VERTEX_IMAGE_MODELS = {
-  PRIMARY: 'gemini-3-pro-image-preview',   // Nano Banana Pro 3 - best quality
-  FALLBACK: 'gemini-3-pro-image-preview',  // Same model, Vertex AI handles availability
+  PRIMARY: 'imagen-4.0-ultra-generate-001',   // Imagen 4 Ultra - GA with auto-scaling
+  FALLBACK: 'imagen-4.0-ultra-generate-001',  // Same model, Vertex AI handles availability
 } as const;
 
 export interface AIRequest {
@@ -183,6 +184,8 @@ const COST_PER_MILLION: Record<string, { input: number; output: number }> = {
   // Google Gemini image models
   'google/gemini-3-pro-image-preview': { input: 0.50, output: 2.00 },
   'google/gemini-2.5-flash-image': { input: 0.0003, output: 0.0025 },
+  // Google Imagen 4 (per image pricing: ~$0.04 for Ultra)
+  'imagen-4.0-ultra-generate-001': { input: 0.04, output: 0.00 },
   // Perplexity research models (per request pricing approximation)
   'perplexity/sonar-pro': { input: 3.00, output: 15.00 },
   'perplexity/sonar': { input: 1.00, output: 5.00 },
@@ -193,8 +196,8 @@ const COST_PER_MILLION: Record<string, { input: number; output: number }> = {
   'anthropic/claude-3.5-haiku': { input: 0.80, output: 4.00 },
 };
 
-// Fixed cost per image for Gemini 2.5 Flash Image
-const IMAGE_COST_USD = 0.039;
+// Fixed cost per image for Imagen 4 Ultra (~$0.04 per image)
+const IMAGE_COST_USD = 0.04;
 
 // ============================================================================
 // TEXT GENERATION - OpenRouter Primary
@@ -538,12 +541,13 @@ async function generateImageOpenRouter(request: {
 }
 
 /**
- * Generate an image using Vertex AI (Google Cloud)
+ * Generate an image using Vertex AI Imagen 4 Ultra (Google Cloud)
  * 
  * Uses OAuth authentication via GCP_SERVICE_ACCOUNT_KEY for Vertex AI access.
- * Endpoint: https://{region}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/google/models/{model}:generateContent
+ * Endpoint: https://{region}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/google/models/{model}:predict
  * 
- * Model: gemini-3-pro-image-preview (Nano Banana Pro 3)
+ * Model: imagen-4.0-ultra-generate-001 (GA with auto-scaling quotas)
+ * Reference: https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/imagen-api
  * 
  * @internal
  */
@@ -555,7 +559,7 @@ async function generateImageGoogle(request: {
   logPrefix?: string;
 }): Promise<ImageResult> {
   const startTime = Date.now();
-  const logPrefix = request.logPrefix || '[Image-VertexAI]';
+  const logPrefix = request.logPrefix || '[Image-Imagen4]';
 
   // Validate configuration - uses GCP service account for OAuth
   const serviceAccountKey = Deno.env.get('GCP_SERVICE_ACCOUNT_KEY');
@@ -573,10 +577,10 @@ async function generateImageGoogle(request: {
     };
   }
 
-  // Model selection - using Gemini 3 Pro Image Preview (Nano Banana Pro 3)
+  // Model selection - using Imagen 4 Ultra (GA with proper quotas)
   const model = VERTEX_IMAGE_MODELS.PRIMARY;
   
-  console.log(`${logPrefix} Generating image via Vertex AI (${model})`);
+  console.log(`${logPrefix} Generating image via Vertex AI Imagen 4 (${model})`);
   console.log(`${logPrefix} Prompt: ${request.prompt.substring(0, 100)}...`);
 
   try {
@@ -588,32 +592,38 @@ async function generateImageGoogle(request: {
 
     console.log(`${logPrefix} Using project: ${projectId}, region: ${region}`);
 
-    // Build request body for Vertex AI generateContent
-    // Reference: https://cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/3-pro-image
+    // Convert aspect ratio format for Imagen 4
+    // Supported: 1:1, 3:4, 4:3, 9:16, 16:9
+    const aspectRatio = request.aspectRatio || '16:9';
+
+    // Build request body for Vertex AI Imagen API (:predict endpoint)
+    // Reference: https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/imagen-api
     const body = {
-      contents: [
+      instances: [
         {
-          role: 'user',
-          parts: [{ text: request.prompt }],
+          prompt: request.prompt,
         },
       ],
-      generationConfig: {
-        responseModalities: ['TEXT', 'IMAGE'],
-        // Optional: Add aspect ratio if supported
-        ...(request.aspectRatio && {
-          aspectRatio: request.aspectRatio.replace(':', '_'), // Convert 16:9 to 16_9
-        }),
+      parameters: {
+        sampleCount: 1,
+        aspectRatio: aspectRatio,
+        // Output format - PNG for best quality
+        outputOptions: {
+          mimeType: 'image/png',
+        },
+        // Safety settings - allow person generation for educational diagrams
+        personGeneration: 'allow_adult',
+        // Add watermark for content verification
+        addWatermark: true,
       },
     };
 
-    // Vertex AI endpoint format
-    // CRITICAL: 'global' location uses https://aiplatform.googleapis.com (no region prefix)
-    //           Regional locations use https://{region}-aiplatform.googleapis.com
-    // Reference: https://cloud.google.com/vertex-ai/generative-ai/docs/learn/locations
+    // Vertex AI endpoint format for Imagen (:predict instead of :generateContent)
+    // Reference: https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/imagen-api
     const baseUrl = region === 'global'
       ? 'https://aiplatform.googleapis.com'
       : `https://${region}-aiplatform.googleapis.com`;
-    const endpoint = `${baseUrl}/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:generateContent`;
+    const endpoint = `${baseUrl}/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:predict`;
     
     console.log(`${logPrefix} Endpoint: ${endpoint}`);
     
@@ -646,19 +656,19 @@ async function generateImageGoogle(request: {
 
     const data = await response.json();
 
-    // Parse Vertex AI response format (same as Generative Language API)
-    // Response structure: { candidates: [{ content: { parts: [{ inlineData: { data, mimeType } }] } }] }
-    const extracted = extractImageFromGoogleResponse(data, logPrefix);
+    // Parse Imagen 4 response format
+    // Response structure: { predictions: [{ bytesBase64Encoded: "...", mimeType: "image/png" }] }
+    const extracted = extractImageFromImagenResponse(data, logPrefix);
 
     if (!extracted) {
-      console.error(`${logPrefix} Could not extract image from Vertex AI response`);
+      console.error(`${logPrefix} Could not extract image from Imagen response`);
       console.error(`${logPrefix} Response keys:`, Object.keys(data));
       
       return {
         success: false,
         error: {
           code: 'INVALID_RESPONSE',
-          message: 'Could not extract image data from Vertex AI response. Response format may have changed.',
+          message: 'Could not extract image data from Imagen response. Response format may have changed.',
           provider: 'google',
           model,
           rawError: JSON.stringify(data).substring(0, 500),
@@ -673,10 +683,10 @@ async function generateImageGoogle(request: {
       success: true,
       base64: extracted.base64,
       mimeType: extracted.mimeType,
-      textResponse: extracted.textResponse,
+      textResponse: undefined, // Imagen doesn't return text
       provider: 'google',
       model,
-      cost_usd: IMAGE_COST_USD, // Same cost estimate for now
+      cost_usd: IMAGE_COST_USD,
       latency_ms,
     };
 
@@ -694,6 +704,49 @@ async function generateImageGoogle(request: {
         rawError: errorMessage,
       },
     };
+  }
+}
+
+/**
+ * Extract base64 image from Imagen 4 API response
+ * 
+ * Imagen's response format:
+ * {
+ *   predictions: [{
+ *     bytesBase64Encoded: "base64...",
+ *     mimeType: "image/png"
+ *   }]
+ * }
+ * 
+ * @internal
+ */
+function extractImageFromImagenResponse(
+  data: Record<string, unknown>,
+  logPrefix: string
+): { base64: string; mimeType: string } | null {
+  try {
+    const predictions = data.predictions as Array<Record<string, unknown>> | undefined;
+    if (!predictions || predictions.length === 0) {
+      console.warn(`${logPrefix} No predictions in response`);
+      return null;
+    }
+
+    const prediction = predictions[0];
+    const base64 = prediction.bytesBase64Encoded as string | undefined;
+    const mimeType = (prediction.mimeType as string) || 'image/png';
+
+    if (!base64) {
+      console.warn(`${logPrefix} No bytesBase64Encoded in prediction`);
+      console.warn(`${logPrefix} Prediction keys:`, Object.keys(prediction));
+      return null;
+    }
+
+    console.log(`${logPrefix} Found Imagen image: ${mimeType}`);
+    return { base64, mimeType };
+
+  } catch (error) {
+    console.error(`${logPrefix} Error parsing Imagen response:`, error);
+    return null;
   }
 }
 
