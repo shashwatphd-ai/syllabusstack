@@ -611,6 +611,12 @@ async function generateImageGoogle(request: {
         outputOptions: {
           mimeType: 'image/png',
         },
+        // CRITICAL: Disable prompt rewriter to preserve exact text labels.
+        // When enabled (default), Imagen's LLM-based rewriter adds/alters prompt
+        // details which causes misspelled labels, missing words, and text
+        // placed outside shapes. Our prompts are already optimized with explicit
+        // quoted labels and spatial layout instructions.
+        enhancePrompt: false,
         // Safety settings - allow person generation for educational diagrams
         personGeneration: 'allow_adult',
         // Add watermark for content verification

@@ -88,9 +88,12 @@ interface Slide {
   content: Record<string, unknown>;
   visual_directive?: VisualDirective;
   visual?: {
+    type?: string;
     url: string | null;
     alt_text: string;
     fallback_description: string;
+    elements?: string[];
+    style?: string;
     educational_purpose?: string;
     source?: string;
   };
@@ -160,14 +163,14 @@ function inferVisualDirective(slide: Slide): VisualDirective | null {
   const title = slide.title || '';
   const mainText = typeof content.main_text === 'string' ? content.main_text : '';
   const keyPoints = Array.isArray(content.key_points) ? content.key_points : [];
-  
+
   // Build description from available content
   const conceptText = keyPoints.slice(0, 2).join(' ') || mainText.slice(0, 300);
-  
+
   if (!conceptText && !title) {
     return null; // Not enough content to infer
   }
-  
+
   // Determine visual type based on slide type
   let visualType = 'diagram';
   if (slide.type === 'example' || slide.type === 'case_study') {
@@ -175,18 +178,59 @@ function inferVisualDirective(slide: Slide): VisualDirective | null {
   } else if (slide.type === 'comparison') {
     visualType = 'infographic';
   }
-  
+
+  // Extract concrete label candidates from key points (first few words of each)
+  const labelCandidates = keyPoints
+    .slice(0, 4)
+    .map((p: unknown) => {
+      if (typeof p !== 'string') return '';
+      // Extract the first meaningful phrase (up to 3 words) from each key point
+      const words = p.replace(/^[-•*]\s*/, '').trim().split(/\s+/).slice(0, 3).join(' ');
+      return words.slice(0, 25);
+    })
+    .filter((s: string) => s.length > 0);
+
+  // Build a concrete description instead of a generic one
+  const descriptionParts = [
+    `Diagram showing the concept of "${title}"`,
+    conceptText ? `illustrating: ${conceptText.slice(0, 300)}` : '',
+    labelCandidates.length > 0 ? `Key elements: ${labelCandidates.join(', ')}` : '',
+  ].filter(Boolean);
+
   return {
     type: visualType,
-    description: `Visual representation of: ${title}. Key concepts: ${conceptText.slice(0, 200)}`,
-    elements: [title, ...keyPoints.slice(0, 3).map(p => typeof p === 'string' ? p.slice(0, 50) : '')].filter(Boolean),
+    description: descriptionParts.join('. ').slice(0, 500),
+    elements: labelCandidates.length > 0
+      ? labelCandidates
+      : [title].filter(Boolean),
     style: 'clean academic professional',
     educational_purpose: `Illustrate the core concept of ${title}`,
   };
 }
 
 /**
- * Build image generation prompt from slide and directive
+ * Simplify a label string for reliable Imagen text rendering.
+ * Keeps only 1-3 short words. Strips punctuation.
+ */
+function simplifyLabel(raw: string): string {
+  const cleaned = raw
+    .replace(/[^\w\s\-→/]/g, '') // strip punctuation except hyphens, arrows, slashes
+    .replace(/\s+/g, ' ')
+    .trim();
+  // Take first 3 words, max 25 chars total
+  const words = cleaned.split(' ').slice(0, 3).join(' ');
+  return words.slice(0, 25);
+}
+
+/**
+ * Build image generation prompt from slide and directive.
+ *
+ * OPTIMIZATION STRATEGY (2026-02-07):
+ * 1. Use directive.elements[] to generate EXACT quoted text labels
+ * 2. Provide explicit spatial layout instructions per element
+ * 3. Keep text minimal (1-3 words per label, max 5 labels)
+ * 4. Describe shapes and connections concretely, not abstractly
+ * 5. Use longer description context (500 chars vs 200)
  */
 function buildImagePrompt(
   slide: Slide,
@@ -196,30 +240,76 @@ function buildImagePrompt(
   const directive = inferVisualDirective(slide);
   if (!directive) return '';
 
-  // OPTIMIZED TEXT RENDERING: Allow minimal, simple labels that AI can render reliably.
-  // Rules: max 5 labels, 1-3 common words each, inside shapes, large bold font.
-  return `Create an educational ${directive.type} for a university lecture slide.
+  // Build explicit label list from directive.elements (previously ignored)
+  const rawElements = directive.elements || [];
+  const labels = rawElements
+    .slice(0, 5)
+    .map(el => simplifyLabel(el))
+    .filter(l => l.length > 0 && l.length <= 25);
 
-TOPIC: ${slide.title}
-LECTURE: ${lectureTitle}${domain ? ` (${domain})` : ''}
-CONCEPT: ${directive.description?.slice(0, 200) || slide.title}
+  // Build explicit text rendering block with quoted labels
+  let labelBlock = '';
+  if (labels.length > 0) {
+    const labelLines = labels.map((label, i) => {
+      return `  - Label ${i + 1}: "${label}" (inside a rounded rectangle, large bold text)`;
+    });
+    labelBlock = `
+EXACT TEXT LABELS (render these words precisely as spelled):
+${labelLines.join('\n')}
+  Total labels: ${labels.length}. No other text in the image.`;
+  } else {
+    labelBlock = `
+TEXT: No text labels. Use only icons, symbols, and arrows.`;
+  }
 
-DESIGN SPECIFICATIONS:
-- Professional academic diagram with clean minimalist style
-- 16:9 aspect ratio, suitable for projection
-- High contrast colors for readability
+  // Build spatial layout based on visual type
+  let layoutBlock = '';
+  const elementCount = labels.length;
+  switch (directive.type) {
+    case 'flowchart':
+    case 'flow':
+      layoutBlock = `
+LAYOUT: Horizontal left-to-right flow.${elementCount > 0 ? `
+  ${labels.map((l, i) => `${i > 0 ? '→ ' : ''}[${l}]`).join(' ')}
+  Each label inside a rounded box. Connect boxes with thick directional arrows.` : ''}
+  Clear spacing between elements. White background.`;
+      break;
+    case 'comparison':
+    case 'infographic':
+      layoutBlock = `
+LAYOUT: ${elementCount === 2 ? 'Side-by-side comparison.' : `Grid of ${elementCount} equal-sized panels.`}${elementCount > 0 ? `
+  ${labels.map((l, i) => `Panel ${i + 1}: "${l}"`).join(' | ')}
+  Each panel is a bordered card with the label as its header.` : ''}
+  Clear dividing lines between panels. Balanced spacing.`;
+      break;
+    case 'diagram':
+    default:
+      layoutBlock = `
+LAYOUT: Structured diagram with clear visual hierarchy.${elementCount > 0 ? `
+  ${labels.map(l => `[${l}]`).join(', ')} — each inside a distinct shape (box or circle).
+  Connect related elements with arrows or lines.` : ''}
+  Central concept prominent. Supporting elements arranged around it.`;
+      break;
+  }
 
-LABEL RULES (CRITICAL):
-- Maximum 5 text labels in the ENTIRE image
-- Each label: 1-3 SIMPLE words only (e.g., "Step 1", "Input", "Output", "Data", "User")
-- Place ALL labels INSIDE shapes (boxes, circles, arrows) — never floating text
-- Use large, bold sans-serif font (equivalent to 48pt or larger)
-- Use common single-syllable words when possible
-- For complex terms: use icons/symbols with ONE-WORD labels
-- Prefer arrows, symbols, and visual flow over text explanations
+  // Use full description (500 chars instead of 200)
+  const conceptDescription = directive.description?.slice(0, 500) || slide.title;
 
-STYLE: ${directive.style || 'clean academic'} professional
-PURPOSE: Illustrate "${slide.title}" with minimal labeled elements`;
+  return `Educational ${directive.type} for a university lecture slide on "${slide.title}".
+
+SUBJECT: ${lectureTitle}${domain ? `, ${domain}` : ''}
+CONCEPT: ${conceptDescription}
+${labelBlock}
+${layoutBlock}
+
+STYLE REQUIREMENTS:
+- ${directive.style || 'Clean minimalist academic'} style, 16:9 aspect ratio
+- High contrast: dark shapes on white or light background
+- Bold sans-serif font, equivalent to 48pt or larger
+- All text MUST be inside shapes (boxes, circles, banners) — no floating text
+- Arrows and connectors must clearly touch the shapes they connect
+
+PURPOSE: ${directive.educational_purpose || `Illustrate "${slide.title}"`}`;
 }
 
 // ============================================================================
