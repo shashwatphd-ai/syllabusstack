@@ -1345,6 +1345,19 @@ serve(async (req) => {
 
     console.log(`[Research] Batch ${batch_job_id} submitted successfully via Vertex AI`);
 
+    // Trigger poll-active-batches to start polling for batch completion.
+    // It will self-continue every 30s until all batches complete.
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    fetch(`${supabaseUrl}/functions/v1/poll-active-batches`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${serviceRoleKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({}),
+    }).catch(err => console.warn('[Research] Failed to trigger polling:', err));
+
     return new Response(
       JSON.stringify({
         success: true,

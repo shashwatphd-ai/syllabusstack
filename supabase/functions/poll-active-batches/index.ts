@@ -165,13 +165,35 @@
      }
  
      console.log(`[PollActiveBatches] Sweep complete: ${successCount} polled, ${completedCount} completed, ${errorCount} errors`);
- 
+
+     // Self-continuation: if there are still active (non-completed) batches,
+     // schedule another poll in 30 seconds. This replaces the missing pg_cron job.
+     const remainingActive = activeBatches.length - completedCount;
+     if (remainingActive > 0) {
+       const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+       const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+       console.log(`[PollActiveBatches] ${remainingActive} batches still active — scheduling re-poll in 30s`);
+
+       // Delay then fire-and-forget self-invocation
+       setTimeout(() => {
+         fetch(`${supabaseUrl}/functions/v1/poll-active-batches`, {
+           method: 'POST',
+           headers: {
+             'Authorization': `Bearer ${serviceRoleKey}`,
+             'Content-Type': 'application/json',
+           },
+           body: JSON.stringify({}),
+         }).catch(err => console.error('[PollActiveBatches] Self-continuation error:', err));
+       }, 30_000);
+     }
+
      return createSuccessResponse({
        success: true,
        polled: successCount,
        completed: completedCount,
        errors: errorCount,
        total_active: activeBatches.length,
+       remaining_active: remainingActive,
      }, corsHeaders);
  
    } catch (error) {
@@ -469,104 +491,46 @@
  
    console.log(`[PollActiveBatches] Batch complete: ${succeededCount} succeeded, ${failedCount} failed`);
  
-   // Populate image generation queue
-   await populateImageQueue(supabase, batchJob);
+   // Trigger image generation via process-batch-images (MODE 4: instructor_course_id).
+   // Delegating entirely to process-batch-images which handles:
+   // AI-powered prompt generation, queue population, image generation,
+   // upload to storage, and self-continuation.
+   //
+   // Previously this function built its own queue items with columns
+   // (visual_directive, priority) that don't exist in the table schema,
+   // and omitted the required NOT NULL `prompt` column — causing silent insert failures.
+   await triggerImageGeneration(batchJob);
  }
- 
+
  // ============================================================================
- // IMAGE QUEUE POPULATION
+ // IMAGE GENERATION TRIGGER
  // ============================================================================
- 
- async function populateImageQueue(supabase: any, batchJob: any) {
+
+ async function triggerImageGeneration(batchJob: any) {
    const enableImageGeneration = Deno.env.get('ENABLE_BATCH_IMAGE_GENERATION') !== 'false';
-   if (!enableImageGeneration) return;
- 
-   console.log(`[PollActiveBatches] Populating image generation queue for batch ${batchJob.id}`);
- 
-   // Get domain for this course
-   const { data: course } = await supabase
-     .from('instructor_courses')
-     .select('detected_domain')
-     .eq('id', batchJob.instructor_course_id)
-     .single();
-   const domain = course?.detected_domain || undefined;
- 
-   // Get all ready lectures from this batch
-   const { data: lectures } = await supabase
-     .from('lecture_slides')
-     .select('id, title, slides')
-     .eq('batch_job_id', batchJob.id)
-     .eq('status', 'ready');
- 
-   if (!lectures || lectures.length === 0) return;
- 
-   let totalQueueItems = 0;
- 
-   for (const lecture of lectures) {
-     const slides = (lecture.slides || []) as any[];
-     const queueItems: Array<{
-       lecture_slides_id: string;
-       slide_index: number;
-       visual_directive: any;
-       priority: number;
-       status: string;
-     }> = [];
- 
-     slides.forEach((slide: any, index: number) => {
-       const visualType = slide.visual?.type || 'none';
-       if (visualType && visualType !== 'none') {
-         queueItems.push({
-           lecture_slides_id: lecture.id,
-           slide_index: index,
-           visual_directive: {
-             type: slide.visual.type,
-             description: slide.visual.fallback_description || slide.visual.alt_text,
-             educational_purpose: slide.visual.educational_purpose,
-             elements: slide.visual.elements,
-             style: slide.visual.style,
-             slide_title: slide.title,
-             lecture_title: lecture.title,
-             domain: domain,
-           },
-           priority: index === 0 ? 1 : 2, // First slide gets higher priority
-           status: 'pending',
-         });
-       }
-     });
- 
-     if (queueItems.length > 0) {
-       const { error: queueError } = await supabase
-         .from('image_generation_queue')
-         .upsert(queueItems, {
-           onConflict: 'lecture_slides_id,slide_index',
-           ignoreDuplicates: true,
-         });
- 
-       if (queueError) {
-         console.error(`[PollActiveBatches] Error populating image queue:`, queueError);
-       } else {
-         totalQueueItems += queueItems.length;
-       }
-     }
+   if (!enableImageGeneration) {
+     console.log(`[PollActiveBatches] Image generation disabled (ENABLE_BATCH_IMAGE_GENERATION=false)`);
+     return;
    }
- 
-   console.log(`[PollActiveBatches] Queued ${totalQueueItems} images for generation`);
- 
-   // Trigger image processing (fire and forget)
-   if (totalQueueItems > 0) {
-     const supabaseUrl = Deno.env.get('SUPABASE_URL');
-     const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-     if (supabaseUrl && serviceKey) {
-       fetch(`${supabaseUrl}/functions/v1/process-batch-images`, {
-         method: 'POST',
-         headers: {
-           'Authorization': `Bearer ${serviceKey}`,
-           'Content-Type': 'application/json',
-         },
-         body: JSON.stringify({ instructor_course_id: batchJob.instructor_course_id }),
-       }).catch(err => console.error('[PollActiveBatches] Failed to trigger image processing:', err));
-     }
+
+   const supabaseUrl = Deno.env.get('SUPABASE_URL');
+   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+   if (!supabaseUrl || !serviceKey) {
+     console.error('[PollActiveBatches] Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+     return;
    }
+
+   console.log(`[PollActiveBatches] Triggering image generation for course ${batchJob.instructor_course_id}`);
+
+   // Fire-and-forget: process-batch-images MODE 4 handles everything.
+   fetch(`${supabaseUrl}/functions/v1/process-batch-images`, {
+     method: 'POST',
+     headers: {
+       'Authorization': `Bearer ${serviceKey}`,
+       'Content-Type': 'application/json',
+     },
+     body: JSON.stringify({ instructor_course_id: batchJob.instructor_course_id }),
+   }).catch(err => console.error('[PollActiveBatches] Failed to trigger image processing:', err));
  }
  
  // ============================================================================

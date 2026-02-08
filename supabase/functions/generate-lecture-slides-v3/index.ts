@@ -1354,92 +1354,42 @@ const handler = async (req: Request): Promise<Response> => {
 
       console.log('[Main] Slides saved successfully:', initialSlides.length);
 
-      // PHASE 4: ASYNC IMAGE GENERATION (queue-based to avoid timeout)
-      // Instead of generating images inline (which can timeout), we queue them
-      // for async processing via process-batch-images self-continuation system.
-      console.log('[Main] === PHASE 4: QUEUE IMAGES (ASYNC) ===');
-      
+      // PHASE 4: ASYNC IMAGE GENERATION
+      // Delegate entirely to process-batch-images (MODE 2: lecture_slides_id).
+      // That function handles: AI-powered prompt generation, queue insertion,
+      // image generation via Imagen 4 Ultra, upload to storage, and
+      // self-continuation for remaining items.
+      //
+      // Previously this phase built its own hardcoded "no text" prompts and
+      // inserted directly into image_generation_queue. This caused a split-brain
+      // where the prompt-writing logic in process-batch-images was bypassed.
+      console.log('[Main] === PHASE 4: TRIGGER IMAGE GENERATION (ASYNC) ===');
+
       const slidesNeedingVisuals = initialSlides
-        .filter((s, i) => {
+        .filter((s) => {
           const visualType = s.visual?.type;
           return visualType && visualType !== 'none';
         });
-      
-      console.log(`[Main] ${slidesNeedingVisuals.length} slides need images - queueing for async generation`);
-      
+
+      console.log(`[Main] ${slidesNeedingVisuals.length} slides need images - delegating to process-batch-images`);
+
       if (slidesNeedingVisuals.length > 0) {
-        // Build queue items for async processing
-        const queueItems = initialSlides
-          .map((slide, index) => {
-            const visualType = slide.visual?.type;
-            if (!visualType || visualType === 'none') return null;
-            
-            // CRITICAL: Image generation models cannot reliably render text.
-            // This prompt explicitly avoids requesting text and focuses on abstract visual concepts.
-            const prompt = `Create a visually striking educational ${slide.visual?.type || 'diagram'} for a university lecture.
+        // Fire-and-forget: trigger process-batch-images with this lecture's ID.
+        // It will call populateQueueFromLecture → buildImagePrompt (AI-powered)
+        // → insert queue items → processQueueItem → self-continue.
+        const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+        const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
-CONCEPT: ${slide.title}
-CONTEXT: ${context.title} (${context.domain || 'general education'})
-
-VISUAL APPROACH:
-Create an abstract, conceptual visualization that represents ${slide.visual?.alt_text || slide.title}.
-Use visual metaphors, shapes, icons, and color relationships to convey the concept.
-
-STRICT REQUIREMENTS:
-- DO NOT include any text, labels, words, letters, or numbers in the image
-- Use ONLY abstract shapes, icons, arrows, and visual symbols
-- Communicate through visual metaphor, not text
-- Professional academic illustration style
-- 16:9 aspect ratio, suitable for projection
-- High contrast colors that work on both light and dark backgrounds
-- Clean, minimal, modern design aesthetic
-- Use strategic color to highlight key relationships
-
-STYLE: ${slide.visual?.style || 'clean academic'} with abstract iconography
-PURPOSE: Visually represent the concept of "${slide.title}" without any text
-
-IMPORTANT: Generate a purely visual diagram with ZERO text. Any text, labels, or words will appear as gibberish. Use icons and shapes only.`;
-
-            return {
-              lecture_slides_id: slideRecordId,
-              slide_index: index,
-              slide_title: slide.title || `Slide ${index + 1}`,
-              prompt,
-              status: 'pending',
-            };
-          })
-          .filter(Boolean);
-
-        if (queueItems.length > 0) {
-          // Insert queue items (upsert to handle re-runs)
-          const { error: queueError } = await supabase
-            .from('image_generation_queue')
-            .upsert(queueItems, {
-              onConflict: 'lecture_slides_id,slide_index',
-              ignoreDuplicates: false,
-            });
-
-          if (queueError) {
-            console.warn('[Main] Failed to queue images:', queueError);
-          } else {
-            console.log(`[Main] Queued ${queueItems.length} images for async generation`);
-            
-            // Trigger process-batch-images to start processing (fire-and-forget)
-            const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-            const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-            
-            fetch(`${supabaseUrl}/functions/v1/process-batch-images`, {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${serviceRoleKey}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({ continue: true }),
-            }).catch(err => {
-              console.warn('[Main] Failed to trigger image processing:', err);
-            });
-          }
-        }
+        fetch(`${supabaseUrl}/functions/v1/process-batch-images`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${serviceRoleKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ lecture_slides_id: slideRecordId }),
+        }).catch(err => {
+          console.warn('[Main] Failed to trigger image processing:', err);
+        });
       }
 
       // Update final status - slides are ready, images processing async
