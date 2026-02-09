@@ -1,12 +1,12 @@
 // ============================================================================
-// SHARED IMAGE PROMPT BUILDER - AI-powered Imagen 4 prompt generation
+// SHARED IMAGE PROMPT BUILDER - AI-powered image prompt generation
 // ============================================================================
 //
 // CANONICAL SOURCE: Extracted from process-batch-images/index.ts
 // Used by: process-batch-images, generate-slide-media
 //
-// Uses a fast cheap LLM (Gemini Flash Lite ~$0.00005/call) to write
-// Imagen 4 Ultra prompts from full slide context.
+// Uses a fast cheap LLM (Gemini 2.5 Flash ~$0.00005/call) to write
+// optimized prompts for Gemini image generation from full slide context.
 //
 
 import { simpleCompletion, MODELS } from './openrouter-client.ts';
@@ -16,18 +16,19 @@ import type { StoredSlide } from './slide-types.ts';
 // IMAGE PROMPT WRITER SYSTEM PROMPT
 // ============================================================================
 
-export const IMAGE_PROMPT_WRITER_SYSTEM = `You are an expert educational diagram designer who writes image generation prompts for Google Imagen 4 Ultra.
+export const IMAGE_PROMPT_WRITER_SYSTEM = `You are an expert educational diagram designer who writes image generation prompts for Google Gemini's native image generation model.
 
 Your job: Given a slide's data, write ONE paragraph (100-180 words) describing a specific, meaningful educational diagram.
 
 CORE PRINCIPLE — CONTENT FIRST:
 Every element in the image must directly represent a concept from the slide content. No decorative filler. If the slide discusses "WorldCom fraud vs Timberland sustainability", the image must show those specific companies/concepts, not generic arrows and gears.
 
-IMAGEN 4 TEXT RULES:
-- Maximum 4 text labels, each max 2 common English words
-- Wrap labels in quotes naturally: 'a box labeled "Revenue"'
-- Place labels inside shapes. Never floating text
-- Prefer recognizable icons/symbols over text labels when possible
+TEXT LABEL RULES:
+- Maximum 6 text labels, each max 3-4 common English words
+- Wrap labels in quotes naturally: 'a box labeled "Revenue Growth"'
+- Place labels inside shapes or directly adjacent. Never floating text
+- Every label must be a real term from the slide content — no generic filler
+- SPELL EVERY LABEL CORRECTLY — double-check against the slide data
 
 DIAGRAM TYPE — match to slide type:
 - "process" → numbered step boxes connected by arrows, left-to-right
@@ -66,6 +67,13 @@ NEVER INCLUDE:
 - The word "slide" — describe the diagram itself
 - Generic shapes with no connection to the content (random gears, arrows, circles)
 - Vague descriptions — every element must represent something specific from the slide
+
+OUTPUT QUALITY:
+- Begin with the diagram type: "A horizontal flowchart...", "A radial diagram...", "A split comparison layout..."
+- End with the style: "Clean infographic style, white background, professional academic design."
+- Describe EXACTLY what each element looks like — shape, color, position, label
+- If the slide has a misconception: ALWAYS use split red-left / green-right layout
+- If the slide has steps: ALWAYS use numbered sequential boxes with connecting arrows
 
 Write ONLY the image description paragraph. No preamble.`;
 
@@ -235,7 +243,7 @@ export async function buildImagePrompt(
       IMAGE_PROMPT_WRITER_SYSTEM,
       slideContext,
       {
-        temperature: 0.7,
+        temperature: 0.4,
         max_tokens: 500,
         fallbacks: [MODELS.FAST],
       },

@@ -113,6 +113,7 @@ export interface ImageResultSuccess {
   model: string;
   cost_usd: number;
   latency_ms: number;
+  usedFallback?: boolean;
 }
 
 // Error result from image generation (explicit errors, no silent nulls)
@@ -407,11 +408,16 @@ async function generateImageOpenRouter(request: {
         model,
         messages: [
           {
+            role: 'system',
+            content: 'You are an educational diagram generator for university lecture slides. Generate a single clean, professional infographic-style diagram on a white background. The image must be visually clear at presentation scale (1920x1080). All text labels in the image must be spelled correctly and placed inside shapes. Use flat design with meaningful colors. Do not include decorative borders, watermarks, or stock-photo elements.',
+          },
+          {
             role: 'user',
             content: request.prompt,
           },
         ],
         modalities: ['image', 'text'],  // Required for image generation output
+        max_tokens: 4096,               // Budget for image generation, caps runaway text
       };
 
       // Add aspect ratio configuration if specified
@@ -492,7 +498,13 @@ async function generateImageOpenRouter(request: {
       }
 
       const latency_ms = Date.now() - startTime;
-      console.log(`${logPrefix} ✓ Image generated successfully in ${latency_ms}ms (${Math.round(extracted.base64.length / 1024)}KB)${isRetry ? ' [fallback]' : ''}`);
+      const imageKB = Math.round(extracted.base64.length / 1024);
+      console.log(`${logPrefix} ✓ Image generated successfully in ${latency_ms}ms (${imageKB}KB) model=${model}${isRetry ? ' [FALLBACK]' : ''}`);
+
+      // Warn if fallback produced suspiciously small image (likely low quality)
+      if (isRetry && imageKB < 50) {
+        console.warn(`${logPrefix} ⚠ Fallback image is very small (${imageKB}KB) — may be low quality`);
+      }
 
       return {
         success: true,
@@ -503,6 +515,7 @@ async function generateImageOpenRouter(request: {
         model,
         cost_usd: IMAGE_COST_USD,
         latency_ms,
+        usedFallback: isRetry,
       };
 
     } catch (error) {

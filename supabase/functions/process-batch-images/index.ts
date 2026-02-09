@@ -187,10 +187,11 @@ async function updateQueueItem(
   imageUrl: string | null,
   errorMessage: string | null,
   currentAttempts: number,
-  maxAttempts: number
+  maxAttempts: number,
+  generationModel: string | null = null
 ): Promise<void> {
   const newAttempts = currentAttempts + 1;
-  
+
   let status: string;
   if (success) {
     status = 'completed';
@@ -208,6 +209,7 @@ async function updateQueueItem(
       image_url: imageUrl,
       error_message: errorMessage,
       processed_at: new Date().toISOString(),
+      generation_model: generationModel,
     })
     .eq('id', id);
 }
@@ -263,7 +265,7 @@ async function getLectureQueueStats(
 async function processQueueItem(
   supabase: SupabaseClient,
   item: QueueItem
-): Promise<{ success: boolean; imageUrl: string | null; error: string | null }> {
+): Promise<{ success: boolean; imageUrl: string | null; error: string | null; generationModel: string | null }> {
   const logPrefix = `[Image ${item.slide_index}]`;
   const imageProvider = Deno.env.get('IMAGE_PROVIDER') || 'openrouter';
 
@@ -280,7 +282,14 @@ async function processQueueItem(
 
     // Handle discriminated union: check result.success
     if (!result.success) {
-      return { success: false, imageUrl: null, error: result.error.message };
+      return { success: false, imageUrl: null, error: result.error.message, generationModel: result.error.model || null };
+    }
+
+    // Reject suspiciously small images (likely blank or corrupt)
+    const imageSizeKB = Math.round(result.base64.length / 1024);
+    if (imageSizeKB < 10) {
+      console.warn(`${logPrefix} Rejecting image: only ${imageSizeKB}KB (likely blank/corrupt)`);
+      return { success: false, imageUrl: null, error: `Image too small (${imageSizeKB}KB) — likely blank or corrupt`, generationModel: result.model || null };
     }
 
     // Upload to Supabase storage (success case)
@@ -296,18 +305,18 @@ async function processQueueItem(
 
     if (uploadError) {
       console.error(`${logPrefix} Upload error:`, uploadError);
-      return { success: false, imageUrl: null, error: `Upload failed: ${uploadError.message}` };
+      return { success: false, imageUrl: null, error: `Upload failed: ${uploadError.message}`, generationModel: result.model || null };
     }
 
     // Store the file path (not URL) - the frontend's AuthenticatedImage will create signed URLs
     // The bucket is private, so getPublicUrl() returns an inaccessible URL
-    console.log(`${logPrefix} Success: ${fileName} (private bucket)`);
-    return { success: true, imageUrl: fileName, error: null };
+    console.log(`${logPrefix} Success: ${fileName} (private bucket, model=${result.model}${result.usedFallback ? ' [FALLBACK]' : ''})`);
+    return { success: true, imageUrl: fileName, error: null, generationModel: result.model || null };
 
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error(`${logPrefix} Error:`, errorMsg);
-    return { success: false, imageUrl: null, error: errorMsg };
+    return { success: false, imageUrl: null, error: errorMsg, generationModel: null };
   }
 }
 
@@ -593,7 +602,7 @@ const handler = async (req: Request): Promise<Response> => {
           batch.map(async (item) => {
             const result = await processQueueItem(supabase, item);
             
-            // Update queue item
+            // Update queue item (include generation_model for quality auditing)
             await updateQueueItem(
               supabase,
               item.id,
@@ -601,7 +610,8 @@ const handler = async (req: Request): Promise<Response> => {
               result.imageUrl,
               result.error,
               item.attempts,
-              item.max_attempts
+              item.max_attempts,
+              result.generationModel
             );
 
              // CRITICAL: sync lecture_slides JSON immediately so UI updates even
