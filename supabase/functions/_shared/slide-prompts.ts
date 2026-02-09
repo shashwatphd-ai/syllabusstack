@@ -104,8 +104,8 @@ CONTENT DEPTH REQUIREMENTS:
 VISUAL DIRECTIVES:
 Specify visuals that genuinely enhance understanding:
 - type: diagram/screenshot/comparison/flowchart/illustration/chart/infographic/none
-- description: Detailed description for AI image generation (be specific about what to show)
-- elements: Specific elements that MUST appear, labeled clearly
+- description: 50-100 word description for AI image generation. Specify diagram type (flowchart/radial/comparison/matrix), exact element positions (left/right/center), specific labels from the content, and color meaning. Must be specific enough that two different artists would produce similar diagrams.
+- elements: Array of 3-6 specific labeled elements that MUST appear, using exact terms from the content
 - style: "clean technical diagram", "annotated screenshot", "minimalist academic", "data visualization", etc.
 - educational_purpose: What concept this visual helps explain
 

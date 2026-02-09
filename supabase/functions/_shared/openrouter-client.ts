@@ -570,7 +570,8 @@ export function shouldUseOpenRouter(): boolean {
 // IMAGE GENERATION - VIA UNIFIED-AI-CLIENT
 // ============================================================================
 // Image generation is handled by unified-ai-client.ts using:
-//   - Model: google/gemini-2.5-flash-image (MODELS.IMAGE)
-//   - Provider: OpenRouter only (no Google Direct fallback)
-//   - Cost: ~$0.039 per image
+//   - Primary: google/gemini-3-pro-image-preview (MODELS.IMAGE)
+//   - Fallback: google/gemini-2.5-flash-image (MODELS.IMAGE_FALLBACK)
+//   - Provider: OpenRouter (default) or Vertex AI (IMAGE_PROVIDER=google)
+//   - Cost: ~$0.04 per image
 // See unified-ai-client.ts generateImage() for implementation.
