@@ -448,17 +448,23 @@ const handler = async (req: Request): Promise<Response> => {
           } else {
             console.log(`[Main] Queued ${queueItems.length} images for async generation`);
 
-            // Trigger process-batch-images to start processing (fire-and-forget)
-            fetch(`${supabaseUrl}/functions/v1/process-batch-images`, {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${supabaseKey}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({ continue: true }),
-            }).catch(err => {
+            // Trigger process-batch-images to start processing
+            // IMPORTANT: await the fetch to ensure the request is actually sent
+            // before the edge function returns. The image processor runs in its
+            // own invocation — we just need to dispatch the trigger reliably.
+            try {
+              const triggerResp = await fetch(`${supabaseUrl}/functions/v1/process-batch-images`, {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${supabaseKey}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ continue: true }),
+              });
+              console.log(`[Main] Image processing trigger: ${triggerResp.status}`);
+            } catch (err) {
               console.warn('[Main] Failed to trigger image processing:', err);
-            });
+            }
           }
         }
       }

@@ -562,19 +562,24 @@
  
    console.log(`[PollActiveBatches] Queued ${totalQueueItems} images for generation`);
  
-   // Trigger image processing (fire and forget)
+   // Trigger image processing - await to ensure request is dispatched before function exits
    if (totalQueueItems > 0) {
      const supabaseUrl = Deno.env.get('SUPABASE_URL');
      const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
      if (supabaseUrl && serviceKey) {
-       fetch(`${supabaseUrl}/functions/v1/process-batch-images`, {
-         method: 'POST',
-         headers: {
-           'Authorization': `Bearer ${serviceKey}`,
-           'Content-Type': 'application/json',
-         },
-         body: JSON.stringify({ instructor_course_id: batchJob.instructor_course_id }),
-       }).catch(err => console.error('[PollActiveBatches] Failed to trigger image processing:', err));
+       try {
+         const triggerResp = await fetch(`${supabaseUrl}/functions/v1/process-batch-images`, {
+           method: 'POST',
+           headers: {
+             'Authorization': `Bearer ${serviceKey}`,
+             'Content-Type': 'application/json',
+           },
+           body: JSON.stringify({ instructor_course_id: batchJob.instructor_course_id }),
+         });
+         console.log(`[PollActiveBatches] Image processing trigger: ${triggerResp.status}`);
+       } catch (err) {
+         console.error('[PollActiveBatches] Failed to trigger image processing:', err);
+       }
      }
    }
  }
