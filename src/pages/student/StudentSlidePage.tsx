@@ -24,7 +24,7 @@ export default function StudentSlidePage() {
     try {
       // Persist slide completion to database
       const { error: upsertError } = await supabase
-        .from('slide_completions' as any)
+        .from('slide_completions')
         .upsert({
           user_id: user.id,
           lecture_slides_id: lectureSlide.id,

@@ -409,7 +409,7 @@ export default function LearningObjectivePage() {
               if (user && viewingSlide) {
                 try {
                   await supabase
-                    .from('slide_completions' as any)
+                    .from('slide_completions')
                     .upsert({
                       user_id: user.id,
                       lecture_slides_id: viewingSlide.id,
