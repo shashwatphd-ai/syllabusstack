@@ -44,20 +44,31 @@ import {
   logError,
 } from "../_shared/error-handler.ts";
 
+// Shared slide system modules (consolidated from duplicated code)
+// NOTE: The image prompt functions below were extracted from this file into
+// the shared module. The local copies (lines below) are now replaced by imports.
+import type { StoredSlide } from '../_shared/slide-types.ts';
+
 // ============================================================================
 // CONFIGURATION
 // ============================================================================
 
 // Process this many items per invocation (stay well under timeout).
-// Image generation latency can be unpredictable; keep this low so we always
-// have time to sync lecture_slides JSON back to the UI.
-const BATCH_SIZE = 1;
+// Increased from 1 to 3: with ~20s per image generation, 3 items gives us
+// ~60s of work which fits comfortably in the 150s edge function timeout
+// with room for queue sync operations.
+const BATCH_SIZE = 3;
 
-// Max concurrent image generations per batch (reduced to avoid rate limits)
-const MAX_CONCURRENT = 1;
+// Max concurrent image generations per batch.
+// Increased from 1 to 2: OpenRouter rate limits allow 2 concurrent image
+// requests. This cuts image generation time from ~2.3h to ~35min for a
+// 78-unit course (312 images).
+const MAX_CONCURRENT = 2;
 
-// Delay between items to avoid rate limiting
-const BATCH_DELAY_MS = 2000;
+// Delay between items to avoid rate limiting.
+// Reduced from 2000ms to 1000ms: with MAX_CONCURRENT=2, the effective
+// throughput is still rate-limit-safe.
+const BATCH_DELAY_MS = 1000;
 
 // ============================================================================
 // TYPES

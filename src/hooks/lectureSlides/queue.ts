@@ -2,6 +2,11 @@
  * Lecture Slides Queue Hooks
  *
  * Contains hooks for bulk operations and queue management.
+ *
+ * CONSOLIDATION NOTE (2026-02):
+ * Previously called the deprecated `process-lecture-queue` function.
+ * Now uses `submit-batch-slides` + `process-batch-research` for batch
+ * generation, and direct DB queries for status/cleanup/retry operations.
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -49,7 +54,7 @@ export function useBulkPublishSlides() {
 
 /**
  * Bulk queue teaching units for slide generation
- * Uses the process-lecture-queue edge function to handle concurrency
+ * Uses submit-batch-slides → process-batch-research pipeline
  */
 export function useBulkQueueSlides() {
   const queryClient = useQueryClient();
@@ -63,25 +68,42 @@ export function useBulkQueueSlides() {
       instructorCourseId: string;
       teachingUnitIds: string[];
     }) => {
-      const { data, error } = await supabase.functions.invoke('process-lecture-queue', {
+      // Step 1: Create placeholder records via submit-batch-slides
+      const { data: submitData, error: submitError } = await supabase.functions.invoke('submit-batch-slides', {
         body: {
-          action: 'queue-bulk',
           instructor_course_id: instructorCourseId,
           teaching_unit_ids: teachingUnitIds,
         }
       });
 
-      if (error) throw error;
-      if (!data?.success) throw new Error(data?.error || 'Queue operation failed');
+      if (submitError) throw submitError;
+      if (!submitData?.success) throw new Error(submitData?.error || 'Batch submission failed');
 
-      return data;
+      const batchJobId = submitData.batch_job_id;
+
+      // Step 2: Trigger research + generation (fire-and-forget, it self-continues)
+      if (batchJobId) {
+        supabase.functions.invoke('process-batch-research', {
+          body: { batch_job_id: batchJobId }
+        }).catch(err => {
+          console.warn('[Queue] Failed to trigger batch research:', err);
+        });
+      }
+
+      return {
+        success: true,
+        batch_job_id: batchJobId,
+        queued: submitData.total || 0,
+        skipped: submitData.skipped || 0,
+      };
     },
     onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['course-lecture-slides', variables.instructorCourseId] });
+      queryClient.invalidateQueries({ queryKey: ['lecture-queue-status', variables.instructorCourseId] });
 
       toast({
         title: 'Slides Queued for Generation',
-        description: `Queued ${data.queued} teaching units. Generation will proceed automatically (max 2 at a time).${data.skipped > 0 ? ` Skipped ${data.skipped} already completed.` : ''}`,
+        description: `Queued ${data.queued} teaching units. Generation will proceed automatically.${data.skipped > 0 ? ` Skipped ${data.skipped} already completed.` : ''}`,
       });
     },
     onError: (error: Error) => {
@@ -95,25 +117,32 @@ export function useBulkQueueSlides() {
 }
 
 /**
- * Get queue status for a course
+ * Get queue status for a course (direct DB query, no deprecated function)
  */
 export function useQueueStatus(instructorCourseId?: string) {
   return useQuery({
     queryKey: ['lecture-queue-status', instructorCourseId],
-    queryFn: async () => {
-      const { data, error } = await supabase.functions.invoke('process-lecture-queue', {
-        body: {
-          action: 'get-status',
-          instructor_course_id: instructorCourseId,
-        }
-      });
+    queryFn: async (): Promise<QueueStatus> => {
+      const { data, error } = await supabase
+        .from('lecture_slides')
+        .select('status')
+        .eq('instructor_course_id', instructorCourseId!);
 
       if (error) throw error;
-      return data as QueueStatus;
+
+      const slides = data || [];
+      return {
+        success: true,
+        pending: slides.filter(s => s.status === 'pending' || s.status === 'preparing' || s.status === 'batch_pending').length,
+        generating: slides.filter(s => s.status === 'generating').length,
+        ready: slides.filter(s => s.status === 'ready').length,
+        published: slides.filter(s => s.status === 'published').length,
+        failed: slides.filter(s => s.status === 'failed').length,
+        total: slides.length,
+      };
     },
     enabled: !!instructorCourseId,
     refetchInterval: (query) => {
-      // Auto-refetch every 5 seconds if there are pending or generating items
       const data = query.state.data;
       if (data && (data.pending > 0 || data.generating > 0)) {
         return 5000;
@@ -125,7 +154,7 @@ export function useQueueStatus(instructorCourseId?: string) {
 }
 
 /**
- * Cleanup stuck generating records
+ * Cleanup stuck generating records (direct DB operation)
  */
 export function useCleanupStuckSlides() {
   const queryClient = useQueryClient();
@@ -133,12 +162,18 @@ export function useCleanupStuckSlides() {
 
   return useMutation({
     mutationFn: async () => {
-      const { data, error } = await supabase.functions.invoke('process-lecture-queue', {
-        body: { action: 'cleanup-stuck' }
-      });
+      // Reset slides stuck in 'generating' for more than 10 minutes
+      const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+
+      const { data, error } = await supabase
+        .from('lecture_slides')
+        .update({ status: 'pending', error_message: 'Reset from stuck generating state' })
+        .eq('status', 'generating')
+        .lt('updated_at', tenMinutesAgo)
+        .select('id');
 
       if (error) throw error;
-      return data;
+      return { reset: data?.length || 0 };
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['course-lecture-slides'] });
@@ -175,15 +210,15 @@ export function useRetryFailedSlides() {
 
   return useMutation({
     mutationFn: async (instructorCourseId: string) => {
-      const { data, error } = await supabase.functions.invoke('process-lecture-queue', {
-        body: {
-          action: 'retry-failed',
-          instructor_course_id: instructorCourseId,
-        }
-      });
+      const { data, error } = await supabase
+        .from('lecture_slides')
+        .update({ status: 'pending', error_message: null })
+        .eq('instructor_course_id', instructorCourseId)
+        .eq('status', 'failed')
+        .select('id');
 
       if (error) throw error;
-      return data;
+      return { reset: data?.length || 0 };
     },
     onSuccess: (data, instructorCourseId) => {
       queryClient.invalidateQueries({ queryKey: ['course-lecture-slides', instructorCourseId] });
