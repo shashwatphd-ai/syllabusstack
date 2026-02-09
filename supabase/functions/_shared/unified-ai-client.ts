@@ -609,12 +609,17 @@ async function generateImageGoogle(request: {
     // Supported: 1:1, 3:4, 4:3, 9:16, 16:9
     const aspectRatio = request.aspectRatio || '16:9';
 
+    // Prepend system context to prompt for Imagen 4 (no system message support).
+    // Imagen only accepts a raw prompt string, so we prefix the educational framing
+    // to match the system message we send on the OpenRouter path.
+    const framedPrompt = `Educational diagram for a university lecture slide. Clean infographic style, white background, professional academic design. All text labels spelled correctly and placed inside shapes. Flat design with meaningful colors. No decorative borders, watermarks, or stock-photo elements.\n\n${request.prompt}`;
+
     // Build request body for Vertex AI Imagen API (:predict endpoint)
     // Reference: https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/imagen-api
     const body = {
       instances: [
         {
-          prompt: request.prompt,
+          prompt: framedPrompt,
         },
       ],
       parameters: {
@@ -696,7 +701,8 @@ async function generateImageGoogle(request: {
     }
 
     const latency_ms = Date.now() - startTime;
-    console.log(`${logPrefix} ✓ Image generated successfully in ${latency_ms}ms (${Math.round(extracted.base64.length / 1024)}KB)`);
+    const imageKB = Math.round(extracted.base64.length / 1024);
+    console.log(`${logPrefix} ✓ Image generated successfully in ${latency_ms}ms (${imageKB}KB) model=${model}`);
 
     return {
       success: true,
@@ -707,6 +713,7 @@ async function generateImageGoogle(request: {
       model,
       cost_usd: IMAGE_COST_USD,
       latency_ms,
+      usedFallback: false, // Vertex AI path has no fallback chain
     };
 
   } catch (error) {
