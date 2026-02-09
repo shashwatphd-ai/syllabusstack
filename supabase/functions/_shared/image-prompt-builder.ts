@@ -177,9 +177,10 @@ export function slideNeedsImage(slide: StoredSlide): boolean {
 // ============================================================================
 
 export function buildFallbackPrompt(slide: StoredSlide, lectureTitle: string, domain?: string): string {
-  const vis = slide.visual_directive || slide.visual;
-  const description = vis?.description || (vis as any)?.fallback_description || slide.title;
-  const elements = vis?.elements || [];
+  const description = slide.visual_directive?.description
+    || slide.visual?.fallback_description
+    || slide.title;
+  const elements = slide.visual_directive?.elements || [];
   const topicContext = domain ? `${lectureTitle} in ${domain}` : lectureTitle;
 
   const labelText = elements.length > 0
