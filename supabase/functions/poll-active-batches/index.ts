@@ -25,6 +25,8 @@
  import { createGCSClient, GCSClient } from '../_shared/gcs-client.ts';
  import { createVertexAIBatchClient, VertexAIBatchClient, BatchJobStatus } from '../_shared/vertex-ai-batch.ts';
  import { MODEL_CONFIG } from '../_shared/ai-orchestrator.ts';
+ import { buildImagePrompt, slideNeedsImage } from '../_shared/image-prompt-builder.ts';
+ import type { StoredSlide } from '../_shared/slide-types.ts';
  import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
  import {
    createErrorResponse,
@@ -503,49 +505,57 @@
    let totalQueueItems = 0;
  
    for (const lecture of lectures) {
-     const slides = (lecture.slides || []) as any[];
+     const slides = (lecture.slides || []) as StoredSlide[];
      const queueItems: Array<{
        lecture_slides_id: string;
        slide_index: number;
-       visual_directive: any;
-       priority: number;
+       slide_title: string;
+       prompt: string;
        status: string;
      }> = [];
  
-     slides.forEach((slide: any, index: number) => {
-       const visualType = slide.visual?.type || 'none';
-       if (visualType && visualType !== 'none') {
-         queueItems.push({
-           lecture_slides_id: lecture.id,
-           slide_index: index,
-           visual_directive: {
-             type: slide.visual.type,
-             description: slide.visual.fallback_description || slide.visual.alt_text,
-             educational_purpose: slide.visual.educational_purpose,
-             elements: slide.visual.elements,
-             style: slide.visual.style,
-             slide_title: slide.title,
-             lecture_title: lecture.title,
-             domain: domain,
-           },
-           priority: index === 0 ? 1 : 2, // First slide gets higher priority
-           status: 'pending',
-         });
-       }
-     });
+     for (let index = 0; index < slides.length; index++) {
+       const slide = slides[index];
+       if (!slideNeedsImage(slide)) continue;
+
+       const prompt = await buildImagePrompt(slide, lecture.title, domain);
+       if (!prompt) continue;
+
+       queueItems.push({
+         lecture_slides_id: lecture.id,
+         slide_index: index,
+         slide_title: slide.title || `Slide ${index + 1}`,
+         prompt,
+         status: 'pending',
+       });
+     }
  
      if (queueItems.length > 0) {
        const { error: queueError } = await supabase
          .from('image_generation_queue')
          .upsert(queueItems, {
            onConflict: 'lecture_slides_id,slide_index',
-           ignoreDuplicates: true,
+           ignoreDuplicates: false,
          });
  
        if (queueError) {
          console.error(`[PollActiveBatches] Error populating image queue:`, queueError);
        } else {
          totalQueueItems += queueItems.length;
+
+         // Update generation_phases with queued image count
+         await supabase
+           .from('lecture_slides')
+           .update({
+             generation_phases: {
+               method: 'vertex_ai_batch',
+               research_included: true,
+               completed_at: new Date().toISOString(),
+               current_phase: 'images_queued',
+               images_queued: queueItems.length,
+             },
+           })
+           .eq('id', lecture.id);
        }
      }
    }
