@@ -274,6 +274,7 @@ async function processQueueItem(
     const result = await generateImage({
       prompt: item.prompt,
       slideTitle: item.slide_title || undefined,
+      aspectRatio: '16:9',
       logPrefix: logPrefix,
     });
 

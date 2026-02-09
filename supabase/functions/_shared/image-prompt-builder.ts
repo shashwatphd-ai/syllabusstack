@@ -16,61 +16,58 @@ import type { StoredSlide } from './slide-types.ts';
 // IMAGE PROMPT WRITER SYSTEM PROMPT
 // ============================================================================
 
-export const IMAGE_PROMPT_WRITER_SYSTEM = `You are an expert at writing image generation prompts for Google's Imagen 4 Ultra model, specifically for university lecture slide visuals.
+export const IMAGE_PROMPT_WRITER_SYSTEM = `You are an expert educational diagram designer who writes image generation prompts for Google Imagen 4 Ultra.
 
-Your job: Given a slide's complete data (title, content, layout hints, pedagogy, speaker notes, visual directive), write ONE paragraph (80-150 words) describing the exact image to generate.
+Your job: Given a slide's data, write ONE paragraph (100-180 words) describing a specific, meaningful educational diagram.
 
-IMAGEN 4 ULTRA RULES — follow these precisely:
+CORE PRINCIPLE — CONTENT FIRST:
+Every element in the image must directly represent a concept from the slide content. No decorative filler. If the slide discusses "WorldCom fraud vs Timberland sustainability", the image must show those specific companies/concepts, not generic arrows and gears.
 
-TEXT IN IMAGES:
-- Maximum 5 text labels in the entire image
-- Each label: maximum 2 common English words (e.g., "Input", "Step One", "Revenue")
-- Wrap every label in quotes naturally: 'a box labeled "Revenue"' — not as a rule list
-- Place labels inside shapes (boxes, circles, banners). Never floating text
-- For terms longer than 2 words: use an icon instead, or shorten (e.g., "Customer Acquisition Cost" → "Acquisition")
-- Prefer icons and symbols over text when possible
+IMAGEN 4 TEXT RULES:
+- Maximum 4 text labels, each max 2 common English words
+- Wrap labels in quotes naturally: 'a box labeled "Revenue"'
+- Place labels inside shapes. Never floating text
+- Prefer recognizable icons/symbols over text labels when possible
 
-SPATIAL DESCRIPTION:
-- Describe positions concretely: "on the far left", "in the center", "top row"
-- For flows: describe left-to-right or top-to-bottom sequence explicitly
-- For comparisons: describe "left panel" vs "right panel"
-- For hierarchies: describe "at the top" flowing down to children
+DIAGRAM TYPE — match to slide type:
+- "process" → numbered step boxes connected by arrows, left-to-right
+- "definition" → the term centered large, components radiating outward
+- "misconception" → split layout: red-tinted left ("Wrong") vs green-tinted right ("Correct"), each with concrete imagery for the specific misconception described
+- "comparison" → two distinct panels with contrasting visual metaphors specific to what's being compared
+- "example" → a concrete scene illustrating the specific scenario from the slide, not abstract shapes
+- "explanation" → relationship diagram showing how the specific concepts connect with labeled arrows
+- "synthesis" → integration diagram showing how multiple specific ideas merge
 
-STYLE (always include):
-- Clean flat design, white or light background
-- Professional academic educational style
-- Widescreen layout (do NOT write "16:9" — Imagen renders that as visible text)
-- Blue and gray color palette for shapes. Use accent colors sparingly
-- Simple flat icons relevant to each concept
+VISUAL STYLE — adapt to content:
+- Use colors that carry meaning: red/orange for problems/risks, green/blue for solutions/growth, gray for neutral
+- For business topics: use building/office/chart metaphors
+- For science: use lab/molecule/nature metaphors
+- For ethics/philosophy: use scale/balance/people metaphors
+- Background: white or very light gray
+- Style: clean infographic, NOT clipart or stock icons
 
-CRITICAL — NEVER INCLUDE:
-- Technical instructions like "16:9 aspect ratio", "48pt font", "PNG format"
-- Headers, watermarks, or decorative text like "University of..." or course codes
-- The word "slide" — describe the diagram/visual itself, not a slide containing it
-- Bullet points, numbered lists, or structured formatting — write flowing prose only
-- Vague descriptions — be specific about what every element looks like and where it goes
+SPATIAL PRECISION:
+- Describe exactly where each element sits: "on the far left", "center top", "bottom right corner"
+- For flows: explicit left-to-right or top-to-bottom sequence
+- For comparisons: "left half" vs "right half" with a clear divider
 
-ADAPT TO SLIDE TYPE:
-- "process" slides → sequential flowchart with numbered/ordered steps
-- "definition" slides → the term prominently centered, with components around it
-- "misconception" slides → contrast layout (wrong side vs correct side)
-- "comparison" slides → side-by-side panels with contrasting visual treatment
-- "example" slides → concrete illustration of the specific scenario mentioned
-- "explanation" slides → relationship diagram showing how concepts connect
-
-USE ALL AVAILABLE DATA:
-- content.steps[].title → perfect flowchart labels (already short and ordered)
-- content.key_points_layout[].segments → AI-optimized labels for flows
-- content.key_points_layout[].left_right → comparison panel headings
-- content.definition.term → the focal label for definition visuals
+WHAT TO INCLUDE FROM SLIDE DATA:
+- visual.description/fallback_description → the intended visual concept (most important)
+- visual.elements[] → specific diagram components to depict
 - content.misconception → wrong_belief vs correct_understanding for contrast visuals
-- content.example.scenario → concrete imagery for illustrations
-- speaker_notes → teaching emphasis (what the professor highlights = visual emphasis)
-- pedagogy.bloom_action → visual complexity (remember=simple labels, analyze=relationships, evaluate=pros-cons)
-- visual.description → the slide generator's intended visual (most important context)
-- visual.elements[] → suggested diagram components
+- content.example.scenario → concrete imagery to illustrate
+- content.steps[].title → flowchart node labels
+- content.definition.term → the focal concept
+- speaker_notes → what the professor emphasizes = what needs visual emphasis
 
-Write ONLY the image description paragraph. No preamble, no explanation.`;
+NEVER INCLUDE:
+- Technical metadata: "16:9", "PNG", "48pt", aspect ratios
+- Decorative text: watermarks, course codes, "University of..."
+- The word "slide" — describe the diagram itself
+- Generic shapes with no connection to the content (random gears, arrows, circles)
+- Vague descriptions — every element must represent something specific from the slide
+
+Write ONLY the image description paragraph. No preamble.`;
 
 // ============================================================================
 // SLIDE CONTEXT SERIALIZER
@@ -180,14 +177,40 @@ export function buildFallbackPrompt(slide: StoredSlide, lectureTitle: string, do
   const description = slide.visual_directive?.description
     || slide.visual?.fallback_description
     || slide.title;
-  const elements = slide.visual_directive?.elements || [];
+  const elements = slide.visual_directive?.elements || slide.visual?.elements || [];
   const topicContext = domain ? `${lectureTitle} in ${domain}` : lectureTitle;
+  const slideType = slide.type?.toLowerCase() || 'explanation';
 
-  const labelText = elements.length > 0
-    ? ` Key elements: ${elements.slice(0, 4).map(e => `"${String(e).split(' ').slice(0, 2).join(' ')}"`).join(', ')}.`
-    : '';
+  // Build content-specific details
+  const contentDetails: string[] = [];
+  const c = slide.content || {};
 
-  return `A clean academic diagram for a university lecture on ${topicContext}. ${description}.${labelText} Professional flat design, white background, blue and gray shapes, widescreen layout.`;
+  if (c.misconception) {
+    contentDetails.push(`Split layout: left side in red tones showing "${c.misconception.wrong_belief?.slice(0, 40)}", right side in green tones showing "${c.misconception.correct_understanding?.slice(0, 40)}"`);
+  } else if (c.definition) {
+    contentDetails.push(`The term "${c.definition.term}" displayed prominently in the center with its components arranged around it`);
+  } else if (c.example?.scenario) {
+    contentDetails.push(`A concrete illustration of: ${c.example.scenario.slice(0, 80)}`);
+  } else if (c.steps?.length) {
+    const stepLabels = c.steps.slice(0, 4).map((s: any) => `"${String(s.title).slice(0, 15)}"`).join(', ');
+    contentDetails.push(`A sequential flowchart with steps: ${stepLabels}`);
+  } else if (elements.length > 0) {
+    contentDetails.push(`Key elements: ${elements.slice(0, 4).map(e => `"${String(e).split(' ').slice(0, 3).join(' ')}"`).join(', ')}`);
+  }
+
+  // Style based on slide type
+  let styleHint = 'clean infographic style, white background';
+  if (slideType === 'misconception') {
+    styleHint = 'contrast layout with red and green tones, white background';
+  } else if (slideType === 'comparison' || slideType === 'example') {
+    styleHint = 'side-by-side panel layout with distinct colors per side, white background';
+  } else if (slideType === 'process' || slideType === 'demonstration') {
+    styleHint = 'horizontal flowchart with connected steps, white background';
+  }
+
+  const details = contentDetails.length > 0 ? ` ${contentDetails.join('. ')}.` : '';
+
+  return `An educational diagram for a university lecture on ${topicContext}. ${description}.${details} ${styleHint}, professional academic design.`;
 }
 
 // ============================================================================
@@ -208,13 +231,13 @@ export async function buildImagePrompt(
     console.log(`${logPrefix} Generating image prompt via LLM...`);
 
     const prompt = await simpleCompletion(
-      MODELS.FAST,
+      MODELS.GEMINI_FLASH,
       IMAGE_PROMPT_WRITER_SYSTEM,
       slideContext,
       {
-        temperature: 0.4,
-        max_tokens: 350,
-        fallbacks: [MODELS.FAST_FALLBACK],
+        temperature: 0.7,
+        max_tokens: 500,
+        fallbacks: [MODELS.FAST],
       },
       logPrefix,
     );
@@ -229,10 +252,10 @@ export async function buildImagePrompt(
 
     // Safety: strip any meta-instructions the LLM might have accidentally included
     const cleaned = trimmed
-      .replace(/\b\d+:\d+\s*(aspect\s*ratio|format)\b/gi, 'widescreen')
-      .replace(/\b\d+\s*pt\b/gi, 'large')
+      .replace(/\b\d+:\d+\s*(aspect\s*ratio|format)\b/gi, '')
+      .replace(/\b\d+\s*pt\b/gi, '')
       .replace(/\bPNG\b/gi, '')
-      .replace(/\bslide\b/gi, 'visual')
+      .replace(/\b(16:9|9:16|4:3|aspect ratio)\b/gi, '')
       .trim();
 
     console.log(`${logPrefix} Generated prompt (${cleaned.length} chars): ${cleaned.slice(0, 100)}...`);
