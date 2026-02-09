@@ -5,7 +5,7 @@ import { createVertexAIAuth } from '../_shared/vertex-ai-auth.ts';
 import { createGCSClient } from '../_shared/gcs-client.ts';
 import { createVertexAIBatchClient } from '../_shared/vertex-ai-batch.ts';
 // OpenRouter imports for alternative batch processing (BATCH_PROVIDER=openrouter)
-import { generateText, searchGrounded, MODELS, parseJsonResponse } from '../_shared/unified-ai-client.ts';
+import { generateText, MODELS, parseJsonResponse } from '../_shared/unified-ai-client.ts';
 import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
 import {
   createErrorResponse,
@@ -15,242 +15,40 @@ import {
   logError,
 } from "../_shared/error-handler.ts";
 
+// Shared slide system modules (consolidated - eliminates prompt drift)
+import type { TeachingUnitContext, ResearchContext, DomainConfig } from '../_shared/slide-types.ts';
+import {
+  PROFESSOR_SYSTEM_PROMPT,
+  buildLectureBrief,
+  mergeResearchIntoBrief,
+  parseJsonFromAI,
+} from '../_shared/slide-prompts.ts';
+import { runResearchAgent, getEmptyResearchContext } from '../_shared/research-agent.ts';
+
 // ============================================================================
 // PROCESS BATCH RESEARCH - Background Research and Batch Slide Generation
 // ============================================================================
 //
 // PURPOSE: Run research and generate slides for multiple teaching units
 //
-// PROVIDER TOGGLE (Updated 2026-01-22):
+// PROVIDER TOGGLE:
 //   BATCH_PROVIDER env var controls routing:
 //     - 'openrouter' (default): Sequential processing via OpenRouter
 //     - 'vertex': Vertex AI Batch Prediction (50% cost discount)
 //
-// WHY TWO MODES:
-//   - OpenRouter: Unified routing, same as single slides, easier debugging
-//   - Vertex AI: 50% batch discount, but separate API/flow
-//
-// FLOW (OpenRouter mode):
-//   1. Receive batch_job_id from submit-batch-slides
-//   2. Fetch all teaching units for this batch
-//   3. Run research agent with concurrency control
-//   4. Process each unit sequentially via generateText()
-//   5. Update lecture_slides records inline
-//
-// FLOW (Vertex mode):
-//   1-4. Same as above
-//   5. Upload JSONL to Cloud Storage
-//   6. Create Vertex AI batch prediction job
-//   7. Poll for completion separately
-//
-// ENVIRONMENT VARIABLES:
-//   - BATCH_PROVIDER: 'openrouter' (default) or 'vertex'
-//   - OPENROUTER_API_KEY: Required for OpenRouter mode
-//   - GCP_SERVICE_ACCOUNT_KEY: Required for Vertex mode
-//   - GCS_BUCKET: Required for Vertex mode
-//   - GOOGLE_CLOUD_API_KEY: For research agent (both modes)
+// CONSOLIDATION NOTE (2026-02):
+//   This file previously had its own PROFESSOR_SYSTEM_PROMPT (105 lines,
+//   drifted from v3's 179 lines), buildLectureBrief (different format),
+//   buildUserPrompt (stripped-down), and research agent (without cache in
+//   single path). ALL of these are now imported from _shared/ modules,
+//   ensuring batch slides get the same quality as single slides.
 //
 // ============================================================================
 
-// ============================================================================
-// BATCH PROVIDER TOGGLE
-// ============================================================================
-// Set BATCH_PROVIDER env var to control routing:
-//   - 'openrouter': Process sequentially via OpenRouter (default)
-//   - 'vertex': Use Vertex AI Batch Prediction (50% discount)
 const BATCH_PROVIDER = Deno.env.get('BATCH_PROVIDER') || 'openrouter';
-const BATCH_MODEL = MODEL_CONFIG.GEMINI_3_FLASH; // V3 parity: use same model as individual slides
+const BATCH_MODEL = MODEL_CONFIG.GEMINI_3_FLASH;
 
-// Research cache configuration
-const CACHE_TTL_DAYS = 7;
-const ENABLE_RESEARCH_CACHE = Deno.env.get('ENABLE_RESEARCH_CACHE') !== 'false';
-
-// ============================================================================
-// PROFESSOR SYSTEM PROMPT - Must match submit-batch-slides and v3
-// ============================================================================
-
-const PROFESSOR_SYSTEM_PROMPT = `You are an expert university professor creating comprehensive, self-contained lecture slides. You have decades of teaching experience, deep subject matter expertise, and mastery of evidence-based pedagogy.
-
-YOUR MISSION:
-Create a complete slide deck that enables DEEP LEARNING. Every slide must provide substantive, textbook-quality content that students can study independently. NO superficial bullet points or vague phrases—only thorough, academically rigorous explanations.
-
-CORE TEACHING PHILOSOPHY:
-- Write as if this is the student's PRIMARY learning resource (not supplementary)
-- Every concept deserves a proper textbook-style definition followed by detailed explanation
-- Abstract ideas must be grounded in concrete, real-world examples with verifiable data
-- Build understanding step-by-step, never assuming the student will "figure it out"
-- Anticipate confusion and address it proactively
-
-PEDAGOGICAL STRUCTURE:
-1. ACTIVATE prior knowledge (connect explicitly to prerequisites they've learned)
-2. HOOK with real-world relevance (use specific statistics, case studies, or current events)
-3. DEFINE every new term with:
-   a) Formal academic definition (as found in authoritative textbooks)
-   b) Plain-language explanation of what this means in practice
-   c) Why this concept matters in the field
-4. EXPLAIN the underlying reasoning (not just WHAT, but WHY and HOW)
-5. ILLUSTRATE with concrete examples that include:
-   a) Specific real-world scenarios with actual data when possible
-   b) Step-by-step worked examples showing application
-   c) Visual descriptions that could be rendered as diagrams
-6. DISTINGUISH from related concepts (what this IS vs. what it ISN'T)
-7. ADDRESS common misconceptions explicitly
-8. CHECK understanding with reflection prompts
-
-CONTENT DEPTH REQUIREMENTS:
-- Every key_point must be 50-150 words of substantive explanation
-- Main text should average 100-200 words per slide
-- Include specific numbers, dates, percentages, or measurable outcomes when relevant
-- Cite foundational theories, research, or experts by name when applicable
-- Use domain-specific vocabulary with clear definitions
-
-SLIDE STRUCTURE:
-- title_slide: Course positioning, professor credibility, lecture overview
-- introduction: STRONG hook with real data/statistics, learning objectives, connection to prior knowledge
-- concept: Deep definition, comprehensive explanation, multiple examples, visual directive
-- example: Detailed real-world scenario with step-by-step walkthrough
-- summary: Key takeaways with actionable next steps and preview of upcoming material
-
-VISUAL DIRECTIVES:
-For each slide requiring visuals, specify:
-- type: "diagram" | "chart" | "illustration" | "infographic" | "photo" | "none"
-- description: Detailed description of what should be shown
-- elements: Key elements that must be included
-- style: Professional academic visual style
-- educational_purpose: How this visual aids understanding
-
-SPEAKER NOTES:
-Write comprehensive notes (200-400 words per slide) that include:
-- Expanded explanations beyond the slide content
-- Additional examples and anecdotes
-- Transition phrases to the next topic
-- Questions to pose to the audience
-- Timing guidance (aim for ~90 seconds per slide)
-
-OUTPUT FORMAT:
-Return a JSON object with a "slides" array. Each slide must have:
-{
-  "order": 1,
-  "type": "concept",
-  "title": "Clear, Descriptive Title",
-  "content": {
-    "main_text": "Thorough explanation...",
-    "key_points": ["Detailed point with full explanation..."],
-    "definition": {
-      "term": "The exact term",
-      "formal_definition": "Precise, textbook-quality definition",
-      "simple_explanation": "Plain-language version",
-      "significance": "Why this concept matters"
-    },
-    "example": {
-      "scenario": "Detailed real-world situation with specifics",
-      "walkthrough": "Step-by-step explanation of how the concept applies",
-      "connection_to_concept": "Explicit link back to the abstract principle"
-    },
-    "misconception": {
-      "wrong_belief": "What students often incorrectly believe",
-      "why_wrong": "Why this belief is problematic with evidence",
-      "correct_understanding": "The accurate understanding with practical implications"
-    }
-  },
-  "visual_directive": {
-    "type": "diagram",
-    "description": "...",
-    "elements": ["..."],
-    "style": "...",
-    "educational_purpose": "..."
-  },
-  "speaker_notes": "Comprehensive teaching notes (200-400 words)...",
-  "pedagogy": {
-    "bloom_level": "understand|apply|analyze|evaluate|create",
-    "prior_knowledge": ["..."],
-    "common_struggles": ["..."]
-  }
-}
-
-CRITICAL OUTPUT RULE:
-- Return ONLY the raw JSON object
-- Do NOT wrap in markdown code blocks (no triple backticks)
-- Do NOT use \`\`\`json or \`\`\` markers
-- Start your response directly with { and end with }
-- No explanatory text before or after the JSON`;
-
-// ============================================================================
-// TYPES
-// ============================================================================
-
-interface TeachingUnitData {
-  id: string;
-  title: string;
-  what_to_teach: string;
-  why_this_matters: string;
-  how_to_teach: string;
-  target_duration_minutes: number;
-  target_video_type: string;
-  prerequisites: string[];
-  enables: string[];
-  common_misconceptions: string[];
-  required_concepts: string[];
-  avoid_terms: string[];
-  search_queries: string[];
-  domain: string;
-  syllabus_text?: string;
-  learning_objective: {
-    id: string;
-    text: string;
-    bloom_level: string;
-    core_concept: string;
-    action_verb: string;
-  };
-  course: {
-    id: string;
-    title: string;
-    code: string;
-    detected_domain: string;
-  };
-  module: {
-    title: string;
-    description: string;
-    sequence_order: number;
-  };
-  sibling_units: Array<{
-    id: string;
-    title: string;
-    what_to_teach: string;
-    sequence_order: number;
-  }>;
-  sequence_position: number;
-  total_siblings: number;
-  research_context?: ResearchContext;
-}
-
-// V3 PARITY: ResearchContext interface matches generate-lecture-slides-v3
-interface GroundedContent {
-  claim: string;
-  source_url: string;
-  source_title: string;
-  confidence: number;
-}
-
-interface RecommendedReading {
-  title: string;
-  url: string;
-  type: 'Academic' | 'Industry' | 'Case Study' | 'Documentation';
-}
-
-interface VisualDescription {
-  framework_name: string;
-  description: string;
-  elements: string[];
-}
-
-interface ResearchContext {
-  topic: string;
-  grounded_content: GroundedContent[];
-  recommended_reading: RecommendedReading[];
-  visual_descriptions: VisualDescription[];
-}
-
+// Vertex AI batch request format
 interface BatchRequest {
   contents: Array<{
     role: string;
@@ -266,306 +64,65 @@ interface BatchRequest {
 }
 
 // ============================================================================
-// RESEARCH CACHE UTILITIES
+// PROMPT BUILDER FOR BATCH UNITS
 // ============================================================================
+// Uses the canonical shared prompt builders (same as v3 single path)
 
-async function computeTopicHash(searchTerms: string, domain: string): Promise<string> {
-  const normalized = `${searchTerms.toLowerCase().trim()}:${domain || 'general'}`;
-  const encoder = new TextEncoder();
-  const data = encoder.encode(normalized);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-}
+function buildPromptForUnit(unitData: TeachingUnitContext, research?: ResearchContext): string {
+  const baseBrief = buildLectureBrief(unitData);
+  const groundedBrief = research
+    ? mergeResearchIntoBrief(baseBrief, research)
+    : mergeResearchIntoBrief(baseBrief, getEmptyResearchContext(unitData.title));
 
-async function getCachedResearch(
-  supabase: any,
-  searchTerms: string,
-  domain: string
-): Promise<ResearchContext | null> {
-  if (!ENABLE_RESEARCH_CACHE) return null;
-  
-  try {
-    const topicHash = await computeTopicHash(searchTerms, domain);
-    
-    const { data, error } = await supabase
-      .from('research_cache')
-      .select('*')
-      .eq('topic_hash', topicHash)
-      .gt('expires_at', new Date().toISOString())
-      .maybeSingle();
-    
-    if (error || !data) return null;
-    
-    // Increment hit count (fire and forget)
-    supabase
-      .from('research_cache')
-      .update({ hit_count: (data.hit_count || 0) + 1 })
-      .eq('id', data.id)
-      .then(() => {})
-      .catch(() => {});
-    
-    console.log(`[Research Cache] HIT for: ${searchTerms.substring(0, 50)}...`);
-    return data.research_content as ResearchContext;
-  } catch (e) {
-    console.warn('[Research Cache] Error reading cache:', e);
-    return null;
-  }
-}
+  // Fixed 6 slides per teaching unit (v3 parity)
+  const targetSlides = 6;
 
-async function cacheResearch(
-  supabase: any,
-  searchTerms: string,
-  domain: string,
-  research: ResearchContext,
-  inputTokens?: number,
-  outputTokens?: number
-): Promise<void> {
-  if (!ENABLE_RESEARCH_CACHE) return;
-  
-  try {
-    const topicHash = await computeTopicHash(searchTerms, domain);
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + CACHE_TTL_DAYS);
-    
-    await supabase
-      .from('research_cache')
-      .upsert({
-        topic_hash: topicHash,
-        search_terms: searchTerms,
-        domain: domain || null,
-        research_content: research,
-        input_tokens: inputTokens || null,
-        output_tokens: outputTokens || null,
-        expires_at: expiresAt.toISOString(),
-        hit_count: 0,
-      }, {
-        onConflict: 'topic_hash',
-        ignoreDuplicates: false,
-      });
-    
-    console.log(`[Research Cache] STORED: ${searchTerms.substring(0, 50)}...`);
-  } catch (e) {
-    console.warn('[Research Cache] Error writing cache:', e);
-  }
-}
+  return `${groundedBrief}
 
-// ============================================================================
-// RESEARCH AGENT - Perplexity via OpenRouter (with caching)
-// ============================================================================
+=== YOUR TASK ===
+Create a comprehensive ${targetSlides}-slide lecture deck for this teaching unit.
 
-async function runResearchAgent(
-  unitData: TeachingUnitData,
-  domainConfig: any,
-  _googleApiKey: string, // Kept for API compatibility, no longer used
-  supabase?: any
-): Promise<ResearchContext> {
-  const searchTerms = `${unitData.title} ${unitData.what_to_teach}`;
-  const domain = unitData.domain;
-  
-  // Check cache first
-  if (supabase) {
-    const cached = await getCachedResearch(supabase, searchTerms, domain);
-    if (cached) {
-      return cached;
-    }
-  }
-  
-  // Build research query for Perplexity
-  const query = `Research the topic "${unitData.title}" for a university-level lecture.
+CRITICAL REQUIREMENTS:
+1. Every common_misconception MUST have a dedicated "misconception" slide
+2. Every required_concept MUST be defined with formal + plain-language definitions
+3. Speaker notes MUST be 200-300 words of natural lecture narration
+4. Bloom level "${unitData.learning_objective.bloom_level}" dictates cognitive depth
 
-DOMAIN: ${unitData.domain}
-CONTEXT: ${unitData.what_to_teach}
-${domainConfig?.preferred_sources ? `PREFERRED SOURCES: ${domainConfig.preferred_sources.join(', ')}` : ''}
+5. CONTENT DEPTH:
+   - main_text: 3-4 substantive sentences that teach a complete idea
+   - key_points: 4-5 detailed bullets with explanations
+   - examples: Use specific, verifiable real-world data
 
-Research and provide:
-1. KEY FACTS: 3-5 fundamental, verified facts about this topic
-2. CURRENT DEVELOPMENTS: 2-3 recent developments or trends (last 2 years)
-3. EXPERT PERSPECTIVES: 1-2 notable expert opinions or theories
-4. STATISTICS: 2-3 relevant statistics with sources
-5. CASE STUDIES: 1-2 real-world examples or applications`;
+6. ADAPTIVE LAYOUT HINTS:
+   For EACH key_point, provide a layout_hint:
+   - Sequence/process \u2192 type: "flow", segments: [...]
+   - Comparison \u2192 type: "comparison", left_right: [...]
+   - Formula \u2192 type: "equation", formula: "..."
+   - Quote/principle \u2192 type: "quote"
+   - Important insight \u2192 type: "callout"
+   - Simple paragraph \u2192 type: "plain"
+   - Always include emphasis_words: 2-4 critical terms
 
-  try {
-    const result = await searchGrounded({
-      query,
-      logPrefix: '[Research Agent]',
-    });
+7. OPTIONAL FIELDS HANDLING:
+   - "definition", "example", "misconception", "steps" are OPTIONAL
+   - ONLY include if the slide type warrants them
+   - DO NOT fill with "N/A" or placeholders - OMIT the key entirely
 
-    // V3 PARITY: Transform unified SearchResult to v3-compatible ResearchContext format
-    const research: ResearchContext = {
-      topic: unitData.title,
-      grounded_content: result.grounded_content.map(gc => ({
-        claim: gc.claim,
-        source_url: gc.source_url,
-        source_title: gc.source_title,
-        confidence: gc.confidence || 0.8,
-      })),
-      recommended_reading: result.recommended_reading || [],
-      visual_descriptions: result.visual_descriptions || [],
-    };
+OUTPUT: JSON with "slides" array. Each slide has order, type, title, content, visual_directive, speaker_notes, estimated_seconds, pedagogy.
 
-    // Cache the successful result
-    if (supabase) {
-      await cacheResearch(supabase, searchTerms, domain, research);
-    }
-
-    console.log(`[Research Agent] ✓ Found ${research.grounded_content.length} sources for ${unitData.title}`);
-    return research;
-
-  } catch (error) {
-    console.warn(`[Research] Error for ${unitData.title}:`, error);
-    return getEmptyResearchContext(unitData.title);
-  }
-}
-
-function getEmptyResearchContext(title: string): ResearchContext {
-  return {
-    topic: title,
-    grounded_content: [],
-    recommended_reading: [],
-    visual_descriptions: [],
-  };
-}
-
-// ============================================================================
-// PROMPT BUILDERS
-// ============================================================================
-
-function buildLectureBrief(unitData: TeachingUnitData): string {
-  const sections = [
-    `# Lecture Brief: ${unitData.title}`,
-    `\n## Course Context`,
-    `- Course: ${unitData.course.title} (${unitData.course.code})`,
-    `- Domain: ${unitData.course.detected_domain}`,
-    `- Module: ${unitData.module.title}`,
-    `\n## Learning Objective`,
-    `- Objective: ${unitData.learning_objective.text}`,
-    `- Bloom Level: ${unitData.learning_objective.bloom_level}`,
-    `- Core Concept: ${unitData.learning_objective.core_concept}`,
-    `\n## Teaching Content`,
-    `- What to Teach: ${unitData.what_to_teach}`,
-    `- Why This Matters: ${unitData.why_this_matters}`,
-    `- How to Teach: ${unitData.how_to_teach}`,
-    `\n## Parameters`,
-    `- Target Duration: ${unitData.target_duration_minutes} minutes`,
-    `- Video Type: ${unitData.target_video_type}`,
-  ];
-
-  if (unitData.prerequisites.length > 0) {
-    sections.push(`\n## Prerequisites\n${unitData.prerequisites.map(p => `- ${p}`).join('\n')}`);
-  }
-
-  if (unitData.common_misconceptions.length > 0) {
-    sections.push(`\n## Common Misconceptions to Address\n${unitData.common_misconceptions.map(m => `- ${m}`).join('\n')}`);
-  }
-
-  if (unitData.sibling_units.length > 0) {
-    sections.push(`\n## Sequence Context (Unit ${unitData.sequence_position} of ${unitData.total_siblings})`);
-    unitData.sibling_units.forEach((s, i) => {
-      const marker = i + 1 === unitData.sequence_position ? '→ ' : '  ';
-      sections.push(`${marker}${i + 1}. ${s.title}`);
-    });
-  }
-
-  return sections.join('\n');
-}
-
-function mergeResearchIntoBrief(brief: string, research: ResearchContext): string {
-  // V3 PARITY: Match the research merging format from generate-lecture-slides-v3
-  if (!research.grounded_content || research.grounded_content.length === 0) {
-    return brief + `
-
-=== RESEARCH GROUNDING ===
-No external research available. Generate content from your training data.
-Mark any statistics or case studies as "illustrative examples" rather than verified facts.`;
-  }
-
-  const researchSection = [
-    '\n\n=== RESEARCH GROUNDING (MANDATORY TO USE) ===',
-  ];
-
-  researchSection.push('\nVERIFIED DEFINITIONS AND FACTS:');
-  research.grounded_content.slice(0, 10).forEach((c, i) => {
-    researchSection.push(`[Source ${i + 1}] "${c.claim}"
-   Citation: ${c.source_title} (${c.source_url})`);
-  });
-
-  if (research.recommended_reading && research.recommended_reading.length > 0) {
-    researchSection.push('\n\nRECOMMENDED READING (for "Further Reading" slide):');
-    research.recommended_reading.slice(0, 5).forEach(r => {
-      researchSection.push(`- ${r.title} [${r.type}]: ${r.url}`);
-    });
-  }
-
-  if (research.visual_descriptions && research.visual_descriptions.length > 0) {
-    researchSection.push('\n\nVISUAL FRAMEWORK DESCRIPTIONS (use EXACT structure for diagrams):');
-    research.visual_descriptions.forEach(v => {
-      researchSection.push(`- ${v.framework_name}: ${v.description}
-   Elements: ${v.elements.join(', ')}`);
-    });
-  }
-
-  researchSection.push(`\n\nCITATION RULES (CRITICAL):
-- You MUST use the verified definitions above, NOT your training data
-- Every factual claim must include [Source N] marker in the slide content
-- If a statistic is NOT in the research, clearly mark as "According to industry practice..."
-- Use the visual descriptions to guide EXACT diagram element composition
-- Include a "Sources" or "Further Reading" slide at the end`);
-
-  return brief + researchSection.join('\n');
-}
-
-function buildUserPrompt(unitData: TeachingUnitData): string {
-  let brief = buildLectureBrief(unitData);
-  if (unitData.research_context) {
-    brief = mergeResearchIntoBrief(brief, unitData.research_context);
-  }
-
-  return `${brief}
-
----
-
-Create a complete lecture slide deck for this teaching unit. Follow all requirements from the system prompt.
-
-IMPORTANT:
-- Generate 8-15 slides depending on content depth needed
-- Each slide must have substantial content (no placeholder text)
-- Include visual directives for each slide
-- Write comprehensive speaker notes
-- Ensure pedagogically sound progression
-
-Return valid JSON with a "slides" array.`;
+CRITICAL: Every slide MUST have speaker_notes with 200-300 words. Generate all ${targetSlides} slides with RICH content.`;
 }
 
 // ============================================================================
 // OPENROUTER BATCH PROCESSING
 // ============================================================================
-//
-// Alternative to Vertex AI Batch when BATCH_PROVIDER=openrouter
-// Processes units sequentially with rate limiting
-//
-// TRADE-OFFS vs Vertex AI:
-//   + Same routing as single slides (easier debugging)
-//   + Immediate results (no polling)
-//   + No GCS/Vertex setup required
-//   - No 50% batch discount
-//   - Sequential processing (slower for large batches)
-//
 
-/**
- * Process batch slides via OpenRouter (sequential)
- *
- * @param supabase - Supabase client
- * @param batchJobId - Batch job ID
- * @param unitsToProcess - Array of teaching units with research context
- * @param requestMapping - Map of unit IDs to slide IDs
- * @returns Processing results
- */
 async function processBatchViaOpenRouter(
   supabase: SupabaseClient,
   batchJobId: string,
-  unitsToProcess: TeachingUnitData[],
-  requestMapping: Record<string, string>
+  unitsToProcess: TeachingUnitContext[],
+  requestMapping: Record<string, string>,
+  researchMap: Map<string, ResearchContext>
 ): Promise<{
   success: boolean;
   processed: number;
@@ -578,16 +135,15 @@ async function processBatchViaOpenRouter(
 
   console.log(`[Batch-OR] Processing ${unitsToProcess.length} units via OpenRouter (${MODELS.PROFESSOR_AI})`);
 
-  // Rate limit retry configuration
   const MAX_RETRIES = 3;
-  const BASE_DELAY_MS = 2000; // 2 seconds base delay for exponential backoff
+  const BASE_DELAY_MS = 2000;
 
   for (let i = 0; i < unitsToProcess.length; i++) {
     const unit = unitsToProcess[i];
     const slideId = requestMapping[unit.id];
 
     if (!slideId) {
-      console.warn(`[Batch-OR] [${i + 1}/${unitsToProcess.length}] No slide ID found for unit ${unit.id}, skipping`);
+      console.warn(`[Batch-OR] [${i + 1}/${unitsToProcess.length}] No slide ID for unit ${unit.id}, skipping`);
       failed++;
       continue;
     }
@@ -599,7 +155,6 @@ async function processBatchViaOpenRouter(
 
     while (attempt <= MAX_RETRIES && !success) {
       try {
-        // Update status to generating (only on first attempt)
         if (attempt === 0) {
           await supabase
             .from('lecture_slides')
@@ -607,46 +162,80 @@ async function processBatchViaOpenRouter(
             .eq('id', slideId);
         }
 
-        // Build the prompt (same as single slide flow)
-        const userPrompt = buildUserPrompt(unit);
+        // Build prompt using shared canonical builders (v3 parity)
+        const research = researchMap.get(unit.id);
+        const userPrompt = buildPromptForUnit(unit, research);
 
-        // Generate via OpenRouter using same model as single slides
+        // Generate via OpenRouter using same model + temperature as v3
         const result = await generateText({
           prompt: userPrompt,
           systemPrompt: PROFESSOR_SYSTEM_PROMPT,
-          model: MODELS.PROFESSOR_AI,               // 'google/gemini-2.5-flash'
-          fallbacks: [MODELS.PROFESSOR_AI_FALLBACK], // 'google/gemini-flash-1.5'
-          temperature: 0.7,
+          model: MODELS.PROFESSOR_AI,
+          fallbacks: [MODELS.PROFESSOR_AI_FALLBACK],
+          temperature: 0.4, // v3 parity (was 0.7 in old batch path)
           maxTokens: 16000,
           logPrefix: `[Batch-OR:${i + 1}]`,
         });
 
-        // Parse the response using shared utility
+        // Parse response
         let slides;
         try {
-          const parsed = parseJsonResponse<{ slides?: unknown[] }>(result.content);
+          const parsed = parseJsonFromAI(result.content);
           slides = parsed.slides || parsed;
         } catch (parseError) {
           throw new Error(`Failed to parse AI response: ${parseError instanceof Error ? parseError.message : 'Unknown parse error'}`);
         }
 
+        // Build stored slides with proper structure (v3 parity)
+        const storedSlides = Array.isArray(slides) ? slides.map((slide: any) => ({
+          order: slide.order,
+          type: slide.type,
+          title: slide.title,
+          content: {
+            main_text: slide.content?.main_text || '',
+            main_text_layout: slide.content?.main_text_layout || { type: 'plain' },
+            key_points: slide.content?.key_points || [],
+            key_points_layout: slide.content?.key_points_layout || [],
+            definition: slide.content?.definition,
+            example: slide.content?.example,
+            misconception: slide.content?.misconception,
+            steps: slide.content?.steps,
+          },
+          visual: {
+            type: slide.visual_directive?.type || 'none',
+            url: null,
+            alt_text: slide.visual_directive?.description || '',
+            fallback_description: slide.visual_directive?.description || '',
+            elements: slide.visual_directive?.elements || [],
+            style: slide.visual_directive?.style || '',
+            educational_purpose: slide.visual_directive?.educational_purpose || '',
+          },
+          speaker_notes: slide.speaker_notes || '',
+          speaker_notes_duration_seconds: slide.estimated_seconds || 60,
+          pedagogy: slide.pedagogy || {},
+          quality_score: 80,
+        })) : slides;
+
         // Update the record with generated slides
         await supabase
           .from('lecture_slides')
           .update({
-            slides: slides,
-            status: 'ready',  // Use 'ready' to match frontend expectations
+            slides: storedSlides,
+            total_slides: Array.isArray(storedSlides) ? storedSlides.length : 0,
+            status: 'ready',
             generation_provider: 'openrouter',
             generation_model: result.model || MODELS.PROFESSOR_AI,
+            is_research_grounded: (research?.grounded_content?.length || 0) > 0,
+            research_context: (research?.grounded_content?.length || 0) > 0 ? research : null,
+            citation_count: research?.grounded_content?.length || 0,
             completed_at: new Date().toISOString(),
           })
           .eq('id', slideId);
 
         processed++;
         success = true;
-        console.log(`[Batch-OR] [${i + 1}/${unitsToProcess.length}] ✓ Completed: ${unit.title} (${Array.isArray(slides) ? slides.length : '?'} slides)`);
+        console.log(`[Batch-OR] [${i + 1}/${unitsToProcess.length}] Completed: ${unit.title} (${Array.isArray(storedSlides) ? storedSlides.length : '?'} slides)`);
 
-        // Rate limit delay between successful requests
         if (i < unitsToProcess.length - 1) {
           await new Promise(resolve => setTimeout(resolve, 500));
         }
@@ -654,28 +243,23 @@ async function processBatchViaOpenRouter(
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
 
-        // Check if this is a rate limit error (429) or temporary server error (503)
         const isRateLimitError = errorMessage.includes('429') ||
                                   errorMessage.includes('rate limit') ||
                                   errorMessage.includes('503') ||
                                   errorMessage.includes('temporarily unavailable');
 
         if (isRateLimitError && attempt < MAX_RETRIES) {
-          // Exponential backoff: 2s, 4s, 8s
           const delayMs = BASE_DELAY_MS * Math.pow(2, attempt);
-          console.warn(`[Batch-OR] [${i + 1}/${unitsToProcess.length}] Rate limited. Retry ${attempt + 1}/${MAX_RETRIES} after ${delayMs}ms...`);
+          console.warn(`[Batch-OR] [${i + 1}] Rate limited. Retry ${attempt + 1}/${MAX_RETRIES} after ${delayMs}ms...`);
           await new Promise(resolve => setTimeout(resolve, delayMs));
           attempt++;
           continue;
         }
 
-        // Non-retryable error or max retries reached
-        console.error(`[Batch-OR] [${i + 1}/${unitsToProcess.length}] ✗ Failed: ${unit.title}`, errorMessage);
-
+        console.error(`[Batch-OR] [${i + 1}] Failed: ${unit.title}`, errorMessage);
         errors.push(`${unit.title}: ${errorMessage}`);
         failed++;
 
-        // Update record with error
         await supabase
           .from('lecture_slides')
           .update({
@@ -684,19 +268,13 @@ async function processBatchViaOpenRouter(
           })
           .eq('id', slideId);
 
-        break; // Exit retry loop, move to next unit
+        break;
       }
     }
   }
 
   console.log(`[Batch-OR] Batch complete: ${processed} succeeded, ${failed} failed`);
-
-  return {
-    success: failed === 0,
-    processed,
-    failed,
-    errors,
-  };
+  return { success: failed === 0, processed, failed, errors };
 }
 
 // ============================================================================
@@ -712,7 +290,6 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const googleApiKey = Deno.env.get('GOOGLE_CLOUD_API_KEY');
     const supabase = createClient(supabaseUrl, serviceRoleKey);
 
     const { batch_job_id } = await req.json();
@@ -743,8 +320,6 @@ serve(async (req) => {
       );
     }
 
-    // Only process if in 'preparing' or 'researching' status
-    // 'researching' allows self-continuation after timeout
     if (batchJob.status !== 'preparing' && batchJob.status !== 'researching') {
       return new Response(
         JSON.stringify({
@@ -756,7 +331,6 @@ serve(async (req) => {
       );
     }
 
-    // Update status to 'researching' if not already
     if (batchJob.status === 'preparing') {
       await supabase
         .from('batch_jobs')
@@ -816,7 +390,7 @@ serve(async (req) => {
     // Fetch course info
     const { data: course } = await supabase
       .from('instructor_courses')
-      .select('id, title, code, detected_domain, syllabus_text')
+      .select('id, title, code, detected_domain, syllabus_text, domain_config')
       .eq('id', batchJob.instructor_course_id)
       .single();
 
@@ -832,12 +406,12 @@ serve(async (req) => {
       );
     }
 
-    // Get domain config
-    const { data: domainConfig } = await supabase
-      .from('domain_config')
-      .select('*')
-      .eq('domain_key', course.detected_domain || 'general')
-      .maybeSingle();
+    // Parse domain_config using shared type
+    const domainConfig: DomainConfig | null = course.domain_config
+      ? (typeof course.domain_config === 'string'
+          ? JSON.parse(course.domain_config)
+          : course.domain_config)
+      : null;
 
     console.log(`[Research] Processing ${units.length} units for course: ${course.title}`);
 
@@ -864,7 +438,7 @@ serve(async (req) => {
     // 4. RUN RESEARCH WITH CONCURRENCY CONTROL
     // ========================================================================
 
-    const CONCURRENCY_LIMIT = 10; // Conservative for timeout safety
+    const CONCURRENCY_LIMIT = 10;
     console.log(`[Research] Running research (${CONCURRENCY_LIMIT} concurrent)...`);
 
     function chunkArray<T>(arr: T[], size: number): T[][] {
@@ -875,13 +449,13 @@ serve(async (req) => {
       return chunks;
     }
 
-    // Prepare unit data
-    const unitDataList = units.map((unit) => {
+    // Build TeachingUnitContext objects (shared type, v3 parity)
+    const unitContextList = units.map((unit) => {
       const lo = unit.learning_objectives as any;
       const siblings = siblingsByLO[unit.learning_objective_id] || [];
       const sequencePosition = siblings.findIndex(s => s.id === unit.id) + 1;
 
-      const partialUnitData: TeachingUnitData = {
+      const context: TeachingUnitContext = {
         id: unit.id,
         title: unit.title,
         what_to_teach: unit.what_to_teach || '',
@@ -923,24 +497,24 @@ serve(async (req) => {
         })),
         sequence_position: sequencePosition,
         total_siblings: siblings.length,
+        domain_config: domainConfig,
       };
 
-      return { unitId: unit.id, unitData: partialUnitData };
+      return { unitId: unit.id, context };
     });
 
-    // Process in chunks
-    const chunks = chunkArray(unitDataList, CONCURRENCY_LIMIT);
-    const researchResults: { unitId: string; unitData: TeachingUnitData; research: ResearchContext }[] = [];
+    // Research in chunks using shared research agent (with cache)
+    const chunks = chunkArray(unitContextList, CONCURRENCY_LIMIT);
+    const researchResults: { unitId: string; context: TeachingUnitContext; research: ResearchContext }[] = [];
 
     for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
       const chunk = chunks[chunkIndex];
       console.log(`[Research] Chunk ${chunkIndex + 1}/${chunks.length} (${chunk.length} units)...`);
 
-      const chunkPromises = chunk.map(async ({ unitId, unitData }) => {
-        const research = googleApiKey
-          ? await runResearchAgent(unitData, domainConfig, googleApiKey, supabase)
-          : getEmptyResearchContext(unitData.title);
-        return { unitId, unitData, research };
+      const chunkPromises = chunk.map(async ({ unitId, context }) => {
+        // Uses shared research agent with caching (v3 parity)
+        const research = await runResearchAgent(context, domainConfig, supabase);
+        return { unitId, context, research };
       });
 
       const chunkResults = await Promise.all(chunkPromises);
@@ -949,12 +523,7 @@ serve(async (req) => {
 
     console.log(`[Research] Research complete for ${researchResults.length} units`);
 
-    // ========================================================================
-    // 4.5 SAVE RESEARCH DATA TO BATCH_JOBS (V3 PARITY)
-    // ========================================================================
-    // Store research data in batch_jobs so poll-batch-status can access it
-    // when updating lecture_slides with quality_score, is_research_grounded, etc.
-
+    // Save research data to batch_jobs
     const researchDataMap: Record<string, ResearchContext> = {};
     for (const { unitId, research } of researchResults) {
       researchDataMap[unitId] = research;
@@ -965,14 +534,14 @@ serve(async (req) => {
       .update({ research_data: researchDataMap })
       .eq('id', batch_job_id);
 
-    console.log(`[Research] Saved research data for ${Object.keys(researchDataMap).length} units to batch_jobs`);
+    console.log(`[Research] Saved research data for ${Object.keys(researchDataMap).length} units`);
 
     // ========================================================================
-    // 5. BUILD BATCH REQUESTS
+    // 5. BUILD REQUEST DATA
     // ========================================================================
 
     const researchByUnit = new Map(
-      researchResults.map(r => [r.unitId, { unitData: r.unitData, research: r.research }])
+      researchResults.map(r => [r.unitId, { context: r.context, research: r.research }])
     );
 
     const batchRequests: BatchRequest[] = [];
@@ -982,21 +551,14 @@ serve(async (req) => {
       const researchData = researchByUnit.get(unit.id);
       if (!researchData) continue;
 
-      const enrichedUnitData: TeachingUnitData = {
-        ...researchData.unitData,
-        research_context: researchData.research,
-      };
-
-      const userPrompt = buildUserPrompt(enrichedUnitData);
-      // Use stable unit ID as key - prevents index mismatch when units are skipped
+      const userPrompt = buildPromptForUnit(researchData.context, researchData.research);
       const requestKey = `slide_${unit.id}`;
       requestMapping[requestKey] = unit.id;
 
       batchRequests.push({
         contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
         systemInstruction: { parts: [{ text: PROFESSOR_SYSTEM_PROMPT }] },
-        // Use 32K tokens - 8K was causing truncation for comprehensive slides
-        generationConfig: { temperature: 0.7, maxOutputTokens: 32768 },
+        generationConfig: { temperature: 0.4, maxOutputTokens: 16000 }, // v3 parity
       });
     }
 
@@ -1005,40 +567,27 @@ serve(async (req) => {
     // ========================================================================
     // 6. ROUTE TO APPROPRIATE PROVIDER
     // ========================================================================
-    //
-    // BATCH_PROVIDER controls routing:
-    //   - 'openrouter': Sequential processing via OpenRouter (default)
-    //   - 'vertex': Vertex AI Batch Prediction (50% cost discount)
-    //
 
     if (BATCH_PROVIDER === 'openrouter') {
       // ====================================================================
       // OPENROUTER PATH - Chunked processing with self-continuation
       // ====================================================================
-      //
-      // TIMEOUT SAFETY: Edge functions have ~150s limit. Processing 121 slides
-      // sequentially would timeout. We process CHUNK_SIZE slides per invocation,
-      // then invoke ourselves to continue.
-      //
-      console.log(`[Research] Using OpenRouter for batch processing (BATCH_PROVIDER=${BATCH_PROVIDER})`);
+      console.log(`[Research] Using OpenRouter (BATCH_PROVIDER=${BATCH_PROVIDER})`);
 
-      const CHUNK_SIZE = 8; // Process 8 units per invocation (~60s each = ~8 min max)
+      const CHUNK_SIZE = 8;
 
-      // Build enriched unit data for OpenRouter processing
-      const allUnitsToProcess: TeachingUnitData[] = [];
+      // Build contexts and slide ID mapping
+      const allContexts: TeachingUnitContext[] = [];
       const slideIdMapping: Record<string, string> = {};
+      const researchMap = new Map<string, ResearchContext>();
 
       for (const unit of units) {
         const researchData = researchByUnit.get(unit.id);
         if (!researchData) continue;
 
-        const enrichedUnitData: TeachingUnitData = {
-          ...researchData.unitData,
-          research_context: researchData.research,
-        };
-        allUnitsToProcess.push(enrichedUnitData);
+        allContexts.push(researchData.context);
+        researchMap.set(unit.id, researchData.research);
 
-        // Find the slide ID for this unit
         const { data: slideRecord } = await supabase
           .from('lecture_slides')
           .select('id')
@@ -1051,7 +600,7 @@ serve(async (req) => {
         }
       }
 
-      // Filter to only units that still need processing (pending, generating, or batch_pending)
+      // Filter to units that still need processing
       const { data: pendingSlides } = await supabase
         .from('lecture_slides')
         .select('teaching_unit_id, status')
@@ -1059,27 +608,26 @@ serve(async (req) => {
         .in('status', ['preparing', 'batch_pending', 'generating', 'pending']);
 
       const pendingUnitIds = new Set((pendingSlides || []).map(s => s.teaching_unit_id));
-      const unitsStillPending = allUnitsToProcess.filter(u => pendingUnitIds.has(u.id));
+      const unitsStillPending = allContexts.filter(u => pendingUnitIds.has(u.id));
 
-      console.log(`[Research] ${unitsStillPending.length}/${allUnitsToProcess.length} units still need processing`);
+      console.log(`[Research] ${unitsStillPending.length}/${allContexts.length} units still need processing`);
 
       if (unitsStillPending.length === 0) {
-        // All done - update batch job
         const { data: slideStats } = await supabase
           .from('lecture_slides')
           .select('status')
           .eq('batch_job_id', batch_job_id);
 
         const completed = slideStats?.filter(s => s.status === 'ready' || s.status === 'completed').length || 0;
-        const failed = slideStats?.filter(s => s.status === 'failed').length || 0;
+        const failedCount = slideStats?.filter(s => s.status === 'failed').length || 0;
 
         await supabase
           .from('batch_jobs')
           .update({
-            status: failed === 0 ? 'completed' : (completed > 0 ? 'partial' : 'failed'),
+            status: failedCount === 0 ? 'completed' : (completed > 0 ? 'partial' : 'failed'),
             completed_at: new Date().toISOString(),
             succeeded_count: completed,
-            failed_count: failed,
+            failed_count: failedCount,
             provider: 'openrouter',
           })
           .eq('id', batch_job_id);
@@ -1091,9 +639,9 @@ serve(async (req) => {
             provider: 'openrouter',
             status: 'completed',
             completed,
-            failed,
-            total: allUnitsToProcess.length,
-            message: `Batch complete: ${completed} succeeded, ${failed} failed`,
+            failed: failedCount,
+            total: allContexts.length,
+            message: `Batch complete: ${completed} succeeded, ${failedCount} failed`,
           }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
@@ -1103,14 +651,14 @@ serve(async (req) => {
       const chunkToProcess = unitsStillPending.slice(0, CHUNK_SIZE);
       const remainingCount = unitsStillPending.length - chunkToProcess.length;
 
-      console.log(`[Research] Processing chunk of ${chunkToProcess.length} units (${remainingCount} remaining after this)`);
+      console.log(`[Research] Processing chunk of ${chunkToProcess.length} units (${remainingCount} remaining)`);
 
-      // Process this chunk via OpenRouter
       const result = await processBatchViaOpenRouter(
         supabase,
         batch_job_id,
         chunkToProcess,
-        slideIdMapping
+        slideIdMapping,
+        researchMap
       );
 
       // Update batch job with progress
@@ -1135,10 +683,6 @@ serve(async (req) => {
       if (remainingCount > 0) {
         console.log(`[Research] Self-continuing for ${remainingCount} remaining units...`);
 
-        // Fire-and-forget invocation to continue processing
-        const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-        const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-
         fetch(`${supabaseUrl}/functions/v1/process-batch-research`, {
           method: 'POST',
           headers: {
@@ -1160,13 +704,13 @@ serve(async (req) => {
             failed_this_chunk: result.failed,
             completed_total: completedSoFar,
             remaining: remainingCount,
-            message: `Processed ${result.processed}/${chunkToProcess.length} in this chunk. ${remainingCount} units remaining. Self-continuing...`,
+            message: `Processed ${result.processed}/${chunkToProcess.length}. ${remainingCount} remaining. Self-continuing...`,
           }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
-      // This was the final chunk
+      // Final chunk
       await supabase
         .from('batch_jobs')
         .update({
@@ -1184,7 +728,7 @@ serve(async (req) => {
           status: 'completed',
           processed: result.processed,
           failed: result.failed,
-          total: allUnitsToProcess.length,
+          total: allContexts.length,
           errors: result.errors.slice(0, 10),
           message: `Batch complete via OpenRouter: ${completedSoFar} succeeded, ${failedSoFar} failed`,
         }),
@@ -1195,7 +739,7 @@ serve(async (req) => {
     // ======================================================================
     // VERTEX AI PATH - Upload to GCS and create batch job
     // ======================================================================
-    console.log(`[Research] Using Vertex AI for batch processing (BATCH_PROVIDER=${BATCH_PROVIDER})`);
+    console.log(`[Research] Using Vertex AI (BATCH_PROVIDER=${BATCH_PROVIDER})`);
 
     let auth, gcsClient, batchClient;
     try {
@@ -1227,10 +771,9 @@ serve(async (req) => {
     const inputPath = `inputs/${batchId}/requests.jsonl`;
     const outputPrefix = `gs://${gcsClient.bucketName}/outputs/${batchId}/`;
 
-    // Build JSONL with custom_id for stable response mapping
     const requestMappingKeys = Object.keys(requestMapping);
     const jsonlLines = batchRequests.map((req, idx) => ({
-      custom_id: requestMappingKeys[idx], // Include stable ID for response matching
+      custom_id: requestMappingKeys[idx],
       request: {
         contents: req.contents,
         systemInstruction: req.systemInstruction,
@@ -1265,10 +808,7 @@ serve(async (req) => {
       );
     }
 
-    // ========================================================================
-    // 7. CREATE VERTEX AI BATCH JOB
-    // ========================================================================
-
+    // Create Vertex AI batch job
     const displayName = `slides-${batchJob.instructor_course_id}-${Date.now()}`;
     const modelPath = getVertexAIModelPath(BATCH_MODEL);
 
@@ -1283,11 +823,9 @@ serve(async (req) => {
         outputUriPrefix: outputPrefix,
       });
     } catch (createError) {
-      // Extract the actual error message for debugging
       const errorMessage = createError instanceof Error ? createError.message : String(createError);
       console.error('[Research] Vertex AI job creation failed:', errorMessage);
 
-      // Log additional context for debugging
       console.error('[Research] Job details:', {
         displayName,
         model: modelPath,
@@ -1300,7 +838,6 @@ serve(async (req) => {
         await gcsClient.deleteFile(inputPath);
       } catch {}
 
-      // Store the actual error message (truncated if too long)
       const truncatedError = errorMessage.length > 500
         ? errorMessage.substring(0, 500) + '...'
         : errorMessage;
@@ -1323,10 +860,7 @@ serve(async (req) => {
     const googleBatchId = vertexJob.name;
     console.log(`[Research] Vertex AI job created: ${googleBatchId}`);
 
-    // ========================================================================
-    // 8. UPDATE RECORDS WITH SUCCESS
-    // ========================================================================
-
+    // Update records
     await supabase
       .from('batch_jobs')
       .update({
@@ -1334,7 +868,7 @@ serve(async (req) => {
         status: 'submitted',
         request_mapping: requestMapping,
         output_uri: outputPrefix,
-        provider: 'vertex',  // Track which provider was used
+        provider: 'vertex',
       })
       .eq('id', batch_job_id);
 
@@ -1343,7 +877,7 @@ serve(async (req) => {
       .update({ status: 'batch_pending' })
       .eq('batch_job_id', batch_job_id);
 
-    console.log(`[Research] Batch ${batch_job_id} submitted successfully via Vertex AI`);
+    console.log(`[Research] Batch ${batch_job_id} submitted via Vertex AI`);
 
     return new Response(
       JSON.stringify({
@@ -1353,7 +887,7 @@ serve(async (req) => {
         provider: 'vertex',
         total: batchRequests.length,
         status: 'submitted',
-        message: `Research complete, ${batchRequests.length} slides submitted to Vertex AI (50% batch discount)`,
+        message: `Research complete, ${batchRequests.length} slides submitted to Vertex AI`,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
