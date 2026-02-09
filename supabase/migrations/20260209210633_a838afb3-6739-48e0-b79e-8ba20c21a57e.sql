@@ -1,0 +1,1 @@
+ALTER TABLE public.image_generation_queue ADD COLUMN generation_model text;
