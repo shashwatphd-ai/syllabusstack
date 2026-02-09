@@ -487,20 +487,24 @@ async function triggerContinuation(
   serviceRoleKey: string
 ): Promise<void> {
   const url = `${supabaseUrl}/functions/v1/process-batch-images`;
-  
+
   console.log('[Continue] Triggering self-continuation...');
-  
-  // Fire and don't wait - we're already returning a response
-  fetch(url, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${serviceRoleKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ continue: true }),
-  }).catch(err => {
+
+  // Await to ensure the request is actually dispatched before this function exits.
+  // The target invocation runs independently — we just need the HTTP request sent.
+  try {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${serviceRoleKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ continue: true }),
+    });
+    console.log(`[Continue] Self-continuation triggered: ${resp.status}`);
+  } catch (err) {
     console.error('[Continue] Self-invocation error:', err);
-  });
+  }
 }
 
 // ============================================================================
