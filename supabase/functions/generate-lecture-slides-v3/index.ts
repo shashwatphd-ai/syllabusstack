@@ -12,7 +12,7 @@ import {
 import { checkRateLimit, getUserLimits, createRateLimitResponse } from "../_shared/rate-limiter.ts";
 
 // Shared slide system modules (consolidated from duplicated code)
-import type { ProfessorSlide, ResearchContext, StoredSlide } from '../_shared/slide-types.ts';
+import type { ProfessorSlide, ResearchContext, StoredSlide, TeachingUnitContext } from '../_shared/slide-types.ts';
 import { PROFESSOR_SYSTEM_PROMPT, buildLectureBrief, mergeResearchIntoBrief, buildUserPrompt, parseJsonFromAI } from '../_shared/slide-prompts.ts';
 import { fetchTeachingUnitContext } from '../_shared/context-fetcher.ts';
 import { runResearchAgent, getEmptyResearchContext } from '../_shared/research-agent.ts';
@@ -51,13 +51,13 @@ function getErrorMessage(error: unknown): string {
 // ============================================================================
 
 async function runProfessorAI(
-  context: { learning_objective: { bloom_level: string }; [key: string]: unknown },
+  context: TeachingUnitContext,
   groundedBrief: string,
 ): Promise<ProfessorSlide[]> {
   console.log('[Professor AI] Starting lecture generation');
 
   // Use the shared canonical prompt template (eliminates drift between v3 and batch)
-  const userPrompt = buildUserPrompt(context as any, groundedBrief, 6);
+  const userPrompt = buildUserPrompt(context, groundedBrief, 6);
 
   // NOTE: The 85-line inline prompt that was here has been replaced by the shared
   // buildUserPrompt() from _shared/slide-prompts.ts — the canonical prompt template
