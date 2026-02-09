@@ -2172,6 +2172,7 @@ export type Database = {
           attempts: number
           created_at: string
           error_message: string | null
+          generation_model: string | null
           id: string
           image_url: string | null
           lecture_slides_id: string
@@ -2187,6 +2188,7 @@ export type Database = {
           attempts?: number
           created_at?: string
           error_message?: string | null
+          generation_model?: string | null
           id?: string
           image_url?: string | null
           lecture_slides_id: string
@@ -2202,6 +2204,7 @@ export type Database = {
           attempts?: number
           created_at?: string
           error_message?: string | null
+          generation_model?: string | null
           id?: string
           image_url?: string | null
           lecture_slides_id?: string
