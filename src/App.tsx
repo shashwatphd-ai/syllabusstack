@@ -9,6 +9,7 @@ import { AdminGuard } from "@/components/auth/AdminGuard";
 import { queryClient } from "@/lib/query-client";
 import { AchievementToastProvider } from "@/components/achievements/AchievementUnlockToast";
 import { TourProvider } from "@/components/common/ProductTour";
+import { ErrorBoundary } from "@/components/common/ErrorBoundary";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 import Auth from "./pages/Auth";
@@ -76,6 +77,7 @@ const App = () => (
         <AchievementToastProvider />
         <TourProvider>
         <BrowserRouter>
+          <ErrorBoundary>
           <Routes>
             {/* Public routes */}
             <Route path="/" element={<Index />} />
@@ -166,6 +168,7 @@ const App = () => (
             {/* Catch-all */}
             <Route path="*" element={<NotFound />} />
           </Routes>
+          </ErrorBoundary>
         </BrowserRouter>
         </TourProvider>
       </TooltipProvider>

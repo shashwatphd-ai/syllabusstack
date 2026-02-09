@@ -3564,6 +3564,67 @@ export type Database = {
         }
         Relationships: []
       }
+      slide_completions: {
+        Row: {
+          id: string
+          user_id: string
+          lecture_slides_id: string
+          learning_objective_id: string | null
+          watch_percentage: number
+          highest_slide_viewed: number
+          total_slides: number
+          completed_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          lecture_slides_id: string
+          learning_objective_id?: string | null
+          watch_percentage?: number
+          highest_slide_viewed?: number
+          total_slides?: number
+          completed_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          lecture_slides_id?: string
+          learning_objective_id?: string | null
+          watch_percentage?: number
+          highest_slide_viewed?: number
+          total_slides?: number
+          completed_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "slide_completions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "slide_completions_lecture_slides_id_fkey"
+            columns: ["lecture_slides_id"]
+            isOneToOne: false
+            referencedRelation: "lecture_slides"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "slide_completions_learning_objective_id_fkey"
+            columns: ["learning_objective_id"]
+            isOneToOne: false
+            referencedRelation: "learning_objectives"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       skills_assessment_responses: {
         Row: {
           created_at: string

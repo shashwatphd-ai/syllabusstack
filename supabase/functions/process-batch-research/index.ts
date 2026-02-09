@@ -24,6 +24,7 @@ import {
   parseJsonFromAI,
 } from '../_shared/slide-prompts.ts';
 import { runResearchAgent, getEmptyResearchContext } from '../_shared/research-agent.ts';
+import { calculateQualityMetrics } from '../_shared/quality-metrics.ts';
 
 // ============================================================================
 // PROCESS BATCH RESEARCH - Background Research and Batch Slide Generation
@@ -213,8 +214,21 @@ async function processBatchViaOpenRouter(
           speaker_notes: slide.speaker_notes || '',
           speaker_notes_duration_seconds: slide.estimated_seconds || 60,
           pedagogy: slide.pedagogy || {},
-          quality_score: 80,
         })) : slides;
+
+        // Calculate quality metrics instead of hardcoding 80
+        let qualityScore = 80; // fallback
+        try {
+          if (Array.isArray(storedSlides)) {
+            const qualityResult = calculateQualityMetrics(storedSlides as any);
+            qualityScore = qualityResult.score;
+            if (qualityResult.warnings.length > 0) {
+              console.warn(`[Batch] Quality warnings for ${slideId}:`, qualityResult.warnings.slice(0, 3).join('; '));
+            }
+          }
+        } catch (qErr) {
+          console.warn(`[Batch] Quality metrics calculation failed, using default:`, qErr);
+        }
 
         // Update the record with generated slides
         await supabase
@@ -223,6 +237,7 @@ async function processBatchViaOpenRouter(
             slides: storedSlides,
             total_slides: Array.isArray(storedSlides) ? storedSlides.length : 0,
             status: 'ready',
+            quality_score: qualityScore,
             generation_provider: 'openrouter',
             generation_model: result.model || MODELS.PROFESSOR_AI,
             is_research_grounded: (research?.grounded_content?.length || 0) > 0,

@@ -15,12 +15,14 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { StudentSlideViewer } from '@/components/slides/StudentSlideViewer';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
+import { useAuth } from '@/contexts/AuthContext';
 import type { LectureSlide, Slide } from '@/hooks/useLectureSlides';
 
 export default function LearningObjectivePage() {
   const { loId } = useParams<{ loId: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const { data, isLoading, error } = useLearningObjectiveProgress(loId);
   const [selectedContentId, setSelectedContentId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -402,8 +404,26 @@ export default function LearningObjectivePage() {
             lectureSlide={viewingSlide}
             unitTitle={viewingSlide.title}
             onClose={() => setViewingSlide(null)}
-            onComplete={(watchPercentage) => {
-              console.log('Slide completed with', watchPercentage, '% viewed');
+            onComplete={async (watchPercentage) => {
+              // Persist slide completion to database
+              if (user && viewingSlide) {
+                try {
+                  await supabase
+                    .from('slide_completions')
+                    .upsert({
+                      user_id: user.id,
+                      lecture_slides_id: viewingSlide.id,
+                      learning_objective_id: viewingSlide.learning_objective_id || loId,
+                      watch_percentage: Math.round(watchPercentage),
+                      highest_slide_viewed: viewingSlide.total_slides || (viewingSlide.slides?.length ?? 0),
+                      total_slides: viewingSlide.total_slides || (viewingSlide.slides?.length ?? 0),
+                      completed_at: watchPercentage >= 80 ? new Date().toISOString() : null,
+                      updated_at: new Date().toISOString(),
+                    }, { onConflict: 'user_id,lecture_slides_id' });
+                } catch (err) {
+                  console.error('Error persisting slide completion:', err);
+                }
+              }
               setViewingSlide(null);
             }}
           />

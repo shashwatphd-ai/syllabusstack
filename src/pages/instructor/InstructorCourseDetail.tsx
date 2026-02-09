@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Plus, FileText, Video, CheckCircle2, Clock, AlertCircle, Settings2, Copy, Share2, Loader2, Sparkles, Users, Presentation, RotateCcw, Image } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
@@ -21,6 +21,17 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 
 import { useInstructorCourse, useModules, useCreateModule, useUpdateInstructorCourse } from '@/hooks/useInstructorCourses';
 import { useLearningObjectives, useSearchYouTubeContent } from '@/hooks/useLearningObjectives';
@@ -472,66 +483,85 @@ export default function InstructorCourseDetailPage() {
                         </Button>
                       )}
                       
-                      {/* Generate All Slides - NEW: Uses Google Batch API (50% cost savings) */}
+                      {/* Generate All Slides with confirmation dialog */}
                       {courseLOs.length > 0 && (
-                        <Button
-                          variant="outline"
-                          className="gap-2 h-9 flex-1 sm:flex-none"
-                          onClick={async () => {
-                            if (!id) return;
-                            // Fetch all teaching units for this course
-                            const { data: allUnits } = await supabase
-                              .from('teaching_units')
-                              .select('id, learning_objectives!inner(instructor_course_id)')
-                              .eq('learning_objectives.instructor_course_id', id);
+                        submitBatchSlides.isPending || !!slideStatus?.active_batch || (slideStatus?.generating || 0) > 0 ? (
+                          <Button
+                            variant="outline"
+                            className="gap-2 h-9 flex-1 sm:flex-none"
+                            disabled
+                          >
+                            {submitBatchSlides.isPending ? (
+                              <>
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                <span className="hidden sm:inline">Submitting batch...</span>
+                                <span className="sm:hidden">...</span>
+                              </>
+                            ) : slideStatus?.active_batch ? (
+                              <>
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                <span className="hidden sm:inline">
+                                  {slideStatus.vertex_state?.replace('JOB_STATE_', '') || 'Processing'}{' '}
+                                  {slideStatus.active_batch.succeeded}/{slideStatus.active_batch.total} slides
+                                  {slideStatus.progress_percent !== undefined && ` (${slideStatus.progress_percent}%)`}
+                                </span>
+                                <span className="sm:hidden">
+                                  {slideStatus.active_batch.succeeded}/{slideStatus.active_batch.total}
+                                  {slideStatus.progress_percent !== undefined && ` ${slideStatus.progress_percent}%`}
+                                </span>
+                              </>
+                            ) : (
+                              <>
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                <span className="hidden sm:inline">
+                                  Generating... ({slideStatus?.generating || 0} in progress)
+                                </span>
+                                <span className="sm:hidden">Generating...</span>
+                              </>
+                            )}
+                          </Button>
+                        ) : (
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                variant="outline"
+                                className="gap-2 h-9 flex-1 sm:flex-none"
+                              >
+                                <Presentation className="h-4 w-4" />
+                                <span className="hidden sm:inline">Generate All Slides</span>
+                                <span className="sm:hidden">Gen Slides</span>
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Generate All Slides?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  This will generate AI lecture slides for all {courseLOs.length} learning objectives in this course.
+                                  This uses AI credits and may take several minutes to complete.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction onClick={async () => {
+                                  if (!id) return;
+                                  const { data: allUnits } = await supabase
+                                    .from('teaching_units')
+                                    .select('id, learning_objectives!inner(instructor_course_id)')
+                                    .eq('learning_objectives.instructor_course_id', id);
 
-                            if (allUnits && allUnits.length > 0) {
-                              // NEW: Submit to batch API instead of queue
-                              submitBatchSlides.mutate({
-                                instructorCourseId: id,
-                                teachingUnitIds: allUnits.map(u => u.id),
-                              });
-                            }
-                          }}
-                          disabled={submitBatchSlides.isPending || !!slideStatus?.active_batch}
-                        >
-                          {submitBatchSlides.isPending ? (
-                            <>
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                              <span className="hidden sm:inline">Submitting batch...</span>
-                              <span className="sm:hidden">...</span>
-                            </>
-                          ) : slideStatus?.active_batch ? (
-                            <>
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                              <span className="hidden sm:inline">
-                                {slideStatus.vertex_state?.replace('JOB_STATE_', '') || 'Processing'}{' '}
-                                {slideStatus.active_batch.succeeded}/{slideStatus.active_batch.total} slides
-                                {slideStatus.progress_percent !== undefined && ` (${slideStatus.progress_percent}%)`}
-                              </span>
-                              <span className="sm:hidden">
-                                {slideStatus.active_batch.succeeded}/{slideStatus.active_batch.total}
-                                {slideStatus.progress_percent !== undefined && ` ${slideStatus.progress_percent}%`}
-                              </span>
-                            </>
-                          ) : (slideStatus?.generating || 0) > 0 ? (
-                            <>
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                              <span className="hidden sm:inline">
-                                Generating... ({slideStatus?.generating || 0} in progress)
-                              </span>
-                              <span className="sm:hidden">
-                                Generating...
-                              </span>
-                            </>
-                          ) : (
-                            <>
-                              <Presentation className="h-4 w-4" />
-                              <span className="hidden sm:inline">Generate All Slides</span>
-                              <span className="sm:hidden">Gen Slides</span>
-                            </>
-                          )}
-                        </Button>
+                                  if (allUnits && allUnits.length > 0) {
+                                    submitBatchSlides.mutate({
+                                      instructorCourseId: id,
+                                      teachingUnitIds: allUnits.map(u => u.id),
+                                    });
+                                  }
+                                }}>
+                                  Generate All
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        )
                       )}
 
                       {/* Bulk Publish Slides */}

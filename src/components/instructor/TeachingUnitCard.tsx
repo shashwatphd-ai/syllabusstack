@@ -22,6 +22,12 @@ import { TeachingUnit } from '@/hooks/useTeachingUnits';
 import { ContentMatch } from '@/hooks/useLearningObjectives';
 import type { LectureSlide } from '@/hooks/useLectureSlides';
 
+interface GenerationProgress {
+  phase: string;
+  percent: number;
+  message: string;
+}
+
 interface TeachingUnitCardProps {
   unit: TeachingUnit;
   contentMatches: ContentMatch[];
@@ -29,6 +35,7 @@ interface TeachingUnitCardProps {
   onCreateLecture?: (unit: TeachingUnit) => void;
   isSearching: boolean;
   isGeneratingSlides?: boolean;
+  generationProgress?: GenerationProgress | null;
   existingSlides?: LectureSlide | null;
 }
 
@@ -72,7 +79,8 @@ export const TeachingUnitCard = memo(function TeachingUnitCard({
   onCreateLecture,
   isSearching,
   isGeneratingSlides,
-  existingSlides 
+  generationProgress,
+  existingSlides
 }: TeachingUnitCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   
@@ -236,8 +244,8 @@ export const TeachingUnitCard = memo(function TeachingUnitCard({
                     <TooltipProvider>
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <Button 
-                            size="sm" 
+                          <Button
+                            size="sm"
                             variant="outline"
                             onClick={(e) => {
                               e.stopPropagation();
@@ -247,16 +255,27 @@ export const TeachingUnitCard = memo(function TeachingUnitCard({
                             className="gap-1 h-8 text-xs"
                           >
                             {isGeneratingSlides ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
+                              <>
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                                <span className="hidden sm:inline">
+                                  {generationProgress?.message
+                                    ? `${generationProgress.percent}%`
+                                    : 'Generating...'}
+                                </span>
+                              </>
                             ) : (
-                              <Presentation className="h-3 w-3" />
+                              <>
+                                <Presentation className="h-3 w-3" />
+                                <span className="hidden sm:inline">Create Lecture</span>
+                                <span className="sm:hidden">Lecture</span>
+                              </>
                             )}
-                            <span className="hidden sm:inline">Create Lecture</span>
-                            <span className="sm:hidden">Lecture</span>
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent>
-                          Generate lecture slides from this unit
+                          {isGeneratingSlides && generationProgress?.message
+                            ? generationProgress.message
+                            : 'Generate lecture slides from this unit'}
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>

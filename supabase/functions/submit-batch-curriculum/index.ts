@@ -34,15 +34,7 @@ import {
   logInfo,
   logError,
 } from "../_shared/error-handler.ts";
-
-// ============================================================================
-// CONFIGURATION
-// ============================================================================
-
-const MODEL_CONFIG = {
-  // Use same model as current curriculum-reasoning-agent for quality parity
-  CURRICULUM_MODEL: 'gemini-3-pro-preview',
-};
+import { MODEL_CONFIG } from "../_shared/ai-orchestrator.ts";
 
 const BATCH_CONFIG = {
   // Minimum LOs to justify batch (below this, use sync)
@@ -387,7 +379,7 @@ const handler = async (req: Request): Promise<Response> => {
     // ========================================================================
     // STEP 8: Create Vertex AI batch job
     // ========================================================================
-    const modelPath = VertexAIBatchClient.buildModelPath(MODEL_CONFIG.CURRICULUM_MODEL);
+    const modelPath = VertexAIBatchClient.buildModelPath(MODEL_CONFIG.GEMINI_PRO);
     const bucketName = gcsClient.bucketName;
 
     try {
