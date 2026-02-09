@@ -246,7 +246,11 @@ const handler = async (req: Request): Promise<Response> => {
       .upsert(pendingSlides, { onConflict: 'teaching_unit_id' });
 
     if (slidesError) {
-      console.warn('[Batch] Error creating pending slide records:', slidesError);
+      logError('submit-batch-slides', new Error(slidesError.message), { action: 'create_slide_records' });
+      // Clean up the batch job since slides failed
+      await supabase.from('batch_jobs').update({ status: 'failed', error_message: slidesError.message }).eq('id', preliminaryBatchJobId);
+      return createErrorResponse('INTERNAL_ERROR', corsHeaders,
+        `Failed to create slide records: ${slidesError.message}`);
     }
 
     console.log(`[Batch] Created ${pendingSlides.length} preparing slide records`);

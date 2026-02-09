@@ -343,19 +343,19 @@ export function SlideRenderer({
           </div>
         )}
 
-        {/* Content area - side-by-side layout when visual exists */}
+        {/* Content area - side-by-side on desktop, stacked on mobile when visual exists */}
         {enhanced && slide.type !== 'title' && (
           <div className={cn(
             'flex-1 min-h-0',
-            hasVisualUrl ? 'flex gap-3' : 'overflow-y-auto'
+            hasVisualUrl ? 'flex flex-col sm:flex-row gap-3' : 'overflow-y-auto'
           )}>
             {/* Text content - with scroll indicator */}
             <div className={cn(
               'relative',
-              hasVisualUrl ? 'w-2/5 flex-shrink-0' : ''
+              hasVisualUrl ? 'sm:w-2/5 sm:flex-shrink-0' : ''
             )}>
               {/* Scrollable content area */}
-              <div 
+              <div
                 ref={textContentRef}
                 className="space-y-2 overflow-y-auto max-h-full pr-2 scroll-smooth"
                 style={{ maxHeight: hasVisualUrl ? '340px' : 'auto' }}

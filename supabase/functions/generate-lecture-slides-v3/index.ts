@@ -12,11 +12,12 @@ import {
 import { checkRateLimit, getUserLimits, createRateLimitResponse } from "../_shared/rate-limiter.ts";
 
 // Shared slide system modules (consolidated from duplicated code)
-import type { ProfessorSlide, ResearchContext } from '../_shared/slide-types.ts';
+import type { ProfessorSlide, ResearchContext, StoredSlide } from '../_shared/slide-types.ts';
 import { PROFESSOR_SYSTEM_PROMPT, buildLectureBrief, mergeResearchIntoBrief, buildUserPrompt, parseJsonFromAI } from '../_shared/slide-prompts.ts';
 import { fetchTeachingUnitContext } from '../_shared/context-fetcher.ts';
 import { runResearchAgent, getEmptyResearchContext } from '../_shared/research-agent.ts';
 import { calculateQualityMetrics } from '../_shared/quality-metrics.ts';
+import { buildImagePrompt } from '../_shared/image-prompt-builder.ts';
 
 // ============================================================================
 // AI ROUTING ARCHITECTURE (Updated 2026-01-22)
@@ -50,39 +51,19 @@ function getErrorMessage(error: unknown): string {
 // ============================================================================
 
 async function runProfessorAI(
+  context: { learning_objective: { bloom_level: string }; [key: string]: unknown },
   groundedBrief: string,
-  bloomLevel: string
 ): Promise<ProfessorSlide[]> {
   console.log('[Professor AI] Starting lecture generation');
 
-  // FIXED: 6 slides per teaching unit for consistent, predictable content generation
-  const targetSlides = 6;
+  // Use the shared canonical prompt template (eliminates drift between v3 and batch)
+  const userPrompt = buildUserPrompt(context as any, groundedBrief, 6);
 
-  // Build user prompt from shared module (uses canonical prompt template)
-  // We need a minimal context-like object for buildUserPrompt's bloom level reference
-  const userPrompt = `${groundedBrief}
-
-=== YOUR TASK ===
-Create a comprehensive ${targetSlides}-slide lecture deck for this teaching unit.
-
-CRITICAL REQUIREMENTS:
-1. Every common_misconception MUST have a dedicated "misconception" slide that:
-   - States the wrong belief explicitly
-   - Explains WHY students typically believe this
-   - Provides the correct understanding with evidence
-
-2. Every required_concept MUST be defined with:
-   - Formal academic definition (textbook quality)
-   - Plain-language explanation
-   - Real-world example showing the concept in action
-   - Why this concept matters in the field
-
-3. Speaker notes MUST be 200-300 words of natural lecture narration that:
-   - Sounds like an actual professor speaking
-   - Adds depth beyond what's on the slide
-   - Anticipates student questions
-
-4. Bloom level "${bloomLevel}" dictates cognitive depth:
+  // NOTE: The 85-line inline prompt that was here has been replaced by the shared
+  // buildUserPrompt() from _shared/slide-prompts.ts — the canonical prompt template
+  // that is also used by process-batch-research, eliminating prompt drift.
+  /* eslint-disable -- removed dead inline prompt, see git history
+4. Bloom level dictates cognitive depth:
    - remember: Emphasize clear definitions, memorable examples, key facts
    - understand: Focus on explanations, reasoning, cause-effect relationships
    - apply: Provide worked examples, step-by-step demonstrations, practical scenarios
@@ -144,8 +125,7 @@ OUTPUT (JSON array of slides):
   ]
 }
 
-CRITICAL: Every slide MUST have speaker_notes with 200-300 words. Never leave speaker_notes empty or short.
-Generate all ${targetSlides} slides now with RICH, EDUCATIONAL content and LAYOUT HINTS for every key_point.`;
+end of removed dead prompt */
 
   // Use unified AI client for Professor AI (with fallbacks)
   // NOTE: Do NOT use json: true - the prompt expects markdown-wrapped JSON which parseJsonFromAI handles
@@ -331,7 +311,7 @@ const handler = async (req: Request): Promise<Response> => {
       const baseBrief = buildLectureBrief(context);
       const groundedBrief = mergeResearchIntoBrief(baseBrief, researchContext);
 
-      const slides = await runProfessorAI(groundedBrief, context.learning_objective.bloom_level);
+      const slides = await runProfessorAI(context, groundedBrief);
       await updateProgress(supabase, slideRecordId, 'professor', 60, `Generated ${slides.length} slides`);
 
       console.log('[Main] Professor AI complete:', slides.length, 'slides');
@@ -403,7 +383,7 @@ const handler = async (req: Request): Promise<Response> => {
           research_context: researchContext.grounded_content.length > 0 ? researchContext : null,
           citation_count: researchContext.grounded_content.length,
           estimated_duration_minutes: Math.round(initialSlides.length * 1.5),
-          generation_model: 'gemini-3-pro-preview',
+          generation_model: MODELS.PROFESSOR_AI,
         })
         .eq('id', slideRecordId);
 
@@ -426,48 +406,34 @@ const handler = async (req: Request): Promise<Response> => {
       console.log(`[Main] ${slidesNeedingVisuals.length} slides need images - queueing for async generation`);
 
       if (slidesNeedingVisuals.length > 0) {
-        // Build queue items for async processing
-        // NOTE: The hardcoded prompt below is a PLACEHOLDER. The actual LLM-powered
-        // prompt is generated by process-batch-images using shared image-prompt-builder.ts
-        // which sees the full slide context. This placeholder is only used as initial queue data.
-        const queueItems = initialSlides
-          .map((slide, index) => {
-            const visualType = slide.visual?.type;
-            if (!visualType || visualType === 'none') return null;
+        // Build queue items using the shared AI-powered image prompt builder
+        // This generates optimized Imagen 4 Ultra prompts from the full slide context
+        const queueItems: Array<{
+          lecture_slides_id: string;
+          slide_index: number;
+          slide_title: string;
+          prompt: string;
+          status: string;
+        }> = [];
 
-            const prompt = `Create a visually striking educational ${slide.visual?.type || 'diagram'} for a university lecture.
+        for (let index = 0; index < initialSlides.length; index++) {
+          const slide = initialSlides[index];
+          const visualType = slide.visual?.type;
+          if (!visualType || visualType === 'none') continue;
 
-CONCEPT: ${slide.title}
-CONTEXT: ${context.title} (${context.domain || 'general education'})
+          // Cast to StoredSlide for the shared builder (structurally compatible)
+          const storedSlide = slide as unknown as StoredSlide;
+          const prompt = await buildImagePrompt(storedSlide, context.title, context.domain);
+          if (!prompt) continue;
 
-VISUAL APPROACH:
-Create an abstract, conceptual visualization that represents ${slide.visual?.alt_text || slide.title}.
-Use visual metaphors, shapes, icons, and color relationships to convey the concept.
-
-STRICT REQUIREMENTS:
-- DO NOT include any text, labels, words, letters, or numbers in the image
-- Use ONLY abstract shapes, icons, arrows, and visual symbols
-- Communicate through visual metaphor, not text
-- Professional academic illustration style
-- 16:9 aspect ratio, suitable for projection
-- High contrast colors that work on both light and dark backgrounds
-- Clean, minimal, modern design aesthetic
-- Use strategic color to highlight key relationships
-
-STYLE: ${slide.visual?.style || 'clean academic'} with abstract iconography
-PURPOSE: Visually represent the concept of "${slide.title}" without any text
-
-IMPORTANT: Generate a purely visual diagram with ZERO text. Any text, labels, or words will appear as gibberish. Use icons and shapes only.`;
-
-            return {
-              lecture_slides_id: slideRecordId,
-              slide_index: index,
-              slide_title: slide.title || `Slide ${index + 1}`,
-              prompt,
-              status: 'pending',
-            };
-          })
-          .filter(Boolean);
+          queueItems.push({
+            lecture_slides_id: slideRecordId,
+            slide_index: index,
+            slide_title: slide.title || `Slide ${index + 1}`,
+            prompt,
+            status: 'pending',
+          });
+        }
 
         if (queueItems.length > 0) {
           const { error: queueError } = await supabase

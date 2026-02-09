@@ -352,6 +352,7 @@ export const UnifiedLOCard = memo(function UnifiedLOCard({ learningObjective, co
                           isSearching={searchForUnit.isSearching(unit.id)}
                           onCreateLecture={handleCreateLecture}
                           isGeneratingSlides={generateSlidesMutation.isPending && generateSlidesMutation.variables?.teachingUnitId === unit.id}
+                          generationProgress={generateSlidesMutation.isPending && generateSlidesMutation.variables?.teachingUnitId === unit.id ? generateSlidesMutation.progress : null}
                           existingSlides={slidesByUnitId[unit.id] || null}
                         />
                       ))}

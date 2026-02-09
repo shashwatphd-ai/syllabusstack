@@ -164,6 +164,41 @@ export function useCourseLectureSlides(instructorCourseId?: string) {
  * Fetch published slides for enrolled students, ordered by teaching unit sequence
  */
 export function usePublishedLectureSlides(instructorCourseId?: string) {
+  const queryClient = useQueryClient();
+
+  // Subscribe to Realtime changes so students see newly published slides
+  useEffect(() => {
+    if (!instructorCourseId) return;
+
+    const channelName = `published-slides-${instructorCourseId}`;
+    // Avoid duplicate subscriptions
+    const existing = supabase.getChannels().find(ch => ch.topic === `realtime:${channelName}`);
+    if (existing) return;
+
+    const channel = supabase
+      .channel(channelName)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'lecture_slides',
+          filter: `instructor_course_id=eq.${instructorCourseId}`,
+        },
+        () => {
+          // Invalidate on next tick to avoid interference with Supabase callback
+          setTimeout(() => {
+            queryClient.invalidateQueries({ queryKey: ['published-lecture-slides', instructorCourseId] });
+          }, 0);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [instructorCourseId, queryClient]);
+
   return useQuery({
     queryKey: ['published-lecture-slides', instructorCourseId],
     queryFn: async () => {

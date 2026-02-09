@@ -22,13 +22,23 @@ export default function StudentSlidePage() {
     if (!user || !lectureSlide) return;
 
     try {
-      // Track slide completion - similar to video consumption tracking
-      // This could be expanded to store in a consumption_records-like table
-      console.log('Slide completion tracked:', {
-        slideId: lectureSlide.id,
-        watchPercentage,
-        userId: user.id
-      });
+      // Persist slide completion to database
+      const { error: upsertError } = await supabase
+        .from('slide_completions' as any)
+        .upsert({
+          user_id: user.id,
+          lecture_slides_id: lectureSlide.id,
+          learning_objective_id: lectureSlide.learning_objective_id,
+          watch_percentage: Math.round(watchPercentage),
+          highest_slide_viewed: lectureSlide.total_slides || (lectureSlide.slides?.length ?? 0),
+          total_slides: lectureSlide.total_slides || (lectureSlide.slides?.length ?? 0),
+          completed_at: watchPercentage >= 80 ? new Date().toISOString() : null,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'user_id,lecture_slides_id' });
+
+      if (upsertError) {
+        console.error('Error persisting slide completion:', upsertError);
+      }
 
       if (watchPercentage >= 80) {
         toast({
