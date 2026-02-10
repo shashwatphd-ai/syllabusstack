@@ -1,68 +1,116 @@
 
 
-## Fix 3 Errors in Module Analysis Flow
+## Fix: Image Generation 504 Timeout and Auto-Trigger
 
-### Fix 1: VerificationBanner `.single()` to `.maybeSingle()` 
+### Problem Summary
 
-**File:** `src/components/instructor/VerificationBanner.tsx` (line 147)
+Two issues need fixing:
 
-Change `.single()` to `.maybeSingle()`. The downstream code already handles `null` via optional chaining (`pendingRequest?.status === 'pending'`), so no other changes needed.
+1. **504 Timeout**: When you click "Generate Images" on the frontend, it calls `process-batch-images` with `instructor_course_id` (MODE 4). This tries to populate the image queue by calling an LLM to generate prompts for every slide -- 40+ LLM calls that take far longer than the edge function timeout. The 504 causes the CORS error you saw.
 
-**Risk:** Zero. This is the documented PostgREST pattern for "might not exist" queries.
+2. **Manual Step Required**: After "Generate All Slides" completes, images are queued by `poll-active-batches` (cron worker) correctly, but processing doesn't always start automatically.
 
----
+### Root Cause
 
-### Fix 2: poll-batch-status auth method
+The `poll-active-batches` cron worker already:
+- Populates the image queue (line 474-584)
+- Triggers `process-batch-images` with service role key (line 571)
 
-**File:** `supabase/functions/poll-batch-status/index.ts` (lines 53-62)
+So the queue is already populated when you click the button. The frontend is redundantly re-populating it (40+ LLM calls) and timing out.
 
-Replace:
+### Fix 1: Make the frontend "Generate Images" button fast
+
+**File:** `src/hooks/useBatchSlides.ts` (lines 536-539)
+
+Change the frontend trigger to send `{ continue: true }` instead of `{ instructor_course_id }`. This tells `process-batch-images` to go straight to MODE 1 (process from existing queue) -- no LLM prompt generation, just pick up pending items and start generating images. Returns in under 2 seconds.
+
 ```typescript
-const { data: claims, error: authError } = await anonClient.auth.getClaims(
-  authHeader.replace("Bearer ", "")
-);
-if (authError || !claims?.claims?.sub) {
+// Before (MODE 4 — re-populates queue, 40+ LLM calls, times out)
+const { data, error } = await supabase.functions.invoke('process-batch-images', {
+  body: { instructor_course_id: instructorCourseId },
+});
+
+// After (MODE 1 — process from existing queue, returns immediately)
+const { data, error } = await supabase.functions.invoke('process-batch-images', {
+  body: { continue: true },
+});
 ```
 
-With:
+**Why this is safe:**
+- The queue is already populated by `poll-active-batches` (confirmed by your 40 pending items)
+- MODE 1 already handles self-continuation (processes batch of 3, then self-invokes for next batch)
+- If the queue is empty, it returns `{ success: true, message: 'No pending items' }` -- no crash
+
+**What if queue isn't populated yet?** Add a fallback: if MODE 1 returns 0 pending items, THEN fall back to `instructor_course_id` mode but via server-side self-invocation (not blocking the frontend).
+
+### Fix 2: Ensure `poll-active-batches` always triggers image processing
+
+**File:** `supabase/functions/poll-active-batches/index.ts` (lines 566-584)
+
+The trigger at line 571 already exists and uses service role key (server-to-server, no CORS, no browser timeout). Verify it uses `{ continue: true }` instead of `{ instructor_course_id }` to avoid the same timeout issue server-side.
+
+Current code sends `{ instructor_course_id }` (line 577) which hits MODE 4 and could also timeout. Change to `{ continue: true }`:
+
 ```typescript
-const { data: { user }, error: authError } = await anonClient.auth.getUser();
-if (authError || !user) {
+// Before (line 577)
+body: JSON.stringify({ instructor_course_id: batchJob.instructor_course_id }),
+
+// After
+body: JSON.stringify({ continue: true }),
 ```
 
-**Why not fix the other 3 functions using `getClaims()`?** Those (`submit-assessment-answer`, `start-assessment`, `complete-assessment`) import from the Deno import map (`npm:@supabase/supabase-js@^2.49.0`) which includes `getClaims()`. Only `poll-batch-status` uses the older pinned esm.sh import (`@2.47.12`). They are not broken.
+**Why this is safe:** The queue is populated by the lines immediately above (482-561). Sending `{ continue: true }` tells the worker to process what's already in the queue.
 
-**Risk:** Zero. The `user` object is only checked for existence (authentication gate). No code downstream references `claims.sub`.
+### Fix 3: Smarter frontend trigger with fallback
 
----
+**File:** `src/hooks/useBatchSlides.ts`
 
-### Fix 3: Resilient JSON parsing in curriculum-reasoning-agent
+Update `useTriggerImageGeneration` to:
+1. First try `{ continue: true }` (fast, processes existing queue)
+2. If result shows 0 pending AND 0 processed, fall back to `{ instructor_course_id }` as a background fire-and-forget (for cases where queue hasn't been populated yet, e.g., individual slide generation)
 
-**File:** `supabase/functions/curriculum-reasoning-agent/index.ts`
+```typescript
+mutationFn: async ({ instructorCourseId }: { instructorCourseId: string }) => {
+  // Try processing existing queue first (fast path)
+  const { data, error } = await supabase.functions.invoke('process-batch-images', {
+    body: { continue: true },
+  });
 
-Two changes:
+  if (error) throw error;
 
-1. **Import**: Replace `parseJsonResponse` with `parseJsonFromAI` from `slide-prompts.ts` (line 3)
-2. **Usage**: Replace `parseJsonResponse<DecomposeResponse>(result.content)` with `parseJsonFromAI(result.content)` (line 199)
+  // If nothing was in the queue, populate it in the background
+  if (data?.processed === 0 && data?.remaining === undefined) {
+    // Fire-and-forget: populate queue then process
+    supabase.functions.invoke('process-batch-images', {
+      body: { instructor_course_id: instructorCourseId },
+    }).catch(err => console.warn('[ImageGen] Background populate failed:', err));
+    
+    return { ...data, message: 'Image generation queued and starting...' };
+  }
 
-`parseJsonFromAI` is a strict superset of `parseJsonResponse`:
-- Strategy 1: Extract from markdown code blocks (same as `parseJsonResponse`)
-- Strategy 2: Find outermost `{...}` braces
-- Strategy 3: Repair truncated JSON by closing open delimiters
+  return data;
+},
+```
 
-The existing error handling (lines 328-335) and fallback models (line 188) remain untouched.
+### What this does NOT change
 
-**Risk:** Zero. `parseJsonFromAI` tries the exact same `JSON.parse` first, then falls through to repair strategies only if that fails.
-
----
+- The image generation model/provider (`google/gemini-3-pro-image-preview` via OpenRouter) -- unchanged
+- The `buildImagePrompt` LLM prompt writer logic -- unchanged
+- The `processQueueItem` image generation logic -- unchanged
+- Self-continuation loop -- unchanged
+- `poll-active-batches` cron schedule -- unchanged
+- Individual slide image generation (v3 pipeline) -- unchanged
 
 ### Summary
 
-| Fix | Type | Risk | Breaks anything? |
-|-----|------|------|-------------------|
-| `.maybeSingle()` | Bug fix | None | No -- downstream already null-safe |
-| `getUser()` | Bug fix | None | No -- only used as auth gate |
-| `parseJsonFromAI` | Resilience | None | No -- superset of current parser |
+| Change | File | What | Risk |
+|--------|------|------|------|
+| Frontend trigger | `useBatchSlides.ts` | Send `continue:true` first, fallback to `instructor_course_id` | None -- queue already populated by cron |
+| Cron trigger | `poll-active-batches/index.ts` | Send `continue:true` instead of `instructor_course_id` | None -- queue populated 5 lines above |
 
-All three follow existing patterns already used elsewhere in the codebase.
+Both changes make the same worker (`process-batch-images`) process the same queue with the same model. The only difference is they skip redundant queue population that causes timeouts.
+
+### About the DialogContent warnings
+
+Those are cosmetic accessibility warnings from Radix UI (missing `aria-describedby`). They don't affect functionality and are unrelated to image generation. Can be fixed separately by adding `DialogDescription` to Dialog components.
 
