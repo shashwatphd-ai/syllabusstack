@@ -172,3 +172,7 @@ verify_jwt = false
 # Centralized single-worker polling for Vertex AI batch jobs
 # Called by pg_cron every 30 seconds - NOT per-user
 verify_jwt = false
+
+[functions.trigger-pending-evaluations]
+# One-time admin function to evaluate pending content matches
+verify_jwt = false
