@@ -11,6 +11,9 @@ import {
 } from "../_shared/error-handler.ts";
 import { validateRequest, enrollInCourseSchema } from "../_shared/validators/index.ts";
 
+// Toggle: set to true for free enrollment, false to require $1 payment
+const ENROLLMENT_FREE = true;
+
 const logStep = (step: string, details?: any) => {
   const detailsStr = details ? ` - ${JSON.stringify(details)}` : '';
   console.log(`[ENROLL-IN-COURSE] ${step}${detailsStr}`);
@@ -99,8 +102,8 @@ const handler = async (req: Request): Promise<Response> => {
     const isPro = profile?.subscription_tier === 'pro' || profile?.subscription_tier === 'university';
     logStep("Subscription check", { isPro, tier: profile?.subscription_tier });
 
-    // If Pro, enroll immediately (free)
-    if (isPro) {
+    // If Pro or enrollment is free, enroll immediately
+    if (isPro || ENROLLMENT_FREE) {
       const { data: enrollment, error: enrollError } = await supabaseAdmin
         .from("course_enrollments")
         .insert({

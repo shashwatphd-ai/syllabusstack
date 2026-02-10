@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { BookOpen, Loader2, CreditCard, Check, Sparkles } from 'lucide-react';
+import { BookOpen, Loader2 } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -12,10 +12,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { useAuth } from '@/contexts/AuthContext';
 import { useAutoLinkCourses } from '@/hooks/useAutoLinkCourses';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -34,11 +32,8 @@ export function EnrollmentDialog({ trigger, onSuccess }: EnrollmentDialogProps) 
     requires_payment: boolean;
   } | null>(null);
   const { toast } = useToast();
-  const { profile } = useAuth();
   const autoLinkMutation = useAutoLinkCourses();
   const queryClient = useQueryClient();
-
-  const isPro = profile?.subscription_tier === 'pro' || profile?.subscription_tier === 'university';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -145,26 +140,6 @@ export function EnrollmentDialog({ trigger, onSuccess }: EnrollmentDialogProps) 
                 </p>
               </div>
 
-              {/* Pricing info */}
-              <div className="bg-muted/50 rounded-lg p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Enrollment Fee</span>
-                  {isPro ? (
-                    <Badge variant="secondary" className="gap-1">
-                      <Check className="h-3 w-3" />
-                      Free with Pro
-                    </Badge>
-                  ) : (
-                    <span className="text-lg font-bold">$1.00</span>
-                  )}
-                </div>
-                {isPro && (
-                  <p className="text-xs text-muted-foreground flex items-center gap-1">
-                    <Sparkles className="h-3 w-3" />
-                    Unlimited enrollments included in your Pro subscription
-                  </p>
-                )}
-              </div>
             </div>
             <DialogFooter>
               <Button
@@ -181,15 +156,10 @@ export function EnrollmentDialog({ trigger, onSuccess }: EnrollmentDialogProps) 
                 {isLoading ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Checking...
+                    Enrolling...
                   </>
-                ) : isPro ? (
-                  'Enroll Now'
                 ) : (
-                  <>
-                    <CreditCard className="mr-2 h-4 w-4" />
-                    Pay $1 & Enroll
-                  </>
+                  'Enroll Now'
                 )}
               </Button>
             </DialogFooter>

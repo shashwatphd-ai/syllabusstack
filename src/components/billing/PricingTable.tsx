@@ -227,7 +227,7 @@ function PricingCard({
 
 function FeatureComparison() {
   const features = [
-    { name: 'Course/Enrollment Fee', free: '$1 each', pro: 'Included', university: 'Included' },
+    { name: 'Course/Enrollment Fee', free: 'Free', pro: 'Included', university: 'Included' },
     { name: 'Course Syllabi', free: '3', pro: 'Unlimited', university: 'Unlimited' },
     { name: 'Dream Jobs', free: '1', pro: '5', university: 'Unlimited' },
     { name: 'AI Analyses/month', free: '20', pro: '200', university: 'Unlimited' },
