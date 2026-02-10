@@ -1,61 +1,68 @@
 
 
-## One-Time Evaluation Trigger for 233 Unevaluated Videos
+## Fix 3 Errors in Module Analysis Flow
 
-### What It Does
+### Fix 1: VerificationBanner `.single()` to `.maybeSingle()` 
 
-Creates a temporary edge function (`trigger-pending-evaluations`) that:
-1. Queries all `content_matches` with `status = 'pending'` and `ai_recommendation IS NULL` (233 videos across ~20 learning objectives)
-2. Groups them by `learning_objective_id` (batches of 4-15 videos each)
-3. Calls `evaluate-content-batch` for each group sequentially
-4. Updates each match with AI scores, reasoning, and recommendation
-5. Auto-approves highly recommended videos
+**File:** `src/components/instructor/VerificationBanner.tsx` (line 147)
 
-You invoke it once manually, then delete it.
+Change `.single()` to `.maybeSingle()`. The downstream code already handles `null` via optional chaining (`pendingRequest?.status === 'pending'`), so no other changes needed.
 
-### Technical Details
+**Risk:** Zero. This is the documented PostgREST pattern for "might not exist" queries.
 
-#### New File: `supabase/functions/trigger-pending-evaluations/index.ts`
+---
 
-- Uses `SUPABASE_SERVICE_ROLE_KEY` to query and update directly (no user auth needed for this admin task)
-- Fetches all pending/unevaluated content matches joined with their learning objective data (`text`, `bloom_level`, `core_concept`)
-- Groups matches by `learning_objective_id`
-- For each group, calls `evaluate-content-batch` internally via fetch, passing the service role key as the auth header
-- Processes results: updates `ai_relevance_score`, `ai_pedagogy_score`, `ai_quality_score`, `match_score`, `ai_reasoning`, `ai_recommendation`, and status
-- Adds a 2-second delay between groups to avoid rate limiting
-- Returns a summary of how many videos were evaluated and how many auto-approved
+### Fix 2: poll-batch-status auth method
 
-#### Auth Consideration
+**File:** `supabase/functions/poll-batch-status/index.ts` (lines 53-62)
 
-The `evaluate-content-batch` function validates the auth token via `serviceClient.auth.getUser()`. The service role key won't return a "user" from `getUser()`. Two options:
-
-- **Option A**: Have the trigger function call `evaluate-content-batch`'s internal logic directly (copy the AI call logic). This is simpler but duplicates code.
-- **Option B**: Have the trigger function skip calling `evaluate-content-batch` and instead call the unified AI client directly to generate evaluations, then write results to the database.
-
-I will use **Option B** -- the trigger function will import `generateText` from the shared unified AI client, reuse the same prompt template from `evaluate-content-batch`, and write scores directly to `content_matches`. This avoids auth issues entirely.
-
-#### Config Update: `supabase/config.toml`
-
-Add:
-```toml
-[functions.trigger-pending-evaluations]
-verify_jwt = false
+Replace:
+```typescript
+const { data: claims, error: authError } = await anonClient.auth.getClaims(
+  authHeader.replace("Bearer ", "")
+);
+if (authError || !claims?.claims?.sub) {
 ```
 
-#### Cleanup
-
-After running successfully, the function file can be deleted.
-
-### Execution Flow
-
-```text
-POST /trigger-pending-evaluations
-  --> Query 233 unevaluated content_matches
-  --> Group into ~20 batches by learning_objective_id
-  --> For each batch (15 videos max):
-      --> Build evaluation prompt (same as evaluate-content-batch)
-      --> Call Gemini Flash via unified-ai-client
-      --> Parse scores, update content_matches
-      --> 2s delay
-  --> Return: { evaluated: 233, auto_approved: N, failed: M }
+With:
+```typescript
+const { data: { user }, error: authError } = await anonClient.auth.getUser();
+if (authError || !user) {
 ```
+
+**Why not fix the other 3 functions using `getClaims()`?** Those (`submit-assessment-answer`, `start-assessment`, `complete-assessment`) import from the Deno import map (`npm:@supabase/supabase-js@^2.49.0`) which includes `getClaims()`. Only `poll-batch-status` uses the older pinned esm.sh import (`@2.47.12`). They are not broken.
+
+**Risk:** Zero. The `user` object is only checked for existence (authentication gate). No code downstream references `claims.sub`.
+
+---
+
+### Fix 3: Resilient JSON parsing in curriculum-reasoning-agent
+
+**File:** `supabase/functions/curriculum-reasoning-agent/index.ts`
+
+Two changes:
+
+1. **Import**: Replace `parseJsonResponse` with `parseJsonFromAI` from `slide-prompts.ts` (line 3)
+2. **Usage**: Replace `parseJsonResponse<DecomposeResponse>(result.content)` with `parseJsonFromAI(result.content)` (line 199)
+
+`parseJsonFromAI` is a strict superset of `parseJsonResponse`:
+- Strategy 1: Extract from markdown code blocks (same as `parseJsonResponse`)
+- Strategy 2: Find outermost `{...}` braces
+- Strategy 3: Repair truncated JSON by closing open delimiters
+
+The existing error handling (lines 328-335) and fallback models (line 188) remain untouched.
+
+**Risk:** Zero. `parseJsonFromAI` tries the exact same `JSON.parse` first, then falls through to repair strategies only if that fails.
+
+---
+
+### Summary
+
+| Fix | Type | Risk | Breaks anything? |
+|-----|------|------|-------------------|
+| `.maybeSingle()` | Bug fix | None | No -- downstream already null-safe |
+| `getUser()` | Bug fix | None | No -- only used as auth gate |
+| `parseJsonFromAI` | Resilience | None | No -- superset of current parser |
+
+All three follow existing patterns already used elsewhere in the codebase.
+
