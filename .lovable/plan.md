@@ -1,77 +1,61 @@
 
 
-## Fix: Make Per-LO "Find Content" Use Sync Evaluation (Option B)
+## One-Time Evaluation Trigger for 233 Unevaluated Videos
 
-### Problem Summary
+### What It Does
 
-When clicking "Find Content" on individual learning objectives/modules, the edge function enters **batch mode** (because `ENABLE_BATCH_EVALUATION` defaults to `true`). This saves videos as `pending_evaluation` but never triggers the evaluation step. Only `QuickCourseSetup` explicitly calls `submit-batch-evaluation` afterward.
+Creates a temporary edge function (`trigger-pending-evaluations`) that:
+1. Queries all `content_matches` with `status = 'pending'` and `ai_recommendation IS NULL` (233 videos across ~20 learning objectives)
+2. Groups them by `learning_objective_id` (batches of 4-15 videos each)
+3. Calls `evaluate-content-batch` for each group sequentially
+4. Updates each match with AI scores, reasoning, and recommendation
+5. Auto-approves highly recommended videos
 
-The result: 170 videos are stuck in `pending_evaluation` with no scores and invisible in the instructor UI.
+You invoke it once manually, then delete it.
 
-### Solution
+### Technical Details
 
-Force **sync mode** for per-LO searches by passing `use_ai_evaluation: true` in the request body AND bypassing the batch flag. The cleanest approach: the edge function should use sync evaluation when the request comes from a per-LO search (not from QuickCourseSetup).
+#### New File: `supabase/functions/trigger-pending-evaluations/index.ts`
 
-### Changes
+- Uses `SUPABASE_SERVICE_ROLE_KEY` to query and update directly (no user auth needed for this admin task)
+- Fetches all pending/unevaluated content matches joined with their learning objective data (`text`, `bloom_level`, `core_concept`)
+- Groups matches by `learning_objective_id`
+- For each group, calls `evaluate-content-batch` internally via fetch, passing the service role key as the auth header
+- Processes results: updates `ai_relevance_score`, `ai_pedagogy_score`, `ai_quality_score`, `match_score`, `ai_reasoning`, `ai_recommendation`, and status
+- Adds a 2-second delay between groups to avoid rate limiting
+- Returns a summary of how many videos were evaluated and how many auto-approved
 
-#### 1. Edge Function: Add a `force_sync` parameter
+#### Auth Consideration
 
-**File:** `supabase/functions/_shared/validators/index.ts`
+The `evaluate-content-batch` function validates the auth token via `serviceClient.auth.getUser()`. The service role key won't return a "user" from `getUser()`. Two options:
 
-Add `force_sync: z.boolean().optional().default(false)` to `searchYoutubeContentSchema`.
+- **Option A**: Have the trigger function call `evaluate-content-batch`'s internal logic directly (copy the AI call logic). This is simpler but duplicates code.
+- **Option B**: Have the trigger function skip calling `evaluate-content-batch` and instead call the unified AI client directly to generate evaluations, then write results to the database.
 
-#### 2. Edge Function: Respect `force_sync` in the branching logic
+I will use **Option B** -- the trigger function will import `generateText` from the shared unified AI client, reuse the same prompt template from `evaluate-content-batch`, and write scores directly to `content_matches`. This avoids auth issues entirely.
 
-**File:** `supabase/functions/search-youtube-content/index.ts` (line ~806)
+#### Config Update: `supabase/config.toml`
 
-Change the batch mode condition from:
-```
-const enableBatchEvaluation = Deno.env.get('ENABLE_BATCH_EVALUATION') !== 'false';
-```
-to:
-```
-const enableBatchEvaluation =
-  !force_sync && Deno.env.get('ENABLE_BATCH_EVALUATION') !== 'false';
-```
-
-When `force_sync` is true, the function skips batch mode entirely and falls through to the existing sync evaluation path (lines 900-966), which calls `evaluate-content-batch` inline, applies AI scores, and saves matches as `pending` or `auto_approved`.
-
-#### 3. Frontend: Pass `force_sync: true` from per-LO hooks
-
-**File:** `src/hooks/useLearningObjectives.ts` (line ~160)
-
-Add `use_ai_evaluation: true` and `force_sync: true` to the request body in `useSearchYouTubeContent`.
-
-**File:** `src/hooks/useTeachingUnits.ts` (line ~175)
-
-Add `force_sync: true` to the existing request body (it already sends `use_ai_evaluation: true`).
-
-#### 4. Fix the 170 stuck videos (one-time migration)
-
-Run a SQL migration to promote the existing `pending_evaluation` records to `pending` so they become visible in the instructor review queue:
-
-```sql
-UPDATE content_matches
-SET status = 'pending', match_score = 0.5
-WHERE status = 'pending_evaluation';
+Add:
+```toml
+[functions.trigger-pending-evaluations]
+verify_jwt = false
 ```
 
-### What stays the same
+#### Cleanup
 
-- `QuickCourseSetup` does NOT pass `force_sync`, so it continues using batch mode and calling `submit-batch-evaluation` itself -- no changes needed there.
-- The `ENABLE_BATCH_EVALUATION` env var still works as a global kill-switch if set to `false`.
-- The sync evaluation path (lines 900-1072) is already fully implemented and tested -- no new logic needed.
+After running successfully, the function file can be deleted.
 
-### Flow after fix
+### Execution Flow
 
 ```text
-Per-LO "Find Content" click
-  --> search-youtube-content (force_sync=true)
-      --> Discovers ~15 videos
-      --> Calls evaluate-content-batch INLINE
-      --> Saves with status: auto_approved or pending
-      --> Returns total_found + auto_approved_count
-  --> Toast: "Found 10 videos, 4 auto-approved"
-  --> Instructor sees results immediately
+POST /trigger-pending-evaluations
+  --> Query 233 unevaluated content_matches
+  --> Group into ~20 batches by learning_objective_id
+  --> For each batch (15 videos max):
+      --> Build evaluation prompt (same as evaluate-content-batch)
+      --> Call Gemini Flash via unified-ai-client
+      --> Parse scores, update content_matches
+      --> 2s delay
+  --> Return: { evaluated: 233, auto_approved: N, failed: M }
 ```
-
