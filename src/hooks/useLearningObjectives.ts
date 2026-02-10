@@ -173,10 +173,12 @@ export function useSearchYouTubeContent() {
     },
     onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['content-matches', variables.id] });
-      toast({
-        title: 'Content Found',
-        description: `Found ${data.total_found} videos, ${data.auto_approved_count} auto-approved`,
-      });
+      const found = data.total_found ?? data.videos_discovered ?? 0;
+      const autoApproved = data.auto_approved_count ?? 0;
+      const description = data.batch_evaluation_pending
+        ? `Discovered ${found} videos, queued for evaluation`
+        : `Found ${found} videos, ${autoApproved} auto-approved`;
+      toast({ title: 'Content Found', description });
     },
     onError: (error) => {
       toast({
