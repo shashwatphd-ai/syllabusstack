@@ -54,10 +54,8 @@ const handler = async (req: Request): Promise<Response> => {
   const anonClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
     global: { headers: { Authorization: authHeader } },
   });
-  const { data: claims, error: authError } = await anonClient.auth.getClaims(
-    authHeader.replace("Bearer ", "")
-  );
-  if (authError || !claims?.claims?.sub) {
+  const { data: { user }, error: authError } = await anonClient.auth.getUser();
+  if (authError || !user) {
     return createErrorResponse("UNAUTHORIZED", corsHeaders, "Invalid token");
   }
 
