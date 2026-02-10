@@ -145,6 +145,7 @@ end of removed dead prompt */
     const slides = parsed.slides || parsed;
 
     if (!Array.isArray(slides)) {
+      console.error('[Professor AI] Expected array but got:', typeof slides, JSON.stringify(slides).substring(0, 200));
       throw new Error('Response is not an array of slides');
     }
 
@@ -152,7 +153,8 @@ end of removed dead prompt */
     return slides;
   } catch (error) {
     console.error('[Professor AI] Parse error:', error);
-    throw new Error('Failed to parse Professor AI response');
+    console.error('[Professor AI] Raw response length:', result?.length, 'First 300 chars:', result?.substring(0, 300));
+    throw new Error(`Failed to parse Professor AI response: ${error.message}`);
   }
 }
 

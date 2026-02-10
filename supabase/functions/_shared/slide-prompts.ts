@@ -432,7 +432,51 @@ Generate all ${targetSlides} slides now with RICH, EDUCATIONAL content and LAYOU
 // ============================================================================
 
 export function parseJsonFromAI(content: string): any {
-  const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const jsonStr = jsonMatch ? jsonMatch[1].trim() : content.trim();
-  return JSON.parse(jsonStr);
+  if (!content || !content.trim()) {
+    throw new Error('Empty AI response content');
+  }
+
+  const raw = content.trim();
+
+  // Strategy 1: Extract from markdown code block (greedy to handle nested blocks)
+  const codeBlockMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (codeBlockMatch) {
+    try {
+      return JSON.parse(codeBlockMatch[1].trim());
+    } catch (_e) {
+      // Fall through to other strategies
+    }
+  }
+
+  // Strategy 2: Find the outermost JSON object or array
+  const firstBrace = raw.indexOf('{');
+  const firstBracket = raw.indexOf('[');
+  const jsonStart = firstBrace === -1 ? firstBracket :
+                    firstBracket === -1 ? firstBrace :
+                    Math.min(firstBrace, firstBracket);
+
+  if (jsonStart !== -1) {
+    const isArray = raw[jsonStart] === '[';
+    const closeChar = isArray ? ']' : '}';
+    // Find the last matching close character
+    const lastClose = raw.lastIndexOf(closeChar);
+    if (lastClose > jsonStart) {
+      try {
+        return JSON.parse(raw.substring(jsonStart, lastClose + 1));
+      } catch (_e) {
+        // Fall through
+      }
+    }
+  }
+
+  // Strategy 3: Try parsing the raw content directly
+  try {
+    return JSON.parse(raw);
+  } catch (_e) {
+    // Final failure - log diagnostic info
+    const preview = raw.length > 500 ? raw.substring(0, 250) + '\n...[truncated]...\n' + raw.substring(raw.length - 250) : raw;
+    console.error('[parseJsonFromAI] All strategies failed. Content preview:', preview);
+    console.error('[parseJsonFromAI] Content length:', raw.length, 'First 20 chars:', JSON.stringify(raw.substring(0, 20)));
+    throw new Error(`Failed to parse JSON from AI response (${raw.length} chars). Preview: ${raw.substring(0, 100)}`);
+  }
 }
