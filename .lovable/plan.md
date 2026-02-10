@@ -1,48 +1,77 @@
 
 
-## Fix: "Found undefined videos" Toast and Batch Save Failures
+## Fix: Make Per-LO "Find Content" Use Sync Evaluation (Option B)
 
-### Root Cause
+### Problem Summary
 
-Two separate but related bugs:
+When clicking "Find Content" on individual learning objectives/modules, the edge function enters **batch mode** (because `ENABLE_BATCH_EVALUATION` defaults to `true`). This saves videos as `pending_evaluation` but never triggers the evaluation step. Only `QuickCourseSetup` explicitly calls `submit-batch-evaluation` afterward.
 
-1. **Toast shows "undefined"**: The `search-youtube-content` edge function has two response paths — **sync mode** returns `total_found` and `auto_approved_count`, but **batch mode** returns `videos_discovered` instead. The frontend toast always reads `data.total_found`, which is undefined in batch mode.
+The result: 170 videos are stuck in `pending_evaluation` with no scores and invisible in the instructor UI.
 
-2. **Zero records saved**: The batch mode tries to insert content matches with status `pending_evaluation`, but the `content_matches_status_check` database constraint doesn't include that value. Every insert fails with the constraint violation error visible in the logs.
+### Solution
+
+Force **sync mode** for per-LO searches by passing `use_ai_evaluation: true` in the request body AND bypassing the batch flag. The cleanest approach: the edge function should use sync evaluation when the request comes from a per-LO search (not from QuickCourseSetup).
 
 ### Changes
 
-#### 1. Fix the database constraint
+#### 1. Edge Function: Add a `force_sync` parameter
 
-Add `pending_evaluation` to the `content_matches_status_check` constraint so batch-discovered videos can be saved.
+**File:** `supabase/functions/_shared/validators/index.ts`
+
+Add `force_sync: z.boolean().optional().default(false)` to `searchYoutubeContentSchema`.
+
+#### 2. Edge Function: Respect `force_sync` in the branching logic
+
+**File:** `supabase/functions/search-youtube-content/index.ts` (line ~806)
+
+Change the batch mode condition from:
+```
+const enableBatchEvaluation = Deno.env.get('ENABLE_BATCH_EVALUATION') !== 'false';
+```
+to:
+```
+const enableBatchEvaluation =
+  !force_sync && Deno.env.get('ENABLE_BATCH_EVALUATION') !== 'false';
+```
+
+When `force_sync` is true, the function skips batch mode entirely and falls through to the existing sync evaluation path (lines 900-966), which calls `evaluate-content-batch` inline, applies AI scores, and saves matches as `pending` or `auto_approved`.
+
+#### 3. Frontend: Pass `force_sync: true` from per-LO hooks
+
+**File:** `src/hooks/useLearningObjectives.ts` (line ~160)
+
+Add `use_ai_evaluation: true` and `force_sync: true` to the request body in `useSearchYouTubeContent`.
+
+**File:** `src/hooks/useTeachingUnits.ts` (line ~175)
+
+Add `force_sync: true` to the existing request body (it already sends `use_ai_evaluation: true`).
+
+#### 4. Fix the 170 stuck videos (one-time migration)
+
+Run a SQL migration to promote the existing `pending_evaluation` records to `pending` so they become visible in the instructor review queue:
 
 ```sql
-ALTER TABLE content_matches
-  DROP CONSTRAINT content_matches_status_check,
-  ADD CONSTRAINT content_matches_status_check
-    CHECK (status IN ('pending', 'pending_evaluation', 'auto_approved', 'approved', 'rejected', 'skipped'));
+UPDATE content_matches
+SET status = 'pending', match_score = 0.5
+WHERE status = 'pending_evaluation';
 ```
 
-#### 2. Fix the frontend toast to handle both response shapes
+### What stays the same
 
-**File:** `src/hooks/useLearningObjectives.ts` (line 176-179)
+- `QuickCourseSetup` does NOT pass `force_sync`, so it continues using batch mode and calling `submit-batch-evaluation` itself -- no changes needed there.
+- The `ENABLE_BATCH_EVALUATION` env var still works as a global kill-switch if set to `false`.
+- The sync evaluation path (lines 900-1072) is already fully implemented and tested -- no new logic needed.
 
-Update the `onSuccess` handler to read from whichever fields exist:
+### Flow after fix
 
-```typescript
-onSuccess: (data, variables) => {
-  queryClient.invalidateQueries({ queryKey: ['content-matches', variables.id] });
-  const found = data.total_found ?? data.videos_discovered ?? 0;
-  const autoApproved = data.auto_approved_count ?? 0;
-  const description = data.batch_evaluation_pending
-    ? `Discovered ${found} videos, queued for evaluation`
-    : `Found ${found} videos, ${autoApproved} auto-approved`;
-  toast({ title: 'Content Found', description });
-},
+```text
+Per-LO "Find Content" click
+  --> search-youtube-content (force_sync=true)
+      --> Discovers ~15 videos
+      --> Calls evaluate-content-batch INLINE
+      --> Saves with status: auto_approved or pending
+      --> Returns total_found + auto_approved_count
+  --> Toast: "Found 10 videos, 4 auto-approved"
+  --> Instructor sees results immediately
 ```
 
-### What Will NOT Change
-
-- The edge function logic itself (both sync and batch paths work correctly, the issue is field naming and constraint)
-- The teaching unit search flow (uses a different code path)
-- Any existing content matches already in the database
