@@ -1,53 +1,37 @@
 
 
-# Plan: Enable Google Image Provider and Process Queue
+## Problem
 
-## Overview
+Two issues are causing the red toast errors on the published site:
 
-This plan will switch image generation to native Google Cloud API and restart processing for all pending/failed images.
+1. **Missing `poll-batch-status` edge function** -- The frontend code (`useBatchSlides.ts`) calls an edge function named `poll-batch-status`, but this function was never created. Every call returns a 404 error, which triggers the red error toast. This happens repeatedly because the hooks poll on an interval.
 
----
+2. **Slide generation timeout (504)** -- The `generate-lecture-slides-v3` function timed out at 150 seconds. This is a secondary issue likely caused by slow AI responses.
 
-## Steps
+The "old course" you see on the published site is expected -- when you publish, the database schema is deployed but data from development is NOT copied over. Any courses previously created on the live site remain there.
 
-### Step 1: Add IMAGE_PROVIDER Secret
-- **Action:** Add environment secret `IMAGE_PROVIDER` with value `google`
-- **Effect:** All image generation calls will route to native Google API instead of OpenRouter
+## Solution
 
-### Step 2: Reset Failed Images to Pending
-- **Action:** Execute SQL to reset the 135 failed images:
-```sql
-UPDATE image_generation_queue 
-SET status = 'pending', 
-    attempts = 0, 
-    error_message = NULL,
-    updated_at = NOW()
-WHERE status = 'failed';
-```
-- **Effect:** Failed images become eligible for retry
+Create the missing `poll-batch-status` edge function. This function needs to:
 
-### Step 3: Trigger Image Processing
-- **Action:** Call `process-batch-images` edge function to start processing
-- **Effect:** Queue processor picks up pending items and generates via Google API
+- Accept a `batch_job_id` (to check a specific batch) or `instructor_course_id` (to get overall course status)
+- Query the `batch_jobs` and `lecture_slides` tables
+- Return status counts matching the `BatchStatusResponse` and `CourseSlideStatusResponse` types the frontend expects
 
----
+## Technical Details
 
-## Expected Outcome
+### Step 1: Create `supabase/functions/poll-batch-status/index.ts`
 
-| Before | After |
-|--------|-------|
-| Provider: OpenRouter (402 errors) | Provider: Google Direct |
-| Failed: 135 | Failed: 0 (reset to pending) |
-| Pending: 392 | Pending: 527 (392 + 135) |
-| Processing: Stopped | Processing: Active |
+A new edge function that:
 
----
+- Handles CORS preflight using the shared CORS helpers
+- Authenticates the user via JWT
+- Supports two modes:
+  - **Single batch mode** (`batch_job_id` provided): Queries the `batch_jobs` table for that job and counts slide statuses
+  - **Course status mode** (`instructor_course_id` provided): Aggregates slide status counts across all teaching units in the course, plus active/recent batch info
+- Returns JSON matching the `BatchStatusResponse` / `CourseSlideStatusResponse` interfaces
 
-## Files Changed
+### Step 2: No frontend changes needed
 
-| File | Change |
-|------|--------|
-| Environment Secrets | Add `IMAGE_PROVIDER=google` |
-| Database | Reset failed queue items |
-| Edge Function | Trigger `process-batch-images` |
+The frontend hooks already call `poll-batch-status` correctly -- the function just needs to exist and return the expected shape.
 
