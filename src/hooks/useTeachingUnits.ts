@@ -173,6 +173,7 @@ export function useSearchForTeachingUnit() {
           expected_duration_minutes: lo?.expected_duration_minutes,
           instructor_course_id: lo?.instructor_course_id,
           use_ai_evaluation: true,
+          force_sync: true,
           enrich_metadata: true, // Enable metadata enrichment to get proper titles
         }
       });

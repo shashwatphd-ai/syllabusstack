@@ -449,6 +449,7 @@ export const searchYoutubeContentSchema = z.object({
   lo_text: z.string().max(2000).optional(),
   instructor_course_id: uuidSchema.optional(),
   use_ai_evaluation: z.boolean().optional().default(true),
+  force_sync: z.boolean().optional().default(false),
   sources: z.array(z.string()).optional().default(['invidious', 'piped', 'khan_academy']),
 });
 

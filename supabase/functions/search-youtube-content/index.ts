@@ -323,6 +323,7 @@ const handler = async (req: Request): Promise<Response> => {
       lo_text,
       instructor_course_id,
       use_ai_evaluation,
+      force_sync,
       sources,
     } = validation.data;
 
@@ -803,7 +804,7 @@ const handler = async (req: Request): Promise<Response> => {
     // =========================================================================
     // STEP 5: AI Batch Evaluation (BATCH or SYNC mode)
     // =========================================================================
-    const enableBatchEvaluation = Deno.env.get('ENABLE_BATCH_EVALUATION') !== 'false';
+    const enableBatchEvaluation = !force_sync && Deno.env.get('ENABLE_BATCH_EVALUATION') !== 'false';
 
     if (enableBatchEvaluation && topCandidatesForAI.length > 0) {
       // BATCH MODE: Skip inline evaluation, save videos for batch processing
