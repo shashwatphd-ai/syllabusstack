@@ -120,24 +120,44 @@ export function StudentSlideViewer({
     };
     
     async function playAudioWithSignedUrl() {
+      // Resolve audio path to a signed URL
+      // Supports: relative paths (new), legacy public URLs, and already-signed URLs
       let urlToPlay = audioUrl;
       
-      // Check if this is a Supabase storage URL that needs signing
-      const bucketPattern = '/storage/v1/object/public/lecture-audio/';
-      if (audioUrl.includes(bucketPattern)) {
-        const storagePath = audioUrl.split(bucketPattern)[1];
-        if (storagePath) {
-          try {
-            const { data, error } = await supabase.storage
-              .from('lecture-audio')
-              .createSignedUrl(storagePath, 3600); // 1 hour expiry
-            
-            if (!error && data?.signedUrl) {
-              urlToPlay = data.signedUrl;
-            }
-          } catch (err) {
-            console.error('Error creating signed URL for audio:', err);
+      if (!audioUrl.startsWith('http://') && !audioUrl.startsWith('https://')) {
+        // New format: plain relative path (e.g. "slideId/slide_0.mp3")
+        try {
+          const { data, error } = await supabase.storage
+            .from('lecture-audio')
+            .createSignedUrl(audioUrl, 3600); // 1 hour expiry
+          if (!error && data?.signedUrl) {
+            urlToPlay = data.signedUrl;
           }
+        } catch (err) {
+          console.error('Error creating signed URL for audio:', err);
+        }
+      } else {
+        // Legacy: full URL that may need re-signing
+        const bucketPattern = '/storage/v1/object/public/lecture-audio/';
+        const signedPattern = '/storage/v1/object/sign/lecture-audio/';
+        
+        if (audioUrl.includes(bucketPattern)) {
+          const storagePath = audioUrl.split(bucketPattern)[1];
+          if (storagePath) {
+            try {
+              const { data, error } = await supabase.storage
+                .from('lecture-audio')
+                .createSignedUrl(storagePath, 3600);
+              if (!error && data?.signedUrl) {
+                urlToPlay = data.signedUrl;
+              }
+            } catch (err) {
+              console.error('Error creating signed URL for audio:', err);
+            }
+          }
+        } else if (audioUrl.includes(signedPattern)) {
+          // Already signed — use as-is (may be expired, error handler will catch it)
+          urlToPlay = audioUrl;
         }
       }
       
