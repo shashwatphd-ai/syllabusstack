@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.47.12';
-import { generateText, MODELS, parseJsonResponse } from "../_shared/unified-ai-client.ts";
+import { generateText, MODELS } from "../_shared/unified-ai-client.ts";
+import { parseJsonFromAI } from "../_shared/slide-prompts.ts";
 import { getCorsHeaders } from "../_shared/cors.ts";
 import {
   createErrorResponse,
@@ -196,7 +197,7 @@ async function callAI(systemPrompt: string, userPrompt: string): Promise<Decompo
   console.log('[curriculum-reasoning-agent] Raw AI response length:', result.content.length);
 
   try {
-    const parsed = parseJsonResponse<DecomposeResponse>(result.content);
+    const parsed = parseJsonFromAI(result.content) as DecomposeResponse;
     return parsed;
   } catch (e) {
     console.error('[curriculum-reasoning-agent] Failed to parse AI response:', result.content.substring(0, 500));
