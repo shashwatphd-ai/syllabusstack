@@ -1,59 +1,69 @@
 
 
-## Fix: Video Finder `match_score` Bug + Audio Generation Quality Audit
+## Fix: Missing Slide Images (61 Failed Due to OpenRouter 402)
 
-### Summary
+### Root Cause
 
-Two targeted fixes: one for the video finder's `match_score` NOT NULL constraint violation, and one for an audio storage URL issue. The slide generation pipeline remains untouched.
+The missing images are **not a code bug**. All 61 failed image queue items show the same error:
 
----
+> **"OpenRouter returned HTTP 402: Payment Required"**
 
-### Fix 1: `match_score` NOT NULL Violation (Video Finder)
+This means the OpenRouter account ran out of credits during image generation. The slides that were generated before credits ran out have images; the ones queued after do not.
 
-**Problem:** In `search-youtube-content/index.ts` line 863, batch mode sets `match_score: null`, but the `content_matches` column is `NOT NULL` with no default. This causes all batch video saves to silently fail.
+### Current State
 
-**Fix:** Replace `match_score: null` with `match_score: 0` (a neutral score indicating "not yet evaluated"). This is semantically correct since the `status` field is already set to `pending_evaluation`.
+| Queue Status | Count | Notes |
+|---|---|---|
+| Completed | 1,285 | Images rendered correctly |
+| Failed | 61 | All due to 402 Payment Required |
+| Processing (stuck) | 2 | Likely timed out, need reset |
 
-**Scope:** Single line change at line 863. No other code paths are affected -- the interactive (non-batch) mode already computes a real `match_score` before inserting.
+All 61 failures span across 15 slide decks. The yellow fallback text you see ("Visual: A 'Bridge' diagram...") is the expected behavior when no image URL exists -- the frontend correctly shows the description instead.
 
-**File:** `supabase/functions/search-youtube-content/index.ts`
+### Fix: Two-Part Solution
 
----
+#### Part 1: Switch image provider to Lovable AI (no external credits needed)
 
-### Fix 2: Audio Storage URL Mismatch
+The codebase already supports routing image generation through the Lovable AI gateway (`LOVABLE_API_KEY`), which uses Google Gemini models without needing OpenRouter credits. We will update the `generateImage` function to add a Lovable AI fallback when OpenRouter returns a 402 error, so image generation never silently fails due to billing issues again.
 
-**Problem:** The `generate-lecture-audio` edge function uses `getPublicUrl()` (line 260-262) to store the audio URL in the slide JSON, but the `lecture-audio` bucket is **private** (`public: false`). The `getPublicUrl()` URL pattern (`/storage/v1/object/public/...`) will return a 400 error on playback.
+**File:** `supabase/functions/_shared/unified-ai-client.ts`
 
-The frontend (`StudentSlideViewer.tsx`) already has code to detect and sign these URLs, but only when the URL contains `/object/public/lecture-audio/`. This works by accident because `getPublicUrl()` generates that exact pattern even for private buckets. However, this is fragile.
+Changes:
+- In `generateImageOpenRouter()`, catch 402 errors and automatically retry via the Lovable AI gateway (`ai.gateway.lovable.dev`) using `google/gemini-2.5-flash-image`
+- This acts as an automatic fallback -- no manual provider switching needed
 
-**Fix:** Change the edge function to use `createSignedUrl()` with a long expiry (e.g., 7 days) instead of `getPublicUrl()`. This produces a URL that works immediately and is more correct for a private bucket.
+#### Part 2: Reset and retry the 61 failed + 2 stuck queue items
 
-**File:** `supabase/functions/generate-lecture-audio/index.ts` (lines 260-262)
+Run a database update to reset the failed/stuck items so the `process-batch-images` worker can retry them (now with the Lovable AI fallback in place):
 
----
+```sql
+UPDATE image_generation_queue
+SET status = 'pending', attempts = 0, error_message = NULL
+WHERE status IN ('failed', 'processing');
+```
 
-### Audio Quality Audit -- No Code Changes Needed
+Then trigger the `process-batch-images` function to start processing the reset items.
 
-The audio pipeline is architecturally sound:
+### What Will NOT Change
 
-| Phase | Component | Status |
-|-------|-----------|--------|
-| 1. Narration | `ai-narrator.ts` via OpenRouter (gpt-4o-mini) with Gemini Flash fallback | OK -- proper fallback chain, 150-250 word target |
-| 2. SSML | `ssml-transformer.ts` via OpenRouter | OK -- rules explicitly avoid `rate="slow"` distortion |
-| 3. TTS | Google Cloud TTS (Neural2-D) | OK -- `GOOGLE_CLOUD_API_KEY` secret is configured, pitch=0, rate=1.0 |
-| 4. Segment Mapping | `segment-mapper.ts` via OpenRouter | OK -- proportional fallback if AI fails |
-| 5. Storage | Supabase Storage (private bucket) | Fix needed (see Fix 2 above) |
+- Slide content generation (working correctly)
+- Audio generation pipeline (just fixed)
+- Frontend rendering logic (already handles fallbacks correctly)
+- Any existing completed images (1,285 images stay as-is)
 
----
+### Technical Detail: Fallback Flow
 
-### What Will NOT Be Changed
-
-- Slide generation pipeline (working correctly)
-- CORS configuration (already fixed in previous edit)
-- Any frontend components
-- Any database schema
+```
+Image Request
+  → Try OpenRouter (primary model)
+  → If 402 → Try Lovable AI gateway (google/gemini-2.5-flash-image)
+  → If still fails → Mark as failed with error
+```
 
 ### Deployment
 
-After editing, deploy `search-youtube-content` and `generate-lecture-audio` edge functions.
+1. Edit `unified-ai-client.ts` to add Lovable AI fallback
+2. Deploy `process-batch-images` (picks up shared code changes)
+3. Reset failed queue items via SQL
+4. Trigger batch processing to retry
 
