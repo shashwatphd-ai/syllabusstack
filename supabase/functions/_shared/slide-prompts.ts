@@ -438,13 +438,19 @@ export function parseJsonFromAI(content: string): any {
 
   const raw = content.trim();
 
-  // Strategy 1: Extract from markdown code block (greedy to handle nested blocks)
-  const codeBlockMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (codeBlockMatch) {
-    try {
-      return JSON.parse(codeBlockMatch[1].trim());
-    } catch (_e) {
-      // Fall through to other strategies
+  // Strategy 1: Extract from markdown code block
+  // Use greedy approach: find first ``` opener and LAST ``` closer
+  const codeBlockStart = raw.match(/```(?:json)?\s*/);
+  if (codeBlockStart) {
+    const contentStart = codeBlockStart.index! + codeBlockStart[0].length;
+    const lastFence = raw.lastIndexOf('```');
+    // Ensure the last fence is after the content start (not the same opening fence)
+    if (lastFence > contentStart) {
+      try {
+        return JSON.parse(raw.substring(contentStart, lastFence).trim());
+      } catch (_e) {
+        // Fall through to other strategies
+      }
     }
   }
 
