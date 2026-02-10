@@ -574,7 +574,7 @@
              'Authorization': `Bearer ${serviceKey}`,
              'Content-Type': 'application/json',
            },
-           body: JSON.stringify({ instructor_course_id: batchJob.instructor_course_id }),
+           body: JSON.stringify({ continue: true }),
          });
          console.log(`[PollActiveBatches] Image processing trigger: ${triggerResp.status}`);
        } catch (err) {

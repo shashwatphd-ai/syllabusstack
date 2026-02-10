@@ -534,13 +534,23 @@ export function useTriggerImageGeneration() {
 
   return useMutation({
     mutationFn: async ({ instructorCourseId }: { instructorCourseId: string }) => {
+      // Fast path: process existing queue items (MODE 1) — returns in <2s
       const { data, error } = await supabase.functions.invoke('process-batch-images', {
-        body: { instructor_course_id: instructorCourseId },
+        body: { continue: true },
       });
 
       if (error) {
         console.error('[ImageGen] Trigger error:', error);
         throw error;
+      }
+
+      // If nothing was in the queue, populate it in the background (fire-and-forget)
+      if (data?.processed === 0 && data?.remaining === undefined) {
+        supabase.functions.invoke('process-batch-images', {
+          body: { instructor_course_id: instructorCourseId },
+        }).catch(err => console.warn('[ImageGen] Background populate failed:', err));
+        
+        return { ...data, message: 'Image generation queued and starting...' } as ImageGenerationStatusResponse;
       }
 
       return data as ImageGenerationStatusResponse;
