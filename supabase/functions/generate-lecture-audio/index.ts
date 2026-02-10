@@ -256,10 +256,15 @@ const handler = async (req: Request): Promise<Response> => {
           throw new Error(`Failed to upload audio: ${uploadError.message}`);
         }
 
-        // Get public URL
-        const { data: publicUrlData } = supabase.storage
+        // Get signed URL (bucket is private)
+        const { data: signedUrlData, error: signedUrlError } = await supabase.storage
           .from('lecture-audio')
-          .getPublicUrl(fileName);
+          .createSignedUrl(fileName, 60 * 60 * 24 * 7); // 7 days
+
+        if (signedUrlError || !signedUrlData?.signedUrl) {
+          console.error(`Signed URL error for slide ${i + 1}:`, signedUrlError);
+          throw new Error(`Failed to create signed URL: ${signedUrlError?.message || 'unknown'}`);
+        }
 
         // Estimate duration: ~150 words per minute, adjusted for speaking rate
         const wordCount = narrationText.split(/\s+/).length;
@@ -289,7 +294,7 @@ const handler = async (req: Request): Promise<Response> => {
         updatedSlides.push({
           ...slide,
           speaker_notes: narrationText, // Update with AI-generated narration if applicable
-          audio_url: publicUrlData.publicUrl,
+          audio_url: signedUrlData.signedUrl,
           audio_duration_seconds: estimatedDuration,
           audio_segment_map: audioSegmentMap,
         });
