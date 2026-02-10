@@ -1,67 +1,48 @@
 
 
-## Make Course Enrollment Free (with a Toggle to Re-enable Payment)
+## Fix: "Found undefined videos" Toast and Batch Save Failures
 
-### Current System
+### Root Cause
 
-The enrollment payment logic lives in **two places**:
+Two separate but related bugs:
 
-1. **Backend** (`supabase/functions/enroll-in-course/index.ts`): Lines 92-207 check if the user is Pro. If yes, enroll for free. If not, create a Stripe checkout session for $1.
-2. **Frontend** (`src/components/student/EnrollmentDialog.tsx`): Shows "$1.00" pricing, "Pay $1 & Enroll" button text, and handles the Stripe redirect flow for non-Pro users.
+1. **Toast shows "undefined"**: The `search-youtube-content` edge function has two response paths — **sync mode** returns `total_found` and `auto_approved_count`, but **batch mode** returns `videos_discovered` instead. The frontend toast always reads `data.total_found`, which is undefined in batch mode.
 
-There is **no feature flag system** currently — the $1 fee is hardcoded.
-
-### What We Will Build
-
-A simple boolean toggle (`ENROLLMENT_FREE`) that controls whether enrollment requires payment, making it easy to switch back to paid later.
+2. **Zero records saved**: The batch mode tries to insert content matches with status `pending_evaluation`, but the `content_matches_status_check` database constraint doesn't include that value. Every insert fails with the constraint violation error visible in the logs.
 
 ### Changes
 
-#### 1. Backend: Add toggle to the edge function
+#### 1. Fix the database constraint
 
-**File:** `supabase/functions/enroll-in-course/index.ts`
+Add `pending_evaluation` to the `content_matches_status_check` constraint so batch-discovered videos can be saved.
 
-Add a constant at the top of the file:
-
-```typescript
-// Toggle: set to true for free enrollment, false to require $1 payment
-const ENROLLMENT_FREE = true;
+```sql
+ALTER TABLE content_matches
+  DROP CONSTRAINT content_matches_status_check,
+  ADD CONSTRAINT content_matches_status_check
+    CHECK (status IN ('pending', 'pending_evaluation', 'auto_approved', 'approved', 'rejected', 'skipped'));
 ```
 
-Then modify the logic so that when `ENROLLMENT_FREE` is `true`, **all users** (not just Pro) get enrolled immediately for free — using the same insert logic that already exists for Pro users. The Stripe checkout code stays in place but is simply skipped.
+#### 2. Fix the frontend toast to handle both response shapes
 
-When you want to re-enable payment, change `ENROLLMENT_FREE` to `false` and redeploy.
+**File:** `src/hooks/useLearningObjectives.ts` (line 176-179)
 
-#### 2. Frontend: Respect the backend response (no hardcoded prices)
+Update the `onSuccess` handler to read from whichever fields exist:
 
-**File:** `src/components/student/EnrollmentDialog.tsx`
+```typescript
+onSuccess: (data, variables) => {
+  queryClient.invalidateQueries({ queryKey: ['content-matches', variables.id] });
+  const found = data.total_found ?? data.videos_discovered ?? 0;
+  const autoApproved = data.auto_approved_count ?? 0;
+  const description = data.batch_evaluation_pending
+    ? `Discovered ${found} videos, queued for evaluation`
+    : `Found ${found} videos, ${autoApproved} auto-approved`;
+  toast({ title: 'Content Found', description });
+},
+```
 
-- Remove the `isPro` check and the "$1.00" / "Pay $1 & Enroll" UI
-- Replace with a simple "Enroll Now" button for all users
-- The pricing info section (showing "$1.00" or "Free with Pro") will be removed since enrollment is free
-- The payment redirect flow stays in code but won't trigger because the backend will always return `requires_payment: false`
+### What Will NOT Change
 
-#### 3. Landing page pricing table update
-
-**File:** `src/components/billing/PricingTable.tsx`
-
-- Update the feature comparison row from `'$1 each'` to `'Free'` for the free tier
-
-### How to Switch Back to Paid
-
-When you're ready to charge for enrollment again:
-
-1. Open `supabase/functions/enroll-in-course/index.ts`
-2. Change `const ENROLLMENT_FREE = true;` to `const ENROLLMENT_FREE = false;`
-3. Redeploy the function
-4. Update the frontend `EnrollmentDialog` to restore pricing UI
-5. Update `PricingTable` feature row back to `'$1 each'`
-
-### Technical Details
-
-The toggle approach was chosen over a database-based feature flag because:
-- It requires zero schema changes
-- It's a single constant change to flip
-- The edge function redeploys automatically
-- No additional database queries on every enrollment request
-
+- The edge function logic itself (both sync and batch paths work correctly, the issue is field naming and constraint)
+- The teaching unit search flow (uses a different code path)
+- Any existing content matches already in the database
