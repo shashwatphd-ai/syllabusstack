@@ -458,7 +458,6 @@ export function parseJsonFromAI(content: string): any {
   if (jsonStart !== -1) {
     const isArray = raw[jsonStart] === '[';
     const closeChar = isArray ? ']' : '}';
-    // Find the last matching close character
     const lastClose = raw.lastIndexOf(closeChar);
     if (lastClose > jsonStart) {
       try {
@@ -469,11 +468,47 @@ export function parseJsonFromAI(content: string): any {
     }
   }
 
-  // Strategy 3: Try parsing the raw content directly
+  // Strategy 3: Repair truncated JSON (model hit token limit)
+  // Find the JSON start, then close all open braces/brackets
+  if (jsonStart !== -1) {
+    let candidate = raw.substring(jsonStart);
+    // Remove trailing incomplete string/value (cut at last complete property)
+    const lastCompleteComma = candidate.lastIndexOf(',\n');
+    const lastCompleteBrace = candidate.lastIndexOf('}\n');
+    const cutPoint = Math.max(lastCompleteComma, lastCompleteBrace);
+    if (cutPoint > 0) {
+      candidate = candidate.substring(0, cutPoint + 1);
+    }
+    // Count open vs close braces/brackets and append missing closers
+    let openBraces = 0, openBrackets = 0;
+    let inString = false, escaped = false;
+    for (const ch of candidate) {
+      if (escaped) { escaped = false; continue; }
+      if (ch === '\\' && inString) { escaped = true; continue; }
+      if (ch === '"') { inString = !inString; continue; }
+      if (inString) continue;
+      if (ch === '{') openBraces++;
+      else if (ch === '}') openBraces--;
+      else if (ch === '[') openBrackets++;
+      else if (ch === ']') openBrackets--;
+    }
+    // Close any remaining open structures
+    const closers = ']'.repeat(Math.max(0, openBrackets)) + '}'.repeat(Math.max(0, openBraces));
+    if (closers.length > 0) {
+      try {
+        const repaired = JSON.parse(candidate + closers);
+        console.warn(`[parseJsonFromAI] Repaired truncated JSON by appending ${closers.length} closing chars`);
+        return repaired;
+      } catch (_e) {
+        // Fall through
+      }
+    }
+  }
+
+  // Strategy 4: Try parsing the raw content directly
   try {
     return JSON.parse(raw);
   } catch (_e) {
-    // Final failure - log diagnostic info
     const preview = raw.length > 500 ? raw.substring(0, 250) + '\n...[truncated]...\n' + raw.substring(raw.length - 250) : raw;
     console.error('[parseJsonFromAI] All strategies failed. Content preview:', preview);
     console.error('[parseJsonFromAI] Content length:', raw.length, 'First 20 chars:', JSON.stringify(raw.substring(0, 20)));
