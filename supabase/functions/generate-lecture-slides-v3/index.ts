@@ -134,7 +134,7 @@ end of removed dead prompt */
     systemPrompt: PROFESSOR_SYSTEM_PROMPT,
     model: MODELS.PROFESSOR_AI,
     temperature: 0.4,
-    maxTokens: 16000,
+    maxTokens: 24000,
     fallbacks: [MODELS.PROFESSOR_AI_FALLBACK],
     logPrefix: '[Professor AI]'
   });
