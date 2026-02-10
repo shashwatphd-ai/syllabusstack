@@ -165,6 +165,8 @@ export function useSearchYouTubeContent() {
           search_keywords: learningObjective.search_keywords,
           expected_duration_minutes: learningObjective.expected_duration_minutes,
           lo_text: learningObjective.text,
+          use_ai_evaluation: true,
+          force_sync: true,
         },
       });
 
