@@ -693,6 +693,13 @@ export type Database = {
             referencedRelation: "certificates"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "certificate_verifications_certificate_id_fkey"
+            columns: ["certificate_id"]
+            isOneToOne: false
+            referencedRelation: "certificates_public_verify"
+            referencedColumns: ["id"]
+          },
         ]
       }
       certificates: {
@@ -1393,6 +1400,13 @@ export type Database = {
             columns: ["certificate_id"]
             isOneToOne: false
             referencedRelation: "certificates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "course_enrollments_certificate_id_fkey"
+            columns: ["certificate_id"]
+            isOneToOne: false
+            referencedRelation: "certificates_public_verify"
             referencedColumns: ["id"]
           },
           {
@@ -3015,6 +3029,13 @@ export type Database = {
             referencedRelation: "organizations"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "organization_invitations_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations_safe"
+            referencedColumns: ["id"]
+          },
         ]
       }
       organization_members: {
@@ -3051,6 +3072,13 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "organization_members_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations_safe"
             referencedColumns: ["id"]
           },
         ]
@@ -3291,6 +3319,13 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profiles_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations_safe"
             referencedColumns: ["id"]
           },
         ]
@@ -4019,6 +4054,60 @@ export type Database = {
       }
     }
     Views: {
+      certificates_public_verify: {
+        Row: {
+          certificate_number: string | null
+          certificate_type: string | null
+          completion_date: string | null
+          course_title: string | null
+          id: string | null
+          identity_verified: boolean | null
+          institution_name: string | null
+          instructor_name: string | null
+          instructor_verified: boolean | null
+          issued_at: string | null
+          mastery_score: number | null
+          share_token: string | null
+          skill_breakdown: Json | null
+          status: string | null
+          user_id: string | null
+        }
+        Insert: {
+          certificate_number?: string | null
+          certificate_type?: string | null
+          completion_date?: string | null
+          course_title?: string | null
+          id?: string | null
+          identity_verified?: boolean | null
+          institution_name?: string | null
+          instructor_name?: string | null
+          instructor_verified?: boolean | null
+          issued_at?: string | null
+          mastery_score?: number | null
+          share_token?: string | null
+          skill_breakdown?: Json | null
+          status?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          certificate_number?: string | null
+          certificate_type?: string | null
+          completion_date?: string | null
+          course_title?: string | null
+          id?: string | null
+          identity_verified?: boolean | null
+          institution_name?: string | null
+          instructor_name?: string | null
+          instructor_verified?: boolean | null
+          issued_at?: string | null
+          mastery_score?: number | null
+          share_token?: string | null
+          skill_breakdown?: Json | null
+          status?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       micro_checks_student: {
         Row: {
           content_id: string | null
@@ -4062,6 +4151,66 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      organizations_safe: {
+        Row: {
+          created_at: string | null
+          custom_branding: Json | null
+          id: string | null
+          is_active: boolean | null
+          license_end_date: string | null
+          license_start_date: string | null
+          license_tier: string | null
+          name: string | null
+          seat_limit: number | null
+          seats_used: number | null
+          slug: string | null
+          sso_config: Json | null
+          sso_domain: string | null
+          sso_enabled: boolean | null
+          stripe_customer_id: string | null
+          type: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          custom_branding?: Json | null
+          id?: string | null
+          is_active?: boolean | null
+          license_end_date?: never
+          license_start_date?: never
+          license_tier?: never
+          name?: string | null
+          seat_limit?: never
+          seats_used?: never
+          slug?: string | null
+          sso_config?: never
+          sso_domain?: string | null
+          sso_enabled?: boolean | null
+          stripe_customer_id?: never
+          type?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          custom_branding?: Json | null
+          id?: string | null
+          is_active?: boolean | null
+          license_end_date?: never
+          license_start_date?: never
+          license_tier?: never
+          name?: string | null
+          seat_limit?: never
+          seats_used?: never
+          slug?: string | null
+          sso_config?: never
+          sso_domain?: string | null
+          sso_enabled?: boolean | null
+          stripe_customer_id?: never
+          type?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
       }
       profiles_minimal: {
         Row: {
