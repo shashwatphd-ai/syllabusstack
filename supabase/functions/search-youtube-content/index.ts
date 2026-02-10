@@ -860,7 +860,7 @@ const handler = async (req: Request): Promise<Response> => {
             learning_objective_id,
             content_id: contentId,
             teaching_unit_id: teaching_unit_id || null,
-            match_score: null,  // Will be set by batch evaluation
+            match_score: 0,  // Neutral score; will be set by batch evaluation
             duration_fit_score: candidate.scores.duration_fit,
             semantic_similarity_score: candidate.scores.semantic_similarity,
             engagement_quality_score: candidate.scores.engagement_quality,
