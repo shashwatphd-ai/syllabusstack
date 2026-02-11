@@ -558,15 +558,13 @@ async function generateImageOpenRouter(request: {
 }
 
 /**
- * Generate an image using Vertex AI Gemini 3 Pro Image (Google Cloud)
+ * Generate an image using Google AI Generative Language API (Gemini)
  * 
- * Uses the :generateContent endpoint (same format as OpenRouter Gemini path)
- * with OAuth authentication via GCP_SERVICE_ACCOUNT_KEY.
+ * Uses the generativelanguage.googleapis.com endpoint with API key auth.
+ * This endpoint has broader model availability than Vertex AI (which may
+ * not have preview models enabled for all projects).
  * 
- * This gives us GCP billing + text-faithful educational diagrams (same quality
- * as the OpenRouter path but billed to GCP credits instead of OpenRouter).
- * 
- * Endpoint: https://{region}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/google/models/{model}:generateContent
+ * Endpoint: https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent
  * 
  * @internal
  */
@@ -578,18 +576,18 @@ async function generateImageGoogle(request: {
   logPrefix?: string;
 }): Promise<ImageResult> {
   const startTime = Date.now();
-  const logPrefix = request.logPrefix || '[Image-GCP-Gemini]';
+  const logPrefix = request.logPrefix || '[Image-Google-GenAI]';
 
-  // Validate configuration - uses GCP service account for OAuth
-  const serviceAccountKey = Deno.env.get('GCP_SERVICE_ACCOUNT_KEY');
+  // Use GOOGLE_CLOUD_API_KEY for Generative Language API
+  const apiKey = Deno.env.get('GOOGLE_CLOUD_API_KEY');
 
-  if (!serviceAccountKey) {
-    console.error(`${logPrefix} GCP_SERVICE_ACCOUNT_KEY not configured`);
+  if (!apiKey) {
+    console.error(`${logPrefix} GOOGLE_CLOUD_API_KEY not configured`);
     return {
       success: false,
       error: {
         code: 'CONFIG_ERROR',
-        message: 'GCP_SERVICE_ACCOUNT_KEY environment variable is not configured. Set IMAGE_PROVIDER=openrouter to use OpenRouter instead.',
+        message: 'GOOGLE_CLOUD_API_KEY environment variable is not configured. Set IMAGE_PROVIDER=openrouter to use OpenRouter instead.',
         provider: 'google',
         model: 'none',
       },
@@ -608,25 +606,12 @@ async function generateImageGoogle(request: {
     if (isRetry) {
       console.log(`${logPrefix} Retrying with fallback model: ${model}`);
     } else {
-      console.log(`${logPrefix} Generating image via Vertex AI Gemini (${model})`);
+      console.log(`${logPrefix} Generating image via Google GenAI (${model})`);
     }
     console.log(`${logPrefix} Prompt: ${request.prompt.substring(0, 100)}...`);
 
     try {
-      // Initialize Vertex AI auth and get access token
-      const auth = createVertexAIAuth();
-      const accessToken = await auth.getAccessToken();
-      const projectId = getGCPProjectId(auth);
-      // IMPORTANT: Gemini models on Vertex AI do NOT support the 'global' region
-      // for :generateContent (returns 404). Override to us-central1 if global.
-      // Imagen models used 'global', but Gemini requires a real regional endpoint.
-      const rawRegion = getGCPRegion();
-      const region = rawRegion === 'global' ? 'us-central1' : rawRegion;
-
-      console.log(`${logPrefix} Using project: ${projectId}, region: ${region} (raw: ${rawRegion})`);
-
       // Build Gemini generateContent request body
-      // Same structure as OpenRouter but using native Vertex AI format
       const body: Record<string, unknown> = {
         contents: [
           {
@@ -647,18 +632,14 @@ async function generateImageGoogle(request: {
         },
       };
 
-      // Vertex AI endpoint for Gemini models (:generateContent)
-      const baseUrl = region === 'global'
-        ? 'https://aiplatform.googleapis.com'
-        : `https://${region}-aiplatform.googleapis.com`;
-      const endpoint = `${baseUrl}/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:generateContent`;
+      // Google AI Generative Language API endpoint (uses API key, not OAuth)
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
-      console.log(`${logPrefix} Endpoint: ${endpoint}`);
+      console.log(`${logPrefix} Endpoint: generativelanguage.googleapis.com/v1beta/models/${model}`);
 
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(body),
@@ -667,7 +648,7 @@ async function generateImageGoogle(request: {
       // Handle HTTP errors explicitly
       if (!response.ok) {
         const errorText = await response.text();
-        console.error(`${logPrefix} Vertex AI error ${response.status}:`, errorText.substring(0, 500));
+        console.error(`${logPrefix} Google GenAI error ${response.status}:`, errorText.substring(0, 500));
 
         // On retriable errors, try fallback
         const isRetriableError = response.status >= 500 || response.status === 402 || response.status === 403 || response.status === 429;
@@ -680,7 +661,7 @@ async function generateImageGoogle(request: {
           success: false,
           error: {
             code: 'GOOGLE_ERROR',
-            message: `Vertex AI returned HTTP ${response.status}: ${response.statusText}`,
+            message: `Google GenAI returned HTTP ${response.status}: ${response.statusText}`,
             provider: 'google',
             model,
             httpStatus: response.status,
