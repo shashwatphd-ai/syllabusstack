@@ -1,159 +1,194 @@
 
-# Fix: Transcript Display, Completion State Updates, and Post-Completion UX
 
-## 3 Issues Found
+# Combined Fix: Audio Cleanup, Assessment Error Handling, State Recovery, and Navigation
 
-### Issue 1: Transcript toggle does nothing in scroll mode
+## 4 Problems to Fix
 
-**Root cause**: `showSpeakerNotes` state lives in `StudentSlideViewer.tsx` but is never passed to `NarratedScrollViewer`. The scroll viewer component has no prop for it and never renders `speaker_notes` from the slide data.
+### Problem 1: Audio keeps playing after navigating away
 
-**Fix**: 
-- Add `showSpeakerNotes: boolean` prop to `NarratedScrollViewer`
-- Render `slide.speaker_notes` below each section's content when the toggle is on, styled as a collapsible transcript panel (subtle background, smaller text, speech-bubble icon)
+The audio effect uses a closure-scoped `let isMounted = true` variable. When navigation happens (back button, sidebar link), the component unmounts but there is a race condition: if the signed URL promise resolves in the micro-window between cleanup and `.play()`, audio starts after cleanup already ran.
 
-### Issue 2: Clicking "Complete" does not update the learning objective state
+**Fix in `StudentSlideViewer.tsx`**:
+- Replace closure-scoped `isMounted` with a shared `useRef(true)` (`isMountedRef`) so all in-flight async operations see the unmount immediately
+- Add a route-change cleanup effect using `useLocation` from `react-router-dom` that stops audio whenever the URL changes
+- Add a guard check on `isMountedRef.current` right before `audio.play()`
+- Set `audio.src = ''` in cleanup to force the browser to release the resource
 
-**Root cause**: The `onComplete` callback in `LearningObjective.tsx` (line 407-428) upserts a row into `slide_completions` but never touches the `verification_state` column on the `learning_objectives` table. The state machine defines transitions (`unstarted` to `in_progress` on first interaction, `in_progress` to `verified` on completing content), but slide-based learning never triggers these transitions. Only the video `track-consumption` edge function updates `verification_state`.
+### Problem 2: Assessment shows generic error when no questions exist
 
-**Fix**: After upserting `slide_completions`, the `onComplete` handler should also update `verification_state` on the `learning_objectives` table:
-- If current state is `unstarted` and `watchPercentage > 0`: transition to `in_progress`
-- If current state is `unstarted` or `in_progress` and `watchPercentage >= 80`: transition to `verified` (content completed)
-- After the update, invalidate the `lo-progress` query so the page re-renders with the new badge
+The `start-assessment` edge function returns a NOT_FOUND error because the instructor hasn't generated questions yet. The `AssessmentSession` component shows a raw "Edge Function returned a non-2xx status code" message.
 
-This follows the same logic as `track-consumption/index.ts` (line 286-290) but applied to slide completions.
+**Fix in `AssessmentSession.tsx`**:
+- Detect "no questions" or "not_found" patterns in the error message
+- Show a friendly "Assessment Not Ready Yet" card with a clock icon and a "Back to Learning" button instead of the generic red error
+- Keep the generic error for actual retryable failures (network issues etc.)
 
-```text
-State transitions on slide completion:
+### Problem 3: "Take Assessment" CTA disappears / state not recovered
 
-  watchPercentage > 0, state == unstarted     -->  in_progress
-  watchPercentage >= 80, state == in_progress  -->  verified
-  watchPercentage >= 80, state == unstarted    -->  verified (skip in_progress)
-```
+Students who completed slides before the previous fix was deployed still have `verification_state = 'unstarted'` in the database. The CTA only shows when state is `'verified'`, so it vanishes.
 
-### Issue 3: Page doesn't reflect completion after closing viewer
+**Fix in `LearningObjective.tsx`**:
+- Add a one-time state recovery effect on page load
+- If `verification_state` is `'unstarted'` or `'in_progress'` but a `slide_completions` record exists with `watch_percentage >= 80`, auto-update to `'verified'` and invalidate queries
+- This catches all students whose completions pre-date the fix
 
-**Root cause**: After `onComplete` fires and `setViewingSlide(null)` closes the modal, the page shows the same "unstarted" badge because:
-1. `verification_state` was never updated (Issue 2)
-2. The query cache is never invalidated -- `queryClient.invalidateQueries` is not called
+### Problem 4: "Back to Course" button does nothing
 
-**Fix**: After the upsert and state update, call `queryClient.invalidateQueries` for:
-- `['lo-progress', loId]` -- refreshes the badge, assessment CTA, and sidebar status
-- `['lo-published-slides', loId]` -- optional, for any completion indicators on slide items
+The button uses `navigate(-1)` which relies on browser history. If the user opened the page directly or refreshed, there is no history entry to go back to.
 
-This will cause the page to show the updated badge (e.g., "In Progress" or "Content Verified") and, when all slides are completed at 80%+, show the "Start Assessment" CTA.
+**Fix in `LearningObjective.tsx`**:
+- Replace `navigate(-1)` with `navigate(`/learn/course/${learningObjective.course_id}`)` -- `course_id` is already available from the query (the hook selects `*` from `learning_objectives`)
+- In the error state where `data` is unavailable, fall back to `navigate('/learn')`
 
 ## Technical Changes
 
-### File 1: `src/components/slides/NarratedScrollViewer.tsx`
+### File 1: `src/components/slides/StudentSlideViewer.tsx`
 
-**Add `showSpeakerNotes` prop** to the interface and render transcript below each section:
+**Audio cleanup -- 5 specific edits:**
+
+1. Add import: `import { useLocation } from 'react-router-dom';`
+2. Add after existing refs: `const isMountedRef = useRef(true);` and `const location = useLocation();`
+3. Update the unmount effect (line 59-68) to also set `isMountedRef`:
 
 ```typescript
-interface NarratedScrollViewerProps {
-  // ... existing props
-  showSpeakerNotes: boolean;  // NEW
+useEffect(() => {
+  isMountedRef.current = true;
+  return () => {
+    isMountedRef.current = false;
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = '';
+      audioRef.current = null;
+    }
+  };
+}, []);
+```
+
+4. Add a new route-change effect right after the unmount effect:
+
+```typescript
+useEffect(() => {
+  return () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = '';
+      audioRef.current = null;
+    }
+  };
+}, [location.pathname]);
+```
+
+5. In the per-slide audio effect (line 104-219):
+   - Remove `let isMounted = true` (line 119) -- use `isMountedRef.current` instead
+   - Replace all `isMounted` references with `isMountedRef.current`
+   - Add a guard before `audio.play()`: `if (!isMountedRef.current) { audio.src = ''; return; }`
+   - In the cleanup function, remove `isMounted = false` (the ref handles it)
+
+### File 2: `src/components/assessment/AssessmentSession.tsx`
+
+**Assessment error handling -- 2 edits:**
+
+1. Add `Clock` and `ArrowLeft` to lucide imports
+2. Replace the error state block (line 278-298) to detect "no questions" errors:
+
+```typescript
+if (sessionState === 'error') {
+  const isNoQuestions = error?.toLowerCase().includes('no assessment questions')
+    || error?.toLowerCase().includes('not_found')
+    || error?.toLowerCase().includes('non-2xx');
+
+  if (isNoQuestions) {
+    return (
+      <Card>
+        <CardContent className="py-12 text-center space-y-4">
+          <Clock className="h-12 w-12 text-muted-foreground mx-auto" />
+          <h3 className="font-semibold text-lg">Assessment Not Ready Yet</h3>
+          <p className="text-sm text-muted-foreground max-w-sm mx-auto">
+            Assessment questions haven't been prepared for this topic yet.
+            Your instructor will make them available soon.
+          </p>
+          {onClose && (
+            <Button variant="outline" onClick={onClose}>
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back to Learning
+            </Button>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Generic retryable error (existing code)
+  return ( ... );
 }
 ```
 
-After each section's content blocks (after the key points, main text, etc.), render:
-
-```typescript
-{showSpeakerNotes && slide.speaker_notes && (
-  <div className="mt-4 p-4 rounded-lg bg-muted/40 border border-border/50">
-    <div className="flex items-center gap-2 mb-2">
-      <MessageSquare className="h-4 w-4 text-muted-foreground" />
-      <span className="text-sm font-medium text-muted-foreground">Transcript</span>
-    </div>
-    <p className="text-sm leading-relaxed text-muted-foreground">
-      {slide.speaker_notes}
-    </p>
-  </div>
-)}
-```
-
-### File 2: `src/components/slides/StudentSlideViewer.tsx`
-
-**Pass `showSpeakerNotes`** to `NarratedScrollViewer`:
-
-```typescript
-<NarratedScrollViewer
-  slides={slides}
-  currentAudioSlideIndex={currentSlideIndex}
-  activeBlockId={activeBlockId}
-  isAudioPlaying={isAudioPlaying}
-  citations={citations}
-  onSlideVisible={handleScrollSlideVisible}
-  programmaticScrollRef={programmaticScrollRef}
-  showSpeakerNotes={showSpeakerNotes}  // NEW
-/>
-```
-
-Also remove the `{viewMode === 'slides' && ...}` guard from the header transcript toggle so it shows in both modes.
-
 ### File 3: `src/pages/student/LearningObjective.tsx`
 
-**Update `onComplete` handler** to transition `verification_state` and invalidate queries:
+**3 edits:**
+
+1. **State recovery effect** -- add after existing hooks (around line 30):
 
 ```typescript
-onComplete={async (watchPercentage) => {
-  if (user && viewingSlide) {
-    try {
-      // 1. Upsert slide completion (existing)
+import { useEffect } from 'react';
+
+useEffect(() => {
+  if (!data || !user || !loId) return;
+  const currentState = data.learningObjective.verification_state || 'unstarted';
+  if (currentState !== 'unstarted' && currentState !== 'in_progress') return;
+
+  const checkAndRecover = async () => {
+    const { data: completions } = await supabase
+      .from('slide_completions')
+      .select('watch_percentage')
+      .eq('user_id', user.id)
+      .eq('learning_objective_id', loId)
+      .gte('watch_percentage', 80)
+      .limit(1);
+
+    if (completions && completions.length > 0) {
       await supabase
-        .from('slide_completions')
-        .upsert({ ... }, { onConflict: 'user_id,lecture_slides_id' });
-
-      // 2. Update verification_state based on progress
-      const currentState = learningObjective.verification_state || 'unstarted';
-      let newState: string | null = null;
-
-      if (watchPercentage >= 80 && (currentState === 'unstarted' || currentState === 'in_progress')) {
-        newState = 'verified';
-      } else if (watchPercentage > 0 && currentState === 'unstarted') {
-        newState = 'in_progress';
-      }
-
-      if (newState) {
-        await supabase
-          .from('learning_objectives')
-          .update({ verification_state: newState, updated_at: new Date().toISOString() })
-          .eq('id', loId);
-      }
-
-      // 3. Invalidate queries to refresh UI
-      await queryClient.invalidateQueries({ queryKey: ['lo-progress', loId] });
-
-    } catch (err) {
-      console.error('Error persisting slide completion:', err);
+        .from('learning_objectives')
+        .update({ verification_state: 'verified', updated_at: new Date().toISOString() })
+        .eq('id', loId);
+      queryClient.invalidateQueries({ queryKey: ['lo-progress', loId] });
     }
-  }
-  setViewingSlide(null);
-}}
+  };
+  checkAndRecover();
+}, [data, user, loId]);
 ```
 
-## Post-Completion User Experience
+2. **Back to Course button** (line 161): change `navigate(-1)` to `navigate(`/learn/course/${learningObjective.course_id}`)`
 
-After this fix, the student's journey becomes:
-
-| Action | What changes on page |
-|--------|---------------------|
-| Open first slide deck, view 1-2 slides, close | Badge changes from "unstarted" to "in progress" |
-| Complete a slide deck (80%+ viewed) | Badge changes to "Content Verified"; "Start Assessment" CTA appears in sidebar |
-| Complete all slide decks | Same -- assessment is unlocked after first deck hits 80% |
+3. **Error state Go Back** (line 94): change `navigate(-1)` to `navigate('/learn')`
 
 ## What Does NOT Change
 
-- State machine logic (`verification-state-machine.ts`)
-- Video consumption tracking (`track-consumption` edge function)
-- Classic slides mode behavior
-- Backend edge functions
-- Database schema (no migration needed)
-- Audio sync or scroll behavior (previous fixes preserved)
+- The `start-assessment` edge function (it correctly returns NOT_FOUND)
+- Database schema (no migrations needed)
+- Slide viewer scroll/sync behavior
+- Classic slides mode
+- NarratedScrollViewer (no audio management there)
+- Instructor workflows
+- Video consumption tracking
+
+## Testing Scenarios Covered
+
+| Scenario | Mechanism |
+|----------|-----------|
+| Click X button to close viewer | `handleClose` pauses audio, then unmount cleanup |
+| Browser back button | Route change effect + unmount cleanup via `isMountedRef` |
+| Sidebar link to another page | Route change effect + unmount cleanup |
+| Signed URL resolves after unmount | `isMountedRef.current` is false, skips `.play()` |
+| Assessment with no questions | Friendly "Not Ready Yet" card instead of crash |
+| Student completed slides before fix | State recovery effect auto-updates to "verified" |
+| Direct URL access then "Back to Course" | Navigates to `/learn/course/{course_id}` |
+| Error page "Go Back" | Navigates to `/learn` dashboard |
 
 ## Files Modified
 
 | File | Changes |
 |------|---------|
-| `src/components/slides/NarratedScrollViewer.tsx` | Accept `showSpeakerNotes` prop, render transcript panel per section |
-| `src/components/slides/StudentSlideViewer.tsx` | Pass `showSpeakerNotes` to scroll viewer, show toggle in both modes |
-| `src/pages/student/LearningObjective.tsx` | Update `verification_state` on completion, invalidate queries |
+| `src/components/slides/StudentSlideViewer.tsx` | Audio cleanup: `isMountedRef`, route-change effect, play guard |
+| `src/components/assessment/AssessmentSession.tsx` | Friendly "no questions" error state |
+| `src/pages/student/LearningObjective.tsx` | State recovery effect, explicit "Back to Course" navigation, error fallback |
