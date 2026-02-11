@@ -98,14 +98,48 @@
        return createErrorResponse('INTERNAL_ERROR', corsHeaders, 'Failed to fetch active batches');
      }
  
-     if (!activeBatches || activeBatches.length === 0) {
-       console.log('[PollActiveBatches] No active batches to poll');
-       return createSuccessResponse({
-         success: true,
-         message: 'No active batches',
-         polled: 0,
-       }, corsHeaders);
-     }
+    if (!activeBatches || activeBatches.length === 0) {
+      console.log('[PollActiveBatches] No active batches to poll');
+    }
+
+    // ========================================================================
+    // SAFETY NET: Auto-delete orphan pending slides (stuck > 10 minutes)
+    // ========================================================================
+    let orphansCleaned = 0;
+    try {
+      const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+      const { data: orphanSlides } = await supabase
+        .from('lecture_slides')
+        .select('id, teaching_unit_id')
+        .eq('status', 'pending')
+        .lt('created_at', tenMinutesAgo);
+
+      if (orphanSlides && orphanSlides.length > 0) {
+        const orphanIds = orphanSlides.map((s: any) => s.id);
+        const { error: deleteError } = await supabase
+          .from('lecture_slides')
+          .delete()
+          .in('id', orphanIds);
+
+        if (!deleteError) {
+          orphansCleaned = orphanIds.length;
+          console.log(`[PollActiveBatches] Safety net: cleaned ${orphansCleaned} orphan pending slides`);
+        } else {
+          console.error('[PollActiveBatches] Failed to clean orphan slides:', deleteError);
+        }
+      }
+    } catch (orphanError) {
+      console.error('[PollActiveBatches] Orphan cleanup error:', orphanError);
+    }
+
+    if (!activeBatches || activeBatches.length === 0) {
+      return createSuccessResponse({
+        success: true,
+        message: 'No active batches',
+        polled: 0,
+        orphans_cleaned: orphansCleaned,
+      }, corsHeaders);
+    }
  
      console.log(`[PollActiveBatches] Found ${activeBatches.length} active batches to poll`);
  

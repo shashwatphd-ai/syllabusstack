@@ -34,6 +34,7 @@ export {
   useUnpublishLectureSlides,
   useUpdateLectureSlide,
   useDeleteLectureSlides,
+  useCancelQueuedSlide,
 } from './mutations';
 
 // Audio hooks

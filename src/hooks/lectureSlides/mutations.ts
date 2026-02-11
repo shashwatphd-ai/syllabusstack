@@ -225,6 +225,43 @@ export function useUpdateLectureSlide() {
 }
 
 /**
+ * Cancel a queued (pending) slide — deletes the empty placeholder record
+ */
+export function useCancelQueuedSlide() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async ({ teachingUnitId }: { teachingUnitId: string }) => {
+      const { error } = await supabase
+        .from('lecture_slides')
+        .delete()
+        .eq('teaching_unit_id', teachingUnitId)
+        .in('status', ['pending']);
+
+      if (error) throw error;
+      return { teachingUnitId };
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['lecture-slides', data.teachingUnitId] });
+      queryClient.invalidateQueries({ queryKey: ['course-lecture-slides'] });
+
+      toast({
+        title: 'Queued Slide Cancelled',
+        description: 'You can now regenerate this lecture.',
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Cancel Failed',
+        description: error.message,
+        variant: 'destructive',
+      });
+    },
+  });
+}
+
+/**
  * Delete lecture slides
  */
 export function useDeleteLectureSlides() {

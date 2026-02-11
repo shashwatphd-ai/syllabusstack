@@ -31,6 +31,7 @@ export {
   useUnpublishLectureSlides,
   useUpdateLectureSlide,
   useDeleteLectureSlides,
+  useCancelQueuedSlide,
   // Audio hooks
   useGenerateLectureAudio,
   // Queue/Bulk operation hooks
