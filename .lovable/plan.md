@@ -1,116 +1,83 @@
 
 
-## Fix: Image Generation 504 Timeout and Auto-Trigger
+## Fix: Systematic Image Generation Recovery
 
-### Problem Summary
+### What Happened (Evidence)
 
-Two issues need fixing:
+The image generation system **worked correctly** for 1,343 images, then the OpenRouter API credits ran out:
+- 43 items failed with **HTTP 402 (Payment Required)** on Feb 10, 02:36-03:42
+- 50 items failed with **HTTP 403 (Forbidden)** on Feb 10, 23:42-23:51
 
-1. **504 Timeout**: When you click "Generate Images" on the frontend, it calls `process-batch-images` with `instructor_course_id` (MODE 4). This tries to populate the image queue by calling an LLM to generate prompts for every slide -- 40+ LLM calls that take far longer than the edge function timeout. The 504 causes the CORS error you saw.
+Once items hit 3 failed attempts, the system correctly stops retrying (to avoid wasting credits on a billing error). But it provides **no recovery path** -- no error message in the UI, no retry button, and clicking "Generate Images" does nothing because it only processes `pending` items, not `failed` ones.
 
-2. **Manual Step Required**: After "Generate All Slides" completes, images are queued by `poll-active-batches` (cron worker) correctly, but processing doesn't always start automatically.
+### The Systematic Fix (4 Changes)
 
-### Root Cause
+#### 1. Database Reset: Unblock the 93 Stuck Items
+Reset the 93 failed queue items to `pending` with `attempts = 0` so they can be retried now that credits are available.
 
-The `poll-active-batches` cron worker already:
-- Populates the image queue (line 474-584)
-- Triggers `process-batch-images` with service role key (line 571)
-
-So the queue is already populated when you click the button. The frontend is redundantly re-populating it (40+ LLM calls) and timing out.
-
-### Fix 1: Make the frontend "Generate Images" button fast
-
-**File:** `src/hooks/useBatchSlides.ts` (lines 536-539)
-
-Change the frontend trigger to send `{ continue: true }` instead of `{ instructor_course_id }`. This tells `process-batch-images` to go straight to MODE 1 (process from existing queue) -- no LLM prompt generation, just pick up pending items and start generating images. Returns in under 2 seconds.
-
-```typescript
-// Before (MODE 4 — re-populates queue, 40+ LLM calls, times out)
-const { data, error } = await supabase.functions.invoke('process-batch-images', {
-  body: { instructor_course_id: instructorCourseId },
-});
-
-// After (MODE 1 — process from existing queue, returns immediately)
-const { data, error } = await supabase.functions.invoke('process-batch-images', {
-  body: { continue: true },
-});
+```sql
+UPDATE image_generation_queue
+SET status = 'pending', attempts = 0, error_message = NULL
+WHERE status = 'failed';
 ```
 
-**Why this is safe:**
-- The queue is already populated by `poll-active-batches` (confirmed by your 40 pending items)
-- MODE 1 already handles self-continuation (processes batch of 3, then self-invokes for next batch)
-- If the queue is empty, it returns `{ success: true, message: 'No pending items' }` -- no crash
+#### 2. "Retry Failed Images" Button with Error Visibility
+Add a retry mechanism to the course detail page that:
+- Shows the count of failed images AND the reason (e.g., "12 failed: Payment Required")
+- Resets failed queue items to `pending` via a backend function call
+- Auto-triggers processing after reset
 
-**What if queue isn't populated yet?** Add a fallback: if MODE 1 returns 0 pending items, THEN fall back to `instructor_course_id` mode but via server-side self-invocation (not blocking the frontend).
+This ensures you never need to chat with me to recover from transient failures.
 
-### Fix 2: Ensure `poll-active-batches` always triggers image processing
-
-**File:** `supabase/functions/poll-active-batches/index.ts` (lines 566-584)
-
-The trigger at line 571 already exists and uses service role key (server-to-server, no CORS, no browser timeout). Verify it uses `{ continue: true }` instead of `{ instructor_course_id }` to avoid the same timeout issue server-side.
-
-Current code sends `{ instructor_course_id }` (line 577) which hits MODE 4 and could also timeout. Change to `{ continue: true }`:
-
-```typescript
-// Before (line 577)
-body: JSON.stringify({ instructor_course_id: batchJob.instructor_course_id }),
-
-// After
-body: JSON.stringify({ continue: true }),
-```
-
-**Why this is safe:** The queue is populated by the lines immediately above (482-561). Sending `{ continue: true }` tells the worker to process what's already in the queue.
-
-### Fix 3: Smarter frontend trigger with fallback
+**File:** `src/pages/instructor/InstructorCourseDetail.tsx`
+- Add a "Retry Failed" button next to "Generate Images" when `imageStatus.failed > 0`
+- Display the error reason from `image_generation_queue.error_message`
 
 **File:** `src/hooks/useBatchSlides.ts`
+- Add a `useRetryFailedImages()` hook that:
+  1. Calls a new edge function or uses direct Supabase query to reset failed items
+  2. Then triggers `process-batch-images` with `{ continue: true }`
 
-Update `useTriggerImageGeneration` to:
-1. First try `{ continue: true }` (fast, processes existing queue)
-2. If result shows 0 pending AND 0 processed, fall back to `{ instructor_course_id }` as a background fire-and-forget (for cases where queue hasn't been populated yet, e.g., individual slide generation)
+#### 3. Backend: Add Image Queue Reset Endpoint
+**File:** `supabase/functions/process-batch-images/index.ts`
+- Add a new MODE: `{ reset_failed: true, instructor_course_id }` that resets all `failed` items for a course back to `pending` and then starts processing
 
-```typescript
-mutationFn: async ({ instructorCourseId }: { instructorCourseId: string }) => {
-  // Try processing existing queue first (fast path)
-  const { data, error } = await supabase.functions.invoke('process-batch-images', {
-    body: { continue: true },
-  });
+This keeps the reset logic server-side (respects RLS, validates ownership) rather than doing raw updates from the frontend.
 
-  if (error) throw error;
+#### 4. Fix Queue Population for Published Slides
+**File:** `supabase/functions/process-batch-images/index.ts`
+- In the queue population query (MODE 4), change the filter from `status = 'ready'` to `status IN ('ready', 'published')` so that published slides missing images also get queued
 
-  // If nothing was in the queue, populate it in the background
-  if (data?.processed === 0 && data?.remaining === undefined) {
-    // Fire-and-forget: populate queue then process
-    supabase.functions.invoke('process-batch-images', {
-      body: { instructor_course_id: instructorCourseId },
-    }).catch(err => console.warn('[ImageGen] Background populate failed:', err));
-    
-    return { ...data, message: 'Image generation queued and starting...' };
-  }
+This ensures that if you publish slides before images are done, they don't fall through the cracks.
 
-  return data;
-},
+### What This Gives You as a User
+
+```text
+Current Flow (broken):
+  Click "Generate Images" --> Nothing happens --> No feedback --> Stuck
+
+Fixed Flow:
+  Click "Generate Images" --> Processes pending items
+  If items failed --> UI shows "12 failed (Payment Required)"
+                  --> "Retry Failed" button appears
+                  --> Click retry --> Items reset + processing resumes
+  If no items queued --> Auto-populates queue for published slides too
+                     --> Processing starts automatically
 ```
 
-### What this does NOT change
+### Risk Assessment
 
-- The image generation model/provider (`google/gemini-3-pro-image-preview` via OpenRouter) -- unchanged
-- The `buildImagePrompt` LLM prompt writer logic -- unchanged
-- The `processQueueItem` image generation logic -- unchanged
-- Self-continuation loop -- unchanged
-- `poll-active-batches` cron schedule -- unchanged
-- Individual slide image generation (v3 pipeline) -- unchanged
+| Change | Risk | Why Safe |
+|--------|------|----------|
+| DB reset of 93 items | None | Just changes status back to pending |
+| Retry button + hook | None | New UI, no existing code modified |
+| Reset MODE in edge function | None | Additive -- new request body pattern |
+| Published slide query fix | None | Additive -- expands existing filter |
 
-### Summary
+### Files Modified
 
-| Change | File | What | Risk |
-|--------|------|------|------|
-| Frontend trigger | `useBatchSlides.ts` | Send `continue:true` first, fallback to `instructor_course_id` | None -- queue already populated by cron |
-| Cron trigger | `poll-active-batches/index.ts` | Send `continue:true` instead of `instructor_course_id` | None -- queue populated 5 lines above |
-
-Both changes make the same worker (`process-batch-images`) process the same queue with the same model. The only difference is they skip redundant queue population that causes timeouts.
-
-### About the DialogContent warnings
-
-Those are cosmetic accessibility warnings from Radix UI (missing `aria-describedby`). They don't affect functionality and are unrelated to image generation. Can be fixed separately by adding `DialogDescription` to Dialog components.
+- `src/pages/instructor/InstructorCourseDetail.tsx` -- add retry button + error display
+- `src/hooks/useBatchSlides.ts` -- add `useRetryFailedImages()` hook, update `useImageGenerationStatus` to include error reasons
+- `supabase/functions/process-batch-images/index.ts` -- add `reset_failed` MODE, fix published slide query
+- Database migration: reset 93 stuck items
 
