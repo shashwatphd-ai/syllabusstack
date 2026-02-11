@@ -33,11 +33,25 @@ export function useGenerateLectureAudio() {
 
       if (error) {
         console.error('Audio generation error:', error);
-        throw new Error(error.message || 'Audio generation failed');
+        // Edge function errors come as FunctionsHttpError with the response body
+        let errorMessage = 'Audio generation failed';
+        try {
+          if (error.context?.body) {
+            const body = typeof error.context.body === 'string' 
+              ? JSON.parse(error.context.body) 
+              : error.context.body;
+            errorMessage = body?.error?.message || body?.message || error.message || errorMessage;
+          } else {
+            errorMessage = error.message || errorMessage;
+          }
+        } catch {
+          errorMessage = error.message || errorMessage;
+        }
+        throw new Error(errorMessage);
       }
 
       if (!data?.success) {
-        throw new Error(data?.error || 'Audio generation failed');
+        throw new Error(data?.error || data?.message || 'Audio generation failed');
       }
 
       return data;
