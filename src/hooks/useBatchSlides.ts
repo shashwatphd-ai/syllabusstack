@@ -593,6 +593,8 @@ export function useTriggerImageGeneration() {
     onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['course-slide-status', variables.instructorCourseId] });
       queryClient.invalidateQueries({ queryKey: ['course-lecture-slides', variables.instructorCourseId] });
+      // Force immediate refresh of image gen status so button updates
+      queryClient.invalidateQueries({ queryKey: ['image-generation-status', variables.instructorCourseId] });
 
       toast({
         title: '🖼️ Image Generation Started',
@@ -690,6 +692,10 @@ export function useImageGenerationStatus(instructorCourseId?: string) {
       }
       if (data?.queued && data.queued > 0) {
         return 10000;
+      }
+      // Keep polling briefly after data arrives to catch transitions
+      if (data?.total && data.total > 0 && data.completed !== data.total) {
+        return 15000;
       }
       return false;
     },
