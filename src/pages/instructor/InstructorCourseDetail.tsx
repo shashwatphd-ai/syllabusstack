@@ -39,7 +39,7 @@ import { useContentStats } from '@/hooks/useContentStats';
 import { useLOContentStatus } from '@/hooks/useContentStats';
 import { useCourseLectureSlides, useBulkPublishSlides, useCleanupStuckSlides, useRetryFailedSlides } from '@/hooks/useLectureSlides';
 // NEW: Use batch API hooks for "Generate All" functionality (50% cost savings)
-import { useSubmitBatchSlides, useCourseSlideStatus, useTriggerImageGeneration, useImageGenerationStatus } from '@/hooks/useBatchSlides';
+import { useSubmitBatchSlides, useCourseSlideStatus, useTriggerImageGeneration, useImageGenerationStatus, useRetryFailedImages } from '@/hooks/useBatchSlides';
 import { LoadingState } from '@/components/common/LoadingState';
 import { EmptyState } from '@/components/common/EmptyState';
 import { UnifiedModuleCard } from '@/components/instructor/UnifiedModuleCard';
@@ -91,6 +91,7 @@ export default function InstructorCourseDetailPage() {
 
   // Image generation hooks
   const triggerImageGen = useTriggerImageGeneration();
+  const retryFailedImages = useRetryFailedImages();
   const imageGenStatus = useImageGenerationStatus(id);
   // Calculate slide stats.
   // Prefer backend-computed counts (poll-batch-status) because Realtime can be flaky on some networks.
@@ -666,6 +667,35 @@ export default function InstructorCourseDetailPage() {
                                 Generate Images{publishedMissingImages > 0 ? ` (${publishedMissingImages} missing)` : ''}
                               </span>
                               <span className="sm:hidden">Images{publishedMissingImages > 0 ? ` (${publishedMissingImages})` : ''}</span>
+                            </>
+                          )}
+                        </Button>
+                      )}
+
+                      {/* Retry Failed Images - visible when queue has failed items */}
+                      {(imageGenStatus.data?.failed || 0) > 0 && (
+                        <Button
+                          variant="outline"
+                          className="gap-2 h-9 flex-1 sm:flex-none border-orange-300 text-orange-700 hover:bg-orange-50"
+                          onClick={() => id && retryFailedImages.mutate({ instructorCourseId: id })}
+                          disabled={retryFailedImages.isPending}
+                          title={imageGenStatus.data?.failedReason || 'Retry failed image generations'}
+                        >
+                          {retryFailedImages.isPending ? (
+                            <>
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              <span className="hidden sm:inline">Resetting...</span>
+                              <span className="sm:hidden">...</span>
+                            </>
+                          ) : (
+                            <>
+                              <RotateCcw className="h-4 w-4" />
+                              <span className="hidden sm:inline">
+                                Retry {imageGenStatus.data?.failed} Failed Images
+                              </span>
+                              <span className="sm:hidden">
+                                Retry {imageGenStatus.data?.failed} Imgs
+                              </span>
                             </>
                           )}
                         </Button>

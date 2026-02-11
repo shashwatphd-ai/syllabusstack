@@ -540,6 +540,7 @@ const handler = async (req: Request): Promise<Response> => {
       batch_job_id,
       instructor_course_id,
       sync_only, // New: just sync completed images to slides without generating
+      reset_failed, // New: reset failed queue items back to pending for retry
     } = body;
 
     // Initialize Supabase
@@ -562,6 +563,60 @@ const handler = async (req: Request): Promise<Response> => {
         success: true,
         message: `Synced images for ${ids.length} lectures`,
         synced: ids.length,
+      }, corsHeaders);
+    }
+
+    // ========================================================================
+    // MODE 0.5: Reset failed items back to pending for retry
+    // ========================================================================
+    if (reset_failed && instructor_course_id) {
+      console.log(`${functionName} Reset-failed mode for course ${instructor_course_id}`);
+
+      // Get all lecture_slides IDs for this course
+      const { data: courseLectures, error: lectureErr } = await supabase
+        .from('lecture_slides')
+        .select('id')
+        .eq('instructor_course_id', instructor_course_id);
+
+      if (lectureErr || !courseLectures || courseLectures.length === 0) {
+        return createSuccessResponse({
+          success: true,
+          message: 'No lectures found for course',
+          reset: 0,
+        }, corsHeaders);
+      }
+
+      const lectureIds = courseLectures.map(l => l.id);
+
+      const { data: resetItems, error: resetErr } = await supabase
+        .from('image_generation_queue')
+        .update({
+          status: 'pending',
+          attempts: 0,
+          error_message: null,
+        })
+        .eq('status', 'failed')
+        .in('lecture_slides_id', lectureIds)
+        .select('id');
+
+      if (resetErr) {
+        console.error(`${functionName} Reset failed:`, resetErr);
+        return createErrorResponse('INTERNAL_ERROR', corsHeaders, resetErr.message);
+      }
+
+      const resetCount = (resetItems || []).length;
+      console.log(`${functionName} Reset ${resetCount} failed items to pending`);
+
+      // Auto-trigger processing if items were reset
+      if (resetCount > 0) {
+        await triggerContinuation(supabaseUrl, serviceRoleKey);
+      }
+
+      return createSuccessResponse({
+        success: true,
+        message: `Reset ${resetCount} failed images for retry`,
+        reset: resetCount,
+        continuing: resetCount > 0,
       }, corsHeaders);
     }
 
@@ -742,7 +797,7 @@ const handler = async (req: Request): Promise<Response> => {
         .from('lecture_slides')
         .select('id')
         .eq('instructor_course_id', instructor_course_id)
-        .eq('status', 'ready');
+        .in('status', ['ready', 'published']);
 
       if (error || !lectures || lectures.length === 0) {
         console.log(`${functionName} No ready lectures found for course`);

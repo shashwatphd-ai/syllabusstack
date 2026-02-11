@@ -526,6 +526,7 @@ export interface ImageGenerationStatusResponse {
   completed?: number;
   failed?: number;
   total?: number;
+  failedReason?: string;
 }
 
 export function useTriggerImageGeneration() {
@@ -596,7 +597,7 @@ export function useImageGenerationStatus(instructorCourseId?: string) {
       // Query the image_generation_queue table directly
       const { data: queueItems, error } = await supabase
         .from('image_generation_queue')
-        .select('status, lecture_slides!inner(instructor_course_id)')
+        .select('status, error_message, lecture_slides!inner(instructor_course_id)')
         .eq('lecture_slides.instructor_course_id', instructorCourseId);
 
       if (error) {
@@ -610,12 +611,30 @@ export function useImageGenerationStatus(instructorCourseId?: string) {
         completed: 0,
         failed: 0,
       };
+      
+      // Collect unique error messages from failed items
+      const errorMessages = new Set<string>();
 
       for (const item of queueItems || []) {
         if (item.status === 'pending') counts.pending++;
         else if (item.status === 'processing') counts.processing++;
         else if (item.status === 'completed') counts.completed++;
-        else if (item.status === 'failed') counts.failed++;
+        else if (item.status === 'failed') {
+          counts.failed++;
+          if (item.error_message) {
+            // Extract the key part of the error message
+            const msg = item.error_message;
+            if (msg.includes('402') || msg.includes('Payment Required')) {
+              errorMessages.add('Payment Required (credits exhausted)');
+            } else if (msg.includes('403') || msg.includes('Forbidden')) {
+              errorMessages.add('Forbidden (API access denied)');
+            } else if (msg.includes('429') || msg.includes('Rate')) {
+              errorMessages.add('Rate limited');
+            } else {
+              errorMessages.add(msg.substring(0, 60));
+            }
+          }
+        }
       }
 
       return {
@@ -625,6 +644,7 @@ export function useImageGenerationStatus(instructorCourseId?: string) {
         completed: counts.completed,
         failed: counts.failed,
         total: (queueItems || []).length,
+        failedReason: errorMessages.size > 0 ? Array.from(errorMessages).join('; ') : undefined,
       };
     },
 
@@ -641,5 +661,60 @@ export function useImageGenerationStatus(instructorCourseId?: string) {
       return false;
     },
     staleTime: 5000,
+  });
+}
+
+// ============================================================================
+// useRetryFailedImages
+// ============================================================================
+//
+// Resets failed image queue items back to pending and auto-triggers processing.
+//
+// USAGE:
+//   const retryImages = useRetryFailedImages();
+//   retryImages.mutate({ instructorCourseId });
+//
+
+export function useRetryFailedImages() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async ({ instructorCourseId }: { instructorCourseId: string }) => {
+      // Step 1: Reset failed items via edge function
+      const { data, error } = await supabase.functions.invoke('process-batch-images', {
+        body: { reset_failed: true, instructor_course_id: instructorCourseId },
+      });
+
+      if (error) {
+        console.error('[ImageGen] Reset failed error:', error);
+        throw error;
+      }
+
+      if (!data?.success) {
+        throw new Error(data?.message || 'Failed to reset images');
+      }
+
+      return data as { success: boolean; message: string; reset: number; continuing: boolean };
+    },
+
+    onSuccess: (data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['image-generation-status', variables.instructorCourseId] });
+      queryClient.invalidateQueries({ queryKey: ['course-lecture-slides', variables.instructorCourseId] });
+
+      toast({
+        title: '🔄 Retrying Failed Images',
+        description: data.message || `Reset ${data.reset} images for retry.`,
+      });
+    },
+
+    onError: (error: Error) => {
+      console.error('[ImageGen] Retry failed:', error);
+      toast({
+        title: 'Retry Failed',
+        description: error.message || 'Failed to retry images.',
+        variant: 'destructive',
+      });
+    },
   });
 }
