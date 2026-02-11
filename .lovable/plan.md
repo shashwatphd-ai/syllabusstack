@@ -1,127 +1,75 @@
 
 
-# Comprehensive Plan: Fix Audio-Scroll Sync in Narrated Scroll Mode
+# Comprehensive Fix: Layout, Audio Sync, and Audio Leak
 
-## Context and Scope
+## 4 Issues to Fix
 
-This plan addresses **only** the `NarratedScrollViewer.tsx` component. No backend functions, data models, storage buckets, instructor views, or generation pipelines are affected.
+### Issue 1: Layout -- Image consumes half the viewport, pushing text out of view
 
-### Pipeline Independence Verification
+**Evidence:** The hero image renders at `max-h-[500px]` (line 243). On a typical 900px viewport (after header + footer), that's 55% of the available space consumed by a single image. The student sees half the image and the top of the text below it -- never both together.
 
-The following systems are completely separate from this change and remain untouched:
+**Fix:** Restructure each section to use a **side-by-side layout on desktop** (image floated right at a smaller size) and **compact stacked layout on mobile** (image capped at 250px). This way the student sees the visual AND the narrative text simultaneously, like a textbook page.
 
-| System | Files | Why It's Safe |
-|--------|-------|---------------|
-| Slide generation | `supabase/functions/generate-lecture-slides-v3/` | Writes JSONB to `lecture_slides` table -- we only read it |
-| Audio generation | `supabase/functions/generate-lecture-audio/` | Writes MP3 to `lecture-audio` bucket + `audio_segment_map` to JSONB -- we only read it |
-| Image generation | `supabase/functions/generate-slide-media/` | Writes images to `lecture-visuals` bucket -- we only read via `AuthenticatedImage` |
-| Queue processing | `supabase/functions/process-lecture-queue/` | Orchestrates generation -- no frontend dependency |
-| Instructor viewer | `src/components/slides/LectureSlideViewer.tsx` | Completely separate component, used in `UnifiedLOCard` |
-| Classic slides mode | `src/components/slides/SlideRenderer.tsx` | Unchanged -- `viewMode === 'slides'` renders this as before |
-| Sync hook | `src/hooks/useSlideSync.ts` | Unchanged -- still returns plain `activeBlockId` like `"main_text"` |
-| Audio playback | `StudentSlideViewer.tsx` lines 92-206 | Unchanged -- manages audio lifecycle, signed URLs, auto-advance |
-| Completion tracking | `StudentSlideViewer.tsx` lines 264-267 | Unchanged -- `highestSlideViewed` calculation stays |
-| Data model | `lecture_slides.slides` JSONB column | Read-only consumer -- no writes |
-| Storage buckets | `lecture-audio`, `lecture-visuals`, `syllabi` | Read-only consumer via signed URLs |
+In `NarratedScrollViewer.tsx`, change the current stacked layout (image block above title+text) to:
 
-### Root Causes of Broken Auto-Scroll
-
-**Bug 1: `data-block-id` only set on current audio slide's elements**
-
-In `NarratedScrollViewer.tsx`, every block uses `data-block-id={isCurrentAudioSlide ? 'main_text' : undefined}`. Since `isCurrentAudioSlide = slideIndex === currentAudioSlideIndex`, only the currently-playing slide's blocks have IDs. This is correct for highlighting, but the auto-scroll effect at line 125 does `querySelector('[data-block-id="main_text"]')` -- which works. However, when audio transitions from slide 0 to slide 1, both may have a `main_text` block. If `activeBlockId` stays `"main_text"` across the transition, the `useEffect` dependency doesn't change, so **no scroll fires**.
-
-**Bug 2: Title block ID mismatch**
-
-The segment map's `target_block` for opening narration is typically `"title"`. But titles render as `data-block-id="title_0"` (line 239: `` data-block-id={`title_${slideIndex}`} ``). The querySelector for `[data-block-id="title"]` finds nothing.
-
-**Bug 3: Long segments never re-scroll**
-
-The auto-scroll effect (line 120-127) only fires when `activeBlockId` changes. Real segment maps often have one block covering 50%+ of the audio. The scroll fires once, then the user reads past it and the view drifts away with no re-scroll.
-
-## Changes
-
-### File: `src/components/slides/NarratedScrollViewer.tsx`
-
-**Change 1: Use composite block IDs**
-
-Replace all `data-block-id` attributes to use `${slideIndex}_${blockId}` format so IDs are globally unique across the entire scroll document:
-
-- `data-block-id={isCurrentAudioSlide ? 'main_text' : undefined}` becomes `data-block-id={isCurrentAudioSlide ? \`${slideIndex}_main_text\` : undefined}`
-- `data-block-id={\`title_${slideIndex}\`}` becomes `data-block-id={\`${slideIndex}_title\`}` (matching the composite pattern)
-- Same for `definition`, `example`, `misconception`, `step_N`, `key_point_N`
-
-This affects approximately 10 locations in the component where `data-block-id` is set.
-
-**Change 2: Fix auto-scroll effect to use composite selector**
-
-Update the existing `useEffect` at lines 120-127:
+- **Desktop (sm+):** Wrap image + text content in a flex row. Image sits to the right at `max-w-[280px]`, text fills the left. Title stays full-width above both.
+- **Mobile:** Image renders above text but capped at `max-h-[250px]` instead of 500px.
 
 ```text
-Before:
-  const el = scrollContainerRef.current?.querySelector(
-    `[data-block-id="${activeBlockId}"]`
-  );
+Before (stacked, image dominates):
+  [---------- Hero Image (500px) ----------]
+  [Title                                    ]
+  [Main text paragraph                      ]
 
-After:
-  const compositeId = `${currentAudioSlideIndex}_${activeBlockId}`;
-  const el = scrollContainerRef.current?.querySelector(
-    `[data-block-id="${compositeId}"]`
-  );
+After (side-by-side on desktop):
+  [Title                                    ]
+  [Main text paragraph  |  Image (280px)    ]
+  [Key points           |                   ]
 ```
 
-Add `currentAudioSlideIndex` to the dependency array so it fires on slide transitions even when `activeBlockId` remains the same (e.g., both slides start with `"main_text"`).
+### Issue 2: Arrow buttons don't move narration
 
-**Change 3: Add periodic re-scroll for long narration segments**
+**Evidence:** `StudentSlideViewer.tsx` lines 298-306 -- `jumpToSection` calls `scrollIntoView` but never updates `currentSlideIndex`. Audio playback (line 92) depends entirely on `currentSlideIndex`.
 
-Add a new `useEffect` with a 5-second interval that re-centers the active block while audio is playing and the user hasn't manually scrolled in the last 3 seconds. This handles segments that span 30-60+ seconds where `activeBlockId` never changes.
+**Fix:** Add `setCurrentSlideIndex(targetIndex)` and `audioRef.current.pause()` inside `jumpToSection`.
+
+### Issue 3: Manual scrolling doesn't move narration
+
+**Evidence:** `StudentSlideViewer.tsx` lines 290-295 -- `handleScrollSlideVisible` updates `visibleScrollSlideIndex` but never `currentSlideIndex`.
+
+**Fix:** Add `setCurrentSlideIndex(index)` inside `handleScrollSlideVisible` when `index !== currentSlideIndex`.
+
+### Issue 4: Audio continues after page navigation
+
+**Evidence:** The audio cleanup only runs inside the `currentSlideIndex` effect (line 92). When React Router navigates away, the component unmounts, but the `Audio` object created asynchronously inside `playAudioWithSignedUrl` may resolve after unmount. Setting `isMounted = false` prevents state updates but doesn't stop playback of an already-playing audio.
+
+**Fix:** Add a dedicated top-level unmount `useEffect` that pauses audio and sets `src = ''` to force the browser to release the resource:
 
 ```text
 useEffect(() => {
-  if (!activeBlockId || !isAudioPlaying) return;
-  const interval = setInterval(() => {
-    if (Date.now() - lastManualScrollRef.current < 3000) return;
-    const compositeId = `${currentAudioSlideIndex}_${activeBlockId}`;
-    const el = scrollContainerRef.current?.querySelector(
-      `[data-block-id="${compositeId}"]`
-    );
-    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, 5000);
-  return () => clearInterval(interval);
-}, [activeBlockId, isAudioPlaying, currentAudioSlideIndex]);
-```
-
-**Change 4: Scroll to new section on slide audio transition**
-
-Add a new `useEffect` that fires when `currentAudioSlideIndex` changes. It scrolls to the new slide's section header so the student is brought to the right part of the document when a new slide's audio starts:
-
-```text
-useEffect(() => {
-  if (!isAudioPlaying) return;
-  if (Date.now() - lastManualScrollRef.current < 3000) return;
-  const section = scrollContainerRef.current?.querySelector(
-    `[data-slide-index="${currentAudioSlideIndex}"]`
-  );
-  section?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-}, [currentAudioSlideIndex, isAudioPlaying]);
+  return () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = '';
+      audioRef.current = null;
+    }
+  };
+}, []);
 ```
 
 ## Files Modified
 
-| File | Change Type | Impact |
-|------|------------|--------|
-| `src/components/slides/NarratedScrollViewer.tsx` | Modify | Composite block IDs, 3 new/updated useEffects |
+| File | Changes |
+|------|---------|
+| `src/components/slides/NarratedScrollViewer.tsx` | Side-by-side layout for image + text; reduce image max-height on mobile |
+| `src/components/slides/StudentSlideViewer.tsx` | `jumpToSection` syncs audio; `handleScrollSlideVisible` syncs audio; unmount cleanup effect |
 
-## Files NOT Modified (Confirmed Safe)
+## What Does NOT Change
 
-| File | Reason |
-|------|--------|
-| `src/components/slides/StudentSlideViewer.tsx` | Already passes correct props; no changes needed |
-| `src/components/slides/SlideRenderer.tsx` | Classic mode, completely independent |
-| `src/components/slides/LectureSlideViewer.tsx` | Instructor viewer, separate component |
-| `src/hooks/useSlideSync.ts` | Returns plain `activeBlockId` -- we compose with slide index in the viewer |
-| `src/hooks/lectureSlides/*` | Data fetching hooks, read-only consumers |
-| `src/pages/student/StudentSlidePage.tsx` | Page shell, no changes needed |
-| `supabase/functions/*` | All edge functions (generation, audio, images, queue) are untouched |
-| `src/integrations/supabase/*` | Auto-generated client/types, never edited |
-| Storage buckets / RLS policies | Read-only access pattern unchanged |
+- All backend edge functions (generation, audio, images, queue)
+- Instructor viewer (`LectureSlideViewer.tsx`)
+- Classic slides mode (`SlideRenderer.tsx`)
+- `useSlideSync.ts` hook
+- Data model, storage buckets, RLS policies
+- Composite block IDs and scroll sync effects (already implemented)
 
