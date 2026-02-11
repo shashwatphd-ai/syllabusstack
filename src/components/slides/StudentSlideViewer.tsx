@@ -225,6 +225,7 @@ export function StudentSlideViewer({
         audio.removeEventListener('error', handleError);
         audio.src = '';
         audioRef.current = null;
+        setAudioRef(null);
         return;
       }
 
