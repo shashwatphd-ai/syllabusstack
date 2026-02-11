@@ -446,9 +446,8 @@ export function StudentSlideViewer({
               )}
             </Button>
 
-            {/* Transcript toggle - only in slides mode, hidden on mobile */}
-            {viewMode === 'slides' && (
-              <div className="hidden sm:flex items-center gap-2 pl-2 border-l">
+            {/* Transcript toggle - available in both modes, hidden on mobile */}
+            <div className="hidden sm:flex items-center gap-2 pl-2 border-l">
                 <Switch
                   id="student-notes"
                   checked={showSpeakerNotes}
@@ -459,7 +458,6 @@ export function StudentSlideViewer({
                   Transcript
                 </Label>
               </div>
-            )}
           </div>
 
           <Button
@@ -485,6 +483,7 @@ export function StudentSlideViewer({
             citations={citations}
             onSlideVisible={handleScrollSlideVisible}
             programmaticScrollRef={programmaticScrollRef}
+            showSpeakerNotes={showSpeakerNotes}
           />
         ) : (
           /* Classic Slides Mode */

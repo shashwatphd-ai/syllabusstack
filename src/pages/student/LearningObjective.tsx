@@ -405,9 +405,9 @@ export default function LearningObjectivePage() {
             unitTitle={viewingSlide.title}
             onClose={() => setViewingSlide(null)}
             onComplete={async (watchPercentage) => {
-              // Persist slide completion to database
               if (user && viewingSlide) {
                 try {
+                  // 1. Upsert slide completion
                   await supabase
                     .from('slide_completions')
                     .upsert({
@@ -420,6 +420,27 @@ export default function LearningObjectivePage() {
                       completed_at: watchPercentage >= 80 ? new Date().toISOString() : null,
                       updated_at: new Date().toISOString(),
                     }, { onConflict: 'user_id,lecture_slides_id' });
+
+                  // 2. Update verification_state based on progress
+                  const currentState = learningObjective.verification_state || 'unstarted';
+                  let newState: string | null = null;
+
+                  if (watchPercentage >= 80 && (currentState === 'unstarted' || currentState === 'in_progress')) {
+                    newState = 'verified';
+                  } else if (watchPercentage > 0 && currentState === 'unstarted') {
+                    newState = 'in_progress';
+                  }
+
+                  if (newState) {
+                    await supabase
+                      .from('learning_objectives')
+                      .update({ verification_state: newState, updated_at: new Date().toISOString() })
+                      .eq('id', loId);
+                  }
+
+                  // 3. Invalidate queries to refresh UI
+                  await queryClient.invalidateQueries({ queryKey: ['lo-progress', loId] });
+                  await queryClient.invalidateQueries({ queryKey: ['skill-profile'] });
                 } catch (err) {
                   console.error('Error persisting slide completion:', err);
                 }
