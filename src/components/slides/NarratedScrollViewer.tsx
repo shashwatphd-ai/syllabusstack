@@ -24,6 +24,7 @@ interface NarratedScrollViewerProps {
   citations: Citation[];
   onSlideVisible: (index: number) => void;
   programmaticScrollRef: React.MutableRefObject<boolean>;
+  showSpeakerNotes?: boolean;
 }
 
 // Reuse type configs from SlideRenderer
@@ -77,6 +78,7 @@ export function NarratedScrollViewer({
   citations,
   onSlideVisible,
   programmaticScrollRef,
+  showSpeakerNotes = false,
 }: NarratedScrollViewerProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const lastManualScrollRef = useRef(0);
@@ -509,6 +511,19 @@ export function NarratedScrollViewer({
                       <div className="mt-4 p-3 rounded-lg bg-muted/50 border border-dashed">
                         <p className="text-base text-muted-foreground italic">
                           💡 Visual: {slide.visual.fallback_description || slide.visual.alt_text}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Transcript / Speaker Notes */}
+                    {showSpeakerNotes && (slide as any).speaker_notes && (
+                      <div className="mt-4 p-4 rounded-lg bg-muted/40 border border-border/50">
+                        <div className="flex items-center gap-2 mb-2">
+                          <MessageCircle className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm font-medium text-muted-foreground">Transcript</span>
+                        </div>
+                        <p className="text-sm leading-relaxed text-muted-foreground whitespace-pre-line">
+                          {(slide as any).speaker_notes}
                         </p>
                       </div>
                     )}
