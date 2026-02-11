@@ -21,6 +21,7 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { SlideRenderer } from './SlideRenderer';
+import { VoicePicker } from './VoicePicker';
 import { 
   LectureSlide, 
   Slide, 
@@ -51,6 +52,7 @@ export function LectureSlideViewer({
   const [showSpeakerNotes, setShowSpeakerNotes] = useState(false);
   const [showThumbnails, setShowThumbnails] = useState(!isMobile);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [selectedVoice, setSelectedVoice] = useState('onyx');
 
   const publishSlides = usePublishLectureSlides();
   const unpublishSlides = useUnpublishLectureSlides();
@@ -137,7 +139,7 @@ export function LectureSlideViewer({
   const isLoading = publishSlides.isPending || unpublishSlides.isPending || regenerateSlides.isPending || generateAudio.isPending;
 
   const handleGenerateAudio = () => {
-    generateAudio.mutate({ slideId: lectureSlide.id });
+    generateAudio.mutate({ slideId: lectureSlide.id, voiceId: selectedVoice });
   };
 
   return (
@@ -186,21 +188,24 @@ export function LectureSlideViewer({
               </Label>
             </div>
 
-            {/* Generate Audio Button */}
+            {/* Voice Picker & Generate Audio Button */}
             {!hasAudio && audioStatus !== 'generating' && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleGenerateAudio}
-                disabled={isLoading}
-              >
-                {generateAudio.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Volume2 className="h-4 w-4" />
-                )}
-                <span className="hidden sm:inline ml-1">Generate Audio</span>
-              </Button>
+              <>
+                <VoicePicker value={selectedVoice} onValueChange={setSelectedVoice} />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleGenerateAudio}
+                  disabled={isLoading}
+                >
+                  {generateAudio.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Volume2 className="h-4 w-4" />
+                  )}
+                  <span className="hidden sm:inline ml-1">Generate Audio</span>
+                </Button>
+              </>
             )}
 
             {/* Audio Status Badge */}

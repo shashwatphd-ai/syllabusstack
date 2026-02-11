@@ -1,8 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0";
 import { generateNarration, needsNarration } from "../_shared/ai-narrator.ts";
-import { transformToSSML, isSSML } from "../_shared/ssml-transformer.ts";
 import { mapAudioSegments, extractContentBlocks } from "../_shared/segment-mapper.ts";
+import { callOpenRouter, MODELS } from "../_shared/openrouter-client.ts";
 import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
 import {
   createErrorResponse,
@@ -75,22 +75,21 @@ const handler = async (req: Request): Promise<Response> => {
 
   const corsHeaders = getCorsHeaders(req);
 
-  // Neural2 voices are more natural than WaveNet at same price ($16/1M chars)
-  // Options: Neural2-A (female), Neural2-D (male), Neural2-F (female), Neural2-J (male)
   const body = await req.json();
   const validation = validateRequest(lectureAudioSchema, body);
   if (!validation.success) {
     return createErrorResponse('VALIDATION_ERROR', corsHeaders, validation.errors.join(', '));
   }
-  const { slideId, voice = 'en-US-Neural2-D', enableSSML, enableSegmentMapping } = validation.data;
+  const { slideId, voiceId = 'onyx', enableSegmentMapping } = validation.data;
 
-  const GOOGLE_CLOUD_API_KEY = Deno.env.get('GOOGLE_CLOUD_API_KEY');
-  if (!GOOGLE_CLOUD_API_KEY) {
-    return createErrorResponse('CONFIG_ERROR', corsHeaders, 'GOOGLE_CLOUD_API_KEY not configured');
+  // Verify OpenRouter is configured (used for narration, TTS, and segment mapping)
+  const OPENROUTER_API_KEY = Deno.env.get('OPENROUTER_API_KEY');
+  if (!OPENROUTER_API_KEY) {
+    return createErrorResponse('CONFIG_ERROR', corsHeaders, 'OPENROUTER_API_KEY not configured');
   }
 
   try {
-    logInfo('generate-lecture-audio', 'starting', { slideId, voice, enableSSML, enableSegmentMapping });
+    logInfo('generate-lecture-audio', 'starting', { slideId, voiceId, enableSegmentMapping });
 
     // Create Supabase client with service role
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -123,7 +122,7 @@ const handler = async (req: Request): Promise<Response> => {
     const unitTitle = lectureSlide.title || 'Lecture';
     const domain = (lectureSlide as any).detected_domain || 'general';
     
-    console.log(`Generating audio for ${totalSlides} slides (SSML: ${enableSSML}, Mapping: ${enableSegmentMapping})...`);
+    console.log(`Generating audio for ${totalSlides} slides (Voice: ${voiceId}, Mapping: ${enableSegmentMapping})...`);
 
     const updatedSlides: SlideWithAudio[] = [];
     let totalDurationSeconds = 0;
@@ -134,7 +133,7 @@ const handler = async (req: Request): Promise<Response> => {
       let narrationText = slide.speaker_notes || '';
 
       // PHASE 1: Generate AI narration if needed
-      if (GOOGLE_CLOUD_API_KEY && needsNarration(narrationText)) {
+      if (needsNarration(narrationText)) {
         console.log(`Slide ${i + 1}: Generating AI narration...`);
         try {
           narrationText = await generateNarration(
@@ -150,7 +149,7 @@ const handler = async (req: Request): Promise<Response> => {
               unitTitle,
               domain,
             },
-            GOOGLE_CLOUD_API_KEY
+            OPENROUTER_API_KEY
           );
           console.log(`Slide ${i + 1}: AI narration generated (${narrationText.length} chars)`);
         } catch (err) {
@@ -167,88 +166,48 @@ const handler = async (req: Request): Promise<Response> => {
         continue;
       }
 
-      // PHASE 2: Transform narration to SSML for natural prosody
-      let ttsInput: { text?: string; ssml?: string } = { text: narrationText };
-      
-      if (enableSSML && GOOGLE_CLOUD_API_KEY && !isSSML(narrationText)) {
-        console.log(`Slide ${i + 1}: Transforming to SSML...`);
-        try {
-          const ssmlOutput = await transformToSSML(
-            narrationText,
-            {
-              slideType: slide.type || 'concept',
-              slideIndex: i,
-              totalSlides,
-              hasDefinition: !!slide.content?.definition,
-              hasExample: !!slide.content?.example,
-              hasSteps: !!(slide.content?.steps?.length),
-            },
-            GOOGLE_CLOUD_API_KEY
-          );
-          
-          if (isSSML(ssmlOutput)) {
-            ttsInput = { ssml: ssmlOutput };
-            console.log(`Slide ${i + 1}: SSML transformation complete`);
-          } else {
-            console.log(`Slide ${i + 1}: SSML invalid, using plain text`);
-          }
-        } catch (err) {
-          console.error(`Slide ${i + 1}: SSML transformation failed:`, err);
-        }
-      }
+      // PHASE 2 (SSML) — REMOVED: GPT Audio handles prosody natively
 
-      console.log(`Slide ${i + 1}: Generating audio (${narrationText.length} chars)...`);
+      console.log(`Slide ${i + 1}: Generating audio via GPT Audio (${narrationText.length} chars)...`);
 
       try {
-        // PHASE 3: Call Google Cloud TTS API
-        const ttsResponse = await fetch(
-          `https://texttospeech.googleapis.com/v1/text:synthesize?key=${GOOGLE_CLOUD_API_KEY}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              input: ttsInput,
-              voice: {
-                languageCode: voice.substring(0, 5), // e.g., 'en-US'
-                name: voice,
-                ssmlGender: voice.includes('Neural2-D') || voice.includes('Neural2-B') || voice.includes('Neural2-J') ? 'MALE' : 'FEMALE'
-              },
-              audioConfig: {
-                audioEncoding: 'MP3',
-                pitch: 0, // Natural pitch (was -1.0 which caused odd slowdowns)
-                speakingRate: 1.0 // Normal speed (was 0.95 which was too slow)
-              }
-            })
-          }
-        );
+        // PHASE 3: Generate audio via GPT Audio (OpenRouter)
+        const audioResponse = await callOpenRouter({
+          model: MODELS.AUDIO,
+          messages: [
+            {
+              role: 'system',
+              content: 'You are a professional university lecturer delivering a lecture. Read the following narration naturally and engagingly with appropriate pacing and emphasis. Do not add any commentary, introduction, or changes to the text — just read it aloud exactly as written. If you encounter URLs, citation markers like [Source 1], or abbreviations, handle them naturally (skip URLs, ignore citation brackets, expand abbreviations).',
+            },
+            {
+              role: 'user',
+              content: narrationText,
+            },
+          ],
+          modalities: ['text', 'audio'],
+          audio: { voice: voiceId, format: 'wav' },
+          fallbacks: [MODELS.AUDIO_HD],
+        }, `[Audio TTS Slide ${i + 1}]`);
 
-        if (!ttsResponse.ok) {
-          const errorText = await ttsResponse.text();
-          console.error(`TTS API error for slide ${i + 1}:`, errorText);
-          throw new Error(`TTS API failed: ${ttsResponse.status}`);
+        const audioData = audioResponse.choices[0]?.message?.audio?.data;
+        if (!audioData) {
+          throw new Error('No audio data in GPT Audio response');
         }
 
-        const ttsData = await ttsResponse.json();
-        const audioContent = ttsData.audioContent; // Base64-encoded MP3
-
-        if (!audioContent) {
-          throw new Error('No audio content returned from TTS API');
-        }
-
-        // Decode base64 to Uint8Array
-        const binaryString = atob(audioContent);
+        // Decode base64 WAV to bytes
+        const binaryString = atob(audioData);
         const bytes = new Uint8Array(binaryString.length);
         for (let j = 0; j < binaryString.length; j++) {
           bytes[j] = binaryString.charCodeAt(j);
         }
 
-        // Upload to Supabase Storage
-        const fileName = `${slideId}/slide_${i}.mp3`;
+        // Upload to Supabase Storage (WAV format, browsers natively support it)
+        const fileName = `${slideId}/slide_${i}.wav`;
         const { error: uploadError } = await supabase.storage
           .from('lecture-audio')
           .upload(fileName, bytes, {
-            contentType: 'audio/mpeg',
-            upsert: true
+            contentType: 'audio/wav',
+            upsert: true,
           });
 
         if (uploadError) {
@@ -256,16 +215,14 @@ const handler = async (req: Request): Promise<Response> => {
           throw new Error(`Failed to upload audio: ${uploadError.message}`);
         }
 
-        // Store relative path only — frontend signs on-demand (matches lecture-visuals pattern)
-
-        // Estimate duration: ~150 words per minute, adjusted for speaking rate
+        // Estimate duration: ~150 words per minute
         const wordCount = narrationText.split(/\s+/).length;
-        const estimatedDuration = Math.ceil((wordCount / (150 * 0.95)) * 60);
+        const estimatedDuration = Math.ceil((wordCount / 150) * 60);
 
         // PHASE 4: Map audio segments to content blocks for sync highlighting
         let audioSegmentMap: SlideWithAudio['audio_segment_map'] = undefined;
         
-        if (enableSegmentMapping && GOOGLE_CLOUD_API_KEY) {
+        if (enableSegmentMapping) {
           console.log(`Slide ${i + 1}: Mapping audio segments...`);
           try {
             audioSegmentMap = await mapAudioSegments(
@@ -275,7 +232,7 @@ const handler = async (req: Request): Promise<Response> => {
                 speaker_notes: narrationText,
               },
               estimatedDuration,
-              GOOGLE_CLOUD_API_KEY
+              OPENROUTER_API_KEY
             );
             console.log(`Slide ${i + 1}: Mapped ${audioSegmentMap?.length || 0} segments`);
           } catch (err) {
@@ -285,8 +242,8 @@ const handler = async (req: Request): Promise<Response> => {
 
         updatedSlides.push({
           ...slide,
-          speaker_notes: narrationText, // Update with AI-generated narration if applicable
-          audio_url: fileName, // Relative path; frontend signs on-demand
+          speaker_notes: narrationText,
+          audio_url: fileName,
           audio_duration_seconds: estimatedDuration,
           audio_segment_map: audioSegmentMap,
         });
@@ -296,7 +253,7 @@ const handler = async (req: Request): Promise<Response> => {
 
         // Small delay to avoid rate limiting
         if (i < slides.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 300));
+          await new Promise(resolve => setTimeout(resolve, 500));
         }
 
       } catch (slideError) {
