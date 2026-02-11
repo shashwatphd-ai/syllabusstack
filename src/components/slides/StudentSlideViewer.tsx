@@ -119,6 +119,11 @@ export function StudentSlideViewer({
 
   // Audio playback for current slide
   useEffect(() => {
+    // Per-invocation flag: prevents stale async resolutions from playing audio
+    // when the effect re-fires (e.g. React strict mode double-invoke or rapid slide changes).
+    // This is separate from isMountedRef which tracks component-level unmount.
+    let isCancelled = false;
+
     // Stop any existing audio
     if (audioRef.current) {
       audioRef.current.pause();
@@ -133,10 +138,10 @@ export function StudentSlideViewer({
     // Get signed URL for audio from private bucket
     const audioUrl = currentSlide.audio_url;
     // Define event handlers outside for proper cleanup
-    const handlePlay = () => { if (isMountedRef.current) setIsAudioPlaying(true); };
-    const handlePause = () => { if (isMountedRef.current) setIsAudioPlaying(false); };
+    const handlePlay = () => { if (isMountedRef.current && !isCancelled) setIsAudioPlaying(true); };
+    const handlePause = () => { if (isMountedRef.current && !isCancelled) setIsAudioPlaying(false); };
     const handleEnded = () => {
-      if (!isMountedRef.current) return;
+      if (!isMountedRef.current || isCancelled) return;
       setIsAudioPlaying(false);
       setAudioRef(null); // Disconnect sync
       // Auto-advance to next slide when audio ends
@@ -148,7 +153,7 @@ export function StudentSlideViewer({
     };
     const handleError = (e: Event) => {
       console.error('Audio playback error:', e);
-      if (!isMountedRef.current) return;
+      if (!isMountedRef.current || isCancelled) return;
       setIsAudioPlaying(false);
       setAudioRef(null); // Disconnect sync
     };
@@ -195,7 +200,8 @@ export function StudentSlideViewer({
         }
       }
       
-      if (!isMountedRef.current) return;
+      // Guard: if this invocation was cancelled (cleanup ran) or component unmounted, bail out
+      if (isCancelled || !isMountedRef.current) return;
       
       const audio = new Audio(urlToPlay);
       audioRef.current = audio;
@@ -209,24 +215,29 @@ export function StudentSlideViewer({
       audio.addEventListener('ended', handleEnded);
       audio.addEventListener('error', handleError);
 
-      // Final guard before play — component may have unmounted during async signing
-      if (!isMountedRef.current) {
+      // Final guard before play
+      if (isCancelled || !isMountedRef.current) {
+        audio.removeEventListener('play', handlePlay);
+        audio.removeEventListener('pause', handlePause);
+        audio.removeEventListener('ended', handleEnded);
+        audio.removeEventListener('error', handleError);
         audio.src = '';
+        audioRef.current = null;
         return;
       }
 
       // Auto-play audio for current slide
       audio.play().catch(e => {
         console.log('Audio autoplay blocked:', e);
-        if (isMountedRef.current) setIsAudioPlaying(false);
+        if (isMountedRef.current && !isCancelled) setIsAudioPlaying(false);
       });
     }
     
     playAudioWithSignedUrl();
 
     return () => {
+      isCancelled = true;
       if (audioRef.current) {
-        // Remove listeners BEFORE changing src to prevent error-event cascade
         audioRef.current.removeEventListener('play', handlePlay);
         audioRef.current.removeEventListener('pause', handlePause);
         audioRef.current.removeEventListener('ended', handleEnded);
