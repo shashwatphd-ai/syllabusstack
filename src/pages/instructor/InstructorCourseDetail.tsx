@@ -97,12 +97,17 @@ export default function InstructorCourseDetailPage() {
   // Prefer backend-computed counts (poll-batch-status) because Realtime can be flaky on some networks.
   // Fallback to local lectureSlides-derived counts when status API isn't available yet.
   // Helper: count published slides that have at least one visual without a URL
+  // Slide types that the backend intentionally skips for image generation
+  const IMAGE_SKIP_TYPES = ['title', 'title_slide', 'recap', 'conclusion', 'further_reading', 'summary', 'preview'];
+
   const publishedMissingImages = useMemo(() => {
     if (!lectureSlides) return 0;
     return lectureSlides.filter(ls => {
       if (ls.status !== 'published' && ls.status !== 'ready') return false;
       // Check if any slide in the JSONB array has a visual that needs an image but lacks a URL
+      // Exclude slide types that the backend intentionally skips
       return (ls.slides || []).some((s: any) => {
+        if (IMAGE_SKIP_TYPES.includes(s.type?.toLowerCase())) return false;
         const visual = s.visual;
         if (!visual) return false;
         if (visual.type === 'none') return false;
