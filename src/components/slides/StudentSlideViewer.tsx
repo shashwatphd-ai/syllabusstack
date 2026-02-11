@@ -226,12 +226,12 @@ export function StudentSlideViewer({
 
     return () => {
       if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.src = ''; // Release audio resource
+        // Remove listeners BEFORE changing src to prevent error-event cascade
         audioRef.current.removeEventListener('play', handlePlay);
         audioRef.current.removeEventListener('pause', handlePause);
         audioRef.current.removeEventListener('ended', handleEnded);
         audioRef.current.removeEventListener('error', handleError);
+        audioRef.current.pause();
         audioRef.current = null;
       }
     };
