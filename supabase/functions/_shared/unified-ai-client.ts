@@ -443,12 +443,13 @@ async function generateImageOpenRouter(request: {
         const errorText = await response.text();
         console.error(`${logPrefix} OpenRouter error ${response.status}:`, errorText.substring(0, 300));
 
-        // If it's a 5xx error, try fallback model within OpenRouter
-        if (response.status >= 500 && model === primaryModel) {
-          console.warn(`${logPrefix} Server error, trying fallback model...`);
+        // On 5xx, 402 (payment required), or 403 (key limit) errors,
+        // try fallback model (cheaper) before giving up
+        const isRetriableError = response.status >= 500 || response.status === 402 || response.status === 403;
+        if (isRetriableError && model === primaryModel) {
+          console.warn(`${logPrefix} HTTP ${response.status} error, trying fallback model (${fallbackModel})...`);
           continue;
         }
-
 
         return {
           success: false,
