@@ -13,6 +13,9 @@ import { CitationText } from './CitationText';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import type { Citation } from '@/lib/citationParser';
 
+// Slide types excluded from image generation (cost optimization)
+const IMAGE_SKIP_TYPES = ['conclusion', 'recap', 'further_reading', 'title', 'title_slide', 'summary', 'preview'];
+
 interface NarratedScrollViewerProps {
   slides: (Slide | EnhancedSlide | ProfessorSlide)[];
   currentAudioSlideIndex: number;
@@ -20,6 +23,7 @@ interface NarratedScrollViewerProps {
   isAudioPlaying: boolean;
   citations: Citation[];
   onSlideVisible: (index: number) => void;
+  programmaticScrollRef: React.MutableRefObject<boolean>;
 }
 
 // Reuse type configs from SlideRenderer
@@ -72,6 +76,7 @@ export function NarratedScrollViewer({
   isAudioPlaying,
   citations,
   onSlideVisible,
+  programmaticScrollRef,
 }: NarratedScrollViewerProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const lastManualScrollRef = useRef(0);
@@ -119,35 +124,49 @@ export function NarratedScrollViewer({
   // Audio-scroll sync: scroll active block into view (using composite IDs)
   useEffect(() => {
     if (!activeBlockId || !isAudioPlaying) return;
+    if (programmaticScrollRef.current) return;
     const timeSinceManual = Date.now() - lastManualScrollRef.current;
     if (timeSinceManual < 3000) return;
+
+    programmaticScrollRef.current = true;
+    setTimeout(() => { programmaticScrollRef.current = false; }, 1500);
 
     const compositeId = `${currentAudioSlideIndex}_${activeBlockId}`;
     const el = scrollContainerRef.current?.querySelector(`[data-block-id="${compositeId}"]`);
     el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, [activeBlockId, isAudioPlaying, currentAudioSlideIndex]);
+  }, [activeBlockId, isAudioPlaying, currentAudioSlideIndex, programmaticScrollRef]);
 
   // Periodic re-scroll for long narration segments
   useEffect(() => {
     if (!activeBlockId || !isAudioPlaying) return;
     const interval = setInterval(() => {
+      if (programmaticScrollRef.current) return;
       if (Date.now() - lastManualScrollRef.current < 3000) return;
+
+      programmaticScrollRef.current = true;
+      setTimeout(() => { programmaticScrollRef.current = false; }, 1500);
+
       const compositeId = `${currentAudioSlideIndex}_${activeBlockId}`;
       const el = scrollContainerRef.current?.querySelector(`[data-block-id="${compositeId}"]`);
       el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }, 5000);
     return () => clearInterval(interval);
-  }, [activeBlockId, isAudioPlaying, currentAudioSlideIndex]);
+  }, [activeBlockId, isAudioPlaying, currentAudioSlideIndex, programmaticScrollRef]);
 
   // Scroll to new section on slide audio transition
   useEffect(() => {
     if (!isAudioPlaying) return;
+    if (programmaticScrollRef.current) return;
     if (Date.now() - lastManualScrollRef.current < 3000) return;
+
+    programmaticScrollRef.current = true;
+    setTimeout(() => { programmaticScrollRef.current = false; }, 1500);
+
     const section = scrollContainerRef.current?.querySelector(
       `[data-slide-index="${currentAudioSlideIndex}"]`
     );
     section?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, [currentAudioSlideIndex, isAudioPlaying]);
+  }, [currentAudioSlideIndex, isAudioPlaying, programmaticScrollRef]);
 
   const renderWithCitations = useCallback((text: string, className?: string) => {
     if (citations.length > 0) {
@@ -485,8 +504,8 @@ export function NarratedScrollViewer({
                       </ul>
                     )}
 
-                    {/* Visual fallback */}
-                    {enhanced && !hasVisualUrl && slide.visual && slide.visual.type !== 'none' && (slide.visual.fallback_description || slide.visual.alt_text) && (
+                    {/* Visual fallback -- hidden for slide types excluded from image generation */}
+                    {enhanced && !hasVisualUrl && slide.visual && slide.visual.type !== 'none' && !IMAGE_SKIP_TYPES.includes(slide.type) && (slide.visual.fallback_description || slide.visual.alt_text) && (
                       <div className="mt-4 p-3 rounded-lg bg-muted/50 border border-dashed">
                         <p className="text-base text-muted-foreground italic">
                           💡 Visual: {slide.visual.fallback_description || slide.visual.alt_text}

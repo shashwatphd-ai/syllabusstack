@@ -53,6 +53,8 @@ export function StudentSlideViewer({
   const [visibleScrollSlideIndex, setVisibleScrollSlideIndex] = useState(0);
   
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const programmaticScrollRef = useRef(false);
+  const scrollSyncTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Guarantee audio stops on unmount (covers all exit paths: close, back nav, sidebar)
   useEffect(() => {
@@ -206,7 +208,7 @@ export function StudentSlideViewer({
       isMounted = false;
       if (audioRef.current) {
         audioRef.current.pause();
-        // Properly remove event listeners to prevent memory leaks
+        audioRef.current.src = ''; // Release audio resource
         audioRef.current.removeEventListener('play', handlePlay);
         audioRef.current.removeEventListener('pause', handlePause);
         audioRef.current.removeEventListener('ended', handleEnded);
@@ -298,32 +300,58 @@ export function StudentSlideViewer({
   };
 
   // Callback from NarratedScrollViewer when a section becomes visible
+  // Only tracks progress -- audio sync is handled by debounced effect below
   const handleScrollSlideVisible = useCallback((index: number) => {
     setVisibleScrollSlideIndex(index);
     if (index > highestSlideViewed) {
       setHighestSlideViewed(index);
     }
-    // Sync audio to the section the user scrolled to
-    if (index !== currentSlideIndex) {
-      if (audioRef.current) {
-        audioRef.current.pause();
-      }
-      setCurrentSlideIndex(index);
-    }
-  }, [highestSlideViewed, currentSlideIndex]);
+  }, [highestSlideViewed]);
 
-  // Scroll-mode section jump
+  // Debounced audio sync: only change audio after user stops scrolling for 800ms
+  useEffect(() => {
+    if (viewMode !== 'scroll') return;
+    if (programmaticScrollRef.current) return;
+
+    if (scrollSyncTimerRef.current) {
+      clearTimeout(scrollSyncTimerRef.current);
+    }
+
+    scrollSyncTimerRef.current = setTimeout(() => {
+      if (visibleScrollSlideIndex !== currentSlideIndex) {
+        if (audioRef.current) {
+          audioRef.current.pause();
+        }
+        setCurrentSlideIndex(visibleScrollSlideIndex);
+      }
+    }, 800);
+
+    return () => {
+      if (scrollSyncTimerRef.current) {
+        clearTimeout(scrollSyncTimerRef.current);
+      }
+    };
+  }, [visibleScrollSlideIndex, viewMode]);
+
+  // Scroll-mode section jump -- guarded to prevent IntersectionObserver feedback
   const jumpToSection = useCallback((direction: 'up' | 'down') => {
     const container = document.querySelector('[data-scroll-container]');
     if (!container) return;
     const targetIndex = direction === 'up'
       ? Math.max(0, visibleScrollSlideIndex - 1)
       : Math.min(slides.length - 1, visibleScrollSlideIndex + 1);
-    // Stop current audio and sync narration to the target section
+
     if (audioRef.current) {
       audioRef.current.pause();
     }
+
+    // Suppress IntersectionObserver during smooth scroll animation
+    programmaticScrollRef.current = true;
+    setTimeout(() => { programmaticScrollRef.current = false; }, 1500);
+
     setCurrentSlideIndex(targetIndex);
+    setVisibleScrollSlideIndex(targetIndex);
+
     const section = container.querySelector(`[data-slide-index="${targetIndex}"]`);
     section?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [visibleScrollSlideIndex, slides.length]);
@@ -456,6 +484,7 @@ export function StudentSlideViewer({
             isAudioPlaying={isAudioPlaying}
             citations={citations}
             onSlideVisible={handleScrollSlideVisible}
+            programmaticScrollRef={programmaticScrollRef}
           />
         ) : (
           /* Classic Slides Mode */
@@ -540,31 +569,83 @@ export function StudentSlideViewer({
         ) : (
           /* Scroll mode footer */
           <div className="flex items-center justify-between px-3 sm:px-6 py-3 sm:py-4 border-t bg-background/95">
-            <span className="text-sm text-muted-foreground">
-              § {visibleScrollSlideIndex + 1} of {slides.length}
-            </span>
-            <span className="hidden sm:inline text-sm text-muted-foreground">
-              ~{Math.max(1, Math.round(((slides.length - visibleScrollSlideIndex - 1) / slides.length) * (lectureSlide.estimated_duration_minutes || 10)))} min remaining
-            </span>
-            <div className="flex items-center gap-1">
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => jumpToSection('up')}
-                disabled={visibleScrollSlideIndex === 0}
-                className="h-8 w-8"
-              >
-                <ChevronUp className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => jumpToSection('down')}
-                disabled={visibleScrollSlideIndex === slides.length - 1}
-                className="h-8 w-8"
-              >
-                <ChevronDown className="h-4 w-4" />
-              </Button>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">
+                § {visibleScrollSlideIndex + 1} of {slides.length}
+              </span>
+              <span className="hidden sm:inline text-sm text-muted-foreground">
+                · ~{Math.max(1, Math.round(((slides.length - visibleScrollSlideIndex - 1) / slides.length) * (lectureSlide.estimated_duration_minutes || 10)))} min remaining
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1 sm:gap-2">
+              {/* Audio play/pause */}
+              {lectureSlide.has_audio && audioEnabled && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    if (audioRef.current) {
+                      if (isAudioPlaying) {
+                        audioRef.current.pause();
+                      } else {
+                        audioRef.current.play().catch(() => {});
+                      }
+                    }
+                  }}
+                  className="gap-1 px-2 sm:px-3"
+                >
+                  {isAudioPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                  <span className="hidden sm:inline">{isAudioPlaying ? 'Pause' : 'Play'}</span>
+                </Button>
+              )}
+
+              {/* Transcript toggle */}
+              <div className="hidden sm:flex items-center gap-2 pl-2 border-l">
+                <Switch
+                  id="scroll-notes"
+                  checked={showSpeakerNotes}
+                  onCheckedChange={setShowSpeakerNotes}
+                />
+                <Label htmlFor="scroll-notes" className="text-sm flex items-center gap-1">
+                  <MessageSquare className="h-3 w-3" />
+                  Transcript
+                </Label>
+              </div>
+
+              {/* Section navigation */}
+              <div className="flex items-center gap-1 pl-2 border-l">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => jumpToSection('up')}
+                  disabled={visibleScrollSlideIndex === 0}
+                  className="h-8 w-8"
+                >
+                  <ChevronUp className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => jumpToSection('down')}
+                  disabled={visibleScrollSlideIndex === slides.length - 1}
+                  className="h-8 w-8"
+                >
+                  <ChevronDown className="h-4 w-4" />
+                </Button>
+              </div>
+
+              {/* Complete button */}
+              {visibleScrollSlideIndex >= slides.length - 1 && (
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={handleComplete}
+                  className="ml-1"
+                >
+                  Complete
+                </Button>
+              )}
             </div>
           </div>
         )}
