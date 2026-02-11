@@ -1,263 +1,332 @@
 
 
-# Expanded Plan: Complete Audio Cleanup Chain
+# Expanded Plan: Switch Audio to OpenAI GPT Audio via OpenRouter
 
-## The Core Problem
-
-There are **5 places** in `StudentSlideViewer.tsx` where audio should be fully stopped. Currently, only one of them (the final guard before play, lines 219-227) does a complete teardown. The other four are incomplete, leaving audio playing after navigation.
-
-## Complete Teardown Sequence (what every exit path MUST do)
-
-A proper audio stop requires all 5 steps in this order:
+## Current Pipeline (4 Phases per Slide)
 
 ```text
-1. Remove event listeners   -- prevents error cascades when src is cleared
-2. Pause playback           -- immediate silence
-3. Clear source (src = '')  -- forces browser to release the audio buffer/hardware
-4. Null the ref             -- drops our reference for GC
-5. setAudioRef(null)        -- clears useSlideSync's internal 100ms polling interval
+Phase 1: AI Narration
+  ai-narrator.ts -> simpleCompletion(MODELS.FAST) -> 150-250 word lecture script
+  Uses: OPENROUTER_API_KEY (gpt-4o-mini with Gemini Flash fallback)
+
+Phase 2: SSML Transformation
+  ssml-transformer.ts -> simpleCompletion(MODELS.FAST) -> SSML-wrapped narration
+  Uses: OPENROUTER_API_KEY (separate AI call per slide)
+  Purpose: Add <break>, <emphasis>, <prosody> tags for Google TTS
+
+Phase 3: Google Cloud TTS
+  texttospeech.googleapis.com/v1/text:synthesize -> base64 MP3
+  Uses: GOOGLE_CLOUD_API_KEY
+  Voice: en-US-Neural2-D (male, $16/1M chars)
+  Problem: Reads URLs letter-by-letter, reads "[Source 1]" literally, robotic
+
+Phase 4: Segment Mapping
+  segment-mapper.ts -> simpleCompletion(MODELS.FAST) -> JSON segment map
+  Uses: OPENROUTER_API_KEY
+  Purpose: Maps narration to content blocks for synchronized highlighting
 ```
 
-## Current State of Each Exit Path
+**Cost per slide**: 3 OpenRouter calls (narration + SSML + mapping) + 1 Google TTS call
 
-### Path 1: Per-slide cleanup (lines 238-248) -- INCOMPLETE
+## New Pipeline (3 Phases per Slide)
 
-When the slide index changes or hasAudio toggles, this cleanup runs.
+```text
+Phase 1: AI Narration (UNCHANGED)
+  ai-narrator.ts -> simpleCompletion(MODELS.FAST) -> 150-250 word lecture script
+  Uses: OPENROUTER_API_KEY (same as before)
 
-**Current code:**
+Phase 2: REMOVED -- No SSML needed
+  GPT Audio handles prosody natively. URLs and citations are read intelligently.
+
+Phase 3: GPT Audio TTS (REPLACES Google Cloud TTS)
+  callOpenRouter(MODELS.AUDIO) with modalities: ["text", "audio"]
+  Uses: OPENROUTER_API_KEY (same key, different model)
+  Voice: Selectable (onyx, nova, echo, alloy, fable, shimmer)
+  Response: message.audio.data (base64 WAV) -> convert and upload as MP3/WAV
+
+Phase 4: Segment Mapping (UNCHANGED)
+  segment-mapper.ts -> simpleCompletion(MODELS.FAST) -> JSON segment map
+```
+
+**Cost per slide**: 2 OpenRouter calls (narration + mapping) + 1 OpenRouter audio call
+**Net effect**: Removes 1 AI call (SSML) and replaces Google TTS with OpenRouter audio
+
+## Why Phase 2 (SSML) Is Fully Removed
+
+The SSML transformer exists solely to prepare text for Google Cloud TTS, which is a "dumb" reader -- it needs explicit markup to know where to pause, emphasize, or adjust pitch. GPT Audio is an AI model that:
+- Understands sentence structure and adds natural pauses
+- Recognizes URLs and abbreviations -- says "the linked resource" or contextualizes them
+- Handles emphasis, tone shifts, and pacing based on semantic understanding
+- Does not accept or need SSML input
+
+The `ssml-transformer.ts` file is NOT deleted (other functions might reference `isSSML` or `stripSSML`), but its `transformToSSML` function is no longer called from the audio pipeline.
+
+## Risk Assessment: Does OpenRouter Proxy Audio Output?
+
+**Evidence it works:**
+- OpenRouter's model page for `openai/gpt-audio-mini` lists it with audio token pricing ($0.60/M)
+- OpenRouter docs show audio input support; the model itself supports audio output via `modalities: ["text", "audio"]`
+- The OpenAI Chat Completions API format with `modalities` and `audio` parameters is the standard interface
+- Multiple open-source projects (open-webui) are requesting/implementing this exact flow
+
+**Mitigation**: Step 0 is a live test call before any code changes. If it fails, we fall back to ElevenLabs (connector already available).
+
+## Detailed File Changes
+
+### File 1: `supabase/functions/_shared/openrouter-client.ts`
+
+**What changes:**
+- Add `AUDIO` and `AUDIO_HD` to the `MODELS` constant
+- Add `modalities` and `audio` fields to `OpenRouterOptions` interface
+- Add `audio` field to `OpenRouterResponse.choices[].message`
+- Pass `modalities` and `audio` through in `callOpenRouter`'s request body builder
+
+**Specific additions to MODELS (after line 124):**
 ```typescript
-return () => {
-  isCancelled = true;
-  if (audioRef.current) {
-    audioRef.current.removeEventListener(...)  // step 1 OK
-    audioRef.current.pause();                  // step 2 OK
-    audioRef.current = null;                   // step 4 OK
-    // MISSING: audio.src = ''   (step 3)
-  }
-  // MISSING: setAudioRef(null)  (step 5)
+// AUDIO GENERATION - Text-to-Speech via GPT Audio
+AUDIO: 'openai/gpt-audio-mini',          // Cost-efficient, natural voices
+AUDIO_HD: 'openai/gpt-audio',            // Higher quality, more expensive
+```
+
+**Specific additions to OpenRouterOptions (after line 192):**
+```typescript
+// Audio output support
+modalities?: string[];                    // e.g., ['text', 'audio']
+audio?: {
+  voice: string;                          // onyx, nova, echo, alloy, fable, shimmer
+  format: string;                         // 'wav' or 'pcm16'
 };
 ```
 
-**Fix:** Add `audioRef.current.src = ''` after pause, and `setAudioRef(null)` after the if-block.
-
-### Path 2: Unmount cleanup (lines 62-73) -- INCOMPLETE
-
-Runs when the component is destroyed (any navigation away).
-
-**Current code:**
+**Specific additions to OpenRouterResponse message (line 217):**
 ```typescript
-return () => {
-  isMountedRef.current = false;
-  if (audioRef.current) {
-    audioRef.current.pause();   // step 2 OK
-    audioRef.current.src = '';  // step 3 OK
-    audioRef.current = null;    // step 4 OK
-    // MISSING: removeEventListener (step 1) -- but OK because component is dead
-  }
-  // MISSING: setAudioRef(null)  (step 5)
+audio?: {
+  id: string;
+  data: string;          // base64-encoded audio
+  transcript?: string;   // text transcript of the audio
+  expires_at: number;
 };
 ```
 
-**Fix:** Add `setAudioRef(null)` after the if-block. (Listener removal not strictly needed here since the Audio element is being destroyed, but adding it is harmless and consistent.)
-
-### Path 3: Location change cleanup (lines 75-84) -- INCOMPLETE
-
-Runs when `location.pathname` changes (browser back, sidebar link).
-
-**Current code:**
+**Specific additions to callOpenRouter body builder (after line 333):**
 ```typescript
-return () => {
-  if (audioRef.current) {
-    audioRef.current.pause();   // step 2 OK
-    audioRef.current.src = '';  // step 3 OK
-    audioRef.current = null;    // step 4 OK
-    // MISSING: removeEventListener (step 1)
-  }
-  // MISSING: setAudioRef(null)  (step 5)
-};
+if (options.modalities) {
+  body.modalities = options.modalities;
+}
+if (options.audio) {
+  body.audio = options.audio;
+}
 ```
 
-**Fix:** Add `setAudioRef(null)` after the if-block.
+### File 2: `supabase/functions/generate-lecture-audio/index.ts`
 
-### Path 4: handleClose (lines 312-319) -- MOST INCOMPLETE
+This is the largest change. The entire Phase 2 (SSML) and Phase 3 (Google TTS) blocks are replaced.
 
-Runs when the user clicks the X button.
+**Imports removed:**
+- `import { transformToSSML, isSSML } from "../_shared/ssml-transformer.ts";` (line 4)
 
-**Current code:**
-```typescript
-const handleClose = () => {
-  if (audioRef.current) {
-    audioRef.current.pause();    // step 2 OK
-    // MISSING: src = ''         (step 3)
-    // MISSING: = null           (step 4)
-  }
-  // MISSING: setAudioRef(null)  (step 5)
-  handleComplete();
-  onClose();
-};
-```
+**Imports added:**
+- `import { callOpenRouter, MODELS } from "../_shared/openrouter-client.ts";`
 
-**Fix:** Add `audioRef.current.src = ''`, `audioRef.current = null`, and `setAudioRef(null)`.
-
-### Path 5: Final guard before play (lines 219-227) -- COMPLETE (no changes needed)
-
-This path already does all 5 steps correctly.
-
-## Why `setAudioRef(null)` Matters
-
-The `useSlideSync` hook (from `useSlideSync.ts`) stores its own internal reference to the Audio element and runs a `setInterval` every 100ms to poll `audio.currentTime`. If we never call `setAudioRef(null)`:
-
-- The interval keeps firing even after navigation
-- The hook holds a reference preventing garbage collection
-- In some browsers, this reference keeps the audio buffer alive
-
-Looking at the hook code (lines 66-83 of `useSlideSync.ts`):
-```typescript
-const setAudioRef = useCallback((audio: HTMLAudioElement | null) => {
-  audioRef.current = audio;
-  if (intervalRef.current) {
-    window.clearInterval(intervalRef.current);  // clears old interval
-    intervalRef.current = null;
-  }
-  if (!audio || !enabled) {
-    setActiveBlockId(null);
-    setCurrentPercent(0);
-    return;                                      // exits without new interval
-  }
-  intervalRef.current = window.setInterval(updateActiveBlock, 100);
-}, [enabled, updateActiveBlock]);
-```
-
-Passing `null` clears the interval and resets state. Without it, the interval persists.
-
-## Why `audio.src = ''` Matters
-
-Calling `.pause()` alone tells the browser to stop decoding, but does NOT release the network connection or audio buffer. Setting `src = ''` forces the browser to:
-- Abort any in-flight network requests for the audio file
-- Release the decoded audio buffer from memory
-- Disconnect from the audio output hardware
-
-This was previously removed from the per-slide cleanup to avoid triggering error events, but that concern is resolved: event listeners are now removed BEFORE the source is cleared (step 1 before step 3).
-
-## Exact Edits
-
-### Edit 1: Per-slide cleanup (lines 238-248)
-
+**Validation change (line 85):**
 ```typescript
 // BEFORE:
-return () => {
-  isCancelled = true;
-  if (audioRef.current) {
-    audioRef.current.removeEventListener('play', handlePlay);
-    audioRef.current.removeEventListener('pause', handlePause);
-    audioRef.current.removeEventListener('ended', handleEnded);
-    audioRef.current.removeEventListener('error', handleError);
-    audioRef.current.pause();
-    audioRef.current = null;
-  }
-};
+const { slideId, voice = 'en-US-Neural2-D', enableSSML, enableSegmentMapping } = validation.data;
 
 // AFTER:
-return () => {
-  isCancelled = true;
-  if (audioRef.current) {
-    audioRef.current.removeEventListener('play', handlePlay);
-    audioRef.current.removeEventListener('pause', handlePause);
-    audioRef.current.removeEventListener('ended', handleEnded);
-    audioRef.current.removeEventListener('error', handleError);
-    audioRef.current.pause();
-    audioRef.current.src = '';
-    audioRef.current = null;
-  }
-  setAudioRef(null);
-};
+const { slideId, voiceId = 'onyx', enableSegmentMapping } = validation.data;
 ```
 
-### Edit 2: Unmount cleanup (lines 62-73)
-
+**API key check change (lines 87-90):**
 ```typescript
-// BEFORE:
-return () => {
-  isMountedRef.current = false;
-  if (audioRef.current) {
-    audioRef.current.pause();
-    audioRef.current.src = '';
-    audioRef.current = null;
-  }
-};
-
-// AFTER:
-return () => {
-  isMountedRef.current = false;
-  if (audioRef.current) {
-    audioRef.current.pause();
-    audioRef.current.src = '';
-    audioRef.current = null;
-  }
-  setAudioRef(null);
-};
+// BEFORE: Checks GOOGLE_CLOUD_API_KEY for TTS
+// AFTER: Checks OPENROUTER_API_KEY (already validated inside callOpenRouter, 
+//        but we check early to fail fast before processing slides)
+const OPENROUTER_API_KEY = Deno.env.get('OPENROUTER_API_KEY');
+if (!OPENROUTER_API_KEY) {
+  return createErrorResponse('CONFIG_ERROR', corsHeaders, 'OPENROUTER_API_KEY not configured');
+}
 ```
 
-### Edit 3: Location change cleanup (lines 75-84)
+**Phase 1 (AI narration, lines 136-162):**
+- `GOOGLE_CLOUD_API_KEY` guard replaced with `OPENROUTER_API_KEY` guard
+- `generateNarration()` call stays identical (it already uses OpenRouter internally)
 
+**Phase 2 (SSML, lines 170-198):**
+- Entire block REMOVED. No SSML transformation needed.
+
+**Phase 3 (TTS, lines 202-257) -- REPLACED with:**
 ```typescript
-// BEFORE:
-return () => {
-  if (audioRef.current) {
-    audioRef.current.pause();
-    audioRef.current.src = '';
-    audioRef.current = null;
-  }
-};
+// PHASE 3: Generate audio via GPT Audio (OpenRouter)
+const audioResponse = await callOpenRouter({
+  model: MODELS.AUDIO,
+  messages: [
+    {
+      role: 'system',
+      content: 'You are a professional lecturer. Read the following narration naturally and engagingly. Do not add any commentary or changes to the text -- just read it aloud exactly as written.',
+    },
+    {
+      role: 'user',
+      content: narrationText,
+    },
+  ],
+  modalities: ['text', 'audio'],
+  audio: { voice: voiceId, format: 'wav' },
+  fallbacks: [MODELS.AUDIO_HD],
+}, '[Audio TTS]');
 
-// AFTER:
-return () => {
-  if (audioRef.current) {
-    audioRef.current.pause();
-    audioRef.current.src = '';
-    audioRef.current = null;
-  }
-  setAudioRef(null);
-};
+const audioData = audioResponse.choices[0]?.message?.audio?.data;
+if (!audioData) {
+  throw new Error('No audio data in GPT Audio response');
+}
+
+// Decode base64 WAV to bytes
+const binaryString = atob(audioData);
+const bytes = new Uint8Array(binaryString.length);
+for (let j = 0; j < binaryString.length; j++) {
+  bytes[j] = binaryString.charCodeAt(j);
+}
+
+// Upload to Supabase Storage (WAV format, browsers natively support it)
+const fileName = `${slideId}/slide_${i}.wav`;
+const { error: uploadError } = await supabase.storage
+  .from('lecture-audio')
+  .upload(fileName, bytes, {
+    contentType: 'audio/wav',
+    upsert: true,
+  });
 ```
 
-### Edit 4: handleClose (lines 312-319)
+**Note on file format**: The file extension changes from `.mp3` to `.wav` since GPT Audio outputs WAV. Browsers natively play WAV files. The student-side `StudentSlideViewer.tsx` creates `new Audio(signedUrl)` which handles both formats transparently.
 
+**Phase 4 (Segment mapping, lines 265-284):**
+- Only change: `GOOGLE_CLOUD_API_KEY` guard replaced with `OPENROUTER_API_KEY` guard (though `mapAudioSegments` already uses OpenRouter internally and ignores the API key parameter).
+
+### File 3: `supabase/functions/_shared/validators/index.ts`
+
+**Lines 167-172 -- Update `lectureAudioSchema`:**
 ```typescript
 // BEFORE:
-const handleClose = () => {
-  if (audioRef.current) {
-    audioRef.current.pause();
-  }
-  handleComplete();
-  onClose();
-};
+export const lectureAudioSchema = z.object({
+  slideId: uuidSchema,
+  voice: z.string().optional().default('en-US-Neural2-D'),
+  enableSSML: z.boolean().optional().default(true),
+  enableSegmentMapping: z.boolean().optional().default(true),
+});
 
 // AFTER:
-const handleClose = () => {
-  if (audioRef.current) {
-    audioRef.current.pause();
-    audioRef.current.src = '';
-    audioRef.current = null;
-  }
-  setAudioRef(null);
-  handleComplete();
-  onClose();
-};
+export const lectureAudioSchema = z.object({
+  slideId: uuidSchema,
+  voiceId: z.enum(['onyx', 'nova', 'echo', 'alloy', 'fable', 'shimmer'])
+    .optional()
+    .default('onyx'),
+  enableSegmentMapping: z.boolean().optional().default(true),
+});
+```
+
+### File 4: `src/hooks/lectureSlides/audio.ts`
+
+**Update hook parameter (lines 21-27):**
+```typescript
+// BEFORE:
+mutationFn: async ({
+  slideId,
+  voice = 'en-US-Wavenet-D'
+}: {
+  slideId: string;
+  voice?: string;
+}) => {
+
+// AFTER:
+mutationFn: async ({
+  slideId,
+  voiceId = 'onyx'
+}: {
+  slideId: string;
+  voiceId?: string;
+}) => {
+```
+
+**Update body (line 31):**
+```typescript
+// BEFORE:
+body: { slideId, voice }
+
+// AFTER:
+body: { slideId, voiceId }
+```
+
+**Update JSDoc (line 14):**
+```typescript
+// BEFORE:
+/** Generate TTS audio for lecture slides using Google Cloud WaveNet */
+
+// AFTER:
+/** Generate TTS audio for lecture slides using GPT Audio via OpenRouter */
+```
+
+### File 5: `src/components/slides/VoicePicker.tsx` (NEW)
+
+A simple Select component displaying voice options with personality descriptions:
+
+| Voice | Display Name | Description |
+|-------|-------------|-------------|
+| onyx | Professor Onyx | Deep, authoritative (default) |
+| nova | Dr. Nova | Warm, friendly |
+| echo | Dr. Echo | Clear, measured |
+| alloy | Prof. Alloy | Balanced, neutral |
+| fable | Dr. Fable | Expressive, storytelling |
+| shimmer | Prof. Shimmer | Calm, reassuring |
+
+The component accepts `value` and `onValueChange` props, rendering a shadcn/ui `Select` dropdown.
+
+### File 6: `src/components/slides/LectureSlideViewer.tsx`
+
+**Add state for selected voice (after line 55):**
+```typescript
+const [selectedVoice, setSelectedVoice] = useState<string>('onyx');
+```
+
+**Update handleGenerateAudio (line 139-141):**
+```typescript
+// BEFORE:
+generateAudio.mutate({ slideId: lectureSlide.id });
+
+// AFTER:
+generateAudio.mutate({ slideId: lectureSlide.id, voiceId: selectedVoice });
+```
+
+**Add VoicePicker next to Generate Audio button (before the button, around line 190):**
+```tsx
+{!hasAudio && audioStatus !== 'generating' && (
+  <VoicePicker value={selectedVoice} onValueChange={setSelectedVoice} />
+)}
 ```
 
 ## What Does NOT Change
 
-- Audio playback initiation (signed URL resolution, autoplay)
-- Slide-to-slide transition logic (isCancelled per-invocation guard)
-- NarratedScrollViewer (has no audio management)
-- useSlideSync hook internals (only its public setAudioRef is called)
-- Scroll sync, block highlighting, progress tracking
-- Assessment error handling and state recovery (already implemented)
+| Component | Why unchanged |
+|-----------|---------------|
+| `ai-narrator.ts` | Phase 1 narration generation -- already uses OpenRouter, untouched |
+| `ssml-transformer.ts` | File remains for utility exports (`isSSML`, `stripSSML`), but `transformToSSML` is no longer called |
+| `segment-mapper.ts` | Phase 4 mapping -- already uses OpenRouter internally |
+| `StudentSlideViewer.tsx` | Audio playback and cleanup chain -- `new Audio(url)` plays WAV as well as MP3 |
+| `useSlideSync.ts` | Sync polling -- format-agnostic |
+| `NarratedScrollViewer.tsx` | Consumes same audio URLs |
+| Storage bucket `lecture-audio` | Same bucket, file extension changes from .mp3 to .wav |
+| `GOOGLE_CLOUD_API_KEY` | Still used by other functions (not removed from secrets) |
 
-## File Modified
+## Backward Compatibility
 
-| File | Changes |
-|------|---------|
-| `src/components/slides/StudentSlideViewer.tsx` | Add `audio.src = ''` and `setAudioRef(null)` to 4 incomplete cleanup paths |
+Existing slides that already have `.mp3` audio URLs stored in their `audio_url` field will continue to work. The signed URL generation in `StudentSlideViewer.tsx` is path-based and format-agnostic. New slides will get `.wav` files. Both play in all modern browsers via `HTMLAudioElement`.
+
+## Implementation Order
+
+1. Extend `openrouter-client.ts` with audio support (interfaces + body builder)
+2. Update `validators/index.ts` schema
+3. Rewrite `generate-lecture-audio/index.ts` (remove SSML phase, replace Google TTS with GPT Audio)
+4. Update `audio.ts` hook (voiceId parameter)
+5. Create `VoicePicker.tsx` component
+6. Integrate VoicePicker into `LectureSlideViewer.tsx`
+7. Deploy edge function and test end-to-end
 
