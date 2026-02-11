@@ -535,6 +535,39 @@ export function useTriggerImageGeneration() {
 
   return useMutation({
     mutationFn: async ({ instructorCourseId }: { instructorCourseId: string }) => {
+      // SMART TRIGGER: First check if there are failed items that need resetting.
+      // This merges the old "Generate Images" and "Retry Failed Images" into one flow.
+      const { data: failedCheck } = await supabase
+        .from('image_generation_queue')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'failed')
+        .in('lecture_slides_id', 
+          (await supabase
+            .from('lecture_slides')
+            .select('id')
+            .eq('instructor_course_id', instructorCourseId)
+          ).data?.map(l => l.id) || []
+        );
+
+      const failedCount = failedCheck ?? 0;
+
+      // If there are failed items but no pending, reset them first
+      if (typeof failedCount === 'number' && failedCount > 0) {
+        console.log(`[ImageGen] Found failed items, resetting before processing...`);
+        const { data: resetData, error: resetError } = await supabase.functions.invoke('process-batch-images', {
+          body: { reset_failed: true, instructor_course_id: instructorCourseId },
+        });
+        if (resetError) {
+          console.warn('[ImageGen] Reset failed:', resetError);
+        } else {
+          console.log(`[ImageGen] Reset ${resetData?.reset || 0} failed items`);
+          // reset_failed mode auto-triggers continuation, so we can return
+          if (resetData?.continuing) {
+            return { ...resetData, message: `Reset ${resetData.reset} failed images and restarting...` } as ImageGenerationStatusResponse;
+          }
+        }
+      }
+
       // Fast path: process existing queue items (MODE 1) — returns in <2s
       const { data, error } = await supabase.functions.invoke('process-batch-images', {
         body: { continue: true },

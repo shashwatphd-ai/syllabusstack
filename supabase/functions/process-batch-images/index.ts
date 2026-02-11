@@ -649,6 +649,7 @@ const handler = async (req: Request): Promise<Response> => {
       // Process in concurrent batches
       let processedCount = 0;
       let successCount = 0;
+      let billingError: string | null = null;
 
       for (let i = 0; i < pendingItems.length; i += MAX_CONCURRENT) {
         const batch = pendingItems.slice(i, i + MAX_CONCURRENT);
@@ -679,6 +680,19 @@ const handler = async (req: Request): Promise<Response> => {
           })
         );
 
+        // CIRCUIT BREAKER: If ALL items in this batch failed with billing errors
+        // (402/403), stop immediately — don't burn remaining retry budgets on a systemic issue.
+        const batchFailures = results.filter(r => !r.success);
+        const isBillingError = (err: string | null) => 
+          err && (err.includes('402') || err.includes('403') || err.includes('Payment Required') || err.includes('Key limit') || err.includes('Forbidden'));
+        
+        if (batchFailures.length === batch.length && batchFailures.every(r => isBillingError(r.error))) {
+          billingError = batchFailures[0]?.error || 'Billing/key limit error';
+          console.error(`${functionName} CIRCUIT BREAKER: All ${batch.length} items failed with billing error. Stopping self-continuation.`);
+          console.error(`${functionName} Error: ${billingError}`);
+          break;
+        }
+
         // Delay between concurrent batches
         if (i + MAX_CONCURRENT < pendingItems.length) {
           await sleep(BATCH_DELAY_MS);
@@ -688,9 +702,11 @@ const handler = async (req: Request): Promise<Response> => {
       // Check if more items remain
       const remainingCount = await getPendingCount(supabase);
       
-      // Trigger continuation if items remain
-      if (remainingCount > 0) {
+      // Trigger continuation ONLY if items remain AND no billing error detected
+      if (remainingCount > 0 && !billingError) {
         await triggerContinuation(supabaseUrl, serviceRoleKey);
+      } else if (billingError) {
+        console.warn(`${functionName} NOT continuing: billing error detected. ${remainingCount} items left in queue.`);
       }
 
       const elapsed = Date.now() - startTime;
@@ -702,8 +718,9 @@ const handler = async (req: Request): Promise<Response> => {
         succeeded: successCount,
         failed: processedCount - successCount,
         remaining: remainingCount,
-        continuing: remainingCount > 0,
+        continuing: remainingCount > 0 && !billingError,
         elapsed_ms: elapsed,
+        ...(billingError ? { billing_error: billingError } : {}),
       }, corsHeaders);
     }
 

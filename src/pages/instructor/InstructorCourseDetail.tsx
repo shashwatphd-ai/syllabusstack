@@ -626,13 +626,14 @@ export default function InstructorCourseDetailPage() {
                         </Button>
                       )}
                       
-                      {/* Generate Images Button - visible when slides are ready OR published slides have missing images */}
-                      {(slidesStats.ready > 0 || publishedMissingImages > 0) && (
+                      {/* Smart Generate Images Button - handles both generation and retry of failed items */}
+                      {(slidesStats.ready > 0 || publishedMissingImages > 0 || (imageGenStatus.data?.failed || 0) > 0) && (
                         <Button
                           variant="outline"
-                          className="gap-2 h-9 flex-1 sm:flex-none"
+                          className={`gap-2 h-9 flex-1 sm:flex-none ${(imageGenStatus.data?.failed || 0) > 0 ? 'border-orange-300 text-orange-700 hover:bg-orange-50' : ''}`}
                           onClick={() => id && triggerImageGen.mutate({ instructorCourseId: id })}
                           disabled={triggerImageGen.isPending || (imageGenStatus.data?.processing || 0) > 0}
+                          title={imageGenStatus.data?.failedReason || undefined}
                         >
                           {triggerImageGen.isPending ? (
                             <>
@@ -660,34 +661,7 @@ export default function InstructorCourseDetailPage() {
                                 {imageGenStatus.data?.queued} queued
                               </span>
                             </>
-                          ) : (
-                            <>
-                              <Image className="h-4 w-4" />
-                              <span className="hidden sm:inline">
-                                Generate Images{publishedMissingImages > 0 ? ` (${publishedMissingImages} missing)` : ''}
-                              </span>
-                              <span className="sm:hidden">Images{publishedMissingImages > 0 ? ` (${publishedMissingImages})` : ''}</span>
-                            </>
-                          )}
-                        </Button>
-                      )}
-
-                      {/* Retry Failed Images - visible when queue has failed items */}
-                      {(imageGenStatus.data?.failed || 0) > 0 && (
-                        <Button
-                          variant="outline"
-                          className="gap-2 h-9 flex-1 sm:flex-none border-orange-300 text-orange-700 hover:bg-orange-50"
-                          onClick={() => id && retryFailedImages.mutate({ instructorCourseId: id })}
-                          disabled={retryFailedImages.isPending}
-                          title={imageGenStatus.data?.failedReason || 'Retry failed image generations'}
-                        >
-                          {retryFailedImages.isPending ? (
-                            <>
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                              <span className="hidden sm:inline">Resetting...</span>
-                              <span className="sm:hidden">...</span>
-                            </>
-                          ) : (
+                          ) : (imageGenStatus.data?.failed || 0) > 0 ? (
                             <>
                               <RotateCcw className="h-4 w-4" />
                               <span className="hidden sm:inline">
@@ -696,6 +670,14 @@ export default function InstructorCourseDetailPage() {
                               <span className="sm:hidden">
                                 Retry {imageGenStatus.data?.failed} Imgs
                               </span>
+                            </>
+                          ) : (
+                            <>
+                              <Image className="h-4 w-4" />
+                              <span className="hidden sm:inline">
+                                Generate Images{publishedMissingImages > 0 ? ` (${publishedMissingImages} missing)` : ''}
+                              </span>
+                              <span className="sm:hidden">Images{publishedMissingImages > 0 ? ` (${publishedMissingImages})` : ''}</span>
                             </>
                           )}
                         </Button>
