@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, PlayCircle, CheckCircle2, Lock, Clock, AlertCircle, ChevronDown, ClipboardCheck, XCircle, Presentation } from 'lucide-react';
@@ -27,6 +27,32 @@ export default function LearningObjectivePage() {
   const [selectedContentId, setSelectedContentId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [viewingSlide, setViewingSlide] = useState<LectureSlide | null>(null);
+
+  // State recovery: fix verification_state if slides were completed before state-tracking was deployed
+  useEffect(() => {
+    if (!data || !user || !loId) return;
+    const currentState = data.learningObjective.verification_state || 'unstarted';
+    if (currentState !== 'unstarted' && currentState !== 'in_progress') return;
+
+    const checkAndRecover = async () => {
+      const { data: completions } = await supabase
+        .from('slide_completions')
+        .select('watch_percentage')
+        .eq('user_id', user.id)
+        .eq('learning_objective_id', loId)
+        .gte('watch_percentage', 80)
+        .limit(1);
+
+      if (completions && completions.length > 0) {
+        await supabase
+          .from('learning_objectives')
+          .update({ verification_state: 'verified', updated_at: new Date().toISOString() })
+          .eq('id', loId);
+        queryClient.invalidateQueries({ queryKey: ['lo-progress', loId] });
+      }
+    };
+    checkAndRecover();
+  }, [data, user, loId, queryClient]);
 
   // Fetch published slides for this learning objective, ordered by teaching unit sequence
   const { data: lectureSlides } = useQuery({
@@ -91,7 +117,7 @@ export default function LearningObjectivePage() {
             <p className="text-destructive mb-4">
               {error instanceof Error ? error.message : 'Learning objective not found'}
             </p>
-            <Button variant="outline" onClick={() => navigate(-1)}>
+            <Button variant="outline" onClick={() => navigate('/learn')}>
               <ArrowLeft className="mr-2 h-4 w-4" />
               Go Back
             </Button>
@@ -158,7 +184,7 @@ export default function LearningObjectivePage() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => navigate(-1)}
+              onClick={() => navigate(`/learn/course/${learningObjective.course_id}`)}
               className="mb-4"
             >
               <ArrowLeft className="mr-2 h-4 w-4" />
