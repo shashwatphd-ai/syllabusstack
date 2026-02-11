@@ -121,6 +121,14 @@ export const MODELS = {
   CLAUDE_SONNET: 'anthropic/claude-sonnet-4',
   CLAUDE_HAIKU: 'anthropic/claude-3.5-haiku',
   AUTO: 'openrouter/auto',
+
+  // =========================================================================
+  // AUDIO GENERATION - Text-to-Speech via GPT Audio
+  // Used by: generate-lecture-audio
+  // Requires: modalities: ['text', 'audio'] and audio: { voice, format }
+  // =========================================================================
+  AUDIO: 'openai/gpt-audio-mini',          // Cost-efficient, natural voices
+  AUDIO_HD: 'openai/gpt-audio',            // Higher quality, more expensive
 } as const;
 
 export type ModelKey = keyof typeof MODELS;
@@ -190,6 +198,13 @@ export interface OpenRouterOptions {
     allow_fallbacks?: boolean;
     require_parameters?: boolean;
   };
+
+  // Audio output support (GPT Audio models)
+  modalities?: string[];     // e.g., ['text', 'audio']
+  audio?: {
+    voice: string;           // onyx, nova, echo, alloy, fable, shimmer
+    format: string;          // 'wav' or 'pcm16'
+  };
 }
 
 /**
@@ -216,6 +231,12 @@ export interface OpenRouterResponse {
       role: 'assistant';
       content: string | null;
       tool_calls?: ToolCall[];
+      audio?: {
+        id: string;
+        data: string;          // base64-encoded audio
+        transcript?: string;
+        expires_at: number;
+      };
     };
     finish_reason: string;
   }[];
@@ -347,6 +368,14 @@ export async function callOpenRouter(
   // OpenRouter-specific: provider preferences
   if (options.provider) {
     body.provider = options.provider;
+  }
+
+  // Audio output support (GPT Audio models)
+  if (options.modalities) {
+    body.modalities = options.modalities;
+  }
+  if (options.audio) {
+    body.audio = options.audio;
   }
 
   const response = await fetch(`${OPENROUTER_API_BASE}/chat/completions`, {

@@ -10,7 +10,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useState } from 'react';
 
 /**
- * Generate TTS audio for lecture slides using Google Cloud WaveNet
+ * Generate TTS audio for lecture slides using GPT Audio via OpenRouter
  */
 export function useGenerateLectureAudio() {
   const queryClient = useQueryClient();
@@ -20,15 +20,15 @@ export function useGenerateLectureAudio() {
   const mutation = useMutation({
     mutationFn: async ({
       slideId,
-      voice = 'en-US-Wavenet-D'
+      voiceId = 'onyx'
     }: {
       slideId: string;
-      voice?: string;
+      voiceId?: string;
     }) => {
       setIsGenerating(true);
 
       const { data, error } = await supabase.functions.invoke('generate-lecture-audio', {
-        body: { slideId, voice }
+        body: { slideId, voiceId }
       });
 
       if (error) {
