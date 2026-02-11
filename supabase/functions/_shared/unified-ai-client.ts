@@ -11,8 +11,9 @@
 // ARCHITECTURE (Updated 2026-02-06 - Provider Toggle Support):
 //   - Text generation → OpenRouter (MODELS.PROFESSOR_AI, MODELS.FAST, etc.)
 //   - Image generation → Controlled by IMAGE_PROVIDER env var:
-//       • 'openrouter' (default): OpenRouter API
-//       • 'google': Native Google Generative Language API
+//       • 'openrouter' (default): OpenRouter API (Gemini 3 Pro Image)
+//       • 'google': Native Vertex AI (Gemini 3 Pro Image - same model, GCP billing)
+//       • 'google': Native Vertex AI (Gemini 3 Pro Image - GCP billing)
 //   - Research/grounding → OpenRouter (MODELS.RESEARCH = perplexity/sonar-pro)
 //   - Syllabus parsing → OpenRouter (MODELS.PARSING = gemini-2.5-flash)
 //
@@ -28,7 +29,7 @@
 //   | Operation     | Provider         | Model                           |
 //   |---------------|------------------|----------------------------------|
 //   | Slide Content | OpenRouter/Vertex| google/gemini-3-flash-preview    |
-//   | Images        | OpenRouter/Google| imagen-4.0-ultra-generate-001    |
+//   | Images        | OpenRouter/Google| gemini-3-pro-image-preview       |
 //   | Research      | OpenRouter       | perplexity/sonar-pro             |
 //   | Parsing       | OpenRouter       | google/gemini-2.5-flash          |
 //   | Reasoning     | OpenRouter       | deepseek/deepseek-r1             |
@@ -68,11 +69,11 @@ export type Provider = 'openrouter' | 'google_direct' | 'google' | 'vertex';
 // Image provider configuration - read from environment
 const IMAGE_PROVIDER = Deno.env.get('IMAGE_PROVIDER') || 'openrouter';
 
-// Vertex AI image models - using Imagen 4 Ultra for GA auto-scaling quotas
-// Reference: https://cloud.google.com/vertex-ai/generative-ai/docs/models/imagen/4-0-ultra-generate-001
+// Vertex AI image models - using Gemini 3 Pro Image for text-faithful educational diagrams
+// Uses :generateContent endpoint (same as OpenRouter path) instead of Imagen's :predict
 const VERTEX_IMAGE_MODELS = {
-  PRIMARY: 'imagen-4.0-ultra-generate-001',   // Imagen 4 Ultra - GA with auto-scaling
-  FALLBACK: 'imagen-4.0-ultra-generate-001',  // Same model, Vertex AI handles availability
+  PRIMARY: 'gemini-3-pro-image-preview',       // Gemini 3 Pro Image - text-faithful diagrams
+  FALLBACK: 'gemini-2.5-flash-preview-image-generation',  // Fallback - lighter model
 } as const;
 
 export interface AIRequest {
@@ -557,13 +558,15 @@ async function generateImageOpenRouter(request: {
 }
 
 /**
- * Generate an image using Vertex AI Imagen 4 Ultra (Google Cloud)
+ * Generate an image using Vertex AI Gemini 3 Pro Image (Google Cloud)
  * 
- * Uses OAuth authentication via GCP_SERVICE_ACCOUNT_KEY for Vertex AI access.
- * Endpoint: https://{region}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/google/models/{model}:predict
+ * Uses the :generateContent endpoint (same format as OpenRouter Gemini path)
+ * with OAuth authentication via GCP_SERVICE_ACCOUNT_KEY.
  * 
- * Model: imagen-4.0-ultra-generate-001 (GA with auto-scaling quotas)
- * Reference: https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/imagen-api
+ * This gives us GCP billing + text-faithful educational diagrams (same quality
+ * as the OpenRouter path but billed to GCP credits instead of OpenRouter).
+ * 
+ * Endpoint: https://{region}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/google/models/{model}:generateContent
  * 
  * @internal
  */
@@ -575,7 +578,7 @@ async function generateImageGoogle(request: {
   logPrefix?: string;
 }): Promise<ImageResult> {
   const startTime = Date.now();
-  const logPrefix = request.logPrefix || '[Image-Imagen4]';
+  const logPrefix = request.logPrefix || '[Image-GCP-Gemini]';
 
   // Validate configuration - uses GCP service account for OAuth
   const serviceAccountKey = Deno.env.get('GCP_SERVICE_ACCOUNT_KEY');
@@ -593,192 +596,181 @@ async function generateImageGoogle(request: {
     };
   }
 
-  // Model selection - using Imagen 4 Ultra (GA with proper quotas)
-  const model = VERTEX_IMAGE_MODELS.PRIMARY;
-  
-  console.log(`${logPrefix} Generating image via Vertex AI Imagen 4 (${model})`);
-  console.log(`${logPrefix} Prompt: ${request.prompt.substring(0, 100)}...`);
+  // Model selection with fallback
+  const primaryModel = request.useFreeModel
+    ? VERTEX_IMAGE_MODELS.FALLBACK
+    : VERTEX_IMAGE_MODELS.PRIMARY;
+  const fallbackModel = VERTEX_IMAGE_MODELS.FALLBACK;
 
-  try {
-    // Initialize Vertex AI auth and get access token
-    const auth = createVertexAIAuth();
-    const accessToken = await auth.getAccessToken();
-    const projectId = getGCPProjectId(auth);
-    const region = getGCPRegion();
+  for (const model of [primaryModel, fallbackModel]) {
+    const isRetry = model === fallbackModel && model !== primaryModel;
 
-    console.log(`${logPrefix} Using project: ${projectId}, region: ${region}`);
+    if (isRetry) {
+      console.log(`${logPrefix} Retrying with fallback model: ${model}`);
+    } else {
+      console.log(`${logPrefix} Generating image via Vertex AI Gemini (${model})`);
+    }
+    console.log(`${logPrefix} Prompt: ${request.prompt.substring(0, 100)}...`);
 
-    // Convert aspect ratio format for Imagen 4
-    // Supported: 1:1, 3:4, 4:3, 9:16, 16:9
-    const aspectRatio = request.aspectRatio || '16:9';
+    try {
+      // Initialize Vertex AI auth and get access token
+      const auth = createVertexAIAuth();
+      const accessToken = await auth.getAccessToken();
+      const projectId = getGCPProjectId(auth);
+      // IMPORTANT: Gemini models on Vertex AI do NOT support the 'global' region
+      // for :generateContent (returns 404). Override to us-central1 if global.
+      // Imagen models used 'global', but Gemini requires a real regional endpoint.
+      const rawRegion = getGCPRegion();
+      const region = rawRegion === 'global' ? 'us-central1' : rawRegion;
 
-    // Prepend system context to prompt for Imagen 4 (no system message support).
-    // Imagen only accepts a raw prompt string, so we prefix the educational framing
-    // to match the system message we send on the OpenRouter path.
-    const framedPrompt = `Educational diagram for a university lecture slide. Clean infographic style, white background, professional academic design. All text labels spelled correctly and placed inside shapes. Flat design with meaningful colors. No decorative borders, watermarks, or stock-photo elements.\n\n${request.prompt}`;
+      console.log(`${logPrefix} Using project: ${projectId}, region: ${region} (raw: ${rawRegion})`);
 
-    // Build request body for Vertex AI Imagen API (:predict endpoint)
-    // Reference: https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/imagen-api
-    const body = {
-      instances: [
-        {
-          prompt: framedPrompt,
+      // Build Gemini generateContent request body
+      // Same structure as OpenRouter but using native Vertex AI format
+      const body: Record<string, unknown> = {
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text: request.prompt }],
+          },
+        ],
+        systemInstruction: {
+          parts: [
+            {
+              text: 'You are an educational diagram generator for university lecture slides. Generate a single clean, professional infographic-style diagram on a white background. The image must be visually clear at presentation scale (1920x1080). All text labels in the image must be spelled correctly and placed inside shapes. Use flat design with meaningful colors. Do not include decorative borders, watermarks, or stock-photo elements.',
+            },
+          ],
         },
-      ],
-      parameters: {
-        sampleCount: 1,
-        aspectRatio: aspectRatio,
-        // Output format - PNG for best quality
-        outputOptions: {
-          mimeType: 'image/png',
-        },
-        // CRITICAL: Disable prompt rewriter to preserve exact text labels.
-        // When enabled (default), Imagen's LLM-based rewriter adds/alters prompt
-        // details which causes misspelled labels, missing words, and text
-        // placed outside shapes. Our prompts are already optimized with explicit
-        // quoted labels and spatial layout instructions.
-        enhancePrompt: false,
-        // Safety settings - allow person generation for educational diagrams
-        personGeneration: 'allow_adult',
-        // Add watermark for content verification
-        addWatermark: true,
-      },
-    };
-
-    // Vertex AI endpoint format for Imagen (:predict instead of :generateContent)
-    // Reference: https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/imagen-api
-    const baseUrl = region === 'global'
-      ? 'https://aiplatform.googleapis.com'
-      : `https://${region}-aiplatform.googleapis.com`;
-    const endpoint = `${baseUrl}/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:predict`;
-    
-    console.log(`${logPrefix} Endpoint: ${endpoint}`);
-    
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    });
-
-    // Handle HTTP errors explicitly
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`${logPrefix} Vertex AI error ${response.status}:`, errorText.substring(0, 500));
-
-      return {
-        success: false,
-        error: {
-          code: 'GOOGLE_ERROR',
-          message: `Vertex AI returned HTTP ${response.status}: ${response.statusText}`,
-          provider: 'google',
-          model,
-          httpStatus: response.status,
-          rawError: errorText.substring(0, 500),
+        generationConfig: {
+          responseModalities: ['IMAGE', 'TEXT'],
+          maxOutputTokens: 4096,
         },
       };
-    }
 
-    const data = await response.json();
+      // Vertex AI endpoint for Gemini models (:generateContent)
+      const baseUrl = region === 'global'
+        ? 'https://aiplatform.googleapis.com'
+        : `https://${region}-aiplatform.googleapis.com`;
+      const endpoint = `${baseUrl}/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:generateContent`;
 
-    // Parse Imagen 4 response format
-    // Response structure: { predictions: [{ bytesBase64Encoded: "...", mimeType: "image/png" }] }
-    const extracted = extractImageFromImagenResponse(data, logPrefix);
+      console.log(`${logPrefix} Endpoint: ${endpoint}`);
 
-    if (!extracted) {
-      console.error(`${logPrefix} Could not extract image from Imagen response`);
-      console.error(`${logPrefix} Response keys:`, Object.keys(data));
-      
-      return {
-        success: false,
-        error: {
-          code: 'INVALID_RESPONSE',
-          message: 'Could not extract image data from Imagen response. Response format may have changed.',
-          provider: 'google',
-          model,
-          rawError: JSON.stringify(data).substring(0, 500),
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
         },
-      };
-    }
+        body: JSON.stringify(body),
+      });
 
-    const latency_ms = Date.now() - startTime;
-    const imageKB = Math.round(extracted.base64.length / 1024);
-    console.log(`${logPrefix} ✓ Image generated successfully in ${latency_ms}ms (${imageKB}KB) model=${model}`);
+      // Handle HTTP errors explicitly
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`${logPrefix} Vertex AI error ${response.status}:`, errorText.substring(0, 500));
 
-    return {
-      success: true,
-      base64: extracted.base64,
-      mimeType: extracted.mimeType,
-      textResponse: undefined, // Imagen doesn't return text
-      provider: 'google',
-      model,
-      cost_usd: IMAGE_COST_USD,
-      latency_ms,
-      usedFallback: false, // Vertex AI path has no fallback chain
-    };
+        // On retriable errors, try fallback
+        const isRetriableError = response.status >= 500 || response.status === 402 || response.status === 403 || response.status === 429;
+        if (isRetriableError && model === primaryModel && model !== fallbackModel) {
+          console.warn(`${logPrefix} HTTP ${response.status} error, trying fallback model (${fallbackModel})...`);
+          continue;
+        }
 
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`${logPrefix} Exception during image generation:`, errorMessage);
+        return {
+          success: false,
+          error: {
+            code: 'GOOGLE_ERROR',
+            message: `Vertex AI returned HTTP ${response.status}: ${response.statusText}`,
+            provider: 'google',
+            model,
+            httpStatus: response.status,
+            rawError: errorText.substring(0, 500),
+          },
+        };
+      }
 
-    return {
-      success: false,
-      error: {
-        code: 'IMAGE_GENERATION_FAILED',
-        message: `Image generation failed with exception: ${errorMessage}`,
+      const data = await response.json();
+
+      // Parse Gemini response format (candidates → content → parts → inlineData)
+      // Reuse the existing extractImageFromGoogleResponse parser
+      const extracted = extractImageFromGoogleResponse(data, logPrefix);
+
+      if (!extracted) {
+        console.error(`${logPrefix} Could not extract image from Gemini response`);
+        console.error(`${logPrefix} Response keys:`, Object.keys(data));
+
+        // If primary model fails extraction, try fallback
+        if (model === primaryModel && model !== fallbackModel) {
+          console.warn(`${logPrefix} Failed extraction from ${model}, trying fallback...`);
+          continue;
+        }
+
+        return {
+          success: false,
+          error: {
+            code: 'INVALID_RESPONSE',
+            message: 'Could not extract image data from Vertex AI Gemini response.',
+            provider: 'google',
+            model,
+            rawError: JSON.stringify(data).substring(0, 500),
+          },
+        };
+      }
+
+      const latency_ms = Date.now() - startTime;
+      const imageKB = Math.round(extracted.base64.length / 1024);
+      console.log(`${logPrefix} ✓ Image generated successfully in ${latency_ms}ms (${imageKB}KB) model=${model}${isRetry ? ' [FALLBACK]' : ''}`);
+
+      return {
+        success: true,
+        base64: extracted.base64,
+        mimeType: extracted.mimeType,
+        textResponse: extracted.textResponse,
         provider: 'google',
-        model: VERTEX_IMAGE_MODELS.PRIMARY,
-        rawError: errorMessage,
-      },
-    };
+        model,
+        cost_usd: IMAGE_COST_USD,
+        latency_ms,
+        usedFallback: isRetry,
+      };
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`${logPrefix} Exception during image generation with ${model}:`, errorMessage);
+
+      // If primary model throws, try fallback
+      if (model === primaryModel && model !== fallbackModel) {
+        console.warn(`${logPrefix} Exception with ${model}, trying fallback...`);
+        continue;
+      }
+
+      return {
+        success: false,
+        error: {
+          code: 'IMAGE_GENERATION_FAILED',
+          message: `Image generation failed with exception: ${errorMessage}`,
+          provider: 'google',
+          model,
+          rawError: errorMessage,
+        },
+      };
+    }
   }
+
+  // If we get here, all models failed
+  return {
+    success: false,
+    error: {
+      code: 'IMAGE_GENERATION_FAILED',
+      message: 'All GCP image generation models failed',
+      provider: 'google',
+      model: primaryModel,
+    },
+  };
 }
 
-/**
- * Extract base64 image from Imagen 4 API response
- * 
- * Imagen's response format:
- * {
- *   predictions: [{
- *     bytesBase64Encoded: "base64...",
- *     mimeType: "image/png"
- *   }]
- * }
- * 
- * @internal
- */
-function extractImageFromImagenResponse(
-  data: Record<string, unknown>,
-  logPrefix: string
-): { base64: string; mimeType: string } | null {
-  try {
-    const predictions = data.predictions as Array<Record<string, unknown>> | undefined;
-    if (!predictions || predictions.length === 0) {
-      console.warn(`${logPrefix} No predictions in response`);
-      return null;
-    }
-
-    const prediction = predictions[0];
-    const base64 = prediction.bytesBase64Encoded as string | undefined;
-    const mimeType = (prediction.mimeType as string) || 'image/png';
-
-    if (!base64) {
-      console.warn(`${logPrefix} No bytesBase64Encoded in prediction`);
-      console.warn(`${logPrefix} Prediction keys:`, Object.keys(prediction));
-      return null;
-    }
-
-    console.log(`${logPrefix} Found Imagen image: ${mimeType}`);
-    return { base64, mimeType };
-
-  } catch (error) {
-    console.error(`${logPrefix} Error parsing Imagen response:`, error);
-    return null;
-  }
-}
-
+// NOTE: extractImageFromImagenResponse removed — no longer needed since GCP path
+// now uses Gemini (:generateContent) instead of Imagen (:predict).
+// The extractImageFromGoogleResponse function handles Gemini's response format.
 /**
  * Extract base64 image from Google Generative Language API response
  * 

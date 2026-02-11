@@ -27,7 +27,7 @@ import { buildImagePrompt } from '../_shared/image-prompt-builder.ts';
 //   | Operation      | Provider   | Model                              |
 //   |----------------|------------|------------------------------------|
 //   | Professor AI   | OpenRouter | google/gemini-3-flash-preview      |
-//   | Images         | OpenRouter | google/gemini-3-pro-image-preview  |
+//   | Images         | OpenRouter/GCP | gemini-3-pro-image-preview       |
 //   | Research Agent | OpenRouter | perplexity/sonar-pro               |
 //
 // All AI operations route through OpenRouter via unified-ai-client.ts
