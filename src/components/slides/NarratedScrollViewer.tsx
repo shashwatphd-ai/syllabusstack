@@ -116,15 +116,38 @@ export function NarratedScrollViewer({
     return () => observer.disconnect();
   }, [slides.length, onSlideVisible]);
 
-  // Audio-scroll sync: scroll active block into view
+  // Audio-scroll sync: scroll active block into view (using composite IDs)
   useEffect(() => {
     if (!activeBlockId || !isAudioPlaying) return;
     const timeSinceManual = Date.now() - lastManualScrollRef.current;
     if (timeSinceManual < 3000) return;
 
-    const el = scrollContainerRef.current?.querySelector(`[data-block-id="${activeBlockId}"]`);
+    const compositeId = `${currentAudioSlideIndex}_${activeBlockId}`;
+    const el = scrollContainerRef.current?.querySelector(`[data-block-id="${compositeId}"]`);
     el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, [activeBlockId, isAudioPlaying]);
+  }, [activeBlockId, isAudioPlaying, currentAudioSlideIndex]);
+
+  // Periodic re-scroll for long narration segments
+  useEffect(() => {
+    if (!activeBlockId || !isAudioPlaying) return;
+    const interval = setInterval(() => {
+      if (Date.now() - lastManualScrollRef.current < 3000) return;
+      const compositeId = `${currentAudioSlideIndex}_${activeBlockId}`;
+      const el = scrollContainerRef.current?.querySelector(`[data-block-id="${compositeId}"]`);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [activeBlockId, isAudioPlaying, currentAudioSlideIndex]);
+
+  // Scroll to new section on slide audio transition
+  useEffect(() => {
+    if (!isAudioPlaying) return;
+    if (Date.now() - lastManualScrollRef.current < 3000) return;
+    const section = scrollContainerRef.current?.querySelector(
+      `[data-slide-index="${currentAudioSlideIndex}"]`
+    );
+    section?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [currentAudioSlideIndex, isAudioPlaying]);
 
   const renderWithCitations = useCallback((text: string, className?: string) => {
     if (citations.length > 0) {
@@ -236,7 +259,7 @@ export function NarratedScrollViewer({
 
                 {/* Title */}
                 <h2
-                  data-block-id={`title_${slideIndex}`}
+                  data-block-id={`${slideIndex}_title`}
                   className={cn(
                     'font-bold mb-4 leading-tight',
                     slide.type === 'title'
@@ -259,7 +282,7 @@ export function NarratedScrollViewer({
                         return (
                           <div
                             key={index}
-                            data-block-id={isCurrentAudioSlide ? blockId : undefined}
+                            data-block-id={isCurrentAudioSlide ? `${slideIndex}_${blockId}` : undefined}
                             className={cn(
                               'flex items-start gap-3 p-3 rounded-lg transition-all duration-500',
                               isActive && 'bg-primary/15 ring-2 ring-primary/40 scale-[1.02]',
@@ -291,7 +314,7 @@ export function NarratedScrollViewer({
                     {/* Main text */}
                     {slide.content.main_text && (
                       <p
-                        data-block-id={isCurrentAudioSlide ? 'main_text' : undefined}
+                        data-block-id={isCurrentAudioSlide ? `${slideIndex}_main_text` : undefined}
                         className={cn(
                           'text-lg leading-relaxed transition-all duration-500',
                           isCurrentAudioSlide && activeBlockId === 'main_text' && 'bg-primary/10 ring-2 ring-primary/30 rounded-lg p-3 scale-[1.01]'
@@ -304,7 +327,7 @@ export function NarratedScrollViewer({
                     {/* Definition card */}
                     {slide.content.definition && (
                       <div
-                        data-block-id={isCurrentAudioSlide ? 'definition' : undefined}
+                        data-block-id={isCurrentAudioSlide ? `${slideIndex}_definition` : undefined}
                         className={cn(
                           'p-4 rounded-xl bg-blue-500/10 border border-blue-500/20 transition-all duration-500',
                           isCurrentAudioSlide && activeBlockId === 'definition' && 'ring-2 ring-blue-400/50 scale-[1.01]'
@@ -325,7 +348,7 @@ export function NarratedScrollViewer({
                     {/* Misconception card */}
                     {professor && (slide.content as any).misconception && (
                       <div
-                        data-block-id={isCurrentAudioSlide ? 'misconception' : undefined}
+                        data-block-id={isCurrentAudioSlide ? `${slideIndex}_misconception` : undefined}
                         className={cn(
                           'p-4 rounded-xl bg-red-500/10 border border-red-500/20 transition-all duration-500',
                           isCurrentAudioSlide && activeBlockId === 'misconception' && 'ring-2 ring-red-400/50 scale-[1.01]'
@@ -356,7 +379,7 @@ export function NarratedScrollViewer({
                           return (
                             <li
                               key={step.step}
-                              data-block-id={isCurrentAudioSlide ? blockId : undefined}
+                              data-block-id={isCurrentAudioSlide ? `${slideIndex}_${blockId}` : undefined}
                               className={cn(
                                 'flex gap-3 p-3 rounded-lg transition-all duration-500',
                                 isActive && 'bg-primary/10 ring-2 ring-primary/30 scale-[1.01]'
@@ -387,7 +410,7 @@ export function NarratedScrollViewer({
                             return (
                               <div
                                 key={index}
-                                data-block-id={isCurrentAudioSlide ? blockId : undefined}
+                                data-block-id={isCurrentAudioSlide ? `${slideIndex}_${blockId}` : undefined}
                               >
                                 <SlideContentBlock
                                   text={normalized.text}
@@ -401,7 +424,7 @@ export function NarratedScrollViewer({
                           return (
                             <div
                               key={index}
-                              data-block-id={isCurrentAudioSlide ? blockId : undefined}
+                              data-block-id={isCurrentAudioSlide ? `${slideIndex}_${blockId}` : undefined}
                               className={cn(
                                 'flex items-start gap-3 p-3 rounded-lg transition-all duration-500',
                                 isActive && 'bg-primary/15 ring-2 ring-primary/30 scale-[1.02]'
@@ -418,7 +441,7 @@ export function NarratedScrollViewer({
                     {/* Example card */}
                     {slide.content.example && (
                       <div
-                        data-block-id={isCurrentAudioSlide ? 'example' : undefined}
+                        data-block-id={isCurrentAudioSlide ? `${slideIndex}_example` : undefined}
                         className={cn(
                           'p-4 rounded-xl bg-green-500/10 border border-green-500/20 transition-all duration-500',
                           isCurrentAudioSlide && activeBlockId === 'example' && 'ring-2 ring-green-400/50 scale-[1.01]'
