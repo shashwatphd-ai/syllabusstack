@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Loader2, AlertTriangle, X, RotateCcw } from 'lucide-react';
+import { Loader2, AlertTriangle, X, RotateCcw, Clock, ArrowLeft } from 'lucide-react';
 import { QuestionCard } from './QuestionCard';
 import { AssessmentProgress } from './AssessmentProgress';
 import { AssessmentResults } from './AssessmentResults';
@@ -277,6 +277,31 @@ export function AssessmentSession({
 
   // Error state
   if (sessionState === 'error') {
+    const isNoQuestions = error?.toLowerCase().includes('no assessment questions')
+      || error?.toLowerCase().includes('not_found')
+      || error?.toLowerCase().includes('non-2xx');
+
+    if (isNoQuestions) {
+      return (
+        <Card>
+          <CardContent className="py-12 text-center space-y-4">
+            <Clock className="h-12 w-12 text-muted-foreground mx-auto" />
+            <h3 className="font-semibold text-lg">Assessment Not Ready Yet</h3>
+            <p className="text-sm text-muted-foreground max-w-sm mx-auto">
+              Assessment questions haven't been prepared for this topic yet.
+              Your instructor will make them available soon.
+            </p>
+            {onClose && (
+              <Button variant="outline" onClick={onClose}>
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Back to Learning
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      );
+    }
+
     return (
       <Card>
         <CardContent className="pt-6 text-center space-y-4">
