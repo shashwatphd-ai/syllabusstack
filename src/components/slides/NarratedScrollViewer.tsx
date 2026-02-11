@@ -210,7 +210,7 @@ export function NarratedScrollViewer({
         data-scroll-container
         className="flex-1 overflow-y-auto scroll-smooth"
       >
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 space-y-2">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 space-y-2">
           {slides.map((slide, slideIndex) => {
             const config = SLIDE_TYPE_CONFIG[slide.type] || SLIDE_TYPE_CONFIG.concept;
             const Icon = config.icon;
@@ -269,7 +269,7 @@ export function NarratedScrollViewer({
                     <div
                       className={cn(
                         'rounded-xl overflow-hidden bg-muted/30 shadow-md cursor-pointer group relative mb-4 sm:mb-0 flex-shrink-0',
-                        slide.type === 'title' ? 'w-full max-h-[250px] sm:max-h-[350px]' : 'w-full max-h-[250px] sm:max-h-none sm:w-[280px] sm:self-start sm:sticky sm:top-4'
+                        slide.type === 'title' ? 'w-full max-h-[250px] sm:max-h-[350px]' : 'w-full max-h-[250px] sm:max-h-none sm:w-[320px] sm:self-start sm:sticky sm:top-4'
                       )}
                       onClick={() => {
                         const url = signedUrlsRef.current[slideIndex];
@@ -279,7 +279,7 @@ export function NarratedScrollViewer({
                       <AuthenticatedImage
                         src={slide.visual!.url}
                         alt={slide.visual!.alt_text}
-                        className="w-full h-auto max-h-[250px] sm:max-h-[300px] object-contain group-hover:scale-[1.01] transition-transform"
+                        className="w-full h-auto max-h-[250px] sm:max-h-[360px] object-contain group-hover:scale-[1.01] transition-transform"
                         fallbackText={slide.visual!.fallback_description || slide.visual!.alt_text}
                         bucket="lecture-visuals"
                         onSignedUrlReady={(url) => { signedUrlsRef.current[slideIndex] = url; }}
