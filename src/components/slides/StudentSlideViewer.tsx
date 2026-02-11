@@ -6,14 +6,19 @@ import { Label } from '@/components/ui/label';
 import { 
   ChevronLeft, 
   ChevronRight, 
+  ChevronUp,
+  ChevronDown,
   X, 
   Play,
   Pause,
   MessageSquare,
   Volume2,
-  VolumeX
+  VolumeX,
+  ScrollText,
+  LayoutGrid
 } from 'lucide-react';
 import { SlideRenderer } from './SlideRenderer';
+import { NarratedScrollViewer } from './NarratedScrollViewer';
 import type { LectureSlide, Slide, ProfessorSlide, EnhancedSlide } from '@/hooks/useLectureSlides';
 import type { Citation } from '@/lib/citationParser';
 import { cn } from '@/lib/utils';
@@ -39,11 +44,13 @@ export function StudentSlideViewer({
   onComplete
 }: StudentSlideViewerProps) {
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
+  const [viewMode, setViewMode] = useState<'scroll' | 'slides'>('scroll');
   const [showSpeakerNotes, setShowSpeakerNotes] = useState(false);
   const [isAutoPlaying, setIsAutoPlaying] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const [highestSlideViewed, setHighestSlideViewed] = useState(0);
+  const [visibleScrollSlideIndex, setVisibleScrollSlideIndex] = useState(0);
   
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -279,6 +286,25 @@ export function StudentSlideViewer({
     setAudioEnabled(prev => !prev);
   };
 
+  // Callback from NarratedScrollViewer when a section becomes visible
+  const handleScrollSlideVisible = useCallback((index: number) => {
+    setVisibleScrollSlideIndex(index);
+    if (index > highestSlideViewed) {
+      setHighestSlideViewed(index);
+    }
+  }, [highestSlideViewed]);
+
+  // Scroll-mode section jump
+  const jumpToSection = useCallback((direction: 'up' | 'down') => {
+    const container = document.querySelector('[data-scroll-container]');
+    if (!container) return;
+    const targetIndex = direction === 'up'
+      ? Math.max(0, visibleScrollSlideIndex - 1)
+      : Math.min(slides.length - 1, visibleScrollSlideIndex + 1);
+    const section = container.querySelector(`[data-slide-index="${targetIndex}"]`);
+    section?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [visibleScrollSlideIndex, slides.length]);
+
   return (
     <div className="fixed inset-0 z-50 bg-background flex flex-col">
       {/* Header */}
@@ -348,18 +374,41 @@ export function StudentSlideViewer({
               </Button>
             )}
 
-            {/* Transcript toggle - hidden on mobile */}
-            <div className="hidden sm:flex items-center gap-2 pl-2 border-l">
-              <Switch
-                id="student-notes"
-                checked={showSpeakerNotes}
-                onCheckedChange={setShowSpeakerNotes}
-              />
-              <Label htmlFor="student-notes" className="text-sm flex items-center gap-1">
-                <MessageSquare className="h-3 w-3" />
-                Transcript
-              </Label>
-            </div>
+            {/* View mode toggle */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setViewMode(prev => prev === 'scroll' ? 'slides' : 'scroll')}
+              className="gap-1 px-2 sm:px-3"
+              title={viewMode === 'scroll' ? 'Switch to slide view' : 'Switch to scroll view'}
+            >
+              {viewMode === 'scroll' ? (
+                <>
+                  <LayoutGrid className="h-4 w-4" />
+                  <span className="hidden sm:inline">Slides</span>
+                </>
+              ) : (
+                <>
+                  <ScrollText className="h-4 w-4" />
+                  <span className="hidden sm:inline">Scroll</span>
+                </>
+              )}
+            </Button>
+
+            {/* Transcript toggle - only in slides mode, hidden on mobile */}
+            {viewMode === 'slides' && (
+              <div className="hidden sm:flex items-center gap-2 pl-2 border-l">
+                <Switch
+                  id="student-notes"
+                  checked={showSpeakerNotes}
+                  onCheckedChange={setShowSpeakerNotes}
+                />
+                <Label htmlFor="student-notes" className="text-sm flex items-center gap-1">
+                  <MessageSquare className="h-3 w-3" />
+                  Transcript
+                </Label>
+              </div>
+            )}
           </div>
 
           <Button
@@ -373,21 +422,34 @@ export function StudentSlideViewer({
         </div>
       </div>
 
-      {/* Main slide content */}
+      {/* Main content area */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="flex-1 p-3 sm:p-8 overflow-hidden max-w-5xl mx-auto w-full">
-          {currentSlide && (
-            <SlideRenderer
-              slide={currentSlide}
-              slideNumber={currentSlideIndex + 1}
-              totalSlides={slides.length}
-              showSpeakerNotes={showSpeakerNotes}
-              activeBlockId={activeBlockId}
-              citations={citations}
-              className="h-full"
-            />
-          )}
-        </div>
+        {viewMode === 'scroll' ? (
+          /* Narrated Scroll Mode */
+          <NarratedScrollViewer
+            slides={slides}
+            currentAudioSlideIndex={currentSlideIndex}
+            activeBlockId={activeBlockId}
+            isAudioPlaying={isAudioPlaying}
+            citations={citations}
+            onSlideVisible={handleScrollSlideVisible}
+          />
+        ) : (
+          /* Classic Slides Mode */
+          <div className="flex-1 p-3 sm:p-8 overflow-hidden max-w-5xl mx-auto w-full">
+            {currentSlide && (
+              <SlideRenderer
+                slide={currentSlide}
+                slideNumber={currentSlideIndex + 1}
+                totalSlides={slides.length}
+                showSpeakerNotes={showSpeakerNotes}
+                activeBlockId={activeBlockId}
+                citations={citations}
+                className="h-full"
+              />
+            )}
+          </div>
+        )}
 
         {/* Audio playing indicator */}
         {isAudioPlaying && (
@@ -398,59 +460,91 @@ export function StudentSlideViewer({
         )}
 
         {/* Navigation footer */}
-        <div className="flex items-center justify-between px-3 sm:px-6 py-3 sm:py-4 border-t bg-background/95">
-          <Button
-            variant="outline"
-            size="default"
-            onClick={goToPreviousSlide}
-            disabled={currentSlideIndex === 0}
-            className="min-w-16 sm:min-w-32 px-2 sm:px-4"
-          >
-            <ChevronLeft className="h-5 w-5 sm:mr-1" />
-            <span className="hidden sm:inline">Previous</span>
-          </Button>
+        {viewMode === 'slides' ? (
+          /* Classic slide navigation */
+          <div className="flex items-center justify-between px-3 sm:px-6 py-3 sm:py-4 border-t bg-background/95">
+            <Button
+              variant="outline"
+              size="default"
+              onClick={goToPreviousSlide}
+              disabled={currentSlideIndex === 0}
+              className="min-w-16 sm:min-w-32 px-2 sm:px-4"
+            >
+              <ChevronLeft className="h-5 w-5 sm:mr-1" />
+              <span className="hidden sm:inline">Previous</span>
+            </Button>
 
-          {/* Slide dots */}
-          <div className="flex items-center gap-1 max-w-[40vw] sm:max-w-md overflow-x-auto py-2">
-            {slides.map((_, index) => (
-              <button
-                key={index}
-                onClick={() => {
-                  if (audioRef.current) audioRef.current.pause();
-                  setCurrentSlideIndex(index);
-                }}
-                className={cn(
-                  "w-2 h-2 rounded-full transition-all shrink-0",
-                  index === currentSlideIndex
-                    ? "w-4 sm:w-6 bg-primary"
-                    : index <= highestSlideViewed
-                    ? "bg-primary/50 hover:bg-primary/70"
-                    : "bg-muted hover:bg-muted-foreground/30"
-                )}
-                aria-label={`Go to slide ${index + 1}`}
-              />
-            ))}
+            <div className="flex items-center gap-1 max-w-[40vw] sm:max-w-md overflow-x-auto py-2">
+              {slides.map((_, index) => (
+                <button
+                  key={index}
+                  onClick={() => {
+                    if (audioRef.current) audioRef.current.pause();
+                    setCurrentSlideIndex(index);
+                  }}
+                  className={cn(
+                    "w-2 h-2 rounded-full transition-all shrink-0",
+                    index === currentSlideIndex
+                      ? "w-4 sm:w-6 bg-primary"
+                      : index <= highestSlideViewed
+                      ? "bg-primary/50 hover:bg-primary/70"
+                      : "bg-muted hover:bg-muted-foreground/30"
+                  )}
+                  aria-label={`Go to slide ${index + 1}`}
+                />
+              ))}
+            </div>
+
+            <Button
+              variant={currentSlideIndex === slides.length - 1 ? "default" : "outline"}
+              size="default"
+              onClick={goToNextSlide}
+              className="min-w-16 sm:min-w-32 px-2 sm:px-4"
+            >
+              {currentSlideIndex === slides.length - 1 ? (
+                <>
+                  <span className="hidden sm:inline">Complete</span>
+                  <span className="sm:hidden">Done</span>
+                </>
+              ) : (
+                <>
+                  <span className="hidden sm:inline">Next</span>
+                  <ChevronRight className="h-5 w-5 sm:ml-1" />
+                </>
+              )}
+            </Button>
           </div>
-
-          <Button
-            variant={currentSlideIndex === slides.length - 1 ? "default" : "outline"}
-            size="default"
-            onClick={goToNextSlide}
-            className="min-w-16 sm:min-w-32 px-2 sm:px-4"
-          >
-            {currentSlideIndex === slides.length - 1 ? (
-              <>
-                <span className="hidden sm:inline">Complete</span>
-                <span className="sm:hidden">Done</span>
-              </>
-            ) : (
-              <>
-                <span className="hidden sm:inline">Next</span>
-                <ChevronRight className="h-5 w-5 sm:ml-1" />
-              </>
-            )}
-          </Button>
-        </div>
+        ) : (
+          /* Scroll mode footer */
+          <div className="flex items-center justify-between px-3 sm:px-6 py-3 sm:py-4 border-t bg-background/95">
+            <span className="text-sm text-muted-foreground">
+              § {visibleScrollSlideIndex + 1} of {slides.length}
+            </span>
+            <span className="hidden sm:inline text-sm text-muted-foreground">
+              ~{Math.max(1, Math.round(((slides.length - visibleScrollSlideIndex - 1) / slides.length) * (lectureSlide.estimated_duration_minutes || 10)))} min remaining
+            </span>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => jumpToSection('up')}
+                disabled={visibleScrollSlideIndex === 0}
+                className="h-8 w-8"
+              >
+                <ChevronUp className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => jumpToSection('down')}
+                disabled={visibleScrollSlideIndex === slides.length - 1}
+                className="h-8 w-8"
+              >
+                <ChevronDown className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
