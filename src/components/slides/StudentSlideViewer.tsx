@@ -54,6 +54,17 @@ export function StudentSlideViewer({
   
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  // Guarantee audio stops on unmount (covers all exit paths: close, back nav, sidebar)
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+        audioRef.current = null;
+      }
+    };
+  }, []);
+
   const slides = lectureSlide.slides;
   const currentSlide = slides[currentSlideIndex];
   const progress = ((highestSlideViewed + 1) / slides.length) * 100;
@@ -292,7 +303,14 @@ export function StudentSlideViewer({
     if (index > highestSlideViewed) {
       setHighestSlideViewed(index);
     }
-  }, [highestSlideViewed]);
+    // Sync audio to the section the user scrolled to
+    if (index !== currentSlideIndex) {
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      setCurrentSlideIndex(index);
+    }
+  }, [highestSlideViewed, currentSlideIndex]);
 
   // Scroll-mode section jump
   const jumpToSection = useCallback((direction: 'up' | 'down') => {
@@ -301,6 +319,11 @@ export function StudentSlideViewer({
     const targetIndex = direction === 'up'
       ? Math.max(0, visibleScrollSlideIndex - 1)
       : Math.min(slides.length - 1, visibleScrollSlideIndex + 1);
+    // Stop current audio and sync narration to the target section
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+    setCurrentSlideIndex(targetIndex);
     const section = container.querySelector(`[data-slide-index="${targetIndex}"]`);
     section?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [visibleScrollSlideIndex, slides.length]);
