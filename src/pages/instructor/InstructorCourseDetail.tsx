@@ -95,6 +95,21 @@ export default function InstructorCourseDetailPage() {
   // Calculate slide stats.
   // Prefer backend-computed counts (poll-batch-status) because Realtime can be flaky on some networks.
   // Fallback to local lectureSlides-derived counts when status API isn't available yet.
+  // Helper: count published slides that have at least one visual without a URL
+  const publishedMissingImages = useMemo(() => {
+    if (!lectureSlides) return 0;
+    return lectureSlides.filter(ls => {
+      if (ls.status !== 'published' && ls.status !== 'ready') return false;
+      // Check if any slide in the JSONB array has a visual that needs an image but lacks a URL
+      return (ls.slides || []).some((s: any) => {
+        const visual = s.visual;
+        if (!visual) return false;
+        if (visual.type === 'none') return false;
+        return !visual.url;
+      });
+    }).length;
+  }, [lectureSlides]);
+
   const slidesStats = useMemo(() => {
     if (slideStatus?.success) {
       return {
@@ -111,8 +126,6 @@ export default function InstructorCourseDetailPage() {
       total: lectureSlides?.length || 0,
       ready: lectureSlides?.filter(s => s.status === 'ready').length || 0,
       published: lectureSlides?.filter(s => s.status === 'published').length || 0,
-      // NOTE: Includes both legacy 'pending' and new 'batch_pending' statuses
-      // Cast to string for comparison since auto-generated types may not include 'batch_pending' yet
       pending: lectureSlides?.filter(s => (s.status as string) === 'pending' || (s.status as string) === 'batch_pending').length || 0,
       generating: lectureSlides?.filter(s => s.status === 'generating').length || 0,
       failed: lectureSlides?.filter(s => s.status === 'failed').length || 0,
@@ -612,8 +625,8 @@ export default function InstructorCourseDetailPage() {
                         </Button>
                       )}
                       
-                      {/* Generate Images Button - visible when slides are ready but need images */}
-                      {slidesStats.ready > 0 && (
+                      {/* Generate Images Button - visible when slides are ready OR published slides have missing images */}
+                      {(slidesStats.ready > 0 || publishedMissingImages > 0) && (
                         <Button
                           variant="outline"
                           className="gap-2 h-9 flex-1 sm:flex-none"
@@ -649,8 +662,10 @@ export default function InstructorCourseDetailPage() {
                           ) : (
                             <>
                               <Image className="h-4 w-4" />
-                              <span className="hidden sm:inline">Generate Images</span>
-                              <span className="sm:hidden">Images</span>
+                              <span className="hidden sm:inline">
+                                Generate Images{publishedMissingImages > 0 ? ` (${publishedMissingImages} missing)` : ''}
+                              </span>
+                              <span className="sm:hidden">Images{publishedMissingImages > 0 ? ` (${publishedMissingImages})` : ''}</span>
                             </>
                           )}
                         </Button>
