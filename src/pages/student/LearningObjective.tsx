@@ -184,7 +184,7 @@ export default function LearningObjectivePage() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => navigate(`/learn/course/${learningObjective.course_id}`)}
+              onClick={() => navigate(`/learn/course/${learningObjective.instructor_course_id}`)}
               className="mb-4"
             >
               <ArrowLeft className="mr-2 h-4 w-4" />
