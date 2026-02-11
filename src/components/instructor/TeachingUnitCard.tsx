@@ -16,7 +16,8 @@ import {
   Video,
   Lightbulb,
   ArrowRight,
-  Presentation
+  Presentation,
+  XCircle
 } from 'lucide-react';
 import { TeachingUnit } from '@/hooks/useTeachingUnits';
 import { ContentMatch } from '@/hooks/useLearningObjectives';
@@ -33,6 +34,7 @@ interface TeachingUnitCardProps {
   contentMatches: ContentMatch[];
   onSearch: (unit: TeachingUnit) => void;
   onCreateLecture?: (unit: TeachingUnit) => void;
+  onCancelQueuedSlide?: (teachingUnitId: string) => void;
   isSearching: boolean;
   isGeneratingSlides?: boolean;
   generationProgress?: GenerationProgress | null;
@@ -77,6 +79,7 @@ export const TeachingUnitCard = memo(function TeachingUnitCard({
   contentMatches, 
   onSearch, 
   onCreateLecture,
+  onCancelQueuedSlide,
   isSearching,
   isGeneratingSlides,
   generationProgress,
@@ -154,12 +157,49 @@ export const TeachingUnitCard = memo(function TeachingUnitCard({
               {/* Lecture status/button */}
               {onCreateLecture && (
                 <>
-                  {/* Pending status - slide record exists but waiting to be processed */}
+                  {/* Pending status - actionable Cancel + Generate buttons */}
                   {existingSlides?.status === 'pending' && (
-                    <Badge variant="outline" className="text-xs py-0.5 border-blue-500 text-blue-600">
-                      <Clock className="h-3 w-3 mr-1" />
-                      Queued
-                    </Badge>
+                    <div className="flex items-center gap-1">
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onCancelQueuedSlide?.(unit.id);
+                              }}
+                              className="gap-1 h-7 text-xs text-muted-foreground hover:text-destructive"
+                            >
+                              <XCircle className="h-3 w-3" />
+                              Cancel
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Remove queued placeholder so you can re-trigger</TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onCreateLecture?.(unit);
+                              }}
+                              disabled={isGeneratingSlides}
+                              className="gap-1 h-7 text-xs border-blue-500 text-blue-600"
+                            >
+                              <Presentation className="h-3 w-3" />
+                              Generate
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Generate lecture slides now</TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
                   )}
 
                   {/* Preparing/Batch pending status - batch is being set up or processing */}

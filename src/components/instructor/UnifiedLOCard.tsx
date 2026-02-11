@@ -9,7 +9,7 @@ import { LearningObjective, ContentMatch, useContentMatches, useSearchYouTubeCon
 import { useVideoOtherMatches } from '@/hooks/useVideoOtherMatches';
 import { useGenerateMicroChecks } from '@/hooks/useAssessment';
 import { useTeachingUnits, useDecomposeLearningObjective, useSearchForTeachingUnit, TeachingUnit } from '@/hooks/useTeachingUnits';
-import { useCourseLectureSlides, useGenerateLectureSlides } from '@/hooks/useLectureSlides';
+import { useCourseLectureSlides, useGenerateLectureSlides, useCancelQueuedSlide } from '@/hooks/useLectureSlides';
 import { VideoPreviewModal } from './VideoPreviewModal';
 import { ManualContentSearch } from './ManualContentSearch';
 import { AddVideoByURL } from './AddVideoByURL';
@@ -81,7 +81,8 @@ export const UnifiedLOCard = memo(function UnifiedLOCard({ learningObjective, co
   // Lecture Slides integration
   const { data: courseLectureSlides } = useCourseLectureSlides(learningObjective.instructor_course_id || undefined);
   const generateSlidesMutation = useGenerateLectureSlides();
-  
+  const cancelQueuedSlideMutation = useCancelQueuedSlide();
+
   // Map teaching unit IDs to their slides
   const slidesByUnitId = (courseLectureSlides || []).reduce((acc, slide) => {
     acc[slide.teaching_unit_id] = slide;
@@ -351,6 +352,7 @@ export const UnifiedLOCard = memo(function UnifiedLOCard({ learningObjective, co
                           onSearch={() => searchForUnit.mutate(unit.id)}
                           isSearching={searchForUnit.isSearching(unit.id)}
                           onCreateLecture={handleCreateLecture}
+                          onCancelQueuedSlide={(teachingUnitId) => cancelQueuedSlideMutation.mutate({ teachingUnitId })}
                           isGeneratingSlides={generateSlidesMutation.isPending && generateSlidesMutation.variables?.teachingUnitId === unit.id}
                           generationProgress={generateSlidesMutation.isPending && generateSlidesMutation.variables?.teachingUnitId === unit.id ? generateSlidesMutation.progress : null}
                           existingSlides={slidesByUnitId[unit.id] || null}

@@ -180,6 +180,8 @@ const handler = async (req: Request): Promise<Response> => {
 
     const unitsToProcess = units.filter(unit => {
       const status = existingMap.get(unit.id);
+      // Skip units that already have content or are actively being processed
+      // BUT include 'pending' (orphan) and 'failed' records — they should be re-processed
       if (status === 'ready' || status === 'published' || status === 'generating' ||
           status === 'batch_pending' || status === 'preparing') {
         return false;
