@@ -69,6 +69,7 @@ export function StudentSlideViewer({
         audioRef.current.src = '';
         audioRef.current = null;
       }
+      setAudioRef(null);
     };
   }, []);
 
@@ -80,6 +81,7 @@ export function StudentSlideViewer({
         audioRef.current.src = '';
         audioRef.current = null;
       }
+      setAudioRef(null);
     };
   }, [location.pathname]);
 
@@ -243,8 +245,10 @@ export function StudentSlideViewer({
         audioRef.current.removeEventListener('ended', handleEnded);
         audioRef.current.removeEventListener('error', handleError);
         audioRef.current.pause();
+        audioRef.current.src = '';
         audioRef.current = null;
       }
+      setAudioRef(null);
     };
   }, [currentSlideIndex, hasAudio, currentSlide, slides.length]);
 
@@ -310,10 +314,12 @@ export function StudentSlideViewer({
   };
 
   const handleClose = () => {
-    // Stop audio on close
     if (audioRef.current) {
       audioRef.current.pause();
+      audioRef.current.src = '';
+      audioRef.current = null;
     }
+    setAudioRef(null);
     handleComplete();
     onClose();
   };
