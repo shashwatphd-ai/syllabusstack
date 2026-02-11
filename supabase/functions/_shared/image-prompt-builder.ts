@@ -165,7 +165,7 @@ export function slideNeedsImage(slide: StoredSlide): boolean {
   if (slide.visual?.url) return false;
 
   // Skip types that don't need visuals
-  const skipTypes = ['conclusion', 'recap', 'further_reading', 'title'];
+  const skipTypes = ['conclusion', 'recap', 'further_reading', 'title', 'title_slide', 'summary', 'preview'];
   if (skipTypes.includes(slide.type?.toLowerCase() || '')) return false;
 
   // Has explicit visual directive or visual with a type
