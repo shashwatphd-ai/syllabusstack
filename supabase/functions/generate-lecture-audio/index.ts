@@ -280,6 +280,19 @@ const handler = async (req: Request): Promise<Response> => {
 
     const slidesWithAudio = updatedSlides.filter(s => s.audio_url).length;
     const slidesWithSegments = updatedSlides.filter(s => s.audio_segment_map?.length).length;
+
+    // If no slides got audio, treat as failure
+    if (slidesWithAudio === 0) {
+      // Reset status to failed
+      await supabase
+        .from('lecture_slides')
+        .update({ audio_status: 'failed' })
+        .eq('id', slideId);
+
+      logError('generate-lecture-audio', new Error('All slides failed audio generation'));
+      return createErrorResponse('INTERNAL_ERROR', corsHeaders, 'Audio generation failed for all slides. This is usually caused by insufficient API credits. Please check your OpenRouter balance at https://openrouter.ai/settings/credits');
+    }
+
     logInfo('generate-lecture-audio', 'complete', {
       slideId,
       slidesWithAudio,
