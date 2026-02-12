@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden';
 import { Button } from '@/components/ui/button';
@@ -19,7 +19,9 @@ import {
   Loader2,
   Volume2,
   CheckCircle2,
-  AlertTriangle
+  AlertTriangle,
+  Play,
+  Pause
 } from 'lucide-react';
 import { SlideRenderer } from './SlideRenderer';
 import { VoicePicker } from './VoicePicker';
@@ -31,6 +33,7 @@ import {
   useGenerateLectureSlides,
   useGenerateLectureAudio
 } from '@/hooks/useLectureSlides';
+import { supabase } from '@/integrations/supabase/client';
 import { TeachingUnit } from '@/hooks/useTeachingUnits';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -53,7 +56,9 @@ export function LectureSlideViewer({
   const [showSpeakerNotes, setShowSpeakerNotes] = useState(false);
   const [showThumbnails, setShowThumbnails] = useState(!isMobile);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [selectedVoice, setSelectedVoice] = useState('onyx');
+  const [selectedVoice, setSelectedVoice] = useState('Charon');
+  const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const publishSlides = usePublishLectureSlides();
   const unpublishSlides = useUnpublishLectureSlides();
@@ -149,6 +154,59 @@ export function LectureSlideViewer({
   const handleGenerateAudio = () => {
     generateAudio.mutate({ slideId: lectureSlide.id, voiceId: selectedVoice });
   };
+
+  // Stop audio preview when slide changes, dialog closes, or component unmounts
+  const stopPreview = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = '';
+      audioRef.current = null;
+    }
+    setIsPreviewPlaying(false);
+  }, []);
+
+  useEffect(() => {
+    stopPreview();
+  }, [currentSlideIndex, stopPreview]);
+
+  useEffect(() => {
+    if (!open) stopPreview();
+  }, [open, stopPreview]);
+
+  useEffect(() => {
+    return () => stopPreview();
+  }, [stopPreview]);
+
+  const handlePreviewToggle = useCallback(async () => {
+    if (isPreviewPlaying) {
+      stopPreview();
+      return;
+    }
+
+    const slideAudioUrl = (currentSlide as any)?.audio_url;
+    if (!slideAudioUrl) return;
+
+    try {
+      const { data: signedUrlData } = await supabase.storage
+        .from('lecture-audio')
+        .createSignedUrl(slideAudioUrl, 300);
+
+      if (!signedUrlData?.signedUrl) return;
+
+      const cacheBuster = lectureSlide.audio_generated_at
+        ? `&t=${new Date(lectureSlide.audio_generated_at).getTime()}`
+        : '';
+
+      const audio = new Audio(signedUrlData.signedUrl + cacheBuster);
+      audio.addEventListener('ended', () => setIsPreviewPlaying(false));
+      audioRef.current = audio;
+      await audio.play();
+      setIsPreviewPlaying(true);
+    } catch (err) {
+      console.error('Audio preview failed:', err);
+      setIsPreviewPlaying(false);
+    }
+  }, [isPreviewPlaying, currentSlide, lectureSlide.audio_generated_at, stopPreview]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -360,6 +418,21 @@ export function LectureSlideViewer({
               </Button>
 
               <div className="flex items-center gap-1 sm:gap-2">
+                {hasAudio && (currentSlide as any)?.audio_url && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={handlePreviewToggle}
+                    aria-label={isPreviewPlaying ? 'Pause preview' : 'Play preview'}
+                  >
+                    {isPreviewPlaying ? (
+                      <Pause className="h-4 w-4" />
+                    ) : (
+                      <Play className="h-4 w-4" />
+                    )}
+                  </Button>
+                )}
                 <span className="text-xs sm:text-sm text-muted-foreground">
                   {currentSlideIndex + 1} / {slides.length}
                 </span>

@@ -123,12 +123,13 @@ export const MODELS = {
   AUTO: 'openrouter/auto',
 
   // =========================================================================
-  // AUDIO GENERATION - Text-to-Speech via GPT Audio
-  // Used by: generate-lecture-audio
-  // Requires: modalities: ['text', 'audio'] and audio: { voice, format }
+  // AUDIO GENERATION - DEPRECATED: Replaced by Google Cloud TTS (tts-client.ts)
+  // GPT Audio models are LLMs that generate speech, not deterministic TTS.
+  // They hallucinate conversational filler ("Absolutely!", "Thank you") instead
+  // of reading text verbatim. Kept for reference only — not used in active code.
   // =========================================================================
-  AUDIO: 'openai/gpt-audio-mini',          // Cost-efficient, natural voices
-  AUDIO_HD: 'openai/gpt-audio',            // Higher quality, more expensive
+  AUDIO: 'openai/gpt-audio-mini',          // DEPRECATED - do not use
+  AUDIO_HD: 'openai/gpt-audio',            // DEPRECATED - do not use
 } as const;
 
 export type ModelKey = keyof typeof MODELS;

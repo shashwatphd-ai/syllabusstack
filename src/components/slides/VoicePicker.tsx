@@ -8,12 +8,12 @@ import {
 import { Volume2 } from 'lucide-react';
 
 const VOICES = [
-  { id: 'onyx', label: 'Professor Onyx', description: 'Deep, authoritative' },
-  { id: 'nova', label: 'Dr. Nova', description: 'Warm, friendly' },
-  { id: 'echo', label: 'Dr. Echo', description: 'Clear, measured' },
-  { id: 'alloy', label: 'Prof. Alloy', description: 'Balanced, neutral' },
-  { id: 'fable', label: 'Dr. Fable', description: 'Expressive, storytelling' },
-  { id: 'shimmer', label: 'Prof. Shimmer', description: 'Calm, reassuring' },
+  { id: 'Charon', label: 'Professor Charon', description: 'Deep, authoritative' },
+  { id: 'Leda', label: 'Dr. Leda', description: 'Warm, friendly' },
+  { id: 'Fenrir', label: 'Dr. Fenrir', description: 'Clear, measured' },
+  { id: 'Kore', label: 'Prof. Kore', description: 'Balanced, neutral' },
+  { id: 'Puck', label: 'Dr. Puck', description: 'Expressive, storytelling' },
+  { id: 'Aoede', label: 'Prof. Aoede', description: 'Calm, reassuring' },
 ] as const;
 
 interface VoicePickerProps {
