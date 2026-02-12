@@ -1,43 +1,41 @@
 
 
-# Fix: Audio Not Updating After Regeneration (Browser Cache Issue)
+# Fix: Missing "Regenerate Audio" Button + Staleness Warning
 
 ## Problem
 
-When you regenerate audio, the new `.wav` files are uploaded to the **same path** (`{slideId}/slide_0.wav`, etc.) with `upsert: true`. The browser caches the old audio from the previous signed URL, so even though the storage file is updated, the player serves stale audio.
+The "Generate Audio" button is only visible when `has_audio` is `false` (line 192 of `LectureSlideViewer.tsx`). Once audio is generated, it's replaced by an "Audio Ready" badge with no option to regenerate. This means you can never re-process audio after content changes.
 
-## Solution
+## Changes
 
-Add a cache-busting timestamp to the signed URL so the browser treats regenerated audio as a new resource.
+### 1. Add "Regenerate Audio" button (when audio exists)
 
-## Technical Changes
+**File: `src/components/slides/LectureSlideViewer.tsx`**
 
-### File: `supabase/functions/generate-lecture-audio/index.ts`
+Replace the static "Audio Ready" badge (lines 212-217) with an interactive section that includes:
+- The existing "Audio Ready" badge
+- A "Regenerate Audio" button (with a `RefreshCw` icon) next to it
+- The `VoicePicker` dropdown so users can change voice on regeneration
 
-Add an `audio_generated_at` timestamp to the lecture slide record when audio generation completes. This provides a cache key that changes on every regeneration.
+The button will call the same `handleGenerateAudio` function already wired up.
 
-- In the final `update` call (around line 312), add `audio_generated_at: new Date().toISOString()` alongside `has_audio` and `audio_status`.
+### 2. Add "Audio out of sync" warning
 
-### File: `src/components/slides/StudentSlideViewer.tsx`
+**File: `src/components/slides/LectureSlideViewer.tsx`**
 
-Append a cache-busting query parameter to the signed URL using the `audio_generated_at` timestamp (or fallback to `Date.now()`).
+When `has_audio` is true, compare `updated_at` against `audio_generated_at`. If the slide content was updated after audio was last generated, show a warning badge: "Audio outdated -- regenerate" in amber/yellow, making it obvious that the audio doesn't match the current transcript.
 
-- After obtaining the signed URL (around line 174/192), append `&t={timestamp}` to force the browser to fetch fresh audio.
+This requires passing `audio_generated_at` and `updated_at` from the lecture slide data into the component (or deriving it from the existing query).
 
-```
-signedUrl + '&t=' + (lectureSlide.audio_generated_at || Date.now())
-```
+### 3. Immediate data fix for current lecture
 
-### Database Migration
+The slide `bba37e1a` currently has stale audio. Once the "Regenerate Audio" button is available, you can click it to re-process. No manual database changes needed.
 
-Add the `audio_generated_at` column to the `lecture_slides` table:
+## Summary
 
-```sql
-ALTER TABLE public.lecture_slides
-ADD COLUMN IF NOT EXISTS audio_generated_at timestamptz;
-```
-
-## Why This Works
-
-Signed URLs from storage already contain query parameters (token, expiry). Appending `&t=<timestamp>` makes each regeneration produce a unique URL, bypassing the browser cache entirely. The timestamp only changes when audio is regenerated, so normal playback still benefits from caching.
+| What | Before | After |
+|---|---|---|
+| Audio exists | Static "Audio Ready" badge, no action | Badge + "Regenerate Audio" button |
+| Content changed after audio | No indication | Amber "Audio outdated" warning |
+| Generate Audio button | Only when no audio exists | Always available |
 
