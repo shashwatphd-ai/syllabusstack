@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0";
 import { generateNarration, needsNarration } from "../_shared/ai-narrator.ts";
 import { mapAudioSegments } from "../_shared/segment-mapper.ts";
 import { synthesizeSpeech, TTS_VOICES, resolveVoiceId } from "../_shared/tts-client.ts";
+const ALL_VOICE_IDS = Object.keys(TTS_VOICES); // ['Charon', 'Leda', 'Fenrir', 'Kore', 'Puck', 'Aoede']
 import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
 import {
   createErrorResponse,
@@ -19,6 +20,7 @@ interface SlideWithAudio {
   title?: string;
   speaker_notes?: string;
   audio_url?: string;
+  audio_urls?: Record<string, string>;
   audio_duration_seconds?: number;
   audio_segment_map?: Array<{
     target_block: string;
@@ -81,8 +83,6 @@ const handler = async (req: Request): Promise<Response> => {
     return createErrorResponse('VALIDATION_ERROR', corsHeaders, validation.errors.join(', '));
   }
   const { slideId, enableSegmentMapping } = validation.data;
-  // Resolve legacy voice IDs (e.g. 'onyx' → 'Charon') for backward compatibility
-  const voiceId = resolveVoiceId(validation.data.voiceId || 'Charon');
 
   // Verify API keys
   const OPENROUTER_API_KEY = Deno.env.get('OPENROUTER_API_KEY');
@@ -96,7 +96,7 @@ const handler = async (req: Request): Promise<Response> => {
   }
 
   try {
-    logInfo('generate-lecture-audio', 'starting', { slideId, voiceId, enableSegmentMapping });
+    logInfo('generate-lecture-audio', 'starting', { slideId, voices: ALL_VOICE_IDS, enableSegmentMapping });
 
     // Create Supabase client with service role
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -144,7 +144,7 @@ const handler = async (req: Request): Promise<Response> => {
     const unitTitle = lectureSlide.title || 'Lecture';
     const domain = (lectureSlide as any).detected_domain || 'general';
     
-    console.log(`Generating audio for ${totalSlides} slides (Voice: ${voiceId}, TTS: Google Chirp 3 HD)...`);
+    console.log(`Generating audio for ${totalSlides} slides (Voices: ${ALL_VOICE_IDS.join(', ')}, TTS: Google Chirp 3 HD)...`);
 
     const updatedSlides: SlideWithAudio[] = [];
     let totalDurationSeconds = 0;
@@ -201,31 +201,40 @@ const handler = async (req: Request): Promise<Response> => {
       const narrationWords = narrationText.split(/\s+/);
       previousNarrationTail = narrationWords.slice(Math.max(0, narrationWords.length - 100)).join(' ');
 
-      console.log(`Slide ${i + 1}: Generating audio via Google Cloud TTS (${narrationText.length} chars)...`);
+      console.log(`Slide ${i + 1}: Generating audio for ${ALL_VOICE_IDS.length} voices (${narrationText.length} chars)...`);
 
       try {
-        // PHASE 2: Generate audio via Google Cloud TTS (deterministic - reads text exactly)
-        const { wavBytes, durationSeconds, chunkCount } = await synthesizeSpeech(
-          narrationText,
-          voiceId,
-          GOOGLE_CLOUD_API_KEY,
+        // PHASE 2: Generate audio for ALL voices in parallel
+        const voiceResults = await Promise.all(
+          ALL_VOICE_IDS.map(async (vid) => {
+            const result = await synthesizeSpeech(narrationText, vid, GOOGLE_CLOUD_API_KEY);
+            // Upload to voice-specific path
+            const fileName = `${slideId}/${vid}/slide_${i}.wav`;
+            const { error: uploadError } = await supabase.storage
+              .from('lecture-audio')
+              .upload(fileName, result.wavBytes, {
+                contentType: 'audio/wav',
+                upsert: true,
+              });
+            if (uploadError) {
+              console.error(`Upload error for slide ${i + 1}, voice ${vid}:`, uploadError);
+              throw new Error(`Failed to upload audio for ${vid}: ${uploadError.message}`);
+            }
+            return { vid, fileName, durationSeconds: result.durationSeconds, chunkCount: result.chunkCount };
+          })
         );
 
-        // Upload WAV to Supabase Storage
-        const fileName = `${slideId}/slide_${i}.wav`;
-        const { error: uploadError } = await supabase.storage
-          .from('lecture-audio')
-          .upload(fileName, wavBytes, {
-            contentType: 'audio/wav',
-            upsert: true,
-          });
+        // Use first voice's duration (identical text → near-identical duration)
+        const primaryResult = voiceResults[0];
+        const durationSeconds = primaryResult.durationSeconds;
 
-        if (uploadError) {
-          console.error(`Upload error for slide ${i + 1}:`, uploadError);
-          throw new Error(`Failed to upload audio: ${uploadError.message}`);
+        // Build audio_urls map
+        const audioUrls: Record<string, string> = {};
+        for (const vr of voiceResults) {
+          audioUrls[vr.vid] = vr.fileName;
         }
 
-        // PHASE 3: Map audio segments to content blocks for sync highlighting
+        // PHASE 3: Map audio segments once (text-based, not voice-specific)
         let audioSegmentMap: SlideWithAudio['audio_segment_map'] = undefined;
         
         if (enableSegmentMapping) {
@@ -246,7 +255,7 @@ const handler = async (req: Request): Promise<Response> => {
           }
         }
 
-        // Build audit entry (deterministic TTS — no transcript deviation possible)
+        // Build audit entry
         const wordCount = narrationText.split(/\s+/).length;
         const heuristicDuration = Math.ceil((wordCount / 150) * 60);
         const durationDeviationPercent = heuristicDuration > 0
@@ -262,8 +271,8 @@ const handler = async (req: Request): Promise<Response> => {
             first_50_chars: narrationText.substring(0, 50),
           },
           tts_engine: 'google-cloud-chirp3-hd',
-          voice_name: TTS_VOICES[voiceId] || voiceId,
-          chunk_count: chunkCount,
+          voices_generated: ALL_VOICE_IDS,
+          chunk_count: primaryResult.chunkCount,
           duration: {
             actual_seconds: durationSeconds,
             heuristic_seconds: heuristicDuration,
@@ -279,17 +288,18 @@ const handler = async (req: Request): Promise<Response> => {
         updatedSlides.push({
           ...slide,
           speaker_notes: narrationText,
-          audio_url: fileName,
+          audio_url: audioUrls['Charon'], // backward compat default
+          audio_urls: audioUrls,
           audio_duration_seconds: durationSeconds,
           audio_segment_map: audioSegmentMap,
         });
 
         totalDurationSeconds += durationSeconds;
-        console.log(`Slide ${i + 1}: Audio generated (${durationSeconds}s, ${chunkCount} chunks, ${audioSegmentMap?.length || 0} segments)`);
+        console.log(`Slide ${i + 1}: Audio generated for ${ALL_VOICE_IDS.length} voices (${durationSeconds}s, ${audioSegmentMap?.length || 0} segments)`);
 
-        // Small delay to avoid rate limiting
+        // Small delay between slides to avoid rate limiting
         if (i < slides.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 300));
+          await new Promise(resolve => setTimeout(resolve, 500));
         }
 
       } catch (slideError) {
@@ -312,7 +322,7 @@ const handler = async (req: Request): Promise<Response> => {
     const auditLog = {
       generated_at: new Date().toISOString(),
       tts_engine: 'google-cloud-chirp3-hd',
-      voice_id: voiceId,
+      voices: ALL_VOICE_IDS,
       total_slides_processed: auditEntries.length,
       slides: auditEntries,
       summary: {

@@ -14,6 +14,7 @@ export interface Slide {
   speaker_notes: string;
   visual_suggestion: string;
   audio_url?: string;
+  audio_urls?: Record<string, string>;
   audio_duration_seconds?: number;
 }
 
@@ -51,6 +52,9 @@ export interface EnhancedSlide {
     educational_purpose?: string;
   };
   speaker_notes: string;
+  audio_url?: string;
+  audio_urls?: Record<string, string>;
+  audio_duration_seconds?: number;
   speaker_notes_duration_seconds?: number;
   citations?: {
     claim: string;
@@ -115,6 +119,7 @@ export interface ProfessorSlide {
     narration_excerpt?: string;
   }[];
   audio_url?: string;
+  audio_urls?: Record<string, string>;
   audio_duration_seconds?: number;
   visual: {
     type: 'diagram' | 'screenshot' | 'comparison' | 'flowchart' | 'illustration' | 'none';
