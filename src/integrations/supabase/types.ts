@@ -4314,6 +4314,128 @@ export type Database = {
         }
         Relationships: []
       }
+      profiles_safe: {
+        Row: {
+          ai_calls_reset_at: string | null
+          ai_calls_this_month: number | null
+          avatar_url: string | null
+          created_at: string | null
+          email: string | null
+          email_preferences: Json | null
+          full_name: string | null
+          graduation_year: number | null
+          id: string | null
+          identity_verification_id: string | null
+          instructor_trust_score: number | null
+          instructor_verification_id: string | null
+          is_identity_verified: boolean | null
+          is_instructor_verified: boolean | null
+          last_active_at: string | null
+          major: string | null
+          onboarding_completed: boolean | null
+          onboarding_step: number | null
+          organization_id: string | null
+          preferences: Json | null
+          student_level: string | null
+          subscription_ends_at: string | null
+          subscription_started_at: string | null
+          subscription_status: string | null
+          subscription_tier: string | null
+          university: string | null
+          updated_at: string | null
+          user_id: string | null
+        }
+        Insert: {
+          ai_calls_reset_at?: string | null
+          ai_calls_this_month?: number | null
+          avatar_url?: string | null
+          created_at?: string | null
+          email?: string | null
+          email_preferences?: Json | null
+          full_name?: string | null
+          graduation_year?: number | null
+          id?: string | null
+          identity_verification_id?: string | null
+          instructor_trust_score?: number | null
+          instructor_verification_id?: string | null
+          is_identity_verified?: boolean | null
+          is_instructor_verified?: boolean | null
+          last_active_at?: string | null
+          major?: string | null
+          onboarding_completed?: boolean | null
+          onboarding_step?: number | null
+          organization_id?: string | null
+          preferences?: Json | null
+          student_level?: string | null
+          subscription_ends_at?: string | null
+          subscription_started_at?: string | null
+          subscription_status?: string | null
+          subscription_tier?: string | null
+          university?: string | null
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          ai_calls_reset_at?: string | null
+          ai_calls_this_month?: number | null
+          avatar_url?: string | null
+          created_at?: string | null
+          email?: string | null
+          email_preferences?: Json | null
+          full_name?: string | null
+          graduation_year?: number | null
+          id?: string | null
+          identity_verification_id?: string | null
+          instructor_trust_score?: number | null
+          instructor_verification_id?: string | null
+          is_identity_verified?: boolean | null
+          is_instructor_verified?: boolean | null
+          last_active_at?: string | null
+          major?: string | null
+          onboarding_completed?: boolean | null
+          onboarding_step?: number | null
+          organization_id?: string | null
+          preferences?: Json | null
+          student_level?: string | null
+          subscription_ends_at?: string | null
+          subscription_started_at?: string | null
+          subscription_status?: string | null
+          subscription_tier?: string | null
+          university?: string | null
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "profiles_identity_verification_id_fkey"
+            columns: ["identity_verification_id"]
+            isOneToOne: false
+            referencedRelation: "identity_verifications"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profiles_instructor_verification_id_fkey"
+            columns: ["instructor_verification_id"]
+            isOneToOne: false
+            referencedRelation: "instructor_verifications"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profiles_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profiles_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations_safe"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       recommendations_with_links: {
         Row: {
           cost_usd: number | null

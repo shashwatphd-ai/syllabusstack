@@ -3,7 +3,7 @@ import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { Tables } from '@/integrations/supabase/types';
 
-// Secure profile type excluding sensitive fields (Stripe IDs)
+// Profile type - profiles_safe view excludes sensitive Stripe fields at DB level
 type FullProfile = Tables<'profiles'>;
 export type Profile = Omit<FullProfile, 'stripe_customer_id' | 'stripe_subscription_id'>;
 
@@ -28,41 +28,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchProfile = async (userId: string) => {
-    // Select specific fields, excluding sensitive Stripe data
+    // Query profiles_safe view which excludes sensitive Stripe data at the DB level
     const { data, error } = await supabase
-    .from('profiles')
-    .select(`
-      id,
-      user_id,
-      full_name,
-      email,
-      university,
-      major,
-      student_level,
-      graduation_year,
-      avatar_url,
-      onboarding_completed,
-      onboarding_step,
-      last_active_at,
-      preferences,
-      email_preferences,
-      subscription_tier,
-      subscription_status,
-      subscription_started_at,
-      subscription_ends_at,
-      ai_calls_this_month,
-      ai_calls_reset_at,
-      is_instructor_verified,
-      instructor_verification_id,
-      instructor_trust_score,
-      is_identity_verified,
-      identity_verification_id,
-      organization_id,
-      created_at,
-      updated_at
-    `)
+    .from('profiles_safe' as any)
+    .select('*')
     .eq('user_id', userId)
-    .single();
+    .single() as { data: Profile | null; error: any };
     
     if (error) {
       console.error('Error fetching profile:', error);
