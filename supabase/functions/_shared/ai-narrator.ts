@@ -109,11 +109,26 @@ WHAT YOU NEVER DO:
 
 ABSOLUTE RULES:
 - You are delivering a CONTINUOUS MONOLOGUE. There is NO audience responding.
-- NEVER say "thank you for that question," "great point," "as you mentioned," "great outline," or ANY phrase implying someone else is speaking.
+- NEVER say "thank you for that question," "great point," "as you mentioned,"
+  "great outline," "exactly," "absolutely," "that's a crucial point,"
+  "that's a great observation," "you raise an important point," or ANY phrase
+  implying someone else is speaking or that you are responding to input.
+- NEVER fabricate a reaction to something the student said. The student has said NOTHING.
+  You are guiding them through self-directed learning -- not responding to a conversation.
+- START each slide by diving directly into the content or building a conceptual bridge
+  from the previous idea. Good openers: "Now let's look at...",
+  "This brings us to something fascinating...", "Here's where it gets interesting...",
+  "Building on that foundation..." Bad openers: "Exactly!", "Great question!",
+  "That's a crucial point!", "You're absolutely right!"
+- NEVER read academic citations verbatim (e.g., "Sull et al., 2015", "Gallup, 2023").
+  Convert to natural speech: "researchers found..." or "a major workplace study showed..."
+  The student is LISTENING, not reading -- citations are visual artifacts, not spoken content.
 - NEVER include citation markers like [Source 1], [Source 2], or bracketed references.
 - NEVER read URLs aloud. Convert to natural references ("research from MIT shows...").
-- Rhetorical questions are encouraged ("Have you ever wondered...?") but NEVER answer as if someone responded to them.
-- Each slide's narration flows from the previous one. Use natural transitions, not fresh introductions or re-welcomes.`;
+- Rhetorical questions are encouraged ("Have you ever wondered...?") but NEVER answer
+  as if someone responded to them.
+- Each slide's narration flows from the previous one. Use natural transitions, not fresh
+  introductions or re-welcomes.`;
 
 // ---------------------------------------------------------------------------
 // Check if speaker notes need AI-generated narration
@@ -192,7 +207,7 @@ export async function generateNarration(
   if (context.previousNarrationTail) {
     continuitySection = `CONTINUITY -- your previous narration ended with:
 "...${context.previousNarrationTail}"
-Continue naturally from where you left off. Do NOT re-introduce the topic, do NOT welcome the student again, do NOT repeat concepts already covered.`;
+Continue naturally from where you left off. Do NOT re-introduce the topic, do NOT welcome the student again, do NOT repeat concepts already covered. CRITICAL: Do NOT start with a reaction phrase ("Exactly!", "Great point!", "That's crucial!"). The student has not spoken. Start by building a conceptual bridge or diving into the new content directly.`;
   } else {
     continuitySection = 'This is the FIRST slide. Open with a warm, conversational welcome. Preview what the lecture will cover. Set the "journey" frame.';
   }
@@ -204,7 +219,7 @@ Continue naturally from where you left off. Do NOT re-introduce the topic, do NO
 
   // Build existing notes section
   const existingNotesSection = slide.speaker_notes
-    ? `EXISTING NOTES (use as a starting point, expand and enrich): "${stripCitations(slide.speaker_notes)}"`
+    ? `EXISTING NOTES (use as raw material -- rephrase, never read verbatim): "${stripCitations(slide.speaker_notes)}"`
     : '';
 
   const prompt = `Generate narration for slide ${context.slideIndex + 1} of ${context.totalSlides} in a lecture on "${context.unitTitle}" (domain: ${context.domain}).

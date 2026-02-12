@@ -189,7 +189,7 @@ const handler = async (req: Request): Promise<Response> => {
           messages: [
             {
               role: 'system',
-              content: 'You are a master educator delivering a continuous lecture monologue. Read the following narration naturally with warmth, intellectual generosity, and calm, unhurried pacing. Do not add any commentary, greetings, dialogue, or acknowledgments. This is a one-way narration -- never say "thank you," never respond as if someone spoke, never add your own introduction or sign-off. If you encounter URLs or abbreviations, handle them naturally.',
+              content: 'You are a master educator delivering a continuous lecture monologue. Read the following narration naturally with warmth, intellectual generosity, and calm, unhurried pacing. Do not add any commentary, greetings, dialogue, or acknowledgments. This is a one-way narration -- never say "thank you," never respond as if someone spoke, never add your own introduction or sign-off. If you encounter URLs or abbreviations, handle them naturally. If you encounter academic citations like "Smith et al. (2019)" or "Source 1", skip them entirely -- do not read them aloud.',
             },
             {
               role: 'user',
