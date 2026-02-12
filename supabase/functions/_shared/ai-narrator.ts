@@ -1,13 +1,28 @@
 /**
- * AI-Driven Fallback Narration Generator
- * Generates natural lecture narration when speaker_notes are missing or insufficient
+ * AI-Driven Narration Generator — Conversational Mastery Method (CMM)
+ * Generates natural, continuous lecture narration using the Zero-to-Expert arc.
  *
- * MIGRATION NOTES: Uses OpenRouter as primary gateway with Google Gemini fallback
- * - OpenRouter for unified access to multiple providers
- * - Model: gpt-4o-mini via OpenRouter, falls back to Gemini Flash
+ * Key capabilities:
+ * - Citation stripping: removes [Source N] markers before narration
+ * - CMM persona: warm, conversational, intellectually generous monologue
+ * - Cross-slide continuity: rolling 100-word tail prevents re-introductions
+ *
+ * Uses OpenRouter with PROFESSOR_AI model (gemini-3-flash-preview)
  */
 
 import { simpleCompletion, MODELS } from './openrouter-client.ts';
+
+// ---------------------------------------------------------------------------
+// Citation stripping helper
+// ---------------------------------------------------------------------------
+
+function stripCitations(text: string): string {
+  return text.replace(/\[Source\s*\d+\]/gi, '').replace(/\s{2,}/g, ' ').trim();
+}
+
+// ---------------------------------------------------------------------------
+// Interfaces
+// ---------------------------------------------------------------------------
 
 export interface SlideForNarration {
   order?: number;
@@ -45,107 +60,157 @@ export interface NarrationContext {
   totalSlides: number;
   unitTitle: string;
   domain: string;
+  previousNarrationTail?: string;
+  allSlideTitles?: string[];
 }
 
-/**
- * Check if speaker notes need AI-generated narration
- */
+// ---------------------------------------------------------------------------
+// CMM System Prompt
+// ---------------------------------------------------------------------------
+
+const CMM_SYSTEM_PROMPT = `You are a master educator delivering a continuous lecture monologue. Your teaching philosophy is the "Zero-to-Expert" method: start from zero assumed knowledge, build brick by brick, anchor every new idea to something already understood, and end with mastery-level synthesis.
+
+DELIVERY STYLE:
+- Conversational, never lecturing. Use direct address: "Now, you might wonder..."
+- Think aloud: "If we look at it this way... but wait, that creates a problem..."
+- Warm, intelligent humor timed for cognitive breaks -- never at anyone's expense
+- For EVERY abstract concept, find a concrete analogy from everyday life: family dynamics, household economics, popular culture, common human experiences
+- Calm, unhurried pace. Let insights breathe before moving on.
+- Belief in the student: radiate the assumption they CAN understand this
+
+INTELLECTUAL COMMITMENTS:
+- Multi-perspectival fairness: present all sides of debatable topics with their strongest arguments. Never force your conclusion.
+- "Why" before "What" -- conceptual understanding over memorization
+- Cross-disciplinary connections where natural (philosophy, history, sociology, economics, daily life)
+- Historical-contextual grounding: how did this idea emerge? Who were the thinkers?
+
+ABSOLUTE RULES:
+- You are delivering a CONTINUOUS MONOLOGUE. There is NO audience responding.
+- NEVER say "thank you for that question," "great point," "as you mentioned," "great outline," or ANY phrase implying someone else is speaking.
+- NEVER include citation markers like [Source 1], [Source 2], or bracketed references.
+- NEVER read URLs aloud. Convert to natural references ("research from MIT shows...").
+- Rhetorical questions are encouraged ("Have you ever wondered...?") but NEVER answer as if someone responded to them.
+- Each slide's narration flows from the previous one. Use natural transitions, not fresh introductions or re-welcomes.`;
+
+// ---------------------------------------------------------------------------
+// Check if speaker notes need AI-generated narration
+// ---------------------------------------------------------------------------
+
 export function needsNarration(speakerNotes: string | undefined): boolean {
   if (!speakerNotes) return true;
   const trimmed = speakerNotes.trim();
-  // Need narration if empty, too short, or just placeholder text
-  return trimmed.length < 50 || 
-         trimmed === 'No notes' || 
+  return trimmed.length < 50 ||
+         trimmed === 'No notes' ||
          trimmed.toLowerCase().includes('[placeholder]');
 }
 
-/**
- * Generate natural lecture narration for a slide using AI
- */
-export async function generateNarration(
-  slide: SlideForNarration,
-  context: NarrationContext,
-  _apiKey?: string // kept for backwards compatibility
-): Promise<string> {
-  const isFirstSlide = context.slideIndex === 0;
-  const isLastSlide = context.slideIndex === context.totalSlides - 1;
-  
-  // Build content summary for AI
-  const contentParts: string[] = [];
-  const content = slide.content;
-  
+// ---------------------------------------------------------------------------
+// Build content summary with citation stripping
+// ---------------------------------------------------------------------------
+
+function buildContentParts(content: SlideForNarration['content']): string[] {
+  const parts: string[] = [];
+
   if (content?.main_text) {
-    contentParts.push(`Main text: "${content.main_text}"`);
+    parts.push(`Main text: "${stripCitations(content.main_text)}"`);
   }
-  
+
   if (content?.key_points?.length) {
     const points = content.key_points.map((p, i) => {
       const text = typeof p === 'string' ? p : p.text;
-      return `\n  ${i + 1}. ${text}`;
+      return `\n  ${i + 1}. ${stripCitations(text)}`;
     });
-    contentParts.push(`Key points: ${points.join('')}`);
+    parts.push(`Key points: ${points.join('')}`);
   }
-  
+
   if (content?.definition) {
     const def = content.definition;
-    const defText = def.formal_definition || def.simple_explanation || '';
-    contentParts.push(`Definition of "${def.term || 'term'}": ${defText}`);
+    const defText = stripCitations(def.formal_definition || def.simple_explanation || '');
+    parts.push(`Definition of "${def.term || 'term'}": ${defText}`);
   }
-  
+
   if (content?.example) {
     const ex = content.example;
-    contentParts.push(`Example: ${ex.scenario || ''}. ${ex.walkthrough || ''}`);
+    parts.push(`Example: ${stripCitations(ex.scenario || '')}. ${stripCitations(ex.walkthrough || '')}`);
   }
-  
+
   if (content?.misconception) {
     const mis = content.misconception;
-    contentParts.push(`Misconception addressed: Wrong belief "${mis.wrong_belief || ''}" - Why wrong: ${mis.why_wrong || ''} - Correct: ${mis.correct_understanding || ''}`);
+    parts.push(`Misconception addressed: Wrong belief "${stripCitations(mis.wrong_belief || '')}" - Why wrong: ${stripCitations(mis.why_wrong || '')} - Correct: ${stripCitations(mis.correct_understanding || '')}`);
   }
-  
+
   if (content?.steps?.length) {
-    const steps = content.steps.map(s => `\n  ${s.step}. ${s.title}: ${s.explanation}`);
-    contentParts.push(`Steps: ${steps.join('')}`);
+    const steps = content.steps.map(s => `\n  ${s.step}. ${stripCitations(s.title)}: ${stripCitations(s.explanation)}`);
+    parts.push(`Steps: ${steps.join('')}`);
   }
 
-  const prompt = `Generate natural, conversational lecture narration for this slide.
+  return parts;
+}
 
-CONTEXT:
-- Topic: ${context.unitTitle}
-- Domain: ${context.domain}
-- Slide ${context.slideIndex + 1} of ${context.totalSlides}
-- Slide type: ${slide.type || 'concept'}
-- Slide title: "${slide.title || 'Untitled'}"
+// ---------------------------------------------------------------------------
+// Generate narration for a single slide
+// ---------------------------------------------------------------------------
 
-SLIDE CONTENT:
-${contentParts.join('\n') || 'No structured content available.'}
+export async function generateNarration(
+  slide: SlideForNarration,
+  context: NarrationContext,
+  _apiKey?: string
+): Promise<string> {
+  const isLastSlide = context.slideIndex === context.totalSlides - 1;
+  const contentParts = buildContentParts(slide.content);
 
-${slide.speaker_notes ? `EXISTING NOTES (expand on these): "${slide.speaker_notes}"` : ''}
+  // Build lecture outline
+  const outlineSection = context.allSlideTitles?.length
+    ? context.allSlideTitles.map((t, i) => `  ${i + 1}. ${t}`).join('\n')
+    : '  (outline not available)';
 
-INSTRUCTIONS:
-1. Write 150-250 words of natural professor narration
-2. Sound conversational, not robotic - use contractions, rhetorical questions, asides
-3. Don't just read the bullet points verbatim - elaborate and explain
-4. Add connective tissue ("Now, let's look at...", "This is important because...", "Think of it this way...")
-5. Match the slide type tone:
-   - definition slides: authoritative but clear
-   - example slides: storytelling, relatable
-   - misconception slides: empathetic but corrective
-   - summary slides: reinforcing, encouraging
-${isFirstSlide ? '6. This is the FIRST slide - start with a warm welcome and preview' : ''}
-${isLastSlide ? '6. This is the LAST slide - conclude with a summary and encourage next steps' : ''}
+  // Build continuity section
+  let continuitySection: string;
+  if (context.previousNarrationTail) {
+    continuitySection = `CONTINUITY -- your previous narration ended with:
+"...${context.previousNarrationTail}"
+Continue naturally from where you left off. Do NOT re-introduce the topic, do NOT welcome the student again, do NOT repeat concepts already covered.`;
+  } else {
+    continuitySection = 'This is the FIRST slide. Open with a warm, conversational welcome. Preview what the lecture will cover. Set the "journey" frame.';
+  }
 
-Return ONLY the narration text, no explanations or metadata.`;
+  // Build last-slide section
+  const lastSlideSection = isLastSlide
+    ? 'This is the LAST slide. Synthesize the full journey, connect back to the opening hook, and encourage the student to explore further.'
+    : '';
+
+  // Build existing notes section
+  const existingNotesSection = slide.speaker_notes
+    ? `EXISTING NOTES (use as a starting point, expand and enrich): "${stripCitations(slide.speaker_notes)}"`
+    : '';
+
+  const prompt = `Generate narration for slide ${context.slideIndex + 1} of ${context.totalSlides} in a lecture on "${context.unitTitle}" (domain: ${context.domain}).
+
+LECTURE OUTLINE:
+${outlineSection}
+
+CURRENT SLIDE:
+- Type: ${slide.type || 'concept'}
+- Title: "${slide.title || 'Untitled'}"
+- Content:
+${contentParts.join('\n') || '  No structured content available.'}
+
+${continuitySection}
+
+${lastSlideSection}
+
+${existingNotesSection}
+
+Write 200-350 words. Return ONLY the narration text, nothing else.`;
 
   try {
-    const systemPrompt = 'You are an expert university professor who gives engaging, clear lectures. You speak naturally and conversationally while maintaining academic authority.';
-    
     const narration = await simpleCompletion(
-      MODELS.FAST, // gpt-4o-mini:floor
-      systemPrompt,
+      MODELS.PROFESSOR_AI,
+      CMM_SYSTEM_PROMPT,
       prompt,
       {
-        max_tokens: 800,
-        fallbacks: [MODELS.GEMINI_FLASH],
+        max_tokens: 1200,
+        fallbacks: [MODELS.PROFESSOR_AI_FALLBACK],
       },
       '[AI Narrator]'
     );
@@ -154,28 +219,37 @@ Return ONLY the narration text, no explanations or metadata.`;
       throw new Error('Generated narration too short');
     }
 
-    return narration;
+    // Final safety: strip any citations the model may have included
+    return stripCitations(narration);
   } catch (error) {
     console.error('AI narration generation failed:', error);
     throw error;
   }
 }
 
-/**
- * Batch generate narration for multiple slides
- */
+// ---------------------------------------------------------------------------
+// Batch generate narration with cross-slide continuity
+// ---------------------------------------------------------------------------
+
 export async function batchGenerateNarration(
   slides: SlideForNarration[],
   unitTitle: string,
   domain: string,
-  _apiKey?: string // kept for backwards compatibility
+  _apiKey?: string
 ): Promise<Map<number, string>> {
   const narrations = new Map<number, string>();
-  
+  const allSlideTitles = slides.map(s => s.title || 'Untitled');
+  let previousNarrationTail = '';
+
   for (let i = 0; i < slides.length; i++) {
     const slide = slides[i];
-    
+
     if (!needsNarration(slide.speaker_notes)) {
+      // Even if we skip narration, use existing notes for continuity tail
+      if (slide.speaker_notes) {
+        const words = stripCitations(slide.speaker_notes).split(/\s+/);
+        previousNarrationTail = words.slice(Math.max(0, words.length - 100)).join(' ');
+      }
       continue;
     }
 
@@ -187,12 +261,18 @@ export async function batchGenerateNarration(
           totalSlides: slides.length,
           unitTitle,
           domain,
+          previousNarrationTail,
+          allSlideTitles,
         }
       );
-      
+
       const order = slide.order ?? i;
       narrations.set(order, narration);
-      
+
+      // Update continuity tail
+      const words = narration.split(/\s+/);
+      previousNarrationTail = words.slice(Math.max(0, words.length - 100)).join(' ');
+
       // Small delay to avoid rate limiting
       if (i < slides.length - 1) {
         await new Promise(resolve => setTimeout(resolve, 200));
@@ -201,6 +281,6 @@ export async function batchGenerateNarration(
       console.error(`Failed to generate narration for slide ${i + 1}:`, error);
     }
   }
-  
+
   return narrations;
 }
