@@ -26,6 +26,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
 import { createVertexAIAuth } from '../_shared/vertex-ai-auth.ts';
 import { createGCSClient } from '../_shared/gcs-client.ts';
 import { createVertexAIBatchClient, VertexAIBatchClient } from '../_shared/vertex-ai-batch.ts';
+import { MODEL_CONFIG } from "../_shared/ai-orchestrator.ts";
 import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
 import {
   createErrorResponse,
@@ -39,10 +40,7 @@ import {
 // CONFIGURATION
 // ============================================================================
 
-const MODEL_CONFIG = {
-  // Use gemini-2.5-flash for evaluation (consistent with current evaluate-content-batch)
-  EVALUATION_MODEL: 'gemini-2.5-flash-preview-05-20',
-};
+// MODEL_CONFIG imported from ../\_shared/ai-orchestrator.ts (uses GEMINI_3_FLASH for batch compatibility)
 
 const BATCH_CONFIG = {
   // Minimum videos to justify batch (below this, use sync)
@@ -863,7 +861,7 @@ const handler = async (req: Request): Promise<Response> => {
     // ========================================================================
     // STEP 7: Create Vertex AI batch job
     // ========================================================================
-    const modelPath = VertexAIBatchClient.buildModelPath(MODEL_CONFIG.EVALUATION_MODEL);
+    const modelPath = VertexAIBatchClient.buildModelPath(MODEL_CONFIG.GEMINI_3_FLASH);
     const bucketName = gcsClient.bucketName;
 
     try {
