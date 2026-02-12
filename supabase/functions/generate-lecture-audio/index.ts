@@ -65,7 +65,7 @@ function generateSimpleFallback(slide: SlideWithAudio): string {
     parts.push(`For example: ${slide.content.example.scenario}`);
   }
   
-  return parts.join(' ');
+  return parts.join(' ').replace(/\[Source\s*\d+\]/gi, '').replace(/\s{2,}/g, ' ').trim();
 }
 
 const handler = async (req: Request): Promise<Response> => {
@@ -127,6 +127,8 @@ const handler = async (req: Request): Promise<Response> => {
     const updatedSlides: SlideWithAudio[] = [];
     let totalDurationSeconds = 0;
     let lastSlideError: string | null = null;
+    const allSlideTitles = slides.map(s => s.title || 'Untitled');
+    let previousNarrationTail = '';
 
     // Process each slide
     for (let i = 0; i < slides.length; i++) {
@@ -149,6 +151,8 @@ const handler = async (req: Request): Promise<Response> => {
               totalSlides,
               unitTitle,
               domain,
+              previousNarrationTail,
+              allSlideTitles,
             },
             OPENROUTER_API_KEY
           );
@@ -161,11 +165,18 @@ const handler = async (req: Request): Promise<Response> => {
         narrationText = generateSimpleFallback(slide);
       }
 
-      if (!narrationText || narrationText.trim().length === 0) {
+      // Strip citation markers from narration (regardless of source)
+      narrationText = narrationText.replace(/\[Source\s*\d+\]/gi, '').replace(/\s{2,}/g, ' ').trim();
+
+      if (!narrationText || narrationText.length === 0) {
         console.log(`Slide ${i + 1}: No content for narration, skipping`);
         updatedSlides.push(slide);
         continue;
       }
+
+      // Update continuity tail for next slide
+      const narrationWords = narrationText.split(/\s+/);
+      previousNarrationTail = narrationWords.slice(Math.max(0, narrationWords.length - 100)).join(' ');
 
       // PHASE 2 (SSML) — REMOVED: GPT Audio handles prosody natively
 
@@ -178,7 +189,7 @@ const handler = async (req: Request): Promise<Response> => {
           messages: [
             {
               role: 'system',
-              content: 'You are a professional university lecturer delivering a lecture. Read the following narration naturally and engagingly with appropriate pacing and emphasis. Do not add any commentary, introduction, or changes to the text — just read it aloud exactly as written. If you encounter URLs, citation markers like [Source 1], or abbreviations, handle them naturally (skip URLs, ignore citation brackets, expand abbreviations).',
+              content: 'You are a master educator delivering a continuous lecture monologue. Read the following narration naturally with warmth, intellectual generosity, and calm, unhurried pacing. Do not add any commentary, greetings, dialogue, or acknowledgments. This is a one-way narration -- never say "thank you," never respond as if someone spoke, never add your own introduction or sign-off. If you encounter URLs or abbreviations, handle them naturally.',
             },
             {
               role: 'user',
