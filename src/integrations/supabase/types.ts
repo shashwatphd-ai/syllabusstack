@@ -2680,6 +2680,7 @@ export type Database = {
           research_context: Json | null
           slide_style: string | null
           slides: Json
+          slides_updated_at: string | null
           status: string | null
           teaching_unit_id: string
           title: string
@@ -2709,6 +2710,7 @@ export type Database = {
           research_context?: Json | null
           slide_style?: string | null
           slides?: Json
+          slides_updated_at?: string | null
           status?: string | null
           teaching_unit_id: string
           title: string
@@ -2738,6 +2740,7 @@ export type Database = {
           research_context?: Json | null
           slide_style?: string | null
           slides?: Json
+          slides_updated_at?: string | null
           status?: string | null
           teaching_unit_id?: string
           title?: string

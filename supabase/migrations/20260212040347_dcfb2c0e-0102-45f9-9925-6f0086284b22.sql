@@ -1,0 +1,1 @@
+ALTER TABLE public.lecture_slides ADD COLUMN slides_updated_at timestamptz DEFAULT now();

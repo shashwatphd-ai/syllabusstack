@@ -380,6 +380,7 @@ const handler = async (req: Request): Promise<Response> => {
             progress_percent: 75,
             message: 'Slides ready. Generating visuals...',
           },
+          slides_updated_at: new Date().toISOString(),
           quality_score: qualityScore,
           is_research_grounded: researchContext.grounded_content.length > 0,
           research_context: researchContext.grounded_content.length > 0 ? researchContext : null,
