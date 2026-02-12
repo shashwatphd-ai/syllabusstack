@@ -77,6 +77,14 @@ CRITICAL PEDAGOGICAL PRINCIPLES:
 4. SPECIFICITY: Search queries must be HIGHLY SPECIFIC to find exact teaching content
 5. REAL-WORLD RELEVANCE: Every unit should connect abstract concepts to practical application
 
+USE YOUR SEARCH CAPABILITY to verify:
+1. Current real-world applications and case studies from the last 2 years for this domain
+2. Authoritative definitions of domain-specific terms — do not guess terminology
+3. Current best practices in pedagogy for this specific subject area
+4. Whether prerequisite concepts you identify are accurate for the field
+
+SEARCH QUERY GENERATION: For each teaching unit, your search queries should be informed by what you found during your research — use verified terminology, not guesses. Include specific names, frameworks, tools, or methods you discovered through search.
+
 QUALITY MARKERS FOR TEACHING UNITS:
 - Clear, measurable learning outcome per unit
 - Explicit prerequisite dependencies
@@ -84,11 +92,12 @@ QUALITY MARKERS FOR TEACHING UNITS:
 - Multiple varied search queries for content discovery
 - Appropriate video type matched to cognitive level (explainer for concepts, tutorial for procedures)
 
-2024-2025 BEST PRACTICES:
+2025-2026 BEST PRACTICES:
 - Active learning emphasis over passive consumption
 - Spaced repetition and retrieval practice integration
 - Inclusive design considering diverse learner needs
-- Real-world case studies from the last 3 years
+- Real-world case studies from the last 2 years
+- Evidence-based pedagogical strategies verified through current research
 
 OUTPUT FORMAT: Return valid JSON only, no markdown or explanations outside the JSON.`;
 
@@ -109,7 +118,7 @@ COURSE CONTEXT:
 Title: ${course.title}
 ${course.description ? `Description: ${course.description}` : ''}
 ${course.detected_domain ? `Domain: ${course.detected_domain}` : ''}
-${course.syllabus_text ? `\nSYLLABUS EXCERPT (for context):\n${course.syllabus_text.substring(0, 3000)}` : ''}
+${course.syllabus_text ? `\nSYLLABUS EXCERPT (for deeper context):\n${course.syllabus_text.substring(0, 15000)}` : ''}
 
 BACKWARD DESIGN PROCESS (Wiggins & McTighe UbD Framework):
 
@@ -179,29 +188,64 @@ RESPONSE FORMAT (JSON only):
 }
 
 async function callAI(systemPrompt: string, userPrompt: string): Promise<DecomposeResponse> {
-  console.log('[curriculum-reasoning-agent] Calling AI for decomposition...');
+  console.log('[curriculum-reasoning-agent] Calling Gemini 3 Pro with thinking + search...');
 
-  // Using REASONING model for complex curriculum decomposition
-  const result = await generateText({
-    prompt: userPrompt,
-    systemPrompt: systemPrompt,
-    model: MODELS.REASONING,
-    fallbacks: [MODELS.GEMINI_PRO, MODELS.FAST],
-    logPrefix: '[curriculum-reasoning-agent]'
-  });
-
-  if (!result.content) {
-    throw new Error('No content in AI response');
+  const GOOGLE_CLOUD_API_KEY = Deno.env.get("GOOGLE_CLOUD_API_KEY");
+  if (!GOOGLE_CLOUD_API_KEY) {
+    throw new Error("GOOGLE_CLOUD_API_KEY not configured");
   }
 
-  console.log('[curriculum-reasoning-agent] Raw AI response length:', result.content.length);
+  const model = 'gemini-3-pro-preview';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GOOGLE_CLOUD_API_KEY}`;
 
   try {
-    const parsed = parseJsonFromAI(result.content) as DecomposeResponse;
-    return parsed;
-  } catch (e) {
-    console.error('[curriculum-reasoning-agent] Failed to parse AI response:', result.content.substring(0, 500));
-    throw new Error('Failed to parse AI response as JSON');
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }]
+        }],
+        generationConfig: {
+          temperature: 0.3,
+          maxOutputTokens: 65536,
+          responseMimeType: "application/json",
+          thinkingConfig: { thinkingLevel: "high" },
+        },
+        tools: [{
+          googleSearch: {}
+        }],
+      }),
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      console.error('[curriculum-reasoning-agent] Gemini API error:', response.status, err.substring(0, 500));
+      throw new Error(`Gemini API error ${response.status}`);
+    }
+
+    const data = await response.json();
+    const text = data.candidates?.[0]?.content?.parts
+      ?.filter((p: any) => p.text)
+      ?.map((p: any) => p.text)
+      ?.join("") || "";
+
+    if (!text) throw new Error('No content in Gemini response');
+
+    console.log('[curriculum-reasoning-agent] Response:', text.length, 'chars');
+    return parseJsonFromAI(text) as DecomposeResponse;
+  } catch (directError) {
+    console.error('[curriculum-reasoning-agent] Direct Gemini failed, falling back to OpenRouter:', directError);
+
+    const fallbackResult = await generateText({
+      prompt: userPrompt,
+      systemPrompt: systemPrompt,
+      model: MODELS.GEMINI_PRO,
+      fallbacks: [MODELS.GEMINI_FLASH, MODELS.FAST],
+      logPrefix: '[curriculum-reasoning-agent-fallback]'
+    });
+    if (!fallbackResult.content) throw new Error('No content from fallback');
+    return parseJsonFromAI(fallbackResult.content) as DecomposeResponse;
   }
 }
 

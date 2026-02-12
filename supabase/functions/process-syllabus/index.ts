@@ -577,7 +577,7 @@ RULES:
     } catch (directError) {
       // Fallback: OpenRouter with truncated text if Google API fails
       console.error('[process-syllabus] Direct Gemini failed, falling back to OpenRouter:', directError);
-      const truncatedPrompt = structurePrompt.substring(0, 80000) +
+      const truncatedPrompt = structurePrompt.substring(0, 90000) +
         '\n\n[Document truncated for size. Extract what you can from available text.]';
       const fallbackResult = await generateText({
         prompt: truncatedPrompt,
