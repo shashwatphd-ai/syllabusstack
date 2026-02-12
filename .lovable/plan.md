@@ -1,127 +1,100 @@
 
+# Make Audio Generation Pipeline Robust and Coherent
 
-# Switch Audio from GPT Audio (LLM) to Google Cloud TTS (Chirp 3: HD)
+## Anomalies Found
 
-## Why This Is Needed
+Tracing the full audio pipeline (UI trigger -> hook -> edge function -> TTS -> storage -> student playback) reveals these issues that need systematic fixes:
 
-The current system sends narration text as a chat message to `openai/gpt-audio-mini`, which is a language model that *speaks its own response* rather than reading the input. This is why audio contains "Absolutely!", "That's an excellent point", reads citations aloud, and produces content that doesn't match the transcript. This is not fixable with better prompting -- it's an architectural mismatch.
+### 1. Client-side timeout causes stuck "generating" status
+The `useGenerateLectureAudio` hook synchronously awaits the edge function. For lectures with 6+ slides, processing exceeds the ~60s gateway timeout, causing "Failed to fetch" on the client. The backend completes successfully, but the UI never learns this -- `audio_status` stays `generating` and the instructor sees a perpetual spinner.
 
-Google Cloud TTS is a deterministic speech synthesizer. It reads text exactly as written. The `GOOGLE_CLOUD_API_KEY` is already configured and used by 6+ edge functions.
+### 2. No polling for audio status
+Unlike slide generation (which has `refetchInterval` in `queue.ts`), audio generation has zero polling. If the client times out or the user navigates away, they never see the result without a manual page refresh.
 
-## What Changes
+### 3. Signed URL expiry mismatch
+Instructor preview uses 300s (5 min) expiry, student playback uses 3600s (1 hour). An instructor previewing a long lecture could hit expired URLs mid-session.
 
-### 1. New file: `supabase/functions/_shared/tts-client.ts`
+### 4. No backward compatibility for old voice IDs
+The validator only accepts `['Charon', 'Leda', 'Fenrir', 'Kore', 'Puck', 'Aoede']`. Any existing lecture_slides rows with old OpenAI voice IDs (e.g., `onyx`) stored in metadata or re-triggered from old UI state will fail validation.
 
-A focused Google Cloud TTS client that:
-- Calls `POST https://texttospeech.googleapis.com/v1/text:synthesize?key={GOOGLE_CLOUD_API_KEY}`
-- Uses Chirp 3: HD voices (`en-US-Chirp3-HD-Charon`, etc.) for natural, teaching-quality speech
-- Returns `LINEAR16` at 24kHz -- Google includes the WAV header automatically
-- Handles text chunking at sentence boundaries for narrations exceeding Google's 5000-byte input limit
-- Includes retry logic (2 retries, 1s backoff on 5xx errors)
-- Maps short voice IDs (e.g., `Charon`) to full Google voice names
+### 5. `enableSegmentMapping` adds latency without control
+It defaults to `true` in the validator but the hook never sends it. Each slide makes an extra AI call for segment mapping, adding ~3-5s per slide. Instructors can't disable it.
 
-### 2. Update: `supabase/functions/generate-lecture-audio/index.ts`
+## Fixes
 
-Replace the GPT Audio chat completion block (lines 187-218) with a call to the new TTS client:
+### Fix 1: Fire-and-forget + status polling (core robustness fix)
 
+**File: `src/hooks/lectureSlides/audio.ts`**
+
+Change the hook from synchronous await to fire-and-forget with polling:
+
+- The `mutationFn` fires `supabase.functions.invoke(...)` but does NOT await the full response. Instead, it immediately returns after confirming the request was accepted (or catches only immediate validation errors).
+- Add a new `useEffect` in the hook (or a companion query) that polls `lecture_slides.audio_status` every 5 seconds while status is `generating`.
+- When status flips to `ready` or `failed`, stop polling, invalidate queries, show toast.
+- This completely eliminates the timeout problem -- the client doesn't care how long the backend takes.
+
+**File: `supabase/functions/generate-lecture-audio/index.ts`**
+
+Add a self-healing guard at the top: if `audio_status` is already `generating` and was set more than 10 minutes ago, reset it to allow retry. This prevents permanent stuck states.
+
+### Fix 2: Backward-compatible voice validation
+
+**File: `supabase/functions/_shared/validators/index.ts`**
+
+Expand the voice enum to accept both old and new IDs:
 ```text
-Before (LLM responds to text):
-  callOpenRouter({ model: MODELS.AUDIO, messages: [...], modalities: ['text','audio'] })
-
-After (TTS reads text verbatim):
-  synthesizeSpeech(narrationText, voiceId, GOOGLE_CLOUD_API_KEY)
+z.enum(['Charon', 'Leda', 'Fenrir', 'Kore', 'Puck', 'Aoede',
+        'onyx', 'nova', 'echo', 'alloy', 'fable', 'shimmer'])
 ```
 
-Additional changes in this file:
-- Remove manual WAV header construction (lines 220-247) -- Google returns complete WAV
-- Remove `callOpenRouter` and `MODELS` imports (no longer needed for this function)
-- Add `GOOGLE_CLOUD_API_KEY` check alongside `OPENROUTER_API_KEY` (still needed for narration generation and segment mapping)
-- Simplify audit log: since TTS is deterministic, transcript comparison is replaced with generation metadata (voice, chunk count, model)
-- Keep: PCM-based duration calculation (parse WAV header for data size), storage upload, segment mapping, audit summary, all error handling
+**File: `supabase/functions/_shared/tts-client.ts`**
 
-### 3. Update: `src/components/slides/VoicePicker.tsx`
-
-Replace OpenAI voice IDs with Chirp 3: HD voice short names:
-
-| Old ID | New ID | Label | Description |
-|--------|--------|-------|-------------|
-| onyx | Charon | Professor Charon | Deep, authoritative |
-| nova | Leda | Dr. Leda | Warm, friendly |
-| echo | Fenrir | Dr. Fenrir | Clear, measured |
-| alloy | Kore | Prof. Kore | Balanced, neutral |
-| fable | Puck | Dr. Puck | Expressive, storytelling |
-| shimmer | Aoede | Prof. Aoede | Calm, reassuring |
-
-### 4. Update: `supabase/functions/_shared/validators/index.ts`
-
-Update `lectureAudioSchema` to accept the new voice IDs:
-
+Add legacy voice mapping:
 ```text
-Before: z.enum(['onyx', 'nova', 'echo', 'alloy', 'fable', 'shimmer'])
-After:  z.enum(['Charon', 'Leda', 'Fenrir', 'Kore', 'Puck', 'Aoede'])
+onyx -> Charon, nova -> Leda, echo -> Fenrir, alloy -> Kore, fable -> Puck, shimmer -> Aoede
 ```
 
-### 5. Update: `src/hooks/lectureSlides/audio.ts`
+### Fix 3: Consistent signed URL expiry
 
-Change default `voiceId` from `'onyx'` to `'Charon'`.
+**File: `src/components/slides/LectureSlideViewer.tsx`**
 
-### 6. Update: `src/components/slides/LectureSlideViewer.tsx`
+Change instructor preview signed URL from 300s to 3600s (matching student playback).
 
-Two changes:
+### Fix 4: Explicit segment mapping control
 
-**a) Default voice**: Change `useState('onyx')` to `useState('Charon')` (line 56).
+**File: `src/hooks/lectureSlides/audio.ts`**
 
-**b) Instructor audio preview**: Add a play/pause button in the navigation footer so instructors can hear what students will hear.
+Explicitly pass `enableSegmentMapping: true` (or `false`) in the mutation body so the behavior is intentional, not accidental via default.
 
-Implementation:
-- Add `audioRef` (useRef) and `isPreviewPlaying` (useState) state
-- On play: fetch signed URL for `currentSlide.audio_url` from `lecture-audio` bucket, create Audio element, play
-- On pause: pause and reset
-- Stop audio on slide change, dialog close, component unmount
-- Show button only when `hasAudio && currentSlide.audio_url` exists
-- Uses the same `supabase.storage.from('lecture-audio').createSignedUrl()` pattern already working in StudentSlideViewer
+### Fix 5: Stuck status self-healing in the edge function
 
-Footer layout becomes:
-```text
-[Previous] [Play/Pause] [3 / 12 (~8 min)] [Next]
-```
+**File: `supabase/functions/generate-lecture-audio/index.ts`**
 
-### 7. Update: `supabase/functions/_shared/openrouter-client.ts`
+Before setting `audio_status = 'generating'`, check if it's already `generating` with a timestamp older than 10 minutes. If so, log a warning and proceed (overwrite). This prevents a race where a timed-out first request blocks retries.
 
-Deprecation comments only on MODELS.AUDIO and MODELS.AUDIO_HD (lines 126-131). No logic changes -- these constants remain for reference but are no longer called.
-
-## Files Summary
+## Files to Modify
 
 | File | Change |
 |------|--------|
-| `supabase/functions/_shared/tts-client.ts` | New: Google Cloud TTS client with chunking and retry |
-| `supabase/functions/generate-lecture-audio/index.ts` | Replace GPT Audio with Google TTS, remove WAV header construction, simplify audit |
-| `src/components/slides/VoicePicker.tsx` | Chirp 3: HD voice names |
-| `src/components/slides/LectureSlideViewer.tsx` | Default voice + instructor audio preview button |
-| `src/hooks/lectureSlides/audio.ts` | Default voice to Charon |
-| `supabase/functions/_shared/validators/index.ts` | Accept new voice IDs |
-| `supabase/functions/_shared/openrouter-client.ts` | Deprecation comments only |
+| `src/hooks/lectureSlides/audio.ts` | Fire-and-forget + polling pattern, explicit `enableSegmentMapping` |
+| `supabase/functions/generate-lecture-audio/index.ts` | Self-healing stuck status guard |
+| `supabase/functions/_shared/validators/index.ts` | Accept legacy voice IDs |
+| `supabase/functions/_shared/tts-client.ts` | Legacy voice ID mapping |
+| `src/components/slides/LectureSlideViewer.tsx` | Fix signed URL expiry to 3600s |
 
 ## What Stays the Same
 
-- AI narration generation (CMM persona via Gemini/OpenRouter) -- working correctly
-- Storage upload with upsert -- unchanged
-- `audio_audit_log` column (already added in previous migration) -- reused
-- Duration calculation from PCM bytes -- same math
-- Student playback (StudentSlideViewer.tsx) -- unchanged, reads same WAV files
-- Segment mapping -- unchanged, receives duration as parameter
-- Cache-busting via `audio_generated_at` -- unchanged
+- TTS engine (Google Cloud Chirp 3: HD) -- correct and deterministic
+- AI narration generation (CMM persona) -- working
+- WAV construction and storage upload -- working
+- Student playback and sync highlighting -- working
+- Audit logging -- working
+- Cache-busting via `audio_generated_at` -- working
 
-## No New Credentials Required
+## Expected Outcome
 
-`GOOGLE_CLOUD_API_KEY` is already configured and actively used by `unified-ai-client.ts`, `process-syllabus`, `parse-syllabus-document`, `fetch-video-metadata`, `add-manual-content`, and `youtube-api-search`.
-
-## Verification
-
-- **Deterministic output**: Generate audio, listen -- spoken words must match speaker_notes exactly
-- **Instructor preview**: Click play in footer -- audio plays for current slide, stops on slide change
-- **Voice quality**: Test Chirp 3: HD voices -- verify natural, realistic teaching tone
-- **Long text chunking**: Slides with >5000 bytes narration produce seamless audio
-- **Sync highlighting**: Student viewer highlighting ends precisely when audio ends
-- **Regeneration**: Old WAVs overwritten, audit log replaced, timestamps updated
-
+- Instructors click "Generate Audio" and see a toast confirming the job started. The UI polls every 5s and automatically updates when audio is ready (or shows failure).
+- No more "Failed to fetch" errors from gateway timeouts.
+- No more stuck "generating" spinners -- self-healing resets after 10 minutes.
+- Old lectures with OpenAI voice IDs can still regenerate audio without errors.
+- Instructor preview uses consistent 1-hour signed URLs.
