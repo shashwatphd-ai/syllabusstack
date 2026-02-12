@@ -1,88 +1,120 @@
 
 
-# Reorganize Learning Objective Page — Remove Empty State Box, Streamline Layout
+# Multi-Voice Audio Generation with Student Voice Selection
 
-## Current Problem
+## Current Architecture
 
-The page uses a two-column layout: a large center area (for a video player or an empty "Select Content" placeholder) and a narrow 320px sidebar with Videos, Lecture Slides, and Assessment CTA. When no video is selected, the center shows a big empty card with a play icon saying "Choose a video or lecture slides from the sidebar" -- this wastes most of the screen real estate and feels confusing.
-
-Since both content types open in overlays (slides open in a full-screen `StudentSlideViewer` modal, and the video player renders inline), there's no need for a dedicated center "stage" area that sits empty most of the time.
-
-## New Layout
-
-Replace the two-column layout with a single-column, vertically stacked design:
+Today, the instructor picks ONE voice in the VoicePicker, clicks "Generate Audio", and the edge function generates audio for all slides using only that voice. Files are stored as:
 
 ```text
-[Back to Course]
-[Learning Objective Title]
-[Bloom Level Badge] [State Badge]
-
-[Videos Section - horizontal scrollable cards or vertical list]
-[Lecture Slides Section - horizontal scrollable cards or vertical list]
-[Assessment CTA - full width when unlocked]
+{slideId}/slide_0.wav
+{slideId}/slide_1.wav
+...
 ```
 
-### Design Details
+Students have no voice choice -- they hear whatever the instructor last generated.
 
-1. **Remove the empty "Select Content" placeholder card entirely** -- no more two-column grid layout.
+## Proposed Architecture
 
-2. **Videos section**: Show as a list of clickable cards (similar to current sidebar but full-width). Each card shows thumbnail, title, duration, match score, and watch status. Clicking opens the `VerifiedVideoPlayer` inline (expands in place above the list, pushing content down) or in a dialog.
+### Core Idea
 
-3. **Lecture Slides section**: Show as a list of clickable cards, each with slide count and duration. Clicking opens the `StudentSlideViewer` modal (unchanged behavior).
+When the instructor clicks "Generate Audio", the system generates audio for ALL 6 Chirp 3: HD voices in parallel. Students then pick their preferred voice via a VoicePicker in the student viewer.
 
-4. **Assessment CTA**: Full-width card at the bottom when the state is `verified` or `assessment_unlocked`.
-
-5. **When a video IS selected**: The video player renders at the top of the page (full width), with the Micro-Check History collapsible below it, then the content lists below that. A close/minimize button lets the student collapse the player back.
-
-6. **Empty states**: If no videos exist, the Videos section shows a subtle inline message instead of a card with an icon. Same for slides.
-
-## Technical Changes
-
-### File: `src/pages/student/LearningObjective.tsx`
-
-- Remove the `grid gap-6 lg:grid-cols-[1fr_320px]` two-column layout (line 207)
-- Remove the center "Select Content" empty state card (lines 266-275)
-- Restructure to single column:
-  - Video player at top (when selected), full width
-  - Videos list as full-width cards below
-  - Lecture Slides list as full-width cards below that
-  - Assessment CTA at bottom
-- Keep all existing logic: state recovery, content status, video completion handlers, slide viewer modal, micro-check history
-- Keep the `VerifiedVideoPlayer` rendering inline when a video is selected (just make it full-width at the top instead of in the left column)
-
-### Layout Structure (single file change)
+### Storage Layout Change
 
 ```text
-<div class="space-y-6">
-  <!-- Header (unchanged) -->
-  
-  <!-- Video Player (only when selected, full width) -->
-  <!-- Micro-check history (only when video selected) -->
-  
-  <!-- Content Sections -->
-  <div class="space-y-6">
-    <!-- Videos Card (full width, list of clickable items) -->
-    <!-- Lecture Slides Card (full width, list of clickable items) -->
-    <!-- Assessment CTA (full width) -->
-  </div>
-</div>
+Before: {slideId}/slide_0.wav
+After:  {slideId}/Charon/slide_0.wav
+        {slideId}/Leda/slide_0.wav
+        {slideId}/Fenrir/slide_0.wav
+        {slideId}/Kore/slide_0.wav
+        {slideId}/Puck/slide_0.wav
+        {slideId}/Aoede/slide_0.wav
 ```
 
-## What Stays the Same
+### Slide Data Change
 
-- All data fetching hooks and queries
-- State recovery logic
-- Video completion and verification handlers
-- Slide viewer modal (`StudentSlideViewer`)
-- Micro-check history collapsible
-- Assessment navigation
-- All content status tracking
+Each slide currently stores a single `audio_url`. This changes to a map:
 
-## Outcome
+```text
+Before: audio_url: "{slideId}/slide_0.wav"
+After:  audio_urls: {
+          Charon: "{slideId}/Charon/slide_0.wav",
+          Leda:   "{slideId}/Leda/slide_0.wav",
+          ...
+        }
+        audio_url: "{slideId}/Charon/slide_0.wav"   // kept for backward compat
+```
 
-- No more empty placeholder box taking up half the screen
-- Content is immediately visible and accessible without scrolling right
-- Cleaner, more intuitive single-column flow
-- Works better on mobile (no cramped 320px sidebar)
-- Both Videos and Lecture Slides remain one click away from their respective viewers
+The legacy `audio_url` field remains pointing to the default voice (Charon) so existing student viewers and instructor previews continue working without changes until they're updated.
+
+## File Changes
+
+### 1. `supabase/functions/generate-lecture-audio/index.ts`
+
+Major changes:
+- Remove the single `voiceId` parameter -- the function now generates ALL voices
+- After generating narration text for each slide (Phase 1, unchanged), loop through all 6 voices and call `synthesizeSpeech()` for each
+- Upload to voice-specific paths: `{slideId}/{voiceId}/slide_{i}.wav`
+- Store `audio_urls` map on each slide alongside legacy `audio_url`
+- Duration is identical across voices (same text, same engine), so calculate once from the first voice
+- Segment mapping runs once per slide (not per voice) since it's text-based, not audio-based
+- Process voices in parallel per slide (Promise.all) to reduce total time
+- Audit log records all 6 voices
+
+### 2. `src/components/slides/VoicePicker.tsx`
+
+No changes to voice list. Remove from instructor header (since all voices are now generated). Could optionally keep it for instructor preview selection.
+
+### 3. `src/components/slides/LectureSlideViewer.tsx` (Instructor)
+
+- Remove VoicePicker from the header (all voices are generated automatically)
+- Keep the preview play button but add a small voice selector next to it so the instructor can preview any voice
+- Update `handleGenerateAudio` to not pass `voiceId` (all voices generated)
+- Preview resolves audio path using selected preview voice from `audio_urls` map
+
+### 4. `src/components/slides/StudentSlideViewer.tsx` (Student)
+
+- Add VoicePicker to the student footer controls (next to the volume toggle)
+- Store selected voice in `useState` with default `'Charon'`
+- When resolving audio URL, use `slide.audio_urls?.[selectedVoice]` instead of `slide.audio_url`
+- Persist student voice preference in `localStorage` so it remembers across sessions
+- Voice change mid-lecture: stop current audio, re-resolve URL for new voice, resume from same slide
+
+### 5. `src/components/slides/NarratedScrollViewer.tsx` (Student scroll mode)
+
+- Accept `selectedVoice` prop from parent StudentSlideViewer
+- Use `audio_urls[selectedVoice]` when resolving audio paths for scroll mode playback
+
+### 6. `src/hooks/lectureSlides/audio.ts`
+
+- Remove `voiceId` from mutation params (no longer needed -- all voices generated)
+- Keep `enableSegmentMapping` param
+
+### 7. `supabase/functions/_shared/validators/index.ts`
+
+- Remove `voiceId` from `lectureAudioSchema` (no longer a parameter)
+
+### 8. `src/hooks/lectureSlides/types.ts`
+
+- Add `audio_urls?: Record<string, string>` to `Slide`, `EnhancedSlide`, and `ProfessorSlide` types
+
+## Performance Considerations
+
+- Generating 6 voices x N slides increases TTS API calls by 6x
+- Mitigation: process all 6 voices per slide in parallel (`Promise.all`), so wall-clock time per slide only increases marginally (Google TTS responds in ~1-2s per call)
+- Total time for a 12-slide lecture: ~15-25 minutes (vs ~3-5 minutes today) -- acceptable since it's fire-and-forget with polling
+- Storage increase: 6x per lecture -- acceptable for WAV files (typically 1-3MB each)
+
+## Backward Compatibility
+
+- Existing slides with single `audio_url` continue working -- student viewer falls back to `audio_url` if `audio_urls` map is missing
+- Instructor can regenerate at any time to populate all voices
+- Legacy voice IDs (onyx, nova, etc.) no longer relevant for generation but the `resolveVoiceId` mapping stays for any edge cases
+
+## User Experience
+
+**Instructor**: Clicks "Generate Audio" (no voice selection needed). Sees progress toast. All 6 voices are generated in the background. Can preview any voice via a small selector next to the play button.
+
+**Student**: Opens lecture. Sees a voice picker in the playback controls. Picks their preferred voice (default: Charon). Preference is saved. Audio plays in their chosen voice. Can switch voices mid-lecture.
 
