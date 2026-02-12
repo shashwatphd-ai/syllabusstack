@@ -371,11 +371,17 @@ export async function callOpenRouter(
   }
 
   // Audio output support (GPT Audio models)
+  const isAudioRequest = options.modalities?.includes('audio');
   if (options.modalities) {
     body.modalities = options.modalities;
   }
   if (options.audio) {
     body.audio = options.audio;
+  }
+
+  // Audio output requires streaming per OpenRouter API
+  if (isAudioRequest) {
+    body.stream = true;
   }
 
   const response = await fetch(`${OPENROUTER_API_BASE}/chat/completions`, {
@@ -407,6 +413,11 @@ export async function callOpenRouter(
     throw new Error(`OpenRouter API error ${response.status}: ${errText}`);
   }
 
+  // If streaming (audio), collect SSE chunks and reconstruct the response
+  if (isAudioRequest) {
+    return await collectStreamedAudioResponse(response, options.model, logPrefix);
+  }
+
   const data: OpenRouterResponse = await response.json();
 
   // Log which model actually responded (useful for fallbacks)
@@ -419,6 +430,125 @@ export async function callOpenRouter(
   console.log(`${logPrefix} Response from ${actualModel}${usedFallback ? ' (fallback)' : ''}: ${contentLength} chars, ${toolCalls} tool calls, ${usage.total_tokens} tokens`);
 
   return data;
+}
+
+// ============================================================================
+// STREAMING AUDIO HELPER
+// ============================================================================
+
+/**
+ * Collect a streamed SSE response from OpenRouter and reconstruct it into
+ * an OpenRouterResponse with audio data.
+ * OpenRouter requires `stream: true` for audio output models.
+ */
+async function collectStreamedAudioResponse(
+  response: Response,
+  requestedModel: string,
+  logPrefix: string,
+): Promise<OpenRouterResponse> {
+  const reader = response.body?.getReader();
+  if (!reader) {
+    throw new Error('No response body for streaming audio');
+  }
+
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let audioId = '';
+  let audioData = '';
+  let audioTranscript = '';
+  let audioExpiresAt = 0;
+  const contentParts: string[] = [];
+  let actualModel = requestedModel;
+  let finishReason = 'stop';
+  let totalTokens = 0;
+  let promptTokens = 0;
+  let completionTokens = 0;
+  let responseId = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith(':')) continue;
+
+        if (trimmed.startsWith('data: ')) {
+          const data = trimmed.slice(6);
+          if (data === '[DONE]') continue;
+
+          try {
+            const chunk = JSON.parse(data);
+            if (chunk.id) responseId = chunk.id;
+            if (chunk.model) actualModel = chunk.model;
+
+            const delta = chunk.choices?.[0]?.delta;
+            if (delta) {
+              if (delta.content) contentParts.push(delta.content);
+              if (delta.audio) {
+                if (delta.audio.id) audioId = delta.audio.id;
+                if (delta.audio.data) audioData += delta.audio.data;
+                if (delta.audio.transcript) audioTranscript += delta.audio.transcript;
+                if (delta.audio.expires_at) audioExpiresAt = delta.audio.expires_at;
+              }
+            }
+
+            if (chunk.choices?.[0]?.finish_reason) {
+              finishReason = chunk.choices[0].finish_reason;
+            }
+            if (chunk.usage) {
+              promptTokens = chunk.usage.prompt_tokens || 0;
+              completionTokens = chunk.usage.completion_tokens || 0;
+              totalTokens = chunk.usage.total_tokens || 0;
+            }
+          } catch {
+            // Skip unparseable chunks
+          }
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const content = contentParts.join('') || null;
+  const hasAudio = audioData.length > 0;
+
+  console.log(`${logPrefix} Streamed response from ${actualModel}: ${content?.length || 0} chars text, ${hasAudio ? `${Math.round(audioData.length / 1024)}KB audio` : 'no audio'}, ${totalTokens} tokens`);
+
+  if (!hasAudio) {
+    throw new Error('No audio data received in streamed response');
+  }
+
+  return {
+    id: responseId,
+    model: actualModel,
+    choices: [{
+      index: 0,
+      message: {
+        role: 'assistant',
+        content,
+        audio: {
+          id: audioId,
+          data: audioData,
+          transcript: audioTranscript || undefined,
+          expires_at: audioExpiresAt,
+        },
+      },
+      finish_reason: finishReason,
+    }],
+    usage: {
+      prompt_tokens: promptTokens,
+      completion_tokens: completionTokens,
+      total_tokens: totalTokens,
+    },
+  };
 }
 
 // ============================================================================
