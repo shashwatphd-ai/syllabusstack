@@ -677,110 +677,60 @@ export default function LearnPage() {
 
   return (
     <AppShell>
-      <div className="space-y-6">
-        {/* Page subtitle */}
-        <p className="text-muted-foreground">
-          Track your courses, transcript, and skill development
-        </p>
-
-        {/* Stats Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setActiveTab("active")}>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
-                  <PlayCircle className="h-5 w-5 text-blue-600" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold">{activeCoursesCount}</p>
-                  <p className="text-xs text-muted-foreground">Active Courses</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setActiveTab("active")}>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center">
-                  <CheckCircle2 className="h-5 w-5 text-green-600" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold">{completedCoursesCount}</p>
-                  <p className="text-xs text-muted-foreground">Completed</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setActiveTab("transcript")}>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-amber-500/10 flex items-center justify-center">
-                  <FileText className="h-5 w-5 text-amber-600" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold">{transcriptCount}</p>
-                  <p className="text-xs text-muted-foreground">Transcript</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setActiveTab("skills")}>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-purple-500/10 flex items-center justify-center">
-                  <Award className="h-5 w-5 text-purple-600" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold">{totalSkillsCount}</p>
-                  <p className="text-xs text-muted-foreground">
-                    Skills ({verifiedSkillsCount} verified)
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+      <div className="space-y-4">
+        {/* Welcome strip with primary CTA */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <p className="text-muted-foreground text-sm">
+            Track your enrolled courses, transcript, and skill development
+          </p>
+          <EnrollmentDialog
+            trigger={
+              <Button size="sm">
+                <Plus className="h-4 w-4 mr-2" />
+                Enroll with Code
+              </Button>
+            }
+          />
         </div>
 
-        {/* Main Tabs */}
+        {/* Main Tabs - counts integrated as badges */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="active" className="gap-2">
-              <PlayCircle className="h-4 w-4" />
-              Active Courses
+            <TabsTrigger value="active" className="gap-1.5">
+              <PlayCircle className="h-4 w-4 hidden sm:block" />
+              <span>Active</span>
+              {activeCoursesCount > 0 && (
+                <Badge variant="secondary" className="ml-1 h-5 min-w-5 px-1.5 text-[10px] font-semibold">
+                  {activeCoursesCount}
+                </Badge>
+              )}
             </TabsTrigger>
-            <TabsTrigger value="certificates" className="gap-2">
-              <Trophy className="h-4 w-4" />
-              Certificates
+            <TabsTrigger value="certificates" className="gap-1.5">
+              <Trophy className="h-4 w-4 hidden sm:block" />
+              <span>Certificates</span>
             </TabsTrigger>
-            <TabsTrigger value="transcript" className="gap-2">
-              <BookOpen className="h-4 w-4" />
-              My Transcript
+            <TabsTrigger value="transcript" className="gap-1.5">
+              <BookOpen className="h-4 w-4 hidden sm:block" />
+              <span>Transcript</span>
+              {transcriptCount > 0 && (
+                <Badge variant="secondary" className="ml-1 h-5 min-w-5 px-1.5 text-[10px] font-semibold">
+                  {transcriptCount}
+                </Badge>
+              )}
             </TabsTrigger>
-            <TabsTrigger value="skills" className="gap-2">
-              <Award className="h-4 w-4" />
-              Skill Profile
+            <TabsTrigger value="skills" className="gap-1.5">
+              <Award className="h-4 w-4 hidden sm:block" />
+              <span>Skills</span>
+              {totalSkillsCount > 0 && (
+                <Badge variant="secondary" className="ml-1 h-5 min-w-5 px-1.5 text-[10px] font-semibold">
+                  {totalSkillsCount}
+                </Badge>
+              )}
             </TabsTrigger>
           </TabsList>
 
           {/* Active Courses Tab */}
           <TabsContent value="active" className="space-y-4">
-            <div className="flex justify-between items-center">
-              <p className="text-sm text-muted-foreground">
-                Courses you're enrolled in through instructors
-              </p>
-              <EnrollmentDialog
-                trigger={
-                  <Button>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Enroll with Code
-                  </Button>
-                }
-              />
-            </div>
-
             {enrollmentsLoading ? (
               <div className="grid gap-4 md:grid-cols-2">
                 {[1, 2].map(i => (
@@ -794,69 +744,85 @@ export default function LearnPage() {
                 ))}
               </div>
             ) : enrollments.length === 0 ? (
-              <Card className="p-12 text-center">
-                <div className="flex flex-col items-center gap-4">
-                  <GraduationCap className="h-12 w-12 text-muted-foreground" />
-                  <div>
-                    <h3 className="text-lg font-semibold">No active courses</h3>
-                    <p className="text-muted-foreground">
-                      Enroll in a course using an access code from your instructor
+              <Card className="border-dashed">
+                <CardContent className="py-16 text-center">
+                  <div className="flex flex-col items-center gap-3 max-w-sm mx-auto">
+                    <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center">
+                      <GraduationCap className="h-7 w-7 text-primary" />
+                    </div>
+                    <h3 className="text-lg font-semibold">Get started with your first course</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Your instructor will give you an access code. Enter it below to enroll and start learning.
                     </p>
+                    <EnrollmentDialog
+                      trigger={
+                        <Button className="mt-2">
+                          <Plus className="h-4 w-4 mr-2" />
+                          Enter Access Code
+                        </Button>
+                      }
+                    />
                   </div>
-                  <EnrollmentDialog
-                    trigger={
-                      <Button>
-                        <Plus className="h-4 w-4 mr-2" />
-                        Enroll Now
-                      </Button>
-                    }
-                  />
-                </div>
+                </CardContent>
               </Card>
             ) : (
               <div className="grid gap-4 md:grid-cols-2">
-                {enrollments.map((enrollment: StudentEnrollment) => (
-                  <Card
-                    key={enrollment.id}
-                    className="cursor-pointer hover:shadow-md transition-shadow"
-                    onClick={() => navigate(`/learn/course/${enrollment.instructor_course_id}`)}
-                  >
-                    <CardHeader className="pb-2">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <CardTitle className="text-lg">
-                            {enrollment.instructor_course?.title || "Untitled Course"}
-                          </CardTitle>
-                          <CardDescription>
-                            {enrollment.instructor_course?.code}
-                          </CardDescription>
-                        </div>
-                        {enrollment.completed_at ? (
-                          <Badge className="bg-green-500">Completed</Badge>
-                        ) : (
-                          <Badge variant="outline">In Progress</Badge>
-                        )}
+                {enrollments.map((enrollment: StudentEnrollment) => {
+                  const progress = enrollment.overall_progress || 0;
+                  const isCompleted = !!enrollment.completed_at;
+
+                  return (
+                    <Card
+                      key={enrollment.id}
+                      className="group hover:shadow-md transition-shadow overflow-hidden"
+                    >
+                      {/* Progress accent bar at top */}
+                      <div className="h-1 bg-muted">
+                        <div
+                          className={`h-full transition-all ${isCompleted ? "bg-green-500" : "bg-primary"}`}
+                          style={{ width: `${Math.max(progress, 2)}%` }}
+                        />
                       </div>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-muted-foreground">Progress</span>
-                          <span className="font-medium">
-                            {enrollment.overall_progress || 0}%
-                          </span>
+                      <CardHeader className="pb-2">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <CardTitle className="text-base leading-snug line-clamp-2">
+                              {enrollment.instructor_course?.title || "Untitled Course"}
+                            </CardTitle>
+                            {enrollment.instructor_course?.code && (
+                              <CardDescription className="font-mono text-xs mt-1">
+                                {enrollment.instructor_course.code}
+                              </CardDescription>
+                            )}
+                          </div>
+                          {isCompleted ? (
+                            <Badge className="bg-green-500 shrink-0">Completed</Badge>
+                          ) : (
+                            <span className="text-lg font-bold text-primary shrink-0">
+                              {progress}%
+                            </span>
+                          )}
                         </div>
-                        <Progress value={enrollment.overall_progress || 0} className="h-2" />
+                      </CardHeader>
+                      <CardContent className="space-y-3">
                         <div className="flex items-center gap-4 text-xs text-muted-foreground">
                           <span className="flex items-center gap-1">
                             <Clock className="h-3 w-3" />
                             Enrolled {new Date(enrollment.enrolled_at).toLocaleDateString()}
                           </span>
                         </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+                        <Button
+                          size="sm"
+                          className="w-full"
+                          variant={isCompleted ? "outline" : "default"}
+                          onClick={() => navigate(`/learn/course/${enrollment.instructor_course_id}`)}
+                        >
+                          {isCompleted ? "Review Course" : progress > 0 ? "Continue Learning" : "Start Learning"}
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </div>
             )}
           </TabsContent>

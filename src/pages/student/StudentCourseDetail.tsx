@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, BookOpen, CheckCircle2, Clock, Play, Lock, AlertCircle } from 'lucide-react';
+import { ArrowLeft, BookOpen, CheckCircle2, Clock, Play, Lock, AlertCircle, ChevronRight } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { useEnrolledCourseDetail } from '@/hooks/useStudentCourses';
@@ -75,43 +75,38 @@ export default function StudentCourseDetailPage() {
   return (
     <AppShell>
       <PageContainer>
-        <div className="space-y-6">
-          {/* Header */}
-          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-            <div className="space-y-1">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => navigate('/learn/courses')}
-                className="mb-2"
-              >
-                <ArrowLeft className="mr-2 h-4 w-4" />
-                Back to Courses
-              </Button>
-              <h1 className="text-xl sm:text-2xl font-bold">{course.title}</h1>
-              {course.code && (
-                <p className="text-muted-foreground font-mono text-sm">{course.code}</p>
-              )}
-            </div>
-          </div>
-
-          {/* Progress Overview */}
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h3 className="font-semibold">Course Progress</h3>
-                  <p className="text-sm text-muted-foreground">
-                    {completedLOs.length} of {allLOs.length} learning objectives completed
+        <div className="space-y-5">
+          {/* Header with integrated progress */}
+          <div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => navigate('/learn?tab=active')}
+              className="mb-3 -ml-2 text-muted-foreground hover:text-foreground"
+            >
+              <ArrowLeft className="mr-1.5 h-4 w-4" />
+              My Courses
+            </Button>
+            <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+              <div className="space-y-1">
+                <h1 className="text-xl sm:text-2xl font-bold leading-tight">{course.title}</h1>
+                {course.code && (
+                  <p className="text-muted-foreground font-mono text-sm">{course.code}</p>
+                )}
+              </div>
+              <div className="flex items-center gap-3 sm:text-right">
+                <div className="flex-1 sm:flex-none">
+                  <p className="text-xs text-muted-foreground">
+                    {completedLOs.length}/{allLOs.length} objectives
                   </p>
+                  <Progress value={progressPercent} className="h-2 w-32 mt-1" />
                 </div>
                 <span className="text-2xl font-bold text-primary">
                   {Math.round(progressPercent)}%
                 </span>
               </div>
-              <Progress value={progressPercent} className="h-3" />
-            </CardContent>
-          </Card>
+            </div>
+          </div>
 
           {/* Modules */}
           {course.modules.length === 0 ? (
@@ -177,7 +172,7 @@ export default function StudentCourseDetailPage() {
                       </div>
                     </AccordionTrigger>
                     <AccordionContent>
-                      <div className="space-y-3 pt-4 pb-2">
+                      <div className="space-y-1 pt-2 pb-2">
                         {moduleLOs.length === 0 ? (
                           <p className="text-sm text-muted-foreground text-center py-4">
                             No learning objectives in this module yet
@@ -186,39 +181,45 @@ export default function StudentCourseDetailPage() {
                           moduleLOs.map((lo) => {
                             const stateConfig = getStateConfig(lo.verification_state as VerificationState);
                             const StateIcon = stateIcons[lo.verification_state as keyof typeof stateIcons] || Clock;
+                            const completed = isComplete(lo.verification_state as VerificationState);
 
                             return (
-                              <Card
+                              <div
                                 key={lo.id}
-                                className="cursor-pointer hover:bg-accent/50 transition-colors"
+                                className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors group ${
+                                  completed
+                                    ? "bg-green-50 dark:bg-green-500/5 hover:bg-green-100 dark:hover:bg-green-500/10"
+                                    : "hover:bg-accent/50"
+                                }`}
                                 onClick={() => navigate(`/learn/objective/${lo.id}`)}
                               >
-                                <CardContent className="p-4">
-                                  <div className="flex items-start gap-3">
-                                    <div className={`p-2 rounded-full ${stateConfig.bgColor} ${stateConfig.color}`}>
-                                      <StateIcon className="h-4 w-4" />
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                      <p className="text-sm font-medium">{lo.text}</p>
-                                      <div className="flex items-center gap-2 mt-2">
-                                        <Badge variant="outline" className="text-xs">
-                                          {stateConfig.label}
-                                        </Badge>
-                                        {lo.bloom_level && (
-                                          <Badge variant="secondary" className="text-xs capitalize">
-                                            {lo.bloom_level}
-                                          </Badge>
-                                        )}
-                                        {lo.expected_duration_minutes && (
-                                          <span className="text-xs text-muted-foreground">
-                                            ~{lo.expected_duration_minutes} min
-                                          </span>
-                                        )}
-                                      </div>
-                                    </div>
+                                <div className={`p-1.5 rounded-full shrink-0 ${stateConfig.bgColor} ${stateConfig.color}`}>
+                                  <StateIcon className="h-4 w-4" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className={`text-sm ${completed ? "text-muted-foreground line-through" : "font-medium"}`}>
+                                    {lo.text}
+                                  </p>
+                                  <div className="flex items-center gap-2 mt-1">
+                                    {!completed && (
+                                      <span className={`text-[11px] font-medium ${stateConfig.color}`}>
+                                        {stateConfig.label}
+                                      </span>
+                                    )}
+                                    {lo.bloom_level && (
+                                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 capitalize">
+                                        {lo.bloom_level}
+                                      </Badge>
+                                    )}
+                                    {lo.expected_duration_minutes && (
+                                      <span className="text-[11px] text-muted-foreground">
+                                        ~{lo.expected_duration_minutes} min
+                                      </span>
+                                    )}
                                   </div>
-                                </CardContent>
-                              </Card>
+                                </div>
+                                <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                              </div>
                             );
                           })
                         )}
