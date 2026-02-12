@@ -312,7 +312,8 @@ const handler = async (req: Request): Promise<Response> => {
       .update({
         slides: updatedSlides,
         has_audio: updatedSlides.some(s => s.audio_url),
-        audio_status: 'ready'
+        audio_status: 'ready',
+        audio_generated_at: new Date().toISOString()
       })
       .eq('id', slideId);
 
