@@ -420,10 +420,17 @@ export async function callOpenRouter(
 
   const data: OpenRouterResponse = await response.json();
 
+  // Guard against empty/missing choices (model overload, content filter, malformed response)
+  if (!data.choices || data.choices.length === 0) {
+    const errDetail = (data as any).error?.message || JSON.stringify(data).slice(0, 300);
+    console.error(`${logPrefix} OpenRouter returned 200 but no choices:`, errDetail);
+    throw new Error(`OpenRouter returned empty response (no choices): ${errDetail}`);
+  }
+
   // Log which model actually responded (useful for fallbacks)
   const actualModel = data.model || options.model;
   const usedFallback = actualModel !== options.model;
-  const usage = data.usage;
+  const usage = data.usage || { total_tokens: 0 };
   const contentLength = data.choices[0]?.message?.content?.length || 0;
   const toolCalls = data.choices[0]?.message?.tool_calls?.length || 0;
 
