@@ -1,120 +1,142 @@
 
 
-# Multi-Voice Audio Generation with Student Voice Selection
+# Fix Security Vulnerabilities — Detailed Plan
 
-## Current Architecture
+## Summary of Findings
 
-Today, the instructor picks ONE voice in the VoicePicker, clicks "Generate Audio", and the edge function generates audio for all slides using only that voice. Files are stored as:
+After investigating each flagged issue against the actual database state, here is what needs fixing and what is already safe.
 
-```text
-{slideId}/slide_0.wav
-{slideId}/slide_1.wav
-...
+---
+
+## ERROR 1: Content Table Publicly Readable (NEEDS FIX)
+
+**What's happening now:** The `content` table has an RLS policy called "Anyone can view available content" with `USING (is_available = true)` applied to `{public}` roles. This means unauthenticated (anonymous) users can query 1,726+ curated YouTube videos, including titles, quality scores, channel info, and engagement metrics.
+
+**Why it exists:** Students need to see content matched to their learning objectives. Instructors need to browse content.
+
+**The fix:** Change the policy role from `{public}` (includes anonymous) to `authenticated` only. All legitimate users (students, instructors) are always authenticated.
+
+**Migration SQL:**
+```sql
+DROP POLICY "Anyone can view available content" ON public.content;
+
+CREATE POLICY "Authenticated users can view available content"
+  ON public.content
+  FOR SELECT
+  TO authenticated
+  USING (is_available = true);
 ```
 
-Students have no voice choice -- they hear whatever the instructor last generated.
+**Impact check:** The frontend only queries `content` from `useContentRating.ts` (fetching ratings for a specific content ID). Students access content through `content_matches` and consumption records. All these flows require authentication. No breakage expected.
 
-## Proposed Architecture
+---
 
-### Core Idea
+## ERROR 2: Certificate Enumeration via Anon Policy (NEEDS FIX)
 
-When the instructor clicks "Generate Audio", the system generates audio for ALL 6 Chirp 3: HD voices in parallel. Students then pick their preferred voice via a VoicePicker in the student viewer.
+**What's happening now:** The `certificates` table has an anon SELECT policy: "Public certificate verification via share token" with `USING (share_token IS NOT NULL AND status = 'active')`. This allows unauthenticated users to enumerate ALL active certificates with share tokens -- not just look up a specific one. The `certificates_public_verify` view inherits this via `security_invoker=on`.
 
-### Storage Layout Change
+**Why it exists:** The `verify-certificate` edge function is a public endpoint for employers to verify a certificate. However, the edge function already uses the **service role key** (bypasses RLS entirely), so it does NOT need an anon RLS policy at all.
 
-```text
-Before: {slideId}/slide_0.wav
-After:  {slideId}/Charon/slide_0.wav
-        {slideId}/Leda/slide_0.wav
-        {slideId}/Fenrir/slide_0.wav
-        {slideId}/Kore/slide_0.wav
-        {slideId}/Puck/slide_0.wav
-        {slideId}/Aoede/slide_0.wav
+**The fix:** Remove the anon SELECT policy. The verify-certificate edge function will continue working unchanged since it uses the service role. Keep the view for any future needs but it will no longer be queryable by anonymous users.
+
+**Migration SQL:**
+```sql
+DROP POLICY "Public certificate verification via share token" ON public.certificates;
 ```
 
-### Slide Data Change
+**Impact check:** Verified that `verify-certificate/index.ts` creates a Supabase client with `SUPABASE_SERVICE_ROLE_KEY`, so it bypasses all RLS. No frontend code queries `certificates_public_verify` directly. No breakage.
 
-Each slide currently stores a single `audio_url`. This changes to a map:
+---
 
-```text
-Before: audio_url: "{slideId}/slide_0.wav"
-After:  audio_urls: {
-          Charon: "{slideId}/Charon/slide_0.wav",
-          Leda:   "{slideId}/Leda/slide_0.wav",
-          ...
-        }
-        audio_url: "{slideId}/Charon/slide_0.wav"   // kept for backward compat
+## WARNING: Organizations Safe View (NO FIX NEEDED)
+
+**What's actually happening:** The `organizations_safe` view already has `security_invoker=on`. This means it inherits the caller's RLS context. The base `organizations` table has an RLS policy requiring the user to be an organization member. Anonymous users cannot read this view. The CASE-based column masking further hides sensitive fields from non-admin members.
+
+**Action:** Update the security scan finding to mark this as a false positive / ignored.
+
+---
+
+## WARNING: Profiles Stripe IDs (MINOR FIX)
+
+**What's happening now:** The profiles table RLS lets users SELECT their own row, which includes `stripe_customer_id` and `stripe_subscription_id`. The frontend already strips these via TypeScript `Omit<>`, but they still travel over the network.
+
+**Why it matters:** If a browser extension, network proxy, or XSS attack reads the response, the Stripe IDs are exposed.
+
+**The fix:** Create a `profiles_safe` view that excludes Stripe columns, with `security_invoker=on`. Then update frontend queries to use the view. The base table remains accessible for edge functions via service role.
+
+**Migration SQL:**
+```sql
+CREATE OR REPLACE VIEW public.profiles_safe
+WITH (security_invoker=on) AS
+  SELECT
+    id, user_id, full_name, email, avatar_url,
+    student_level, learning_style, preferred_pace,
+    subscription_tier, subscription_status, subscription_ends_at,
+    ai_calls_this_month, ai_calls_reset_at,
+    is_instructor_verified, instructor_verification_id, instructor_trust_score,
+    organization_id, preferences,
+    onboarding_completed, created_at, updated_at
+  FROM public.profiles;
+  -- Excludes: stripe_customer_id, stripe_subscription_id
 ```
 
-The legacy `audio_url` field remains pointing to the default voice (Charon) so existing student viewers and instructor previews continue working without changes until they're updated.
+**Frontend changes:**
+- Update `src/hooks/useProfile.ts` to query from `profiles_safe` instead of `profiles`
+- Update `src/contexts/AuthContext.tsx` profile fetch to use `profiles_safe`
+- Remove the TypeScript `Omit<>` workarounds since the view already excludes those fields
 
-## File Changes
+---
 
-### 1. `supabase/functions/generate-lecture-audio/index.ts`
+## WARNING: Tables with RLS but No Policies (MINOR FIX)
 
-Major changes:
-- Remove the single `voiceId` parameter -- the function now generates ALL voices
-- After generating narration text for each slide (Phase 1, unchanged), loop through all 6 voices and call `synthesizeSpeech()` for each
-- Upload to voice-specific paths: `{slideId}/{voiceId}/slide_{i}.wav`
-- Store `audio_urls` map on each slide alongside legacy `audio_url`
-- Duration is identical across voices (same text, same engine), so calculate once from the first voice
-- Segment mapping runs once per slide (not per voice) since it's text-based, not audio-based
-- Process voices in parallel per slide (Promise.all) to reduce total time
-- Audit log records all 6 voices
+**Table:** `image_generation_queue` (1,609 rows, RLS enabled, zero policies)
 
-### 2. `src/components/slides/VoicePicker.tsx`
+**What's happening:** This table is completely inaccessible to all users (including authenticated ones). Only service role can read/write. This is likely intentional for a backend-only queue.
 
-No changes to voice list. Remove from instructor header (since all voices are now generated). Could optionally keep it for instructor preview selection.
+**The fix:** Add a comment and a restrictive policy to make intent explicit:
 
-### 3. `src/components/slides/LectureSlideViewer.tsx` (Instructor)
+```sql
+COMMENT ON TABLE public.image_generation_queue IS 
+  'Service-role only queue for image generation. No user access intended.';
 
-- Remove VoicePicker from the header (all voices are generated automatically)
-- Keep the preview play button but add a small voice selector next to it so the instructor can preview any voice
-- Update `handleGenerateAudio` to not pass `voiceId` (all voices generated)
-- Preview resolves audio path using selected preview voice from `audio_urls` map
+CREATE POLICY "Service role only - no direct user access"
+  ON public.image_generation_queue
+  FOR ALL
+  TO authenticated
+  USING (false);
+```
 
-### 4. `src/components/slides/StudentSlideViewer.tsx` (Student)
+---
 
-- Add VoicePicker to the student footer controls (next to the volume toggle)
-- Store selected voice in `useState` with default `'Charon'`
-- When resolving audio URL, use `slide.audio_urls?.[selectedVoice]` instead of `slide.audio_url`
-- Persist student voice preference in `localStorage` so it remembers across sessions
-- Voice change mid-lecture: stop current audio, re-resolve URL for new voice, resume from same slide
+## WARNING: Edge Functions without JWT (NO CODE FIX -- DOCUMENTATION)
 
-### 5. `src/components/slides/NarratedScrollViewer.tsx` (Student scroll mode)
+16 functions have `verify_jwt=false`. Per the project's architecture, this is correct because:
+- Webhook handlers (stripe-webhook) verify signatures manually
+- Some functions (submit-batch-slides, process-batch-research) are called by service role from other functions
+- Public lookup functions (verify-certificate, get-onet-occupation) are intentionally public
 
-- Accept `selectedVoice` prop from parent StudentSlideViewer
-- Use `audio_urls[selectedVoice]` when resolving audio paths for scroll mode playback
+The scan finding should be marked as reviewed/ignored with documentation.
 
-### 6. `src/hooks/lectureSlides/audio.ts`
+---
 
-- Remove `voiceId` from mutation params (no longer needed -- all voices generated)
-- Keep `enableSegmentMapping` param
+## Files Changed Summary
 
-### 7. `supabase/functions/_shared/validators/index.ts`
+| Change | File | Type |
+|--------|------|------|
+| Tighten content table policy | Database migration | SQL |
+| Remove anon certificate policy | Database migration | SQL |
+| Create profiles_safe view | Database migration | SQL |
+| Add image_generation_queue policy | Database migration | SQL |
+| Use profiles_safe in queries | `src/hooks/useProfile.ts` | Frontend |
+| Use profiles_safe in auth context | `src/contexts/AuthContext.tsx` | Frontend |
+| Update security findings | Security scan tool | Metadata |
 
-- Remove `voiceId` from `lectureAudioSchema` (no longer a parameter)
+## What Stays the Same
 
-### 8. `src/hooks/lectureSlides/types.ts`
-
-- Add `audio_urls?: Record<string, string>` to `Slide`, `EnhancedSlide`, and `ProfessorSlide` types
-
-## Performance Considerations
-
-- Generating 6 voices x N slides increases TTS API calls by 6x
-- Mitigation: process all 6 voices per slide in parallel (`Promise.all`), so wall-clock time per slide only increases marginally (Google TTS responds in ~1-2s per call)
-- Total time for a 12-slide lecture: ~15-25 minutes (vs ~3-5 minutes today) -- acceptable since it's fire-and-forget with polling
-- Storage increase: 6x per lecture -- acceptable for WAV files (typically 1-3MB each)
-
-## Backward Compatibility
-
-- Existing slides with single `audio_url` continue working -- student viewer falls back to `audio_url` if `audio_urls` map is missing
-- Instructor can regenerate at any time to populate all voices
-- Legacy voice IDs (onyx, nova, etc.) no longer relevant for generation but the `resolveVoiceId` mapping stays for any edge cases
-
-## User Experience
-
-**Instructor**: Clicks "Generate Audio" (no voice selection needed). Sees progress toast. All 6 voices are generated in the background. Can preview any voice via a small selector next to the play button.
-
-**Student**: Opens lecture. Sees a voice picker in the playback controls. Picks their preferred voice (default: Charon). Preference is saved. Audio plays in their chosen voice. Can switch voices mid-lecture.
+- All instructor flows (course creation, slide generation, audio generation)
+- All student flows (enrollment, content viewing, assessments, certificates)
+- verify-certificate edge function (uses service role, unaffected by RLS changes)
+- organizations_safe view (already secure)
+- All edge functions (no code changes)
+- All existing RLS policies on other tables
 
