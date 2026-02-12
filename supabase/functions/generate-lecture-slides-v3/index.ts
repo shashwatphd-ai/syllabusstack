@@ -154,7 +154,7 @@ end of removed dead prompt */
   } catch (error) {
     console.error('[Professor AI] Parse error:', error);
     console.error('[Professor AI] Raw response length:', result?.length, 'First 300 chars:', result?.substring(0, 300));
-    throw new Error(`Failed to parse Professor AI response: ${error.message}`);
+    throw new Error(`Failed to parse Professor AI response: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 

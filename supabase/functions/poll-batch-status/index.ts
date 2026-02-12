@@ -237,7 +237,8 @@ function countSlideStatuses(slides: { status: string }[]) {
 }
 
 async function selfHealSlides(
-  supabase: ReturnType<typeof createClient>,
+  // deno-lint-ignore no-explicit-any
+  supabase: any,
   slides: { id: string; status: string; updated_at: string }[],
   functionName: string
 ) {
