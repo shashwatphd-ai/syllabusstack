@@ -1,8 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0";
 import { generateNarration, needsNarration } from "../_shared/ai-narrator.ts";
-import { mapAudioSegments, extractContentBlocks } from "../_shared/segment-mapper.ts";
-import { callOpenRouter, MODELS } from "../_shared/openrouter-client.ts";
+import { mapAudioSegments } from "../_shared/segment-mapper.ts";
+import { synthesizeSpeech, TTS_VOICES } from "../_shared/tts-client.ts";
 import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
 import {
   createErrorResponse,
@@ -80,12 +80,17 @@ const handler = async (req: Request): Promise<Response> => {
   if (!validation.success) {
     return createErrorResponse('VALIDATION_ERROR', corsHeaders, validation.errors.join(', '));
   }
-  const { slideId, voiceId = 'onyx', enableSegmentMapping } = validation.data;
+  const { slideId, voiceId = 'Charon', enableSegmentMapping } = validation.data;
 
-  // Verify OpenRouter is configured (used for narration, TTS, and segment mapping)
+  // Verify API keys
   const OPENROUTER_API_KEY = Deno.env.get('OPENROUTER_API_KEY');
   if (!OPENROUTER_API_KEY) {
     return createErrorResponse('CONFIG_ERROR', corsHeaders, 'OPENROUTER_API_KEY not configured');
+  }
+
+  const GOOGLE_CLOUD_API_KEY = Deno.env.get('GOOGLE_CLOUD_API_KEY');
+  if (!GOOGLE_CLOUD_API_KEY) {
+    return createErrorResponse('CONFIG_ERROR', corsHeaders, 'GOOGLE_CLOUD_API_KEY not configured (required for TTS)');
   }
 
   try {
@@ -122,7 +127,7 @@ const handler = async (req: Request): Promise<Response> => {
     const unitTitle = lectureSlide.title || 'Lecture';
     const domain = (lectureSlide as any).detected_domain || 'general';
     
-    console.log(`Generating audio for ${totalSlides} slides (Voice: ${voiceId}, Mapping: ${enableSegmentMapping})...`);
+    console.log(`Generating audio for ${totalSlides} slides (Voice: ${voiceId}, TTS: Google Chirp 3 HD)...`);
 
     const updatedSlides: SlideWithAudio[] = [];
     let totalDurationSeconds = 0;
@@ -166,7 +171,7 @@ const handler = async (req: Request): Promise<Response> => {
         narrationText = generateSimpleFallback(slide);
       }
 
-      // Strip citation markers from narration (regardless of source)
+      // Strip citation markers from narration
       narrationText = narrationText.replace(/\[Source\s*\d+\]/gi, '').replace(/\s{2,}/g, ' ').trim();
 
       if (!narrationText || narrationText.length === 0) {
@@ -179,78 +184,21 @@ const handler = async (req: Request): Promise<Response> => {
       const narrationWords = narrationText.split(/\s+/);
       previousNarrationTail = narrationWords.slice(Math.max(0, narrationWords.length - 100)).join(' ');
 
-      // PHASE 2 (SSML) — REMOVED: GPT Audio handles prosody natively
-
-      console.log(`Slide ${i + 1}: Generating audio via GPT Audio (${narrationText.length} chars)...`);
+      console.log(`Slide ${i + 1}: Generating audio via Google Cloud TTS (${narrationText.length} chars)...`);
 
       try {
-        // PHASE 3: Generate audio via GPT Audio (OpenRouter)
-        const audioResponse = await callOpenRouter({
-          model: MODELS.AUDIO,
-          messages: [
-            {
-              role: 'system',
-              content: 'You are a master educator delivering a continuous lecture monologue. Read the following narration naturally with warmth, intellectual generosity, and calm, unhurried pacing. Do not add any commentary, greetings, dialogue, or acknowledgments. This is a one-way narration -- never say "thank you," never respond as if someone spoke, never add your own introduction or sign-off. If you encounter URLs or abbreviations, handle them naturally. If you encounter academic citations like "Smith et al. (2019)" or "Source 1", skip them entirely -- do not read them aloud.',
-            },
-            {
-              role: 'user',
-              content: narrationText,
-            },
-          ],
-          modalities: ['text', 'audio'],
-          audio: { voice: voiceId, format: 'pcm16' },
-          fallbacks: [MODELS.AUDIO_HD],
-        }, `[Audio TTS Slide ${i + 1}]`);
+        // PHASE 2: Generate audio via Google Cloud TTS (deterministic - reads text exactly)
+        const { wavBytes, durationSeconds, chunkCount } = await synthesizeSpeech(
+          narrationText,
+          voiceId,
+          GOOGLE_CLOUD_API_KEY,
+        );
 
-        const audioData = audioResponse.choices[0]?.message?.audio?.data;
-        if (!audioData) {
-          throw new Error('No audio data in GPT Audio response');
-        }
-
-        // Capture TTS transcript (already collected by collectStreamedAudioResponse)
-        const audioTranscript = audioResponse.choices[0]?.message?.audio?.transcript || '';
-
-        // Decode base64 PCM16 to bytes
-        const binaryString = atob(audioData);
-        const pcmBytes = new Uint8Array(binaryString.length);
-        for (let j = 0; j < binaryString.length; j++) {
-          pcmBytes[j] = binaryString.charCodeAt(j);
-        }
-
-        // Wrap PCM16 data in a WAV header for browser playback
-        const sampleRate = 24000; // OpenAI default
-        const numChannels = 1;
-        const bitsPerSample = 16;
-        const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
-        const blockAlign = numChannels * (bitsPerSample / 8);
-        const dataSize = pcmBytes.length;
-        const headerSize = 44;
-        const wavBuffer = new ArrayBuffer(headerSize + dataSize);
-        const view = new DataView(wavBuffer);
-        const writeString = (offset: number, str: string) => {
-          for (let k = 0; k < str.length; k++) view.setUint8(offset + k, str.charCodeAt(k));
-        };
-        writeString(0, 'RIFF');
-        view.setUint32(4, 36 + dataSize, true);
-        writeString(8, 'WAVE');
-        writeString(12, 'fmt ');
-        view.setUint32(16, 16, true);
-        view.setUint16(20, 1, true); // PCM
-        view.setUint16(22, numChannels, true);
-        view.setUint32(24, sampleRate, true);
-        view.setUint32(28, byteRate, true);
-        view.setUint16(32, blockAlign, true);
-        view.setUint16(34, bitsPerSample, true);
-        writeString(36, 'data');
-        view.setUint32(40, dataSize, true);
-        new Uint8Array(wavBuffer, headerSize).set(pcmBytes);
-        const bytes = new Uint8Array(wavBuffer);
-
-        // Upload to Supabase Storage (WAV format, browsers natively support it)
+        // Upload WAV to Supabase Storage
         const fileName = `${slideId}/slide_${i}.wav`;
         const { error: uploadError } = await supabase.storage
           .from('lecture-audio')
-          .upload(fileName, bytes, {
+          .upload(fileName, wavBytes, {
             contentType: 'audio/wav',
             upsert: true,
           });
@@ -260,18 +208,7 @@ const handler = async (req: Request): Promise<Response> => {
           throw new Error(`Failed to upload audio: ${uploadError.message}`);
         }
 
-        // Calculate exact duration from PCM data (24kHz, mono, 16-bit = 48000 bytes/sec)
-        const bytesPerSecond = sampleRate * numChannels * (bitsPerSample / 8);
-        const actualDurationSeconds = Math.round((pcmBytes.length / bytesPerSecond) * 100) / 100;
-
-        // Keep heuristic for audit comparison only
-        const wordCount = narrationText.split(/\s+/).length;
-        const heuristicDuration = Math.ceil((wordCount / 150) * 60);
-        const durationDeviationPercent = heuristicDuration > 0
-          ? Math.round(Math.abs(actualDurationSeconds - heuristicDuration) / heuristicDuration * 100)
-          : 0;
-
-        // PHASE 4: Map audio segments to content blocks for sync highlighting
+        // PHASE 3: Map audio segments to content blocks for sync highlighting
         let audioSegmentMap: SlideWithAudio['audio_segment_map'] = undefined;
         
         if (enableSegmentMapping) {
@@ -283,7 +220,7 @@ const handler = async (req: Request): Promise<Response> => {
                 content: slide.content,
                 speaker_notes: narrationText,
               },
-              actualDurationSeconds,
+              durationSeconds,
               OPENROUTER_API_KEY
             );
             console.log(`Slide ${i + 1}: Mapped ${audioSegmentMap?.length || 0} segments`);
@@ -292,76 +229,62 @@ const handler = async (req: Request): Promise<Response> => {
           }
         }
 
-        // Build audit entry for this slide
-        const inputWords = narrationText.split(/\s+/).length;
-        const outputWords = audioTranscript ? audioTranscript.split(/\s+/).length : 0;
-        const wordCountRatio = inputWords > 0 && outputWords > 0 ? Math.round((outputWords / inputWords) * 100) / 100 : null;
-        const hasTranscriptDeviation = wordCountRatio !== null && (wordCountRatio < 0.8 || wordCountRatio > 1.2);
+        // Build audit entry (deterministic TTS — no transcript deviation possible)
+        const wordCount = narrationText.split(/\s+/).length;
+        const heuristicDuration = Math.ceil((wordCount / 150) * 60);
+        const durationDeviationPercent = heuristicDuration > 0
+          ? Math.round(Math.abs(durationSeconds - heuristicDuration) / heuristicDuration * 100)
+          : 0;
 
         const auditEntry: Record<string, unknown> = {
           slide_index: i,
           slide_title: slide.title || 'Untitled',
           narration_input: {
             char_count: narrationText.length,
-            word_count: inputWords,
+            word_count: wordCount,
             first_50_chars: narrationText.substring(0, 50),
           },
-          tts_transcript: {
-            available: !!audioTranscript,
-            char_count: audioTranscript.length,
-            word_count: outputWords,
-            first_50_chars: audioTranscript.substring(0, 50),
-          },
+          tts_engine: 'google-cloud-chirp3-hd',
+          voice_name: TTS_VOICES[voiceId] || voiceId,
+          chunk_count: chunkCount,
           duration: {
-            actual_seconds: actualDurationSeconds,
+            actual_seconds: durationSeconds,
             heuristic_seconds: heuristicDuration,
             deviation_percent: durationDeviationPercent,
-          },
-          transcript_comparison: {
-            word_count_ratio: wordCountRatio,
-            has_deviation: hasTranscriptDeviation,
-            deviation_note: hasTranscriptDeviation
-              ? `TTS output ${wordCountRatio! < 1 ? 'shorter' : 'longer'} than input (ratio: ${wordCountRatio})`
-              : null,
           },
         };
         auditEntries.push(auditEntry);
 
-        if (hasTranscriptDeviation) {
-          console.warn(`⚠️ Slide ${i + 1}: TTS transcript deviation detected (word ratio: ${wordCountRatio})`);
-        }
         if (durationDeviationPercent > 20) {
-          console.warn(`⚠️ Slide ${i + 1}: Duration deviation ${durationDeviationPercent}% (actual: ${actualDurationSeconds}s, heuristic: ${heuristicDuration}s)`);
+          console.warn(`⚠️ Slide ${i + 1}: Duration deviation ${durationDeviationPercent}% (actual: ${durationSeconds}s, heuristic: ${heuristicDuration}s)`);
         }
 
         updatedSlides.push({
           ...slide,
           speaker_notes: narrationText,
           audio_url: fileName,
-          audio_duration_seconds: actualDurationSeconds,
+          audio_duration_seconds: durationSeconds,
           audio_segment_map: audioSegmentMap,
         });
 
-        totalDurationSeconds += actualDurationSeconds;
-        console.log(`Slide ${i + 1}: Audio generated (${actualDurationSeconds}s actual, ${audioSegmentMap?.length || 0} segments)`);
+        totalDurationSeconds += durationSeconds;
+        console.log(`Slide ${i + 1}: Audio generated (${durationSeconds}s, ${chunkCount} chunks, ${audioSegmentMap?.length || 0} segments)`);
 
         // Small delay to avoid rate limiting
         if (i < slides.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise(resolve => setTimeout(resolve, 300));
         }
 
       } catch (slideError) {
         const errMsg = slideError instanceof Error ? slideError.message : String(slideError);
         console.error(`Error processing slide ${i + 1}:`, slideError);
         lastSlideError = errMsg;
-        // Continue with original slide without audio
         updatedSlides.push(slide);
       }
     }
 
     // Build audit summary
     const durationDeviations = auditEntries.filter(e => (e.duration as any)?.deviation_percent > 20);
-    const transcriptDeviations = auditEntries.filter(e => (e.transcript_comparison as any)?.has_deviation);
     const avgDeviation = auditEntries.length > 0
       ? Math.round(auditEntries.reduce((sum, e) => sum + ((e.duration as any)?.deviation_percent || 0), 0) / auditEntries.length)
       : 0;
@@ -371,6 +294,7 @@ const handler = async (req: Request): Promise<Response> => {
 
     const auditLog = {
       generated_at: new Date().toISOString(),
+      tts_engine: 'google-cloud-chirp3-hd',
       voice_id: voiceId,
       total_slides_processed: auditEntries.length,
       slides: auditEntries,
@@ -378,7 +302,6 @@ const handler = async (req: Request): Promise<Response> => {
         avg_duration_deviation_percent: avgDeviation,
         max_duration_deviation_percent: maxDeviation,
         slides_with_duration_deviation: durationDeviations.length,
-        slides_with_transcript_deviation: transcriptDeviations.length,
       },
     };
 
@@ -404,7 +327,6 @@ const handler = async (req: Request): Promise<Response> => {
 
     // If no slides got audio, treat as failure
     if (slidesWithAudio === 0) {
-      // Reset status to failed
       await supabase
         .from('lecture_slides')
         .update({ audio_status: 'failed' })
@@ -420,6 +342,7 @@ const handler = async (req: Request): Promise<Response> => {
       slidesWithSegments,
       totalSlides: slides.length,
       totalDurationSeconds,
+      ttsEngine: 'google-cloud-chirp3-hd',
       auditSummary: auditLog.summary,
     });
 
@@ -436,7 +359,6 @@ const handler = async (req: Request): Promise<Response> => {
   } catch (error) {
     logError('generate-lecture-audio', error instanceof Error ? error : new Error(String(error)));
 
-    // Try to update status to failed
     try {
       const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
       const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;

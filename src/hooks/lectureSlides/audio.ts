@@ -10,7 +10,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useState } from 'react';
 
 /**
- * Generate TTS audio for lecture slides using GPT Audio via OpenRouter
+ * Generate TTS audio for lecture slides using Google Cloud TTS (Chirp 3: HD)
  */
 export function useGenerateLectureAudio() {
   const queryClient = useQueryClient();
@@ -20,7 +20,7 @@ export function useGenerateLectureAudio() {
   const mutation = useMutation({
     mutationFn: async ({
       slideId,
-      voiceId = 'onyx'
+      voiceId = 'Charon'
     }: {
       slideId: string;
       voiceId?: string;

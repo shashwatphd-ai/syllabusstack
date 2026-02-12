@@ -166,9 +166,9 @@ export const lectureGenerationSchema = z.object({
 
 export const lectureAudioSchema = z.object({
   slideId: uuidSchema,
-  voiceId: z.enum(['onyx', 'nova', 'echo', 'alloy', 'fable', 'shimmer'])
+  voiceId: z.enum(['Charon', 'Leda', 'Fenrir', 'Kore', 'Puck', 'Aoede'])
     .optional()
-    .default('onyx'),
+    .default('Charon'),
   enableSegmentMapping: z.boolean().optional().default(true),
 });
 
