@@ -1,82 +1,90 @@
 
 
-# Fix: submit-batch-evaluation Model Mismatch
+# Fix: Remove Premature Video Search from QuickCourseSetup
 
-## Root Cause
+## The Problem
 
-The `submit-batch-evaluation` function has a **locally hardcoded model** that doesn't match the working batch infrastructure:
+The QuickCourseSetup pipeline currently does this:
 
 ```text
-WORKING (submit-batch-curriculum):
-  Model: MODEL_CONFIG.GEMINI_PRO = 'gemini-3-pro-preview'  (from ai-orchestrator.ts)
-  Endpoint routing: global (matches gemini-3 + preview check)
-  Result: 200 OK
-
-FAILING (submit-batch-evaluation):
-  Model: 'gemini-2.5-flash-preview-05-20'  (hardcoded locally, line 44)
-  Issue: This is NOT a valid Vertex AI Batch model ID
-  Result: 404 Not Found
+Syllabus Upload
+  --> process-syllabus (extracts modules + LOs)
+  --> IMMEDIATELY searches YouTube for each LO        <-- WRONG
+  --> IMMEDIATELY submits batch evaluation             <-- WRONG
+  --> Shows "Videos Found" (empty/poor results)
 ```
 
-The `vertex-ai-batch.ts` client constructs the URL correctly, but Vertex AI Batch Prediction does not support `gemini-2.5-flash-preview-05-20` as a batch model. The working batch functions use models from the shared `MODEL_CONFIG` in `ai-orchestrator.ts`.
+But the platform's proper content discovery architecture requires an intermediate step -- **teaching unit decomposition** -- before video search makes sense:
 
-## The Fix (2 lines changed, 1 file)
-
-### File: `supabase/functions/submit-batch-evaluation/index.ts`
-
-**Change 1** (line 28): Import `MODEL_CONFIG` from the shared orchestrator (same pattern as `submit-batch-curriculum`):
-
-```typescript
-// BEFORE:
-import { createVertexAIBatchClient, VertexAIBatchClient } from '../_shared/vertex-ai-batch.ts';
-
-// AFTER:
-import { createVertexAIBatchClient, VertexAIBatchClient } from '../_shared/vertex-ai-batch.ts';
-import { MODEL_CONFIG } from "../_shared/ai-orchestrator.ts";
+```text
+Syllabus Upload
+  --> process-syllabus (extracts modules + LOs)
+  --> Instructor opens LO --> "Analyze & Break Down" (curriculum-reasoning-agent)
+      --> Creates teaching units with:
+          - search_queries (AI-optimized)
+          - target_video_type (explainer, tutorial, etc.)
+          - target_duration_minutes
+          - required_concepts / avoid_terms
+  --> "Find Videos" per teaching unit
+      --> search-youtube-content with teaching_unit_id + refined criteria
+      --> Videos matched to specific teaching units
 ```
 
-**Change 2** (lines 42-45): Replace the local hardcoded model with the shared config:
+The raw LO data (e.g., "Understand SWOT analysis") produces vague YouTube searches. Teaching units break that into precise micro-concepts (e.g., "SWOT matrix construction tutorial, 8 min, explainer") that yield high-quality matches.
 
-```typescript
-// BEFORE:
-const MODEL_CONFIG = {
-  EVALUATION_MODEL: 'gemini-2.5-flash-preview-05-20',
-};
+## The Correct Flow
 
-// AFTER (use gemini-3-flash-preview - fast, cost-effective, confirmed working for batch):
-// MODEL_CONFIG is now imported from ai-orchestrator.ts
-// The model path at line 866 already uses: VertexAIBatchClient.buildModelPath(MODEL_CONFIG.EVALUATION_MODEL)
-// But MODEL_CONFIG from ai-orchestrator doesn't have EVALUATION_MODEL, so we reference GEMINI_3_FLASH instead
+QuickCourseSetup should stop after saving the course structure. Video discovery is an instructor-driven curation step that happens inside the course detail page, after teaching units exist.
+
+```text
+BEFORE (current):
+  Upload --> Extract --> Save --> Search Videos --> Evaluate --> Complete
+  (6 steps, last 2 produce poor results)
+
+AFTER (proposed):
+  Upload --> Extract --> Save --> Complete
+  (3 steps, clean handoff to course detail page)
 ```
 
-**Change 3** (line 866): Update the model reference to use the shared config's flash model:
+## Changes
 
-```typescript
-// BEFORE:
-const modelPath = VertexAIBatchClient.buildModelPath(MODEL_CONFIG.EVALUATION_MODEL);
+### 1. Remove video search and evaluation steps from QuickCourseSetup.tsx
 
-// AFTER:
-const modelPath = VertexAIBatchClient.buildModelPath(MODEL_CONFIG.GEMINI_3_FLASH);
-```
+**Lines 36-44** (Step type): Remove `finding_content` and `evaluating_content` from the Step union and STEP_INFO.
 
-This aligns `submit-batch-evaluation` with the same pattern that `submit-batch-curriculum` uses successfully. The `gemini-3-flash-preview` model:
-- Is confirmed working for Vertex AI Batch on your project
-- Routes correctly to the global endpoint (passes the `gemini-3` + `preview` check in `vertex-ai-batch.ts`)
-- Is cost-effective (evaluation doesn't need the heavier `gemini-3-pro-preview`)
-- Has 65,536 output token support (more than the 4,096 this function requests)
+**Lines 238-320** (Pipeline logic): Remove the entire "Step 3: Find content" and "Step 4: Trigger batch evaluation" blocks. After saving the structure, go directly to `setStep('complete')`.
+
+**Lines 562-582** (Complete page UI): Replace the "Videos Found" card with a helpful indicator like "Ready for Review" or "Teaching Units: Pending" -- something that tells the instructor the next step is to review modules and break down LOs.
+
+### 2. Remove related state variables
+
+Remove `contentProgress`, `evaluationBatchJobId`, and `evaluationProgress` state variables and all their references (they're only used by the removed steps).
+
+### 3. Update progress bar and step labels
+
+Adjust the STEP_INFO progress percentages so the remaining steps (upload, extracting, analyzing, creating_course, saving_structure, complete) distribute evenly across 0-100%.
+
+### 4. Update the "Review & Curate Content" button guidance
+
+The button already navigates to the course detail page. No change needed there, but update the completion message to say something like "Your course structure is ready. Open it to break down objectives and find matching content."
 
 ## What Does NOT Change
 
-- All other batch functions (curriculum, slides, research) -- untouched
-- The evaluation prompts, scoring framework, Bloom's taxonomy logic -- untouched
-- Frontend QuickCourseSetup.tsx -- untouched
-- GCS upload, polling, result processing -- untouched
-- Shared libraries (vertex-ai-batch.ts, ai-orchestrator.ts, vertex-ai-auth.ts) -- untouched
+- The course detail page (InstructorCourseDetail.tsx) -- already has the proper "Analyze & Break Down" and "Find Videos" workflow
+- UnifiedLOCard.tsx -- already has the teaching unit decomposition and per-unit search
+- useTeachingUnits.ts -- already has useDecomposeLearningObjective and useSearchForTeachingUnit
+- All edge functions -- untouched
+- Database schema -- untouched
 
-## Verification
+## Technical Details
 
-1. Re-run the QuickCourseSetup pipeline (or trigger submit-batch-evaluation manually)
-2. Check logs for `[VertexAI Batch] Using global endpoint for model: publishers/google/models/gemini-3-flash-preview`
-3. Confirm batch job creation returns 200 (not 404)
-4. Confirm `batch_jobs` table shows status `submitted` (not `failed`)
+File: `src/pages/instructor/QuickCourseSetup.tsx`
+
+- Remove Step type members: `finding_content`, `evaluating_content`
+- Remove STEP_INFO entries for those steps
+- Remove state: `contentProgress`, `evaluationBatchJobId`, `evaluationProgress`
+- Remove lines 238-320 (video search + batch evaluation logic)
+- After line 236 (`setResult(processResult)`), go directly to `setStep('complete')`
+- Update the stats card from "Videos Found" to "Next Step: Break Down & Find Content"
+- Adjust progress percentages: upload(0), extracting(20), analyzing(50), creating_course(70), saving_structure(90), complete(100)
 
