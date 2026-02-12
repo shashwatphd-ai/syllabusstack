@@ -64,6 +64,55 @@ function extractDocxTextFromBase64(base64Content: string): string {
   return extractTextFromDocxXml(documentXml);
 }
 
+// ========== DIRECT GEMINI API HELPER ==========
+// Bypasses OpenRouter to avoid 100KB body size limit (HTTP 413)
+// Gemini 3 Flash has 1M token input context, handles any syllabus size
+async function callGeminiDirect(
+  prompt: string,
+  apiKey: string,
+  options: {
+    model?: string;
+    temperature?: number;
+    maxOutputTokens?: number;
+    jsonOutput?: boolean;
+    logPrefix?: string;
+  } = {}
+): Promise<string> {
+  const model = options.model || 'gemini-3-flash-preview';
+  const logPrefix = options.logPrefix || '[GeminiDirect]';
+  console.log(`${logPrefix} Calling ${model}, prompt: ${prompt.length} chars`);
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+  // deno-lint-ignore no-explicit-any
+  const generationConfig: Record<string, any> = {
+    temperature: options.temperature ?? 0.3,
+    maxOutputTokens: options.maxOutputTokens ?? 65536,
+  };
+  if (options.jsonOutput) {
+    generationConfig.responseMimeType = "application/json";
+  }
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig,
+    }),
+  });
+
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`Gemini API error ${response.status}: ${err.substring(0, 500)}`);
+  }
+
+  const data = await response.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  console.log(`${logPrefix} Response: ${text.length} chars`);
+  return text;
+}
+
 // Duration matrix: Bloom level x Specificity (in minutes)
 const DURATION_MATRIX: Record<string, Record<string, number>> = {
   remember: { introductory: 5, intermediate: 8, advanced: 12 },
@@ -87,6 +136,11 @@ interface DomainConfig {
   visual_templates: string[];        // ["framework diagrams", "comparison tables"]
   academic_level: string;            // "graduate", "undergraduate", "professional"
   terminology_preferences: string[]; // Domain-specific terms to prioritize
+  // Enrichment metadata (stored from structure analysis)
+  syllabus_metadata?: {
+    textbooks?: string[];
+    grading_structure?: Record<string, number>;
+  };
 }
 
 // ============================================================================
@@ -139,21 +193,25 @@ CRITICAL RULES:
 4. Match academic_level to the syllabus complexity`;
 
   try {
-    // Call AI via OpenRouter (unified-ai-client)
-    const result = await generateText({
-      prompt: metaPrompt,
-      model: MODELS.GEMINI_FLASH,
-      temperature: 0.3,
-      logPrefix: '[DOMAIN-ANALYZER]'
-    });
+    // Use direct Gemini API for consistency (no OpenRouter dependency)
+    const rawContent = await callGeminiDirect(
+      metaPrompt,
+      Deno.env.get("GOOGLE_CLOUD_API_KEY")!,
+      {
+        temperature: 0.3,
+        maxOutputTokens: 8192,
+        jsonOutput: true,
+        logPrefix: '[DOMAIN-ANALYZER]',
+      }
+    );
 
-    if (!result.content) {
+    if (!rawContent) {
       console.warn('[DOMAIN-ANALYZER] AI returned no content');
       return getFallbackDomainConfig(syllabusText);
     }
 
     try {
-      const config = parseJsonResponse<DomainConfig>(result.content);
+      const config = parseJsonResponse<DomainConfig>(rawContent);
       console.log(`[DOMAIN-ANALYZER] AI identified domain: ${config.domain}`);
       console.log(`[DOMAIN-ANALYZER] Trusted sites: ${config.trusted_sites.slice(0, 3).join(', ')}`);
       return config;
@@ -212,10 +270,17 @@ function getFallbackDomainConfig(text: string): DomainConfig {
   };
 }
 
+// ============================================================================
+// ENRICHED INTERFACES - Support richer extraction from detailed syllabi
+// ============================================================================
+
 interface Module {
   title: string;
   description: string;
   learning_objectives: LearningObjective[];
+  key_topics?: string[];
+  assessment_type?: string;
+  readings?: string[];
 }
 
 interface LearningObjective {
@@ -226,6 +291,7 @@ interface LearningObjective {
   domain: string;
   specificity: string;
   search_keywords: string[];
+  prerequisites?: string[];
 }
 
 interface CourseStructure {
@@ -233,6 +299,8 @@ interface CourseStructure {
   course_description?: string;
   modules: Module[];
   unassigned_objectives: LearningObjective[];
+  textbooks?: string[];
+  grading_structure?: Record<string, number>;
 }
 
 /**
@@ -340,7 +408,8 @@ serve(async (req: Request) => {
       }
     } else {
       // ========== GEMINI EXTRACTION (for PDF, images, etc.) ==========
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GOOGLE_CLOUD_API_KEY}`;
+      // Upgraded to gemini-3-flash-preview with 65536 max output tokens
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${GOOGLE_CLOUD_API_KEY}`;
       
       const extractionResponse = await fetch(geminiUrl, {
         method: "POST",
@@ -365,6 +434,8 @@ Include:
 - Assignments and grading criteria
 - Required textbooks and materials
 - Learning outcomes
+- Reading lists and references
+- Project descriptions and rubrics
 
 Format the extracted text clearly, preserving the document structure.
 Do NOT summarize - extract the complete text content.`
@@ -373,7 +444,7 @@ Do NOT summarize - extract the complete text content.`
           }],
           generationConfig: {
             temperature: 0.1,
-            maxOutputTokens: 16384,
+            maxOutputTokens: 65536,
           }
         })
       });
@@ -387,7 +458,7 @@ Do NOT summarize - extract the complete text content.`
       const extractionData = await extractionResponse.json();
       extractedText = extractionData.candidates?.[0]?.content?.parts?.[0]?.text || "";
       
-      console.log(`Extracted ${extractedText.length} characters from PDF via Gemini`);
+      console.log(`Extracted ${extractedText.length} characters from PDF via Gemini 3 Flash`);
     }
 
     if (!extractedText || extractedText.length < 50) {
@@ -418,7 +489,7 @@ Do NOT summarize - extract the complete text content.`
       .update({
         syllabus_text: extractedText.substring(0, 50000), // Limit to 50KB
         detected_domain: domainConfig.domain,
-        domain_config: domainConfig, // NEW: Store full AI-generated config
+        domain_config: domainConfig, // Store full AI-generated config
       })
       .eq('id', instructor_course_id);
 
@@ -440,10 +511,15 @@ Return a JSON object with this EXACT structure (no markdown, just raw JSON):
 {
   "course_title": "Optional: Extracted course title if found",
   "course_description": "Optional: Brief course description if found",
+  "textbooks": ["Author - Title (Year)", "..."],
+  "grading_structure": {"Midterm": 30, "Final": 40, "Assignments": 30},
   "modules": [
     {
       "title": "Module 1: Introduction to...",
       "description": "Brief description of this module",
+      "key_topics": ["topic1", "topic2", "topic3"],
+      "assessment_type": "exam|project|essay|lab|quiz|presentation|none",
+      "readings": ["Chapter 1 of Author - Title", "Article: Name"],
       "learning_objectives": [
         {
           "text": "Full learning objective text",
@@ -452,7 +528,8 @@ Return a JSON object with this EXACT structure (no markdown, just raw JSON):
           "bloom_level": "remember|understand|apply|analyze|evaluate|create",
           "domain": "business|science|humanities|technical|arts|other",
           "specificity": "introductory|intermediate|advanced",
-          "search_keywords": ["keyword1", "keyword2", "keyword3"]
+          "search_keywords": ["keyword1", "keyword2", "keyword3"],
+          "prerequisites": ["concept A", "concept B"]
         }
       ]
     }
@@ -465,51 +542,106 @@ Return a JSON object with this EXACT structure (no markdown, just raw JSON):
       "bloom_level": "...",
       "domain": "...",
       "specificity": "...",
-      "search_keywords": ["..."]
+      "search_keywords": ["..."],
+      "prerequisites": ["..."]
     }
   ]
 }
 
 RULES:
-1. Create 3-8 modules based on the syllabus structure (weeks, units, chapters)
+1. Create 3-15 modules based on the syllabus structure (weeks, units, chapters). Short syllabi may have 3-5; detailed syllabi with many weeks/topics should have 8-15.
 2. Extract 2-6 learning objectives per module
 3. If explicit learning objectives aren't found, infer them from topics and assignments
 4. Use action verbs that match Bloom's taxonomy levels
 5. Search keywords should help find relevant educational YouTube videos
 6. CRITICAL: Each learning objective must appear in EXACTLY ONE module - do NOT duplicate objectives across modules
 7. Course-level objectives (that apply to the whole course) should go in "unassigned_objectives"
-8. If an objective seems relevant to multiple modules, assign it to the MOST specific module or to unassigned_objectives`;
+8. If an objective seems relevant to multiple modules, assign it to the MOST specific module or to unassigned_objectives
+9. If the syllabus contains assessment details, reading lists, project descriptions, textbooks, or grading weights, ALWAYS extract them into the corresponding fields. These fields are optional — omit them only if truly absent from the document.
+10. For prerequisites, list specific concepts a student should know BEFORE tackling this objective.`;
 
-    // Call AI via OpenRouter (unified-ai-client)
-    const structureResult = await generateText({
-      prompt: structurePrompt,
-      model: MODELS.GEMINI_FLASH,
-      logPrefix: '[process-syllabus:structure]'
-    });
+    // Use direct Gemini API — bypasses OpenRouter 100KB body limit
+    // Gemini 3 Flash has 1M token input context, handles any syllabus size
+    let structureResultContent: string;
+    try {
+      structureResultContent = await callGeminiDirect(
+        structurePrompt,
+        GOOGLE_CLOUD_API_KEY,
+        {
+          temperature: 0.3,
+          maxOutputTokens: 65536,
+          jsonOutput: true,
+          logPrefix: '[process-syllabus:structure]',
+        }
+      );
+    } catch (directError) {
+      // Fallback: OpenRouter with truncated text if Google API fails
+      console.error('[process-syllabus] Direct Gemini failed, falling back to OpenRouter:', directError);
+      const truncatedPrompt = structurePrompt.substring(0, 80000) +
+        '\n\n[Document truncated for size. Extract what you can from available text.]';
+      const fallbackResult = await generateText({
+        prompt: truncatedPrompt,
+        model: MODELS.GEMINI_FLASH,
+        logPrefix: '[process-syllabus:structure-fallback]',
+      });
+      structureResultContent = fallbackResult.content;
+    }
 
-    if (!structureResult.content) {
+    if (!structureResultContent) {
       throw new Error("No content returned from AI");
     }
 
     // Parse the JSON response
     let courseStructure: CourseStructure;
     try {
-      courseStructure = parseJsonResponse<CourseStructure>(structureResult.content);
+      courseStructure = parseJsonResponse<CourseStructure>(structureResultContent);
     } catch (parseError) {
-      console.error("Failed to parse AI response:", structureResult.content);
+      console.error("Failed to parse AI response:", structureResultContent.substring(0, 500));
       throw new Error("Failed to parse course structure from AI response");
+    }
+
+    // ========== Enrich domain_config with course-level metadata ==========
+    if (courseStructure.textbooks || courseStructure.grading_structure) {
+      const enrichedConfig = {
+        ...domainConfig,
+        syllabus_metadata: {
+          textbooks: courseStructure.textbooks,
+          grading_structure: courseStructure.grading_structure,
+        },
+      };
+      // Update domain_config with enriched metadata (fire and forget)
+      supabaseClient
+        .from('instructor_courses')
+        .update({ domain_config: enrichedConfig })
+        .eq('id', instructor_course_id)
+        .then(() => console.log('[PROCESS-SYLLABUS] Stored enriched syllabus metadata in domain_config'))
+        .catch((e: unknown) => console.warn('[PROCESS-SYLLABUS] Failed to store enriched metadata:', e));
     }
 
     // ========== STEP 3: Save modules and learning objectives to database ==========
     // BATCHED APPROACH: 2 queries instead of N+M queries (100x faster for large syllabi)
 
     // Step 3a: Batch insert ALL modules at once
-    const modulesData = courseStructure.modules.map((module, i) => ({
-      instructor_course_id: instructor_course_id,
-      title: module.title,
-      description: module.description || null,
-      sequence_order: i + 1,
-    }));
+    const modulesData = courseStructure.modules.map((module, i) => {
+      // Enrich module description with key_topics, readings, and assessment_type
+      let enrichedDescription = module.description || '';
+      if (module.key_topics?.length) {
+        enrichedDescription += `\n\nKey Topics: ${module.key_topics.join(', ')}`;
+      }
+      if (module.readings?.length) {
+        enrichedDescription += `\n\nReadings: ${module.readings.join('; ')}`;
+      }
+      if (module.assessment_type && module.assessment_type !== 'none') {
+        enrichedDescription += `\n\nAssessment: ${module.assessment_type}`;
+      }
+
+      return {
+        instructor_course_id: instructor_course_id,
+        title: module.title,
+        description: enrichedDescription.trim() || null,
+        sequence_order: i + 1,
+      };
+    });
 
     const { data: savedModules, error: modulesError } = await supabaseClient
       .from("modules")
@@ -552,6 +684,19 @@ RULES:
         const specificity = lo.specificity || "intermediate";
         const expectedDuration = DURATION_MATRIX[bloomLevel]?.[specificity] || 15;
 
+        // Enrich search_keywords with prerequisite terms for better content matching
+        const enrichedKeywords = [...(lo.search_keywords || [])];
+        if (lo.prerequisites?.length) {
+          for (const prereq of lo.prerequisites) {
+            const prereqTerms = prereq.toLowerCase().split(/\s+/).filter(t => t.length > 3);
+            for (const term of prereqTerms) {
+              if (!enrichedKeywords.includes(term)) {
+                enrichedKeywords.push(term);
+              }
+            }
+          }
+        }
+
         losData.push({
           user_id: user.id,
           instructor_course_id: instructor_course_id,
@@ -562,7 +707,7 @@ RULES:
           bloom_level: bloomLevel,
           domain: lo.domain || "other",
           specificity: specificity,
-          search_keywords: lo.search_keywords || [],
+          search_keywords: enrichedKeywords,
           expected_duration_minutes: expectedDuration,
           verification_state: "unstarted",
           sequence_order: sequenceOrder++,
@@ -584,6 +729,19 @@ RULES:
       const specificity = lo.specificity || "intermediate";
       const expectedDuration = DURATION_MATRIX[bloomLevel]?.[specificity] || 15;
 
+      // Enrich search_keywords with prerequisite terms
+      const enrichedKeywords = [...(lo.search_keywords || [])];
+      if (lo.prerequisites?.length) {
+        for (const prereq of lo.prerequisites) {
+          const prereqTerms = prereq.toLowerCase().split(/\s+/).filter(t => t.length > 3);
+          for (const term of prereqTerms) {
+            if (!enrichedKeywords.includes(term)) {
+              enrichedKeywords.push(term);
+            }
+          }
+        }
+      }
+
       losData.push({
         user_id: user.id,
         instructor_course_id: instructor_course_id,
@@ -594,7 +752,7 @@ RULES:
         bloom_level: bloomLevel,
         domain: lo.domain || "other",
         specificity: specificity,
-        search_keywords: lo.search_keywords || [],
+        search_keywords: enrichedKeywords,
         expected_duration_minutes: expectedDuration,
         verification_state: "unstarted",
         sequence_order: sequenceOrder++,
