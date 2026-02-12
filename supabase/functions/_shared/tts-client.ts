@@ -27,6 +27,7 @@ const RETRY_DELAY_MS = 1000;
  * Voice mapping: short ID → full Google Chirp 3: HD voice name
  */
 export const TTS_VOICES: Record<string, string> = {
+  // Chirp 3: HD voices
   Charon: "en-US-Chirp3-HD-Charon",
   Leda: "en-US-Chirp3-HD-Leda",
   Fenrir: "en-US-Chirp3-HD-Fenrir",
@@ -34,6 +35,28 @@ export const TTS_VOICES: Record<string, string> = {
   Puck: "en-US-Chirp3-HD-Puck",
   Aoede: "en-US-Chirp3-HD-Aoede",
 };
+
+/**
+ * Legacy OpenAI voice ID → Chirp 3: HD mapping.
+ * Ensures backward compatibility for existing lecture_slides rows.
+ */
+export const LEGACY_VOICE_MAP: Record<string, string> = {
+  onyx: "Charon",
+  nova: "Leda",
+  echo: "Fenrir",
+  alloy: "Kore",
+  fable: "Puck",
+  shimmer: "Aoede",
+};
+
+/**
+ * Resolve a voice ID (legacy or current) to a Chirp 3: HD voice name.
+ */
+export function resolveVoiceId(voiceId: string): string {
+  // If it's a legacy ID, map it first
+  const mapped = LEGACY_VOICE_MAP[voiceId] || voiceId;
+  return mapped;
+}
 
 export interface TTSResult {
   /** Complete WAV file bytes (LINEAR16 with header) */
@@ -56,7 +79,9 @@ export async function synthesizeSpeech(
   voiceId: string,
   apiKey: string,
 ): Promise<TTSResult> {
-  const voiceName = TTS_VOICES[voiceId] || TTS_VOICES.Charon;
+  // Resolve legacy voice IDs before lookup
+  const resolvedId = resolveVoiceId(voiceId);
+  const voiceName = TTS_VOICES[resolvedId] || TTS_VOICES.Charon;
   const chunks = splitTextIntoChunks(text, MAX_INPUT_BYTES);
 
   console.log(
