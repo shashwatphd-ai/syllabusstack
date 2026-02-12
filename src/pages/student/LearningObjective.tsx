@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, PlayCircle, CheckCircle2, Lock, Clock, AlertCircle, ChevronDown, ClipboardCheck, XCircle, Presentation } from 'lucide-react';
+import { ArrowLeft, PlayCircle, CheckCircle2, Clock, ChevronDown, ClipboardCheck, XCircle, Presentation } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { useLearningObjectiveProgress } from '@/hooks/useStudentCourses';
@@ -203,98 +203,94 @@ export default function LearningObjectivePage() {
             </div>
           </div>
 
-          {/* Main layout - video player left (larger), sidebar right (fixed width) */}
-          <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
-            {/* Main Content Area - Video Player */}
+          {/* Video Player (full width, only when selected) */}
+          {selectedContent && (
             <div className="space-y-4">
-              {selectedContent ? (
-                <div className="space-y-4">
-                  <VerifiedVideoPlayer
-                    contentId={selectedContent.id}
-                    learningObjectiveId={loId!}
-                    videoUrl={selectedContent.source_url || ''}
-                    title={selectedContent.title}
-                    duration={selectedContent.duration_seconds || 600}
-                    microChecks={playerMicroChecks}
-                    onComplete={handleVideoComplete}
-                  />
-                  
-                  {/* Micro-Check History */}
-                  {microCheckResults && microCheckResults.length > 0 && (
-                    <Card>
-                      <Collapsible open={historyOpen} onOpenChange={setHistoryOpen}>
-                        <CollapsibleTrigger asChild>
-                          <CardHeader className="py-3 cursor-pointer hover:bg-muted/50 transition-colors">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <ClipboardCheck className="h-4 w-4 text-muted-foreground" />
-                                <CardTitle className="text-sm font-medium">
-                                  Micro-Check History ({microCheckResults.length})
-                                </CardTitle>
-                              </div>
-                              <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${historyOpen ? 'rotate-180' : ''}`} />
+              <div className="relative">
+                <VerifiedVideoPlayer
+                  contentId={selectedContent.id}
+                  learningObjectiveId={loId!}
+                  videoUrl={selectedContent.source_url || ''}
+                  title={selectedContent.title}
+                  duration={selectedContent.duration_seconds || 600}
+                  microChecks={playerMicroChecks}
+                  onComplete={handleVideoComplete}
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="absolute top-2 right-2 z-10 bg-background/80 backdrop-blur-sm"
+                  onClick={() => setSelectedContentId(null)}
+                >
+                  <XCircle className="h-4 w-4 mr-1" />
+                  Close
+                </Button>
+              </div>
+              
+              {/* Micro-Check History */}
+              {microCheckResults && microCheckResults.length > 0 && (
+                <Card>
+                  <Collapsible open={historyOpen} onOpenChange={setHistoryOpen}>
+                    <CollapsibleTrigger asChild>
+                      <CardHeader className="py-3 cursor-pointer hover:bg-muted/50 transition-colors">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <ClipboardCheck className="h-4 w-4 text-muted-foreground" />
+                            <CardTitle className="text-sm font-medium">
+                              Micro-Check History ({microCheckResults.length})
+                            </CardTitle>
+                          </div>
+                          <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${historyOpen ? 'rotate-180' : ''}`} />
+                        </div>
+                      </CardHeader>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <CardContent className="pt-0 space-y-2">
+                        {microCheckResults.map((result: any) => (
+                          <div 
+                            key={result.id} 
+                            className="flex items-start justify-between p-3 bg-muted/30 rounded-lg border border-border/50"
+                          >
+                            <div className="flex-1">
+                              <p className="text-sm font-medium">
+                                {result.micro_check?.question_text || 'Question'}
+                              </p>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                Your answer: {result.user_answer || 'N/A'}
+                              </p>
                             </div>
-                          </CardHeader>
-                        </CollapsibleTrigger>
-                        <CollapsibleContent>
-                          <CardContent className="pt-0 space-y-2">
-                            {microCheckResults.map((result: any) => (
-                              <div 
-                                key={result.id} 
-                                className="flex items-start justify-between p-3 bg-muted/30 rounded-lg border border-border/50"
-                              >
-                                <div className="flex-1">
-                                  <p className="text-sm font-medium">
-                                    {result.micro_check?.question_text || 'Question'}
-                                  </p>
-                                  <p className="text-xs text-muted-foreground mt-1">
-                                    Your answer: {result.user_answer || 'N/A'}
-                                  </p>
-                                </div>
-                                <Badge variant={result.is_correct ? 'default' : 'destructive'} className="ml-2">
-                                  {result.is_correct ? 'Correct' : 'Incorrect'}
-                                </Badge>
-                              </div>
-                            ))}
-                          </CardContent>
-                        </CollapsibleContent>
-                      </Collapsible>
-                    </Card>
-                  )}
-                </div>
-              ) : (
-                <Card className="h-[400px] flex items-center justify-center">
-                  <CardContent className="text-center">
-                    <PlayCircle className="mx-auto h-16 w-16 text-muted-foreground/50 mb-4" />
-                    <h3 className="font-semibold text-lg mb-2">Select Content</h3>
-                    <p className="text-muted-foreground text-sm max-w-sm">
-                      Choose a video or lecture slides from the sidebar to begin learning
-                    </p>
-                  </CardContent>
+                            <Badge variant={result.is_correct ? 'default' : 'destructive'} className="ml-2">
+                              {result.is_correct ? 'Correct' : 'Incorrect'}
+                            </Badge>
+                          </div>
+                        ))}
+                      </CardContent>
+                    </CollapsibleContent>
+                  </Collapsible>
                 </Card>
               )}
             </div>
+          )}
 
-            {/* Navigation Sidebar - Videos & Slides */}
-            <div className="space-y-4">
-              {/* Available Videos */}
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-semibold">Videos</CardTitle>
-                  <CardDescription className="text-xs">
-                    Watch to unlock assessment
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-2 max-h-[300px] overflow-y-auto">
-                  {matchedContent.length === 0 ? (
-                    <div className="text-center py-4">
-                      <AlertCircle className="mx-auto h-6 w-6 text-muted-foreground mb-1" />
-                      <p className="text-xs text-muted-foreground">
-                        No content yet
-                      </p>
-                    </div>
-                  ) : (
-                    matchedContent.map((match) => {
+          {/* Content Sections - single column */}
+          <div className="space-y-4">
+            {/* Videos */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                  <PlayCircle className="h-4 w-4 text-primary" />
+                  Videos
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Watch to unlock assessment
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {matchedContent.length === 0 ? (
+                  <p className="text-xs text-muted-foreground py-2">No videos available yet.</p>
+                ) : (
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {matchedContent.map((match) => {
                       const content = match.content;
                       if (!content) return null;
 
@@ -305,10 +301,10 @@ export default function LearningObjectivePage() {
                       return (
                         <div
                           key={content.id}
-                          className={`flex items-start gap-2 p-2 rounded-lg cursor-pointer transition-colors ${
+                          className={`flex items-start gap-3 p-3 rounded-lg cursor-pointer transition-colors border ${
                             isSelected 
-                              ? 'bg-primary/10 ring-1 ring-primary' 
-                              : 'hover:bg-accent/50'
+                              ? 'bg-primary/10 border-primary' 
+                              : 'border-border/50 hover:bg-accent/50'
                           }`}
                           onClick={() => setSelectedContentId(content.id)}
                         >
@@ -316,111 +312,112 @@ export default function LearningObjectivePage() {
                             <img
                               src={content.thumbnail_url}
                               alt=""
-                              className="w-16 h-10 object-cover rounded shrink-0"
+                              className="w-20 h-12 object-cover rounded shrink-0"
                             />
                           )}
                           <div className="flex-1 min-w-0">
-                            <p className="text-xs font-medium line-clamp-2 leading-tight">
+                            <p className="text-sm font-medium line-clamp-2 leading-tight">
                               {content.title}
                             </p>
-                            <div className="flex items-center gap-1 mt-1">
-                              <StatusIcon className={`h-3 w-3 ${status.color}`} />
-                              <span className="text-[10px] text-muted-foreground">
+                            <div className="flex items-center gap-2 mt-1">
+                              <StatusIcon className={`h-3.5 w-3.5 ${status.color}`} />
+                              <span className="text-xs text-muted-foreground">
                                 {content.duration_seconds 
-                                  ? `${Math.round(content.duration_seconds / 60)}m`
+                                  ? `${Math.round(content.duration_seconds / 60)} min`
                                   : '?'
                                 }
                               </span>
                               <Badge variant="outline" className="text-[10px] px-1 py-0 h-4">
-                                {Math.round((match.match_score || 0) * 100)}%
+                                {Math.round((match.match_score || 0) * 100)}% match
                               </Badge>
                             </div>
                           </div>
                         </div>
                       );
-                    })
-                  )}
-                </CardContent>
-              </Card>
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
 
-              {/* Lecture Slides */}
-              {lectureSlides && lectureSlides.length > 0 && (
-                <Card className="border-primary/30">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                      <Presentation className="h-4 w-4 text-primary" />
-                      Lecture Slides
-                    </CardTitle>
-                    <CardDescription className="text-xs">
-                      Self-paced learning materials
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
+            {/* Lecture Slides */}
+            {lectureSlides && lectureSlides.length > 0 && (
+              <Card className="border-primary/30">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                    <Presentation className="h-4 w-4 text-primary" />
+                    Lecture Slides
+                  </CardTitle>
+                  <CardDescription className="text-xs">
+                    Self-paced learning materials
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid gap-2 sm:grid-cols-2">
                     {lectureSlides.map((slide, index) => (
                       <div
                         key={slide.id}
-                        className="flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors hover:bg-accent/50 border border-border/50"
+                        className="flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors hover:bg-accent/50 border border-border/50"
                         onClick={() => setViewingSlide(slide)}
                       >
-                        <div className="flex items-center justify-center w-6 h-6 rounded-full bg-primary/10 text-primary text-xs font-semibold shrink-0">
+                        <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/10 text-primary text-xs font-semibold shrink-0">
                           {index + 1}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium line-clamp-1">
+                          <p className="text-sm font-medium line-clamp-1">
                             {slide.title}
                           </p>
                           <div className="flex items-center gap-2 mt-0.5">
-                            <span className="text-[10px] text-muted-foreground">
+                            <span className="text-xs text-muted-foreground">
                               {slide.total_slides} slides
                             </span>
-                            <span className="text-[10px] text-muted-foreground">•</span>
-                            <span className="text-[10px] text-muted-foreground">
-                              ~{slide.estimated_duration_minutes || 10}m
+                            <span className="text-xs text-muted-foreground">•</span>
+                            <span className="text-xs text-muted-foreground">
+                              ~{slide.estimated_duration_minutes || 10} min
                             </span>
                           </div>
                         </div>
                       </div>
                     ))}
-                  </CardContent>
-                </Card>
-              )}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
-              {/* Assessment CTA */}
-              {learningObjective.verification_state === 'verified' && (
-                <Card className="border-success/50 bg-success/5">
-                  <CardContent className="py-4">
-                    <div className="flex items-center gap-3">
-                      <CheckCircle2 className="h-8 w-8 text-success shrink-0" />
-                      <div className="flex-1">
-                        <p className="text-sm font-semibold">Ready!</p>
-                        <p className="text-xs text-muted-foreground">Take the assessment</p>
-                      </div>
+            {/* Assessment CTA */}
+            {learningObjective.verification_state === 'verified' && (
+              <Card className="border-success/50 bg-success/5">
+                <CardContent className="py-4">
+                  <div className="flex items-center gap-3">
+                    <CheckCircle2 className="h-8 w-8 text-success shrink-0" />
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold">Ready!</p>
+                      <p className="text-xs text-muted-foreground">Take the assessment</p>
                     </div>
                     <Button 
-                      className="w-full mt-3"
                       size="sm"
                       onClick={() => navigate(`/learn/objective/${loId}/assess`)}
                     >
                       Start Assessment
                     </Button>
-                  </CardContent>
-                </Card>
-              )}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
-              {learningObjective.verification_state === 'assessment_unlocked' && (
-                <Card className="border-primary">
-                  <CardContent className="py-4">
-                    <Button 
-                      className="w-full"
-                      size="sm"
-                      onClick={() => navigate(`/learn/objective/${loId}/assess`)}
-                    >
-                      Continue Assessment
-                    </Button>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
+            {learningObjective.verification_state === 'assessment_unlocked' && (
+              <Card className="border-primary">
+                <CardContent className="py-4">
+                  <Button 
+                    className="w-full"
+                    size="sm"
+                    onClick={() => navigate(`/learn/objective/${loId}/assess`)}
+                  >
+                    Continue Assessment
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
           </div>
         </div>
 
