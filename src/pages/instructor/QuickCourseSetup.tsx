@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Upload, FileText, Loader2, CheckCircle2, BookOpen, Sparkles, ArrowRight, AlertCircle, Video, Clock, CreditCard, Check } from 'lucide-react';
+import { Upload, FileText, Loader2, CheckCircle2, BookOpen, Sparkles, ArrowRight, AlertCircle, Clock, CreditCard, Check, Search } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
 import { AppShell } from '@/components/layout/AppShell';
 import { PageContainer } from '@/components/layout/PageContainer';
@@ -39,20 +39,16 @@ type Step =
   | 'analyzing'
   | 'creating_course'
   | 'saving_structure'
-  | 'finding_content'
-  | 'evaluating_content'
   | 'complete'
   | 'error';
 
 const STEP_INFO: Record<Step, { label: string; progress: number; description: string }> = {
   upload: { label: 'Upload Syllabus', progress: 0, description: 'Drag and drop your syllabus PDF' },
-  extracting: { label: 'Extracting Text', progress: 15, description: 'Reading document content with AI...' },
-  analyzing: { label: 'Analyzing Structure', progress: 35, description: 'Identifying modules and learning objectives...' },
-  creating_course: { label: 'Creating Course', progress: 50, description: 'Setting up your course...' },
-  saving_structure: { label: 'Saving Structure', progress: 60, description: 'Saving modules and objectives...' },
-  finding_content: { label: 'Finding Content', progress: 75, description: 'Searching for matching videos...' },
-  evaluating_content: { label: 'Evaluating Videos', progress: 90, description: 'AI is scoring videos for pedagogical fit...' },
-  complete: { label: 'Complete!', progress: 100, description: 'Your course is ready!' },
+  extracting: { label: 'Extracting Text', progress: 20, description: 'Reading document content with AI...' },
+  analyzing: { label: 'Analyzing Structure', progress: 50, description: 'Identifying modules and learning objectives...' },
+  creating_course: { label: 'Creating Course', progress: 70, description: 'Setting up your course...' },
+  saving_structure: { label: 'Saving Structure', progress: 90, description: 'Saving modules and objectives...' },
+  complete: { label: 'Complete!', progress: 100, description: 'Your course structure is ready for review!' },
   error: { label: 'Error', progress: 0, description: 'Something went wrong' },
 };
 
@@ -69,8 +65,6 @@ export default function QuickCourseSetupPage() {
   const [result, setResult] = useState<ProcessingResult | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [createdCourseId, setCreatedCourseId] = useState<string | null>(null);
-  const [contentProgress, setContentProgress] = useState({ current: 0, total: 0 });
-  const [evaluationBatchJobId, setEvaluationBatchJobId] = useState<string | null>(null);
   const [paymentPending, setPaymentPending] = useState(false);
 
   const isPro = profile?.subscription_tier === 'pro' || profile?.subscription_tier === 'university';
@@ -235,87 +229,6 @@ export default function QuickCourseSetupPage() {
 
       setResult(processResult);
       
-      // Step 3: Find content for all learning objectives
-      setStep('finding_content');
-      
-      const learningObjectives = processResult.learning_objectives || [];
-      setContentProgress({ current: 0, total: learningObjectives.length });
-      
-      // Process LOs in batches of 3 for better performance
-      const batchSize = 3;
-      for (let i = 0; i < learningObjectives.length; i += batchSize) {
-        const batch = learningObjectives.slice(i, i + batchSize);
-        
-        await Promise.all(batch.map(async (lo: any) => {
-          try {
-            await supabase.functions.invoke('search-youtube-content', {
-              body: {
-                learning_objective_id: lo.id,
-                core_concept: lo.core_concept || lo.text.substring(0, 50),
-                bloom_level: lo.bloom_level || 'understand',
-                domain: lo.domain || 'other',
-                search_keywords: lo.search_keywords || [],
-                expected_duration_minutes: lo.expected_duration_minutes || 15,
-                lo_text: lo.text,
-              },
-            });
-          } catch (e) {
-            console.error('Error finding content for LO:', lo.id, e);
-          }
-        }));
-        
-        setContentProgress({ current: Math.min(i + batchSize, learningObjectives.length), total: learningObjectives.length });
-      }
-
-      // Step 4: Trigger batch evaluation for all discovered videos
-      setStep('evaluating_content');
-
-      try {
-        const { data: evalData, error: evalError } = await supabase.functions.invoke('submit-batch-evaluation', {
-          body: { instructor_course_id: courseId },
-        });
-
-        if (evalError) {
-          console.error('Error submitting batch evaluation:', evalError);
-          // Continue anyway - videos will be pending evaluation
-        } else if (evalData?.batch_job_id) {
-          setEvaluationBatchJobId(evalData.batch_job_id);
-
-          // Poll for evaluation completion
-          const pollEvaluation = async () => {
-            try {
-              const { data: pollData } = await supabase.functions.invoke('poll-batch-evaluation', {
-                body: { batch_job_id: evalData.batch_job_id },
-              });
-
-              if (pollData?.is_complete) {
-                console.log('Batch evaluation complete:', pollData);
-                return true;
-              }
-              return false;
-            } catch (e) {
-              console.error('Error polling evaluation:', e);
-              return false;
-            }
-          };
-
-          // Poll every 5 seconds for up to 2 minutes
-          let attempts = 0;
-          const maxAttempts = 24;
-          while (attempts < maxAttempts) {
-            await new Promise(resolve => setTimeout(resolve, 5000));
-            const complete = await pollEvaluation();
-            if (complete) break;
-            attempts++;
-          }
-        } else {
-          console.log('No batch job created (possibly not enough videos)');
-        }
-      } catch (e) {
-        console.error('Batch evaluation error:', e);
-        // Continue anyway - not critical
-      }
-
       setStep('complete');
 
       toast({
@@ -344,8 +257,6 @@ export default function QuickCourseSetupPage() {
     setResult(null);
     setErrorMessage('');
     setCreatedCourseId(null);
-    setContentProgress({ current: 0, total: 0 });
-    setEvaluationBatchJobId(null);
   };
 
   const isProcessing = !['upload', 'complete', 'error'].includes(step);
@@ -362,7 +273,7 @@ export default function QuickCourseSetupPage() {
               AI-Powered Course Setup
             </div>
             <p className="text-muted-foreground max-w-xl mx-auto">
-              Upload your syllabus and let AI create your entire course structure with curated video content in one step.
+              Upload your syllabus and let AI create your entire course structure automatically. Then break down objectives and find targeted content.
             </p>
           </div>
 
@@ -387,11 +298,6 @@ export default function QuickCourseSetupPage() {
               {isProcessing && (
                 <div className="space-y-2">
                   <Progress value={stepInfo.progress} className="h-2" />
-                  {step === 'finding_content' && contentProgress.total > 0 && (
-                    <p className="text-sm text-muted-foreground text-center">
-                      Finding content: {contentProgress.current} / {contentProgress.total} objectives
-                    </p>
-                  )}
                 </div>
               )}
 
@@ -471,11 +377,7 @@ export default function QuickCourseSetupPage() {
                       </div>
                       <div className="flex items-center gap-2">
                         <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-medium">3</div>
-                        <span>AI finds and scores YouTube videos for each objective</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-medium">4</div>
-                        <span>Review and approve content, then publish!</span>
+                        <span>Open your course to break down objectives and find content</span>
                       </div>
                     </div>
                   </div>
@@ -553,8 +455,8 @@ export default function QuickCourseSetupPage() {
                       <CheckCircle2 className="h-8 w-8 text-success" />
                     </div>
                     <div className="text-center">
-                      <p className="text-xl font-semibold text-foreground">Course Created!</p>
-                      <p className="text-muted-foreground">Your course is ready for review</p>
+                      <p className="text-xl font-semibold text-foreground">Course Structure Ready!</p>
+                      <p className="text-muted-foreground">Open your course to break down objectives and find matching content</p>
                     </div>
                   </div>
 
@@ -575,9 +477,9 @@ export default function QuickCourseSetupPage() {
                     <Card>
                       <CardContent className="pt-4 text-center">
                         <div className="text-2xl font-bold text-primary">
-                          <Video className="h-6 w-6 mx-auto" />
+                          <Search className="h-6 w-6 mx-auto" />
                         </div>
-                        <p className="text-xs text-muted-foreground">Videos Found</p>
+                        <p className="text-xs text-muted-foreground">Next: Find Content</p>
                       </CardContent>
                     </Card>
                   </div>
@@ -613,7 +515,7 @@ export default function QuickCourseSetupPage() {
                       className="flex-1 gap-2" 
                       onClick={() => navigate(`/instructor/courses/${createdCourseId}`)}
                     >
-                      Review & Curate Content
+                      Open Course & Find Content
                       <ArrowRight className="h-4 w-4" />
                     </Button>
                   </div>
@@ -661,8 +563,8 @@ export default function QuickCourseSetupPage() {
                   <div>
                     <p className="font-medium text-sm">Processing takes 1-3 minutes</p>
                     <p className="text-xs text-muted-foreground mt-1">
-                      The AI reads your syllabus, identifies modules and learning objectives, 
-                      then searches YouTube for relevant educational content for each objective.
+                      The AI reads your syllabus and identifies modules and learning objectives.
+                      You'll then break down objectives into teaching units and find targeted content.
                     </p>
                   </div>
                 </div>
