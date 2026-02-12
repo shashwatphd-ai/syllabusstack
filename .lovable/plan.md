@@ -1,90 +1,60 @@
 
 
-# Fix Narration Quality: No Source Reading, No Fake Dialogue Openers
+# Upgrade CMM System Prompt to Full Master Educator Blueprint
 
-## Problem Summary
+## What This Changes
 
-Two issues with the current AI-generated narration:
-1. **Citations read aloud**: The regex strips `[Source N]` markers, but inline academic citations like `"Sull et al. (2015)"` pass through and get narrated verbatim
-2. **Fake dialogue openers**: At slide transitions, the model fabricates reactions like `"Exactly, that is a crucial point"` as if responding to someone -- the student hasn't said anything, so this feels dishonest
+Replace the current condensed ~60-line `CMM_SYSTEM_PROMPT` in `supabase/functions/_shared/ai-narrator.ts` with the full Master Educator Blueprint you provided. The current prompt captures the spirit but is abbreviated. The full blueprint adds significantly more depth in every dimension.
 
-## Changes (Prompt Text Only -- Zero Code Logic Changes)
+## What Gets Added (Compared to Current)
 
-### File 1: `supabase/functions/_shared/ai-narrator.ts`
+| Section | Current State | After Upgrade |
+|---|---|---|
+| Core Identity | 1 sentence ("Zero-to-Expert method") | Full paragraph: warm, intellectually generous, "Culture of Discourses" philosophy |
+| Zero-to-Expert Arc | 1 sentence summary | 4 detailed steps with reasoning for each |
+| Delivery Style | 4 bullet points | 4 subsections with multiple bullets each (conversational, humor, analogies, pacing) |
+| Intellectual Commitments | 4 bullet points | 4 subsections: multi-perspectival fairness, conceptual understanding, cross-disciplinary, historical-contextual |
+| Lesson Structure | Not present | Full 5-phase arc: Opening/Hook, Foundation, Build, Perspectives, Synthesis |
+| Persona Boundaries | 4 bullets | 6 detailed persona commitments |
+| What You Never Do | 5 bullets | 8 bullets including "never present one side as settled truth" and "never treat memorization as understanding" |
 
-**A. ABSOLUTE RULES section (line 110-116)** -- expand the banned phrases list and add citation-reading ban:
+## What Stays the Same
 
-```
-ABSOLUTE RULES:
-- You are delivering a CONTINUOUS MONOLOGUE. There is NO audience responding.
-- NEVER say "thank you for that question," "great point," "as you mentioned,"
-  "great outline," "exactly," "absolutely," "that's a crucial point,"
-  "that's a great observation," "you raise an important point," or ANY phrase
-  implying someone else is speaking or that you are responding to input.
-- NEVER fabricate a reaction to something the student said. The student has said NOTHING.
-  You are guiding them through self-directed learning -- not responding to a conversation.
-- START each slide by diving directly into the content or building a conceptual bridge
-  from the previous idea. Good openers: "Now let's look at...",
-  "This brings us to something fascinating...", "Here's where it gets interesting...",
-  "Building on that foundation..." Bad openers: "Exactly!", "Great question!",
-  "That's a crucial point!", "You're absolutely right!"
-- NEVER read academic citations verbatim (e.g., "Sull et al., 2015", "Gallup, 2023").
-  Convert to natural speech: "researchers found..." or "a major workplace study showed..."
-  The student is LISTENING, not reading -- citations are visual artifacts, not spoken content.
-- NEVER include citation markers like [Source 1], [Source 2], or bracketed references.
-- NEVER read URLs aloud. Convert to natural references ("research from MIT shows...").
-- Rhetorical questions are encouraged ("Have you ever wondered...?") but NEVER answer
-  as if someone responded to them.
-- Each slide's narration flows from the previous one. Use natural transitions, not fresh
-  introductions or re-welcomes.
-```
+The **ABSOLUTE RULES** section (no fake dialogue, no citations read aloud, no URLs, conceptual bridges as openers) remains exactly as it is. These are technical narration constraints, not pedagogical philosophy -- they sit on top of the blueprint.
 
-**B. Continuity section (line 193-195)** -- strengthen anti-reaction instruction:
+## Implementation
 
-Change from:
-```
-Continue naturally from where you left off. Do NOT re-introduce the topic, do NOT welcome the student again, do NOT repeat concepts already covered.
-```
-To:
-```
-Continue naturally from where you left off. Do NOT re-introduce the topic, do NOT welcome the student again, do NOT repeat concepts already covered. CRITICAL: Do NOT start with a reaction phrase ("Exactly!", "Great point!", "That's crucial!"). The student has not spoken. Start by building a conceptual bridge or diving into the new content directly.
-```
+### File: `supabase/functions/_shared/ai-narrator.ts`
 
-**C. Existing notes label (line 207)** -- prevent verbatim reading of source-heavy notes:
+Replace `CMM_SYSTEM_PROMPT` (lines 71-131) with the full blueprint, structured as:
 
-Change from:
-```
-EXISTING NOTES (use as a starting point, expand and enrich): "${stripCitations(...)}"
-```
-To:
-```
-EXISTING NOTES (use as raw material -- rephrase, never read verbatim): "${stripCitations(...)}"
-```
+1. **Core Identity** -- warm, intellectually generous, "Culture of Discourses"
+2. **Teaching Method: Zero-to-Expert Arc** -- 4 steps with full descriptions
+3. **Delivery Style** -- Conversational tone, Humor guidelines, Analogy engine, Calm pacing (with `[SUBJECT]` replaced by the dynamic `domain` value from the narration context... see Technical Note below)
+4. **Intellectual Commitments** -- Multi-perspectival fairness, conceptual understanding over memorization, cross-disciplinary connections, historical-contextual grounding
+5. **Lesson Structure** -- Opening/Hook, Foundation, Build, Perspectives, Synthesis
+6. **Persona Boundaries** -- 6 commitments
+7. **What You Never Do** -- 8 prohibitions
+8. **Absolute Rules** -- kept verbatim from current version (no fake dialogue, no citations, etc.)
 
-### File 2: `supabase/functions/generate-lecture-audio/index.ts`
+### Technical Note: `[SUBJECT]` Placeholder
 
-**TTS system prompt (line 192)** -- add citation skip instruction:
+The blueprint uses `[SUBJECT]` and `[SUBJECT DOMAIN]` as placeholders. Since the narration system already passes `domain` (e.g., "Business Management", "Computer Science") in the user prompt, the system prompt will use a generic reference like "your subject domain" rather than a literal placeholder. The domain-specific grounding happens naturally through the per-slide user prompt which already includes `(domain: ${context.domain})`.
 
-Change from:
-```
-...If you encounter URLs or abbreviations, handle them naturally.
-```
-To:
-```
-...If you encounter URLs or abbreviations, handle them naturally. If you encounter academic citations like "Smith et al. (2019)" or "Source 1", skip them entirely -- do not read them aloud.
-```
+### File: `supabase/functions/generate-lecture-audio/index.ts`
 
-## What Does NOT Change
+No changes needed. The TTS prompt is a separate concern (voice delivery, not content generation) and was already updated in the previous edit.
 
-- All TypeScript code logic (functions, interfaces, continuity mechanism, citation regex)
-- Model routing, token limits, function signatures
-- Slide generation pipeline (`slide-prompts.ts`, `curriculum-reasoning-agent`)
-- Frontend components
-- The enriched CMM persona sections (humor, analogies, persona, intellectual commitments) remain intact
+## Token Budget Consideration
+
+The current system prompt is ~530 tokens. The full blueprint will be ~1200 tokens. This is well within budget given the 1200 max_tokens output limit and the model's context window. The per-generation cost increase is negligible compared to the quality improvement.
 
 ## After Deployment
 
-Regenerate audio on the current lecture to verify:
-1. No academic citations are spoken aloud
-2. Each slide starts with content or a conceptual bridge, never a fake reaction
+Regenerate audio on a lecture to verify the narration now exhibits:
+- Zero-to-Expert scaffolding (starts from basics, builds up)
+- Everyday analogies for abstract concepts
+- Warm humor at cognitive load peaks
+- Multi-perspectival fairness on debatable topics
+- No fake dialogue openers or citation reading (preserved from previous fix)
 
