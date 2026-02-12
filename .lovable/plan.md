@@ -1,332 +1,225 @@
 
+# Conversational Mastery Agent: Expanded Plan with Continuity
 
-# Expanded Plan: Switch Audio to OpenAI GPT Audio via OpenRouter
+## The Continuity Problem
 
-## Current Pipeline (4 Phases per Slide)
+The current `generateNarration()` function calls the AI model **independently for each slide** with zero knowledge of what was narrated on previous slides. This causes three specific failures:
 
-```text
-Phase 1: AI Narration
-  ai-narrator.ts -> simpleCompletion(MODELS.FAST) -> 150-250 word lecture script
-  Uses: OPENROUTER_API_KEY (gpt-4o-mini with Gemini Flash fallback)
+1. **Repeated introductions**: Slide 3 says "Welcome! Today we'll explore..." because it doesn't know slide 1 already welcomed the student.
+2. **Dialogue hallucination**: The model, told to be "conversational," invents an interlocutor ("Thank you for that question!") because it has no actual conversational thread to continue.
+3. **Broken transitions**: Each slide starts from scratch instead of flowing naturally ("As we just saw..." or "Building on that foundation...").
 
-Phase 2: SSML Transformation
-  ssml-transformer.ts -> simpleCompletion(MODELS.FAST) -> SSML-wrapped narration
-  Uses: OPENROUTER_API_KEY (separate AI call per slide)
-  Purpose: Add <break>, <emphasis>, <prosody> tags for Google TTS
+The fix requires passing a **narration history** through the slide loop so each AI call knows what came before.
 
-Phase 3: Google Cloud TTS
-  texttospeech.googleapis.com/v1/text:synthesize -> base64 MP3
-  Uses: GOOGLE_CLOUD_API_KEY
-  Voice: en-US-Neural2-D (male, $16/1M chars)
-  Problem: Reads URLs letter-by-letter, reads "[Source 1]" literally, robotic
-
-Phase 4: Segment Mapping
-  segment-mapper.ts -> simpleCompletion(MODELS.FAST) -> JSON segment map
-  Uses: OPENROUTER_API_KEY
-  Purpose: Maps narration to content blocks for synchronized highlighting
-```
-
-**Cost per slide**: 3 OpenRouter calls (narration + SSML + mapping) + 1 Google TTS call
-
-## New Pipeline (3 Phases per Slide)
+## Architecture: Continuity via Rolling Context
 
 ```text
-Phase 1: AI Narration (UNCHANGED)
-  ai-narrator.ts -> simpleCompletion(MODELS.FAST) -> 150-250 word lecture script
-  Uses: OPENROUTER_API_KEY (same as before)
-
-Phase 2: REMOVED -- No SSML needed
-  GPT Audio handles prosody natively. URLs and citations are read intelligently.
-
-Phase 3: GPT Audio TTS (REPLACES Google Cloud TTS)
-  callOpenRouter(MODELS.AUDIO) with modalities: ["text", "audio"]
-  Uses: OPENROUTER_API_KEY (same key, different model)
-  Voice: Selectable (onyx, nova, echo, alloy, fable, shimmer)
-  Response: message.audio.data (base64 WAV) -> convert and upload as MP3/WAV
-
-Phase 4: Segment Mapping (UNCHANGED)
-  segment-mapper.ts -> simpleCompletion(MODELS.FAST) -> JSON segment map
+Slide 1: [system prompt + slide content] --> narration_1
+Slide 2: [system prompt + slide content + "Previous narration ended with: ...narration_1 last 100 words..."] --> narration_2
+Slide 3: [system prompt + slide content + "Previous narration ended with: ...narration_2 last 100 words..."] --> narration_3
+...
 ```
 
-**Cost per slide**: 2 OpenRouter calls (narration + mapping) + 1 OpenRouter audio call
-**Net effect**: Removes 1 AI call (SSML) and replaces Google TTS with OpenRouter audio
+Each slide receives a **tail excerpt** (last ~100 words) of the previous slide's narration. This is enough for the model to:
+- Avoid repeating the welcome/introduction
+- Create natural transitions ("Now that we understand X, let's look at Y...")
+- Maintain a consistent voice and thread throughout the lecture
 
-## Why Phase 2 (SSML) Is Fully Removed
+We do NOT pass the full history (all previous narrations) because that would blow up the context window and cost. A 100-word tail is sufficient for continuity.
 
-The SSML transformer exists solely to prepare text for Google Cloud TTS, which is a "dumb" reader -- it needs explicit markup to know where to pause, emphasize, or adjust pitch. GPT Audio is an AI model that:
-- Understands sentence structure and adds natural pauses
-- Recognizes URLs and abbreviations -- says "the linked resource" or contextualizes them
-- Handles emphasis, tone shifts, and pacing based on semantic understanding
-- Does not accept or need SSML input
+## File-by-File Changes
 
-The `ssml-transformer.ts` file is NOT deleted (other functions might reference `isSSML` or `stripSSML`), but its `transformToSSML` function is no longer called from the audio pipeline.
+### File 1: `supabase/functions/_shared/ai-narrator.ts`
 
-## Risk Assessment: Does OpenRouter Proxy Audio Output?
+This file gets the largest transformation.
 
-**Evidence it works:**
-- OpenRouter's model page for `openai/gpt-audio-mini` lists it with audio token pricing ($0.60/M)
-- OpenRouter docs show audio input support; the model itself supports audio output via `modalities: ["text", "audio"]`
-- The OpenAI Chat Completions API format with `modalities` and `audio` parameters is the standard interface
-- Multiple open-source projects (open-webui) are requesting/implementing this exact flow
+**A. Update `NarrationContext` interface** -- Add optional field for continuity:
 
-**Mitigation**: Step 0 is a live test call before any code changes. If it fails, we fall back to ElevenLabs (connector already available).
-
-## Detailed File Changes
-
-### File 1: `supabase/functions/_shared/openrouter-client.ts`
-
-**What changes:**
-- Add `AUDIO` and `AUDIO_HD` to the `MODELS` constant
-- Add `modalities` and `audio` fields to `OpenRouterOptions` interface
-- Add `audio` field to `OpenRouterResponse.choices[].message`
-- Pass `modalities` and `audio` through in `callOpenRouter`'s request body builder
-
-**Specific additions to MODELS (after line 124):**
 ```typescript
-// AUDIO GENERATION - Text-to-Speech via GPT Audio
-AUDIO: 'openai/gpt-audio-mini',          // Cost-efficient, natural voices
-AUDIO_HD: 'openai/gpt-audio',            // Higher quality, more expensive
-```
-
-**Specific additions to OpenRouterOptions (after line 192):**
-```typescript
-// Audio output support
-modalities?: string[];                    // e.g., ['text', 'audio']
-audio?: {
-  voice: string;                          // onyx, nova, echo, alloy, fable, shimmer
-  format: string;                         // 'wav' or 'pcm16'
-};
-```
-
-**Specific additions to OpenRouterResponse message (line 217):**
-```typescript
-audio?: {
-  id: string;
-  data: string;          // base64-encoded audio
-  transcript?: string;   // text transcript of the audio
-  expires_at: number;
-};
-```
-
-**Specific additions to callOpenRouter body builder (after line 333):**
-```typescript
-if (options.modalities) {
-  body.modalities = options.modalities;
-}
-if (options.audio) {
-  body.audio = options.audio;
+export interface NarrationContext {
+  slideIndex: number;
+  totalSlides: number;
+  unitTitle: string;
+  domain: string;
+  previousNarrationTail?: string;  // Last ~100 words of previous slide's narration
+  allSlideTitles?: string[];       // All slide titles for lecture outline awareness
 }
 ```
+
+**B. Add citation stripping helper** at the top of the file:
+
+```typescript
+function stripCitations(text: string): string {
+  return text.replace(/\[Source\s*\d+\]/gi, '').replace(/\s{2,}/g, ' ').trim();
+}
+```
+
+Applied to ALL content parts before they enter the prompt, and to existing `speaker_notes` if present.
+
+**C. Replace the system prompt** (line 140) with the Conversational Mastery Method agent persona (~400 words, condensed from the user's 6-section blueprint):
+
+```text
+You are a master educator delivering a continuous lecture monologue. Your teaching 
+philosophy is the "Zero-to-Expert" method: start from zero assumed knowledge, build 
+brick by brick, and end with mastery-level synthesis.
+
+DELIVERY STYLE:
+- Conversational, never lecturing. Use direct address: "Now, you might wonder..."
+- Think aloud: "If we look at it this way... but wait, that creates a problem..."
+- Warm, intelligent humor timed for cognitive breaks -- never at anyone's expense
+- For EVERY abstract concept, find a concrete analogy from everyday life
+- Calm, unhurried pace. Let insights breathe before moving on.
+
+INTELLECTUAL COMMITMENTS:
+- Multi-perspectival fairness: present all sides of debatable topics
+- "Why" before "What" -- conceptual understanding over memorization
+- Cross-disciplinary connections where natural
+- Historical-contextual grounding: how did this idea emerge?
+
+ABSOLUTE RULES:
+- You are delivering a CONTINUOUS MONOLOGUE. There is no audience responding.
+- NEVER say "thank you for that question," "great point," "as you mentioned,"
+  or any phrase implying someone else is speaking.
+- NEVER include citation markers like [Source 1], [Source 2], or any bracketed references.
+- NEVER read URLs aloud. Convert them to natural references.
+- Rhetorical questions are fine ("Have you ever wondered...?") but NEVER answer 
+  as if someone responded.
+- Each slide's narration flows from the previous one. Use natural transitions,
+  not fresh introductions.
+```
+
+**D. Rewrite the user prompt** to include continuity context and slide-position awareness:
+
+```text
+Generate narration for slide ${slideIndex + 1} of ${totalSlides} in a lecture on "${unitTitle}" (${domain}).
+
+LECTURE OUTLINE:
+${allSlideTitles.map((t, i) => `  ${i + 1}. ${t}`).join('\n')}
+
+CURRENT SLIDE:
+- Type: ${slide.type}
+- Title: "${slide.title}"
+- Content: [cleaned content parts, citations stripped]
+
+${previousNarrationTail 
+  ? `CONTINUITY (your previous narration ended with): "...${previousNarrationTail}"\nContinue naturally from where you left off. Do NOT re-introduce the topic or welcome the student.`
+  : 'This is the FIRST slide. Open with a warm welcome and preview what the lecture will cover.'}
+
+${isLastSlide ? 'This is the LAST slide. Synthesize the journey, connect back to the opening, and encourage further exploration.' : ''}
+
+Write 200-350 words of narration. Return ONLY the narration text.
+```
+
+**E. Model and token changes:**
+- Model: `MODELS.PROFESSOR_AI` (`google/gemini-3-flash-preview`) instead of `MODELS.FAST`
+- Fallback: `MODELS.PROFESSOR_AI_FALLBACK` (`google/gemini-2.5-flash`)
+- `max_tokens`: 1200 (up from 800) to accommodate richer narration
+
+**F. Update `generateNarration()` signature** -- The function signature stays the same (it already accepts `NarrationContext`), but the new optional fields (`previousNarrationTail`, `allSlideTitles`) are used when present.
 
 ### File 2: `supabase/functions/generate-lecture-audio/index.ts`
 
-This is the largest change. The entire Phase 2 (SSML) and Phase 3 (Google TTS) blocks are replaced.
+**A. Build slide titles array** before the loop (after line 121):
 
-**Imports removed:**
-- `import { transformToSSML, isSSML } from "../_shared/ssml-transformer.ts";` (line 4)
-
-**Imports added:**
-- `import { callOpenRouter, MODELS } from "../_shared/openrouter-client.ts";`
-
-**Validation change (line 85):**
 ```typescript
-// BEFORE:
-const { slideId, voice = 'en-US-Neural2-D', enableSSML, enableSegmentMapping } = validation.data;
-
-// AFTER:
-const { slideId, voiceId = 'onyx', enableSegmentMapping } = validation.data;
+const allSlideTitles = slides.map(s => s.title || 'Untitled');
 ```
 
-**API key check change (lines 87-90):**
+**B. Track narration history** -- Add a variable before the loop:
+
 ```typescript
-// BEFORE: Checks GOOGLE_CLOUD_API_KEY for TTS
-// AFTER: Checks OPENROUTER_API_KEY (already validated inside callOpenRouter, 
-//        but we check early to fail fast before processing slides)
-const OPENROUTER_API_KEY = Deno.env.get('OPENROUTER_API_KEY');
-if (!OPENROUTER_API_KEY) {
-  return createErrorResponse('CONFIG_ERROR', corsHeaders, 'OPENROUTER_API_KEY not configured');
-}
+let previousNarrationTail = '';
 ```
 
-**Phase 1 (AI narration, lines 136-162):**
-- `GOOGLE_CLOUD_API_KEY` guard replaced with `OPENROUTER_API_KEY` guard
-- `generateNarration()` call stays identical (it already uses OpenRouter internally)
+**C. Pass continuity context** in the `generateNarration()` call (lines 140-153):
 
-**Phase 2 (SSML, lines 170-198):**
-- Entire block REMOVED. No SSML transformation needed.
-
-**Phase 3 (TTS, lines 202-257) -- REPLACED with:**
 ```typescript
-// PHASE 3: Generate audio via GPT Audio (OpenRouter)
-const audioResponse = await callOpenRouter({
-  model: MODELS.AUDIO,
-  messages: [
-    {
-      role: 'system',
-      content: 'You are a professional lecturer. Read the following narration naturally and engagingly. Do not add any commentary or changes to the text -- just read it aloud exactly as written.',
-    },
-    {
-      role: 'user',
-      content: narrationText,
-    },
-  ],
-  modalities: ['text', 'audio'],
-  audio: { voice: voiceId, format: 'wav' },
-  fallbacks: [MODELS.AUDIO_HD],
-}, '[Audio TTS]');
-
-const audioData = audioResponse.choices[0]?.message?.audio?.data;
-if (!audioData) {
-  throw new Error('No audio data in GPT Audio response');
-}
-
-// Decode base64 WAV to bytes
-const binaryString = atob(audioData);
-const bytes = new Uint8Array(binaryString.length);
-for (let j = 0; j < binaryString.length; j++) {
-  bytes[j] = binaryString.charCodeAt(j);
-}
-
-// Upload to Supabase Storage (WAV format, browsers natively support it)
-const fileName = `${slideId}/slide_${i}.wav`;
-const { error: uploadError } = await supabase.storage
-  .from('lecture-audio')
-  .upload(fileName, bytes, {
-    contentType: 'audio/wav',
-    upsert: true,
-  });
+narrationText = await generateNarration(
+  {
+    type: slide.type,
+    title: slide.title,
+    content: slide.content,
+    speaker_notes: slide.speaker_notes,
+  },
+  {
+    slideIndex: i,
+    totalSlides,
+    unitTitle,
+    domain,
+    previousNarrationTail,
+    allSlideTitles,
+  },
+  OPENROUTER_API_KEY
+);
 ```
 
-**Note on file format**: The file extension changes from `.mp3` to `.wav` since GPT Audio outputs WAV. Browsers natively play WAV files. The student-side `StudentSlideViewer.tsx` creates `new Audio(signedUrl)` which handles both formats transparently.
+**D. Update the tail after each successful narration** (after narrationText is finalized, before Phase 3):
 
-**Phase 4 (Segment mapping, lines 265-284):**
-- Only change: `GOOGLE_CLOUD_API_KEY` guard replaced with `OPENROUTER_API_KEY` guard (though `mapAudioSegments` already uses OpenRouter internally and ignores the API key parameter).
-
-### File 3: `supabase/functions/_shared/validators/index.ts`
-
-**Lines 167-172 -- Update `lectureAudioSchema`:**
 ```typescript
-// BEFORE:
-export const lectureAudioSchema = z.object({
-  slideId: uuidSchema,
-  voice: z.string().optional().default('en-US-Neural2-D'),
-  enableSSML: z.boolean().optional().default(true),
-  enableSegmentMapping: z.boolean().optional().default(true),
-});
-
-// AFTER:
-export const lectureAudioSchema = z.object({
-  slideId: uuidSchema,
-  voiceId: z.enum(['onyx', 'nova', 'echo', 'alloy', 'fable', 'shimmer'])
-    .optional()
-    .default('onyx'),
-  enableSegmentMapping: z.boolean().optional().default(true),
-});
+// Extract last ~100 words for continuity with next slide
+const words = narrationText.split(/\s+/);
+previousNarrationTail = words.slice(Math.max(0, words.length - 100)).join(' ');
 ```
 
-### File 4: `src/hooks/lectureSlides/audio.ts`
+**E. Strip citations from narrationText** before passing to TTS -- after narrationText is finalized (whether from AI, existing speaker_notes, or fallback):
 
-**Update hook parameter (lines 21-27):**
 ```typescript
-// BEFORE:
-mutationFn: async ({
-  slideId,
-  voice = 'en-US-Wavenet-D'
-}: {
-  slideId: string;
-  voice?: string;
-}) => {
-
-// AFTER:
-mutationFn: async ({
-  slideId,
-  voiceId = 'onyx'
-}: {
-  slideId: string;
-  voiceId?: string;
-}) => {
+narrationText = narrationText.replace(/\[Source\s*\d+\]/gi, '').replace(/\s{2,}/g, ' ').trim();
 ```
 
-**Update body (line 31):**
+**F. Update TTS system prompt** (line 181) to reinforce monologue discipline:
+
+```text
+You are a master educator delivering a continuous lecture monologue. Read the 
+following narration naturally with warmth, intellectual generosity, and appropriate 
+pacing. Do not add any commentary, greetings, dialogue, or acknowledgments. This 
+is a one-way narration -- never say "thank you" or respond as if someone spoke. 
+If you encounter URLs or abbreviations, handle them naturally.
+```
+
+**G. Strip citations from `generateSimpleFallback()` output** (line 68):
+
 ```typescript
-// BEFORE:
-body: { slideId, voice }
-
-// AFTER:
-body: { slideId, voiceId }
+return parts.join(' ').replace(/\[Source\s*\d+\]/gi, '').trim();
 ```
 
-**Update JSDoc (line 14):**
-```typescript
-// BEFORE:
-/** Generate TTS audio for lecture slides using Google Cloud WaveNet */
-
-// AFTER:
-/** Generate TTS audio for lecture slides using GPT Audio via OpenRouter */
-```
-
-### File 5: `src/components/slides/VoicePicker.tsx` (NEW)
-
-A simple Select component displaying voice options with personality descriptions:
-
-| Voice | Display Name | Description |
-|-------|-------------|-------------|
-| onyx | Professor Onyx | Deep, authoritative (default) |
-| nova | Dr. Nova | Warm, friendly |
-| echo | Dr. Echo | Clear, measured |
-| alloy | Prof. Alloy | Balanced, neutral |
-| fable | Dr. Fable | Expressive, storytelling |
-| shimmer | Prof. Shimmer | Calm, reassuring |
-
-The component accepts `value` and `onValueChange` props, rendering a shadcn/ui `Select` dropdown.
-
-### File 6: `src/components/slides/LectureSlideViewer.tsx`
-
-**Add state for selected voice (after line 55):**
-```typescript
-const [selectedVoice, setSelectedVoice] = useState<string>('onyx');
-```
-
-**Update handleGenerateAudio (line 139-141):**
-```typescript
-// BEFORE:
-generateAudio.mutate({ slideId: lectureSlide.id });
-
-// AFTER:
-generateAudio.mutate({ slideId: lectureSlide.id, voiceId: selectedVoice });
-```
-
-**Add VoicePicker next to Generate Audio button (before the button, around line 190):**
-```tsx
-{!hasAudio && audioStatus !== 'generating' && (
-  <VoicePicker value={selectedVoice} onValueChange={setSelectedVoice} />
-)}
-```
-
-## What Does NOT Change
+### File 3: No other files change
 
 | Component | Why unchanged |
 |-----------|---------------|
-| `ai-narrator.ts` | Phase 1 narration generation -- already uses OpenRouter, untouched |
-| `ssml-transformer.ts` | File remains for utility exports (`isSSML`, `stripSSML`), but `transformToSSML` is no longer called |
-| `segment-mapper.ts` | Phase 4 mapping -- already uses OpenRouter internally |
-| `StudentSlideViewer.tsx` | Audio playback and cleanup chain -- `new Audio(url)` plays WAV as well as MP3 |
-| `useSlideSync.ts` | Sync polling -- format-agnostic |
-| `NarratedScrollViewer.tsx` | Consumes same audio URLs |
-| Storage bucket `lecture-audio` | Same bucket, file extension changes from .mp3 to .wav |
-| `GOOGLE_CLOUD_API_KEY` | Still used by other functions (not removed from secrets) |
+| `openrouter-client.ts` | No API changes needed |
+| `segment-mapper.ts` | Works on whatever narration text it receives |
+| `validators/index.ts` | Schema already updated in previous migration |
+| `VoicePicker.tsx` | Voice selection is independent of narration content |
+| `LectureSlideViewer.tsx` | Already passes voiceId correctly |
+| `StudentSlideViewer.tsx` | Audio playback is format-agnostic |
+| `NarratedScrollViewer.tsx` | Renders speaker_notes as-is (now cleaner) |
+| `citationParser.ts` | Still used for slide *content* citations (not narration) |
 
-## Backward Compatibility
+## How Continuity Works Across Slide Types
 
-Existing slides that already have `.mp3` audio URLs stored in their `audio_url` field will continue to work. The signed URL generation in `StudentSlideViewer.tsx` is path-based and format-agnostic. New slides will get `.wav` files. Both play in all modern browsers via `HTMLAudioElement`.
+| Slide Type | Continuity Behavior |
+|------------|-------------------|
+| Title (slide 1) | No previous tail. Opens with warm welcome, previews the lecture arc. |
+| Definition (mid-lecture) | Receives tail from previous slide. "Now that we've seen X in action, let's give it a proper name..." |
+| Example (after definition) | "To make this concrete, picture this scenario..." -- flows from definition without re-explaining. |
+| Misconception | "Now here's where many people get tripped up..." -- doesn't say "great question about misconceptions." |
+| Summary/Recap (last) | Receives full context. "So let's step back and see what we've built today..." Connects to opening. |
+
+## Cost Impact
+
+| Phase | Before | After |
+|-------|--------|-------|
+| Narration (Phase 1) | gemini-2.5-flash-lite, 800 tokens | gemini-3-flash-preview, 1200 tokens |
+| SSML (Phase 2) | gemini-2.5-flash-lite (removed) | -- |
+| TTS (Phase 3) | Google Cloud TTS | GPT Audio Mini (already changed) |
+| Segment Map (Phase 4) | gemini-2.5-flash-lite | unchanged |
+
+Net: +1 model tier for narration, -1 entire phase (SSML). The per-slide cost is roughly neutral. The continuity tail adds ~100 words to each prompt's input, which is negligible.
 
 ## Implementation Order
 
-1. Extend `openrouter-client.ts` with audio support (interfaces + body builder)
-2. Update `validators/index.ts` schema
-3. Rewrite `generate-lecture-audio/index.ts` (remove SSML phase, replace Google TTS with GPT Audio)
-4. Update `audio.ts` hook (voiceId parameter)
-5. Create `VoicePicker.tsx` component
-6. Integrate VoicePicker into `LectureSlideViewer.tsx`
-7. Deploy edge function and test end-to-end
-
+1. Update `ai-narrator.ts` -- new interface fields, citation stripping, CMM system prompt, continuity-aware user prompt, model upgrade
+2. Update `generate-lecture-audio/index.ts` -- build slide titles, track narration tail, pass continuity context, strip citations before TTS, update TTS prompt, clean fallback output
+3. Deploy edge function
+4. Test by regenerating audio for an existing lecture with 5+ slides to verify cross-slide continuity
