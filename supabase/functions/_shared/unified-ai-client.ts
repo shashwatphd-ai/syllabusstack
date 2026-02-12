@@ -226,51 +226,33 @@ export async function generateText(request: {
 
   console.log(`${logPrefix} Generating text via OpenRouter (${model})`);
 
-  const maxRetries = 2;
-  let lastError: Error | null = null;
+  try {
+    const content = await simpleCompletion(
+      model,
+      request.systemPrompt || 'You are a helpful assistant.',
+      request.prompt,
+      {
+        temperature: request.temperature,
+        max_tokens: request.maxTokens,
+        json: request.json,
+        fallbacks,
+      },
+      logPrefix
+    );
 
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      const content = await simpleCompletion(
-        model,
-        request.systemPrompt || 'You are a helpful assistant.',
-        request.prompt,
-        {
-          temperature: request.temperature,
-          max_tokens: request.maxTokens,
-          json: request.json,
-          fallbacks,
-        },
-        logPrefix
-      );
+    const latency_ms = Date.now() - startTime;
 
-      const latency_ms = Date.now() - startTime;
-      
-      return {
-        content,
-        provider: 'openrouter',
-        model,
-        latency_ms,
-        cost_usd: estimateCost(model, request.prompt.length, content.length),
-      };
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-      const isRetryable = lastError.message.includes('empty response') ||
-        lastError.message.includes('Internal Server Error') ||
-        lastError.message.includes('502') ||
-        lastError.message.includes('503');
-
-      if (isRetryable && attempt < maxRetries) {
-        const delay = attempt * 3000; // 3s, 6s
-        console.warn(`${logPrefix} Attempt ${attempt} failed (retryable), waiting ${delay}ms: ${lastError.message}`);
-        await new Promise(r => setTimeout(r, delay));
-        continue;
-      }
-      console.error(`${logPrefix} OpenRouter failed after ${attempt} attempt(s):`, lastError);
-      throw lastError;
-    }
+    return {
+      content,
+      provider: 'openrouter',
+      model,
+      latency_ms,
+      cost_usd: estimateCost(model, request.prompt.length, content.length),
+    };
+  } catch (error) {
+    console.error(`${logPrefix} OpenRouter failed:`, error);
+    throw error;
   }
-  throw lastError!;
 }
 
 /**
