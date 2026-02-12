@@ -68,7 +68,8 @@ export function LectureSlideViewer({
   // Detect if audio is out of sync with slide content
   const isAudioOutdated = useMemo(() => {
     if (!hasAudio || !lectureSlide.audio_generated_at) return false;
-    return new Date(lectureSlide.updated_at) > new Date(lectureSlide.audio_generated_at);
+    const contentTimestamp = (lectureSlide as any).slides_updated_at || lectureSlide.updated_at;
+    return new Date(contentTimestamp) > new Date(lectureSlide.audio_generated_at);
   }, [hasAudio, lectureSlide.updated_at, lectureSlide.audio_generated_at]);
 
   // Extract citations from research_context for rendering
