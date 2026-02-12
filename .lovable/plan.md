@@ -1,41 +1,29 @@
 
+# Fix: Reset Audio Status When Slides Are Regenerated
 
-# Fix Two Build Errors from PR #109 Merge
+## The Problem
 
-Two type-checking errors need trivial fixes. No logic changes.
+When you regenerate a slide deck, the `generate-lecture-slides-v3` function creates new slide content but never resets the `has_audio` and `audio_status` fields on the `lecture_slides` database row. The old values (`has_audio: true`, `audio_status: 'ready'`) persist, so:
 
-## Error 1: `generate-lecture-slides-v3/index.ts` line 157
+1. The UI shows "Audio Ready" badge even though the audio files belong to the old slides
+2. The "Generate Audio" button is hidden (it only appears when `has_audio` is false)
+3. Students could hear narration that doesn't match the new slide content
 
-`'error' is of type 'unknown'` -- the `catch` block doesn't type the error variable.
+## The Fix
 
-**Fix:** Change line 157 from:
-```
-throw new Error(`Failed to parse Professor AI response: ${error.message}`);
-```
-to:
-```
-throw new Error(`Failed to parse Professor AI response: ${error instanceof Error ? error.message : String(error)}`);
-```
+One file, two fields added to the upsert payload in `supabase/functions/generate-lecture-slides-v3/index.ts`.
 
-## Error 2: `poll-batch-status/index.ts` line 240
+When `regenerate` is true, the upsert payload (line 279) currently resets `slides: []`. We extend this to also reset `has_audio: false` and `audio_status: null`:
 
-`selfHealSlides` parameter typed as `ReturnType<typeof createClient>` causes a generic mismatch with the actual `supabase` client instance.
-
-**Fix:** Change the `supabase` parameter type on line 240 from:
-```
-supabase: ReturnType<typeof createClient>,
-```
-to:
-```
-// deno-lint-ignore no-explicit-any
-supabase: any,
+```typescript
+...(regenerate ? { slides: [], has_audio: false, audio_status: null } : {}),
 ```
 
-This matches the pattern used elsewhere in the codebase for passing Supabase clients between functions where the generic schema type is irrelevant.
+This is a single-line change. After regeneration completes, the UI will correctly show the "Generate Audio" button instead of the stale "Audio Ready" badge, letting you generate fresh narration for the new slides.
 
-## Summary
+## What Does NOT Change
 
-- Two one-line fixes
-- Zero logic changes
-- Both are TypeScript strictness issues, not functional bugs
-
+- All slide generation logic remains identical
+- Audio generation pipeline (`generate-lecture-audio`) is untouched
+- Frontend components work correctly already -- they just need accurate data from the database
+- Non-regeneration flows (first-time generation) are unaffected since the spread only applies when `regenerate` is true
