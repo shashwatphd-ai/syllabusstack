@@ -172,7 +172,7 @@ export function StudentSlideViewer({
             .from('lecture-audio')
             .createSignedUrl(audioUrl, 3600); // 1 hour expiry
           if (!error && data?.signedUrl) {
-            urlToPlay = data.signedUrl;
+            urlToPlay = data.signedUrl + '&t=' + (lectureSlide.audio_generated_at || Date.now());
           }
         } catch (err) {
           console.error('Error creating signed URL for audio:', err);
@@ -190,7 +190,7 @@ export function StudentSlideViewer({
                 .from('lecture-audio')
                 .createSignedUrl(storagePath, 3600);
               if (!error && data?.signedUrl) {
-                urlToPlay = data.signedUrl;
+                urlToPlay = data.signedUrl + '&t=' + (lectureSlide.audio_generated_at || Date.now());
               }
             } catch (err) {
               console.error('Error creating signed URL for audio:', err);

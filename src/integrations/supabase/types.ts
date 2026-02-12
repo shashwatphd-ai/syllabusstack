@@ -2658,6 +2658,7 @@ export type Database = {
       }
       lecture_slides: {
         Row: {
+          audio_generated_at: string | null
           audio_status: string | null
           batch_job_id: string | null
           citation_count: number | null
@@ -2686,6 +2687,7 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          audio_generated_at?: string | null
           audio_status?: string | null
           batch_job_id?: string | null
           citation_count?: number | null
@@ -2714,6 +2716,7 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          audio_generated_at?: string | null
           audio_status?: string | null
           batch_job_id?: string | null
           citation_count?: number | null
