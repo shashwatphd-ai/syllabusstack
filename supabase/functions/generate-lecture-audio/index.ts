@@ -2,7 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0";
 import { generateNarration, needsNarration } from "../_shared/ai-narrator.ts";
 import { mapAudioSegments } from "../_shared/segment-mapper.ts";
-import { synthesizeSpeech, TTS_VOICES } from "../_shared/tts-client.ts";
+import { synthesizeSpeech, TTS_VOICES, resolveVoiceId } from "../_shared/tts-client.ts";
 import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
 import {
   createErrorResponse,
@@ -80,7 +80,9 @@ const handler = async (req: Request): Promise<Response> => {
   if (!validation.success) {
     return createErrorResponse('VALIDATION_ERROR', corsHeaders, validation.errors.join(', '));
   }
-  const { slideId, voiceId = 'Charon', enableSegmentMapping } = validation.data;
+  const { slideId, enableSegmentMapping } = validation.data;
+  // Resolve legacy voice IDs (e.g. 'onyx' → 'Charon') for backward compatibility
+  const voiceId = resolveVoiceId(validation.data.voiceId || 'Charon');
 
   // Verify API keys
   const OPENROUTER_API_KEY = Deno.env.get('OPENROUTER_API_KEY');
@@ -114,6 +116,21 @@ const handler = async (req: Request): Promise<Response> => {
         JSON.stringify({ error: 'Lecture slide not found' }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
+    }
+
+    // Self-healing: if audio_status is stuck in 'generating' for >10 minutes, allow retry
+    if (lectureSlide.audio_status === 'generating') {
+      const updatedAt = new Date(lectureSlide.updated_at);
+      const minutesSinceUpdate = (Date.now() - updatedAt.getTime()) / 60000;
+      if (minutesSinceUpdate < 10) {
+        console.log(`Audio generation already in progress (${Math.round(minutesSinceUpdate)}m ago), skipping`);
+        return createSuccessResponse({
+          success: true,
+          message: 'Audio generation already in progress',
+          alreadyGenerating: true,
+        }, corsHeaders);
+      }
+      console.warn(`⚠️ Self-healing: audio_status stuck in 'generating' for ${Math.round(minutesSinceUpdate)}m — resetting and retrying`);
     }
 
     // Update audio status to generating

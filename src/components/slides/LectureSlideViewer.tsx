@@ -189,7 +189,7 @@ export function LectureSlideViewer({
     try {
       const { data: signedUrlData } = await supabase.storage
         .from('lecture-audio')
-        .createSignedUrl(slideAudioUrl, 300);
+        .createSignedUrl(slideAudioUrl, 3600);
 
       if (!signedUrlData?.signedUrl) return;
 

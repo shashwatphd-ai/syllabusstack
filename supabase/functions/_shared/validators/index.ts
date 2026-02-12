@@ -166,7 +166,11 @@ export const lectureGenerationSchema = z.object({
 
 export const lectureAudioSchema = z.object({
   slideId: uuidSchema,
-  voiceId: z.enum(['Charon', 'Leda', 'Fenrir', 'Kore', 'Puck', 'Aoede'])
+  voiceId: z.enum([
+    'Charon', 'Leda', 'Fenrir', 'Kore', 'Puck', 'Aoede',
+    // Legacy OpenAI voice IDs — mapped to Chirp 3 HD equivalents in tts-client.ts
+    'onyx', 'nova', 'echo', 'alloy', 'fable', 'shimmer',
+  ])
     .optional()
     .default('Charon'),
   enableSegmentMapping: z.boolean().optional().default(true),
