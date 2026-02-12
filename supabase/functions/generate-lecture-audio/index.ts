@@ -126,6 +126,7 @@ const handler = async (req: Request): Promise<Response> => {
 
     const updatedSlides: SlideWithAudio[] = [];
     let totalDurationSeconds = 0;
+    let lastSlideError: string | null = null;
 
     // Process each slide
     for (let i = 0; i < slides.length; i++) {
@@ -257,7 +258,9 @@ const handler = async (req: Request): Promise<Response> => {
         }
 
       } catch (slideError) {
+        const errMsg = slideError instanceof Error ? slideError.message : String(slideError);
         console.error(`Error processing slide ${i + 1}:`, slideError);
+        lastSlideError = errMsg;
         // Continue with original slide without audio
         updatedSlides.push(slide);
       }
@@ -289,8 +292,8 @@ const handler = async (req: Request): Promise<Response> => {
         .update({ audio_status: 'failed' })
         .eq('id', slideId);
 
-      logError('generate-lecture-audio', new Error('All slides failed audio generation'));
-      return createErrorResponse('INTERNAL_ERROR', corsHeaders, 'Audio generation failed for all slides. This is usually caused by insufficient API credits. Please check your OpenRouter balance at https://openrouter.ai/settings/credits');
+      logError('generate-lecture-audio', new Error(`All slides failed: ${lastSlideError}`));
+      return createErrorResponse('INTERNAL_ERROR', corsHeaders, `Audio generation failed for all slides: ${lastSlideError || 'Unknown error'}`);
     }
 
     logInfo('generate-lecture-audio', 'complete', {
