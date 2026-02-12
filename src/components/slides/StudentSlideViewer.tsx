@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { SlideRenderer } from './SlideRenderer';
 import { NarratedScrollViewer } from './NarratedScrollViewer';
+import { VoicePicker } from './VoicePicker';
 import type { LectureSlide, Slide, ProfessorSlide, EnhancedSlide } from '@/hooks/useLectureSlides';
 import type { Citation } from '@/lib/citationParser';
 import { cn } from '@/lib/utils';
@@ -33,9 +34,15 @@ interface StudentSlideViewerProps {
   onComplete?: (watchPercentage: number) => void;
 }
 
-// Type guard to check if slide has audio_url
-function hasAudioUrl(slide: Slide | EnhancedSlide | ProfessorSlide): slide is (Slide | EnhancedSlide | ProfessorSlide) & { audio_url: string } {
-  return 'audio_url' in slide && typeof slide.audio_url === 'string' && slide.audio_url.length > 0;
+// Type guard to check if slide has audio (supports multi-voice audio_urls or legacy audio_url)
+function getSlideAudioUrl(slide: Slide | EnhancedSlide | ProfessorSlide, selectedVoice: string): string | null {
+  const audioUrls = (slide as any)?.audio_urls as Record<string, string> | undefined;
+  if (audioUrls?.[selectedVoice]) return audioUrls[selectedVoice];
+  // Fallback to legacy single audio_url
+  if ('audio_url' in slide && typeof slide.audio_url === 'string' && slide.audio_url.length > 0) {
+    return slide.audio_url;
+  }
+  return null;
 }
 
 export function StudentSlideViewer({ 
@@ -49,6 +56,9 @@ export function StudentSlideViewer({
   const [showSpeakerNotes, setShowSpeakerNotes] = useState(false);
   const [isAutoPlaying, setIsAutoPlaying] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(true);
+  const [selectedVoice, setSelectedVoice] = useState(() => {
+    try { return localStorage.getItem('preferred-lecture-voice') || 'Charon'; } catch { return 'Charon'; }
+  });
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const [highestSlideViewed, setHighestSlideViewed] = useState(0);
   const [visibleScrollSlideIndex, setVisibleScrollSlideIndex] = useState(0);
@@ -132,13 +142,13 @@ export function StudentSlideViewer({
       audioRef.current = null;
     }
 
-    if (!hasAudio || !currentSlide || !hasAudioUrl(currentSlide)) {
+    const audioUrl = currentSlide ? getSlideAudioUrl(currentSlide, selectedVoice) : null;
+    if (!hasAudio || !currentSlide || !audioUrl) {
       setIsAudioPlaying(false);
       return;
     }
 
     // Get signed URL for audio from private bucket
-    const audioUrl = currentSlide.audio_url;
     // Define event handlers outside for proper cleanup
     const handlePlay = () => { if (isMountedRef.current && !isCancelled) setIsAudioPlaying(true); };
     const handlePause = () => { if (isMountedRef.current && !isCancelled) setIsAudioPlaying(false); };
@@ -251,7 +261,7 @@ export function StudentSlideViewer({
       }
       setAudioRef(null);
     };
-  }, [currentSlideIndex, hasAudio, currentSlide, slides.length]);
+  }, [currentSlideIndex, hasAudio, currentSlide, slides.length, selectedVoice]);
 
   // Auto-advance timer (fallback when no audio)
   useEffect(() => {
@@ -335,6 +345,14 @@ export function StudentSlideViewer({
     }
     setAudioEnabled(prev => !prev);
   };
+
+  const handleVoiceChange = useCallback((voice: string) => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+    setSelectedVoice(voice);
+    try { localStorage.setItem('preferred-lecture-voice', voice); } catch {}
+  }, []);
 
   // Callback from NarratedScrollViewer when a section becomes visible
   // Only tracks progress -- audio sync is handled by debounced effect below
@@ -440,26 +458,29 @@ export function StudentSlideViewer({
               </Button>
             )}
 
-            {/* Audio toggle */}
+            {/* Voice picker & Audio toggle */}
             {lectureSlide.has_audio && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={toggleAudio}
-                className="gap-1 px-2 sm:px-3"
-              >
-                {audioEnabled ? (
-                  <>
-                    <Volume2 className="h-4 w-4" />
-                    <span className="hidden sm:inline">Audio On</span>
-                  </>
-                ) : (
-                  <>
-                    <VolumeX className="h-4 w-4" />
-                    <span className="hidden sm:inline">Audio Off</span>
-                  </>
-                )}
-              </Button>
+              <>
+                <VoicePicker value={selectedVoice} onValueChange={handleVoiceChange} />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={toggleAudio}
+                  className="gap-1 px-2 sm:px-3"
+                >
+                  {audioEnabled ? (
+                    <>
+                      <Volume2 className="h-4 w-4" />
+                      <span className="hidden sm:inline">Audio On</span>
+                    </>
+                  ) : (
+                    <>
+                      <VolumeX className="h-4 w-4" />
+                      <span className="hidden sm:inline">Audio Off</span>
+                    </>
+                  )}
+                </Button>
+              </>
             )}
 
             {/* View mode toggle */}

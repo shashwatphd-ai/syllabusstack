@@ -89,11 +89,9 @@ export function useGenerateLectureAudio() {
   const mutation = useMutation({
     mutationFn: async ({
       slideId,
-      voiceId = 'Charon',
       enableSegmentMapping = true,
     }: {
       slideId: string;
-      voiceId?: string;
       enableSegmentMapping?: boolean;
     }) => {
       // Reset toast guard for new generation
@@ -106,7 +104,7 @@ export function useGenerateLectureAudio() {
       // The edge function sets audio_status = 'generating' and proceeds.
       // Our polling query watches for the status to change.
       supabase.functions.invoke('generate-lecture-audio', {
-        body: { slideId, voiceId, enableSegmentMapping }
+        body: { slideId, enableSegmentMapping }
       }).then(({ error, data }) => {
         // Handle only immediate failures (e.g. validation errors returned quickly)
         if (error) {
@@ -149,7 +147,7 @@ export function useGenerateLectureAudio() {
     onSuccess: () => {
       toast({
         title: 'Audio Generation Started',
-        description: 'Generating narration in the background. This may take a few minutes.',
+        description: 'Generating narration for all 6 voices. This may take several minutes.',
       });
     },
     onError: (error: Error) => {

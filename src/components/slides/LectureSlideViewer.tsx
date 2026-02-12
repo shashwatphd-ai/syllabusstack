@@ -152,7 +152,7 @@ export function LectureSlideViewer({
   const isLoading = publishSlides.isPending || unpublishSlides.isPending || regenerateSlides.isPending || generateAudio.isPending;
 
   const handleGenerateAudio = () => {
-    generateAudio.mutate({ slideId: lectureSlide.id, voiceId: selectedVoice });
+    generateAudio.mutate({ slideId: lectureSlide.id });
   };
 
   // Stop audio preview when slide changes, dialog closes, or component unmounts
@@ -183,7 +183,9 @@ export function LectureSlideViewer({
       return;
     }
 
-    const slideAudioUrl = (currentSlide as any)?.audio_url;
+    // Use audio_urls map with selected voice, falling back to legacy audio_url
+    const slideAudioUrls = (currentSlide as any)?.audio_urls as Record<string, string> | undefined;
+    const slideAudioUrl = slideAudioUrls?.[selectedVoice] || (currentSlide as any)?.audio_url;
     if (!slideAudioUrl) return;
 
     try {
@@ -278,7 +280,7 @@ export function LectureSlideViewer({
                   </Badge>
                 )}
 
-                <VoicePicker value={selectedVoice} onValueChange={setSelectedVoice} />
+                <VoicePicker value={selectedVoice} onValueChange={(v) => { stopPreview(); setSelectedVoice(v); }} />
                 <Button
                   variant="outline"
                   size="sm"
@@ -291,7 +293,7 @@ export function LectureSlideViewer({
                     <Volume2 className="h-4 w-4" />
                   )}
                   <span className="hidden sm:inline ml-1">
-                    {hasAudio ? 'Regenerate Audio' : 'Generate Audio'}
+                    {hasAudio ? 'Regenerate All Voices' : 'Generate Audio'}
                   </span>
                 </Button>
               </>
@@ -418,7 +420,7 @@ export function LectureSlideViewer({
               </Button>
 
               <div className="flex items-center gap-1 sm:gap-2">
-                {hasAudio && (currentSlide as any)?.audio_url && (
+                {hasAudio && ((currentSlide as any)?.audio_urls || (currentSlide as any)?.audio_url) && (
                   <Button
                     variant="ghost"
                     size="icon"
