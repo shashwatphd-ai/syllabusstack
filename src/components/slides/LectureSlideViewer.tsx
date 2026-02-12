@@ -18,7 +18,8 @@ import {
   RefreshCw,
   Loader2,
   Volume2,
-  CheckCircle2
+  CheckCircle2,
+  AlertTriangle
 } from 'lucide-react';
 import { SlideRenderer } from './SlideRenderer';
 import { VoicePicker } from './VoicePicker';
@@ -63,6 +64,12 @@ export function LectureSlideViewer({
   const currentSlide = slides[currentSlideIndex];
   const hasAudio = lectureSlide.has_audio;
   const audioStatus = lectureSlide.audio_status;
+
+  // Detect if audio is out of sync with slide content
+  const isAudioOutdated = useMemo(() => {
+    if (!hasAudio || !lectureSlide.audio_generated_at) return false;
+    return new Date(lectureSlide.updated_at) > new Date(lectureSlide.audio_generated_at);
+  }, [hasAudio, lectureSlide.updated_at, lectureSlide.audio_generated_at]);
 
   // Extract citations from research_context for rendering
   const citations = useMemo(() => {
@@ -188,9 +195,30 @@ export function LectureSlideViewer({
               </Label>
             </div>
 
-            {/* Voice Picker & Generate Audio Button */}
-            {!hasAudio && audioStatus !== 'generating' && (
+            {/* Audio Controls */}
+            {audioStatus === 'generating' ? (
+              <Badge variant="outline" className="gap-1">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Generating Audio...
+              </Badge>
+            ) : (
               <>
+                {/* Out-of-sync warning */}
+                {isAudioOutdated && (
+                  <Badge variant="outline" className="gap-1 border-amber-500 text-amber-600 bg-amber-50 dark:bg-amber-950/30 dark:text-amber-400">
+                    <AlertTriangle className="h-3 w-3" />
+                    <span className="hidden sm:inline">Audio outdated</span>
+                  </Badge>
+                )}
+
+                {/* Audio Ready badge */}
+                {hasAudio && !isAudioOutdated && (
+                  <Badge variant="secondary" className="gap-1">
+                    <CheckCircle2 className="h-3 w-3" />
+                    Audio Ready
+                  </Badge>
+                )}
+
                 <VoicePicker value={selectedVoice} onValueChange={setSelectedVoice} />
                 <Button
                   variant="outline"
@@ -203,24 +231,11 @@ export function LectureSlideViewer({
                   ) : (
                     <Volume2 className="h-4 w-4" />
                   )}
-                  <span className="hidden sm:inline ml-1">Generate Audio</span>
+                  <span className="hidden sm:inline ml-1">
+                    {hasAudio ? 'Regenerate Audio' : 'Generate Audio'}
+                  </span>
                 </Button>
               </>
-            )}
-
-            {/* Audio Status Badge */}
-            {hasAudio && (
-              <Badge variant="secondary" className="gap-1">
-                <CheckCircle2 className="h-3 w-3" />
-                Audio Ready
-              </Badge>
-            )}
-
-            {audioStatus === 'generating' && (
-              <Badge variant="outline" className="gap-1">
-                <Loader2 className="h-3 w-3 animate-spin" />
-                Generating Audio...
-              </Badge>
             )}
 
             <Button
