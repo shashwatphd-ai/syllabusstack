@@ -2658,6 +2658,7 @@ export type Database = {
       }
       lecture_slides: {
         Row: {
+          audio_audit_log: Json | null
           audio_generated_at: string | null
           audio_status: string | null
           batch_job_id: string | null
@@ -2688,6 +2689,7 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          audio_audit_log?: Json | null
           audio_generated_at?: string | null
           audio_status?: string | null
           batch_job_id?: string | null
@@ -2718,6 +2720,7 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          audio_audit_log?: Json | null
           audio_generated_at?: string | null
           audio_status?: string | null
           batch_job_id?: string | null
