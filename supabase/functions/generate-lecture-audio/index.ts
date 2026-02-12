@@ -186,7 +186,7 @@ const handler = async (req: Request): Promise<Response> => {
             },
           ],
           modalities: ['text', 'audio'],
-          audio: { voice: voiceId, format: 'wav' },
+          audio: { voice: voiceId, format: 'pcm16' },
           fallbacks: [MODELS.AUDIO_HD],
         }, `[Audio TTS Slide ${i + 1}]`);
 
@@ -195,12 +195,41 @@ const handler = async (req: Request): Promise<Response> => {
           throw new Error('No audio data in GPT Audio response');
         }
 
-        // Decode base64 WAV to bytes
+        // Decode base64 PCM16 to bytes
         const binaryString = atob(audioData);
-        const bytes = new Uint8Array(binaryString.length);
+        const pcmBytes = new Uint8Array(binaryString.length);
         for (let j = 0; j < binaryString.length; j++) {
-          bytes[j] = binaryString.charCodeAt(j);
+          pcmBytes[j] = binaryString.charCodeAt(j);
         }
+
+        // Wrap PCM16 data in a WAV header for browser playback
+        const sampleRate = 24000; // OpenAI default
+        const numChannels = 1;
+        const bitsPerSample = 16;
+        const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
+        const blockAlign = numChannels * (bitsPerSample / 8);
+        const dataSize = pcmBytes.length;
+        const headerSize = 44;
+        const wavBuffer = new ArrayBuffer(headerSize + dataSize);
+        const view = new DataView(wavBuffer);
+        const writeString = (offset: number, str: string) => {
+          for (let k = 0; k < str.length; k++) view.setUint8(offset + k, str.charCodeAt(k));
+        };
+        writeString(0, 'RIFF');
+        view.setUint32(4, 36 + dataSize, true);
+        writeString(8, 'WAVE');
+        writeString(12, 'fmt ');
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true); // PCM
+        view.setUint16(22, numChannels, true);
+        view.setUint32(24, sampleRate, true);
+        view.setUint32(28, byteRate, true);
+        view.setUint16(32, blockAlign, true);
+        view.setUint16(34, bitsPerSample, true);
+        writeString(36, 'data');
+        view.setUint32(40, dataSize, true);
+        new Uint8Array(wavBuffer, headerSize).set(pcmBytes);
+        const bytes = new Uint8Array(wavBuffer);
 
         // Upload to Supabase Storage (WAV format, browsers natively support it)
         const fileName = `${slideId}/slide_${i}.wav`;
