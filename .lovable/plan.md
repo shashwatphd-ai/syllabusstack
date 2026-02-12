@@ -1,52 +1,16 @@
 
-# Conversational Mastery Agent: Expanded Plan with Continuity
 
-## The Continuity Problem
+# Conversational Mastery Agent: Full Implementation Plan with Cross-Slide Continuity
 
-The current `generateNarration()` function calls the AI model **independently for each slide** with zero knowledge of what was narrated on previous slides. This causes three specific failures:
+## Overview
 
-1. **Repeated introductions**: Slide 3 says "Welcome! Today we'll explore..." because it doesn't know slide 1 already welcomed the student.
-2. **Dialogue hallucination**: The model, told to be "conversational," invents an interlocutor ("Thank you for that question!") because it has no actual conversational thread to continue.
-3. **Broken transitions**: Each slide starts from scratch instead of flowing naturally ("As we just saw..." or "Building on that foundation...").
+Two backend files are modified. No frontend changes. No new files. The narration pipeline gains three capabilities: (1) citation stripping, (2) the Conversational Mastery Method persona, and (3) cross-slide continuity via a rolling narration tail.
 
-The fix requires passing a **narration history** through the slide loop so each AI call knows what came before.
+---
 
-## Architecture: Continuity via Rolling Context
+## File 1: `supabase/functions/_shared/ai-narrator.ts` (Full Rewrite of Core Logic)
 
-```text
-Slide 1: [system prompt + slide content] --> narration_1
-Slide 2: [system prompt + slide content + "Previous narration ended with: ...narration_1 last 100 words..."] --> narration_2
-Slide 3: [system prompt + slide content + "Previous narration ended with: ...narration_2 last 100 words..."] --> narration_3
-...
-```
-
-Each slide receives a **tail excerpt** (last ~100 words) of the previous slide's narration. This is enough for the model to:
-- Avoid repeating the welcome/introduction
-- Create natural transitions ("Now that we understand X, let's look at Y...")
-- Maintain a consistent voice and thread throughout the lecture
-
-We do NOT pass the full history (all previous narrations) because that would blow up the context window and cost. A 100-word tail is sufficient for continuity.
-
-## File-by-File Changes
-
-### File 1: `supabase/functions/_shared/ai-narrator.ts`
-
-This file gets the largest transformation.
-
-**A. Update `NarrationContext` interface** -- Add optional field for continuity:
-
-```typescript
-export interface NarrationContext {
-  slideIndex: number;
-  totalSlides: number;
-  unitTitle: string;
-  domain: string;
-  previousNarrationTail?: string;  // Last ~100 words of previous slide's narration
-  allSlideTitles?: string[];       // All slide titles for lecture outline awareness
-}
-```
-
-**B. Add citation stripping helper** at the top of the file:
+### A. Add citation stripping helper (top of file, after imports)
 
 ```typescript
 function stripCitations(text: string): string {
@@ -54,84 +18,151 @@ function stripCitations(text: string): string {
 }
 ```
 
-Applied to ALL content parts before they enter the prompt, and to existing `speaker_notes` if present.
+Applied to every content part string AND to existing `speaker_notes` before they enter the prompt.
 
-**C. Replace the system prompt** (line 140) with the Conversational Mastery Method agent persona (~400 words, condensed from the user's 6-section blueprint):
+### B. Expand `NarrationContext` interface (lines 43-48)
+
+Add two optional fields for continuity:
+
+```typescript
+export interface NarrationContext {
+  slideIndex: number;
+  totalSlides: number;
+  unitTitle: string;
+  domain: string;
+  previousNarrationTail?: string;  // Last ~100 words of previous slide narration
+  allSlideTitles?: string[];       // Full lecture outline for structure awareness
+}
+```
+
+### C. Replace system prompt (line 140)
+
+The current single sentence:
+> "You are an expert university professor who gives engaging, clear lectures."
+
+Becomes the full Conversational Mastery Method persona (~400 words, condensed from the 8-section blueprint):
 
 ```text
-You are a master educator delivering a continuous lecture monologue. Your teaching 
-philosophy is the "Zero-to-Expert" method: start from zero assumed knowledge, build 
-brick by brick, and end with mastery-level synthesis.
+You are a master educator delivering a continuous lecture monologue. Your teaching
+philosophy is the "Zero-to-Expert" method: start from zero assumed knowledge, build
+brick by brick, anchor every new idea to something already understood, and end with
+mastery-level synthesis.
 
 DELIVERY STYLE:
 - Conversational, never lecturing. Use direct address: "Now, you might wonder..."
 - Think aloud: "If we look at it this way... but wait, that creates a problem..."
 - Warm, intelligent humor timed for cognitive breaks -- never at anyone's expense
-- For EVERY abstract concept, find a concrete analogy from everyday life
+- For EVERY abstract concept, find a concrete analogy from everyday life: family
+  dynamics, household economics, popular culture, common human experiences
 - Calm, unhurried pace. Let insights breathe before moving on.
+- Belief in the student: radiate the assumption they CAN understand this
 
 INTELLECTUAL COMMITMENTS:
-- Multi-perspectival fairness: present all sides of debatable topics
+- Multi-perspectival fairness: present all sides of debatable topics with their
+  strongest arguments. Never force your conclusion.
 - "Why" before "What" -- conceptual understanding over memorization
-- Cross-disciplinary connections where natural
-- Historical-contextual grounding: how did this idea emerge?
+- Cross-disciplinary connections where natural (philosophy, history, sociology,
+  economics, daily life)
+- Historical-contextual grounding: how did this idea emerge? Who were the thinkers?
 
 ABSOLUTE RULES:
-- You are delivering a CONTINUOUS MONOLOGUE. There is no audience responding.
+- You are delivering a CONTINUOUS MONOLOGUE. There is NO audience responding.
 - NEVER say "thank you for that question," "great point," "as you mentioned,"
-  or any phrase implying someone else is speaking.
-- NEVER include citation markers like [Source 1], [Source 2], or any bracketed references.
-- NEVER read URLs aloud. Convert them to natural references.
-- Rhetorical questions are fine ("Have you ever wondered...?") but NEVER answer 
-  as if someone responded.
+  "great outline," or ANY phrase implying someone else is speaking.
+- NEVER include citation markers like [Source 1], [Source 2], or bracketed references.
+- NEVER read URLs aloud. Convert to natural references ("research from MIT shows...").
+- Rhetorical questions are encouraged ("Have you ever wondered...?") but NEVER
+  answer as if someone responded to them.
 - Each slide's narration flows from the previous one. Use natural transitions,
-  not fresh introductions.
+  not fresh introductions or re-welcomes.
 ```
 
-**D. Rewrite the user prompt** to include continuity context and slide-position awareness:
+### D. Rewrite the user prompt (lines 110-137)
+
+The new prompt includes the lecture outline, continuity tail, and position-aware instructions:
 
 ```text
-Generate narration for slide ${slideIndex + 1} of ${totalSlides} in a lecture on "${unitTitle}" (${domain}).
+Generate narration for slide ${slideIndex + 1} of ${totalSlides} in a lecture on
+"${unitTitle}" (domain: ${domain}).
 
 LECTURE OUTLINE:
-${allSlideTitles.map((t, i) => `  ${i + 1}. ${t}`).join('\n')}
+${allSlideTitles?.map((t, i) => `  ${i + 1}. ${t}`).join('\n') || '  (outline not available)'}
 
 CURRENT SLIDE:
-- Type: ${slide.type}
-- Title: "${slide.title}"
-- Content: [cleaned content parts, citations stripped]
+- Type: ${slide.type || 'concept'}
+- Title: "${slide.title || 'Untitled'}"
+- Content:
+${contentParts.join('\n') || '  No structured content available.'}
 
-${previousNarrationTail 
-  ? `CONTINUITY (your previous narration ended with): "...${previousNarrationTail}"\nContinue naturally from where you left off. Do NOT re-introduce the topic or welcome the student.`
-  : 'This is the FIRST slide. Open with a warm welcome and preview what the lecture will cover.'}
+${previousNarrationTail
+  ? `CONTINUITY -- your previous narration ended with:
+"...${previousNarrationTail}"
+Continue naturally from where you left off. Do NOT re-introduce the topic, do NOT
+welcome the student again, do NOT repeat concepts already covered.`
+  : 'This is the FIRST slide. Open with a warm, conversational welcome. Preview
+what the lecture will cover. Set the "journey" frame.'}
 
-${isLastSlide ? 'This is the LAST slide. Synthesize the journey, connect back to the opening, and encourage further exploration.' : ''}
+${isLastSlide
+  ? 'This is the LAST slide. Synthesize the full journey, connect back to the
+opening hook, and encourage the student to explore further.'
+  : ''}
 
-Write 200-350 words of narration. Return ONLY the narration text.
+${slide.speaker_notes ? `EXISTING NOTES (use as a starting point, expand and enrich): "${stripCitations(slide.speaker_notes)}"` : ''}
+
+Write 200-350 words. Return ONLY the narration text, nothing else.
 ```
 
-**E. Model and token changes:**
-- Model: `MODELS.PROFESSOR_AI` (`google/gemini-3-flash-preview`) instead of `MODELS.FAST`
-- Fallback: `MODELS.PROFESSOR_AI_FALLBACK` (`google/gemini-2.5-flash`)
-- `max_tokens`: 1200 (up from 800) to accommodate richer narration
+### E. Apply `stripCitations()` to all content parts
 
-**F. Update `generateNarration()` signature** -- The function signature stays the same (it already accepts `NarrationContext`), but the new optional fields (`previousNarrationTail`, `allSlideTitles`) are used when present.
+Every string that goes into `contentParts` is wrapped:
 
-### File 2: `supabase/functions/generate-lecture-audio/index.ts`
+```typescript
+if (content?.main_text) {
+  contentParts.push(`Main text: "${stripCitations(content.main_text)}"`);
+}
+// same for key_points, definition, example, misconception, steps
+```
 
-**A. Build slide titles array** before the loop (after line 121):
+### F. Model and token upgrade
+
+```typescript
+const narration = await simpleCompletion(
+  MODELS.PROFESSOR_AI,        // was: MODELS.FAST
+  systemPrompt,
+  prompt,
+  {
+    max_tokens: 1200,          // was: 800
+    fallbacks: [MODELS.PROFESSOR_AI_FALLBACK],  // was: MODELS.GEMINI_FLASH
+  },
+  '[AI Narrator]'
+);
+```
+
+### G. Update `batchGenerateNarration()` for continuity
+
+The batch function (lines 167-206) also needs to track `previousNarrationTail` and pass `allSlideTitles`:
 
 ```typescript
 const allSlideTitles = slides.map(s => s.title || 'Untitled');
+let previousNarrationTail = '';
+
+// Inside the loop, after successful narration:
+const words = narration.split(/\s+/);
+previousNarrationTail = words.slice(Math.max(0, words.length - 100)).join(' ');
 ```
 
-**B. Track narration history** -- Add a variable before the loop:
+---
+
+## File 2: `supabase/functions/generate-lecture-audio/index.ts`
+
+### A. Build slide titles and continuity tracker (after line 129)
 
 ```typescript
+const allSlideTitles = slides.map(s => s.title || 'Untitled');
 let previousNarrationTail = '';
 ```
 
-**C. Pass continuity context** in the `generateNarration()` call (lines 140-153):
+### B. Pass continuity context to `generateNarration()` (lines 140-154)
 
 ```typescript
 narrationText = await generateNarration(
@@ -153,73 +184,72 @@ narrationText = await generateNarration(
 );
 ```
 
-**D. Update the tail after each successful narration** (after narrationText is finalized, before Phase 3):
+### C. Strip citations from finalized narration (after all narration paths converge, before Phase 3)
 
 ```typescript
-// Extract last ~100 words for continuity with next slide
+// Clean citation markers from narration text (regardless of source)
+narrationText = narrationText.replace(/\[Source\s*\d+\]/gi, '').replace(/\s{2,}/g, ' ').trim();
+```
+
+### D. Update continuity tail (after narration is finalized, before Phase 3)
+
+```typescript
 const words = narrationText.split(/\s+/);
 previousNarrationTail = words.slice(Math.max(0, words.length - 100)).join(' ');
 ```
 
-**E. Strip citations from narrationText** before passing to TTS -- after narrationText is finalized (whether from AI, existing speaker_notes, or fallback):
+### E. Update TTS system prompt (line 181)
 
-```typescript
-narrationText = narrationText.replace(/\[Source\s*\d+\]/gi, '').replace(/\s{2,}/g, ' ').trim();
-```
-
-**F. Update TTS system prompt** (line 181) to reinforce monologue discipline:
+Replace the current prompt:
 
 ```text
-You are a master educator delivering a continuous lecture monologue. Read the 
-following narration naturally with warmth, intellectual generosity, and appropriate 
-pacing. Do not add any commentary, greetings, dialogue, or acknowledgments. This 
-is a one-way narration -- never say "thank you" or respond as if someone spoke. 
+You are a master educator delivering a continuous lecture monologue. Read the
+following narration naturally with warmth, intellectual generosity, and calm,
+unhurried pacing. Do not add any commentary, greetings, dialogue, or
+acknowledgments. This is a one-way narration -- never say "thank you," never
+respond as if someone spoke, never add your own introduction or sign-off.
 If you encounter URLs or abbreviations, handle them naturally.
 ```
 
-**G. Strip citations from `generateSimpleFallback()` output** (line 68):
+### F. Clean fallback output (line 68)
 
 ```typescript
-return parts.join(' ').replace(/\[Source\s*\d+\]/gi, '').trim();
+return parts.join(' ').replace(/\[Source\s*\d+\]/gi, '').replace(/\s{2,}/g, ' ').trim();
 ```
 
-### File 3: No other files change
+---
 
-| Component | Why unchanged |
-|-----------|---------------|
+## What Does NOT Change
+
+| Component | Reason |
+|---|---|
+| `citationParser.ts` | Still renders `[Source N]` as clickable badges in slide *content* |
+| `NarratedScrollViewer.tsx` | Renders `speaker_notes` as-is -- now automatically cleaner |
+| `StudentSlideViewer.tsx` | Audio playback is format-agnostic |
 | `openrouter-client.ts` | No API changes needed |
 | `segment-mapper.ts` | Works on whatever narration text it receives |
-| `validators/index.ts` | Schema already updated in previous migration |
-| `VoicePicker.tsx` | Voice selection is independent of narration content |
-| `LectureSlideViewer.tsx` | Already passes voiceId correctly |
-| `StudentSlideViewer.tsx` | Audio playback is format-agnostic |
-| `NarratedScrollViewer.tsx` | Renders speaker_notes as-is (now cleaner) |
-| `citationParser.ts` | Still used for slide *content* citations (not narration) |
+| `VoicePicker.tsx` | Independent of narration content |
 
-## How Continuity Works Across Slide Types
+---
 
-| Slide Type | Continuity Behavior |
-|------------|-------------------|
-| Title (slide 1) | No previous tail. Opens with warm welcome, previews the lecture arc. |
-| Definition (mid-lecture) | Receives tail from previous slide. "Now that we've seen X in action, let's give it a proper name..." |
-| Example (after definition) | "To make this concrete, picture this scenario..." -- flows from definition without re-explaining. |
-| Misconception | "Now here's where many people get tripped up..." -- doesn't say "great question about misconceptions." |
-| Summary/Recap (last) | Receives full context. "So let's step back and see what we've built today..." Connects to opening. |
+## How Cross-Slide Continuity Works
 
-## Cost Impact
+```text
+Slide 1 (title):     No tail --> warm welcome, journey preview
+Slide 2 (definition): Tail from slide 1 --> "Now that we have the big picture, let's define..."
+Slide 3 (example):    Tail from slide 2 --> "To make this concrete, imagine..."
+Slide 4 (misconception): Tail from slide 3 --> "Now here's where many people get tripped up..."
+Slide 5 (summary):    Tail from slide 4 --> "So let's step back and see what we've built..."
+```
 
-| Phase | Before | After |
-|-------|--------|-------|
-| Narration (Phase 1) | gemini-2.5-flash-lite, 800 tokens | gemini-3-flash-preview, 1200 tokens |
-| SSML (Phase 2) | gemini-2.5-flash-lite (removed) | -- |
-| TTS (Phase 3) | Google Cloud TTS | GPT Audio Mini (already changed) |
-| Segment Map (Phase 4) | gemini-2.5-flash-lite | unchanged |
+Each slide receives the last ~100 words of the previous narration. This prevents re-introductions, ensures natural transitions, and maintains a consistent voice thread without blowing up the context window.
 
-Net: +1 model tier for narration, -1 entire phase (SSML). The per-slide cost is roughly neutral. The continuity tail adds ~100 words to each prompt's input, which is negligible.
+---
 
 ## Implementation Order
 
-1. Update `ai-narrator.ts` -- new interface fields, citation stripping, CMM system prompt, continuity-aware user prompt, model upgrade
-2. Update `generate-lecture-audio/index.ts` -- build slide titles, track narration tail, pass continuity context, strip citations before TTS, update TTS prompt, clean fallback output
-3. Deploy edge function
-4. Test by regenerating audio for an existing lecture with 5+ slides to verify cross-slide continuity
+1. Update `ai-narrator.ts` -- interface, citation helper, CMM system prompt, continuity-aware user prompt, model upgrade, batch function update
+2. Update `generate-lecture-audio/index.ts` -- slide titles array, continuity tracker, citation stripping, TTS prompt, fallback cleanup
+3. Deploy `generate-lecture-audio` edge function
+4. Test by regenerating audio on an existing lecture
+
