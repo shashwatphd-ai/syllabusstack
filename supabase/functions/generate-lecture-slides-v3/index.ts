@@ -276,7 +276,7 @@ const handler = async (req: Request): Promise<Response> => {
         regenerate: regenerate,
       },
       ...(userId ? { created_by: userId } : {}),
-      ...(regenerate ? { slides: [] } : {}),
+      ...(regenerate ? { slides: [], has_audio: false, audio_status: null } : {}),
     };
 
     const { data: upserted, error: upsertErr } = await supabase
