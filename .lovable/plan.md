@@ -1,71 +1,43 @@
 
-# Revert Unnecessary Edits to Slide Generation Pipeline
 
-## What Happened
+# Fix: Audio Not Updating After Regeneration (Browser Cache Issue)
 
-The original task was upgrading the CMM system prompt in `ai-narrator.ts` (audio narration only). When an unrelated 500 error appeared in the **slide generation** pipeline (`generate-lecture-slides-v3`), two defensive edits were made to files that had nothing to do with the original task:
+## Problem
 
-1. **Edit to `openrouter-client.ts`** (lines 423-428): Added a guard clause for empty `choices`
-2. **Edit to `unified-ai-client.ts`** (lines 229-273): Added a retry loop in `generateText()`
+When you regenerate audio, the new `.wav` files are uploaded to the **same path** (`{slideId}/slide_0.wav`, etc.) with `upsert: true`. The browser caches the old audio from the previous signed URL, so even though the storage file is updated, the player serves stale audio.
 
-The 500 error was caused by OpenRouter returning HTTP 200 with an empty response because `google/gemini-3-flash-preview` (and its fallback `google/gemini-2.5-flash`) were both experiencing a transient upstream outage. This is **not a code bug** -- it's an external provider issue.
+## Solution
 
-## What To Do
+Add a cache-busting timestamp to the signed URL so the browser treats regenerated audio as a new resource.
 
-### 1. Revert `unified-ai-client.ts` -- Remove the retry loop
+## Technical Changes
 
-**Why:** The retry loop is redundant. OpenRouter already handles model fallback internally via `route: 'fallback'` + `models: [primary, fallback]` in `callOpenRouter`. Adding a wrapper retry just doubles the wait time (3-6 seconds of artificial delay) without improving success rates -- it retries the same failed model pair.
+### File: `supabase/functions/generate-lecture-audio/index.ts`
 
-**Change:** Lines 229-273 revert to the original simple try/catch:
+Add an `audio_generated_at` timestamp to the lecture slide record when audio generation completes. This provides a cache key that changes on every regeneration.
 
-```typescript
-try {
-  const content = await simpleCompletion(
-    model,
-    request.systemPrompt || 'You are a helpful assistant.',
-    request.prompt,
-    {
-      temperature: request.temperature,
-      max_tokens: request.maxTokens,
-      json: request.json,
-      fallbacks,
-    },
-    logPrefix
-  );
+- In the final `update` call (around line 312), add `audio_generated_at: new Date().toISOString()` alongside `has_audio` and `audio_status`.
 
-  const latency_ms = Date.now() - startTime;
+### File: `src/components/slides/StudentSlideViewer.tsx`
 
-  return {
-    content,
-    provider: 'openrouter',
-    model,
-    latency_ms,
-    cost_usd: estimateCost(model, request.prompt.length, content.length),
-  };
-} catch (error) {
-  console.error(`${logPrefix} OpenRouter failed:`, error);
-  throw error;
-}
+Append a cache-busting query parameter to the signed URL using the `audio_generated_at` timestamp (or fallback to `Date.now()`).
+
+- After obtaining the signed URL (around line 174/192), append `&t={timestamp}` to force the browser to fetch fresh audio.
+
+```
+signedUrl + '&t=' + (lectureSlide.audio_generated_at || Date.now())
 ```
 
-### 2. Keep `openrouter-client.ts` guard clause -- This is actually good
+### Database Migration
 
-**Why:** The guard clause at line 424 (`if (!data.choices || data.choices.length === 0)`) prevents the original crash (`Cannot read properties of undefined (reading '0')`). Without it, the system crashes with an unhelpful error. With it, the system throws a descriptive error. This is a genuine null-safety fix that was missing, even if it was discovered tangentially.
+Add the `audio_generated_at` column to the `lecture_slides` table:
 
-**No change needed here.**
+```sql
+ALTER TABLE public.lecture_slides
+ADD COLUMN IF NOT EXISTS audio_generated_at timestamptz;
+```
 
-### 3. Keep `ai-narrator.ts` -- The Master Educator Blueprint is correct
+## Why This Works
 
-The CMM prompt upgrade is fully isolated to audio narration. No changes needed.
+Signed URLs from storage already contain query parameters (token, expiry). Appending `&t=<timestamp>` makes each regeneration produce a unique URL, bypassing the browser cache entirely. The timestamp only changes when audio is regenerated, so normal playback still benefits from caching.
 
-## Summary of Changes
-
-| File | Action | Reason |
-|---|---|---|
-| `unified-ai-client.ts` | Revert retry loop (lines 229-273) | Redundant with OpenRouter's native fallback; adds artificial delay |
-| `openrouter-client.ts` | Keep as-is | Guard clause is a genuine safety fix |
-| `ai-narrator.ts` | Keep as-is | Original task, fully isolated |
-
-## After Deployment
-
-The slide generation will behave exactly as it did before these edits, with one improvement: empty OpenRouter responses now throw a descriptive error instead of crashing on `undefined[0]`. The upstream provider outage is a transient external issue that no code change can fix.
