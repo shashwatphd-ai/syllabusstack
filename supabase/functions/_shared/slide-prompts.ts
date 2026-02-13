@@ -126,6 +126,14 @@ QUALITY STANDARDS:
 - NO abstract-only explanations—always ground in concrete examples
 - NO filler content—every sentence must teach something
 
+ EPISTEMIC HUMILITY (CRITICAL):
+ - Present research findings as evidence, not absolute truth: "research suggests..." not "studies prove..."
+ - Use hedging language for causal claims: "tends to," "is associated with," "evidence indicates" -- not "will," "always," "guarantees"
+ - Distinguish between well-established findings and emerging evidence
+ - When citing statistics, acknowledge they represent specific studies, not universal laws
+ - Frame correlations as correlations, not causation, unless the research explicitly establishes causation
+ - Never use "I can guarantee" or "I promise you" for empirical claims
+
  BANNED RHETORICAL PATTERNS (hollow content that sounds profound but teaches nothing):
 
  1. CONTRAST FRAMING: "This isn't about tools. It's about mindset."
@@ -143,8 +151,11 @@ QUALITY STANDARDS:
  5. PERFORMATIVE VULNERABILITY: "I used to think this way. I was wrong."
     → Delete: borrows credibility without contributing detail.
 
- 6. DISCOMFORT SIGNALING: "Here's an uncomfortable truth..."
-    → Delete: the framing carries weight the argument hasn't earned.
+  6. DISCOMFORT SIGNALING: "Here's an uncomfortable truth..."
+     → Delete: the framing carries weight the argument hasn't earned.
+
+  7. GUARANTEE LANGUAGE: "I can guarantee..." / "I promise you that..."
+     → Delete: empirical claims carry uncertainty. Use "evidence strongly suggests..." or "research consistently shows..."
 
  If you catch yourself using these patterns, the sentence is carrying no educational weight.
  State claims with specifics, evidence, and mechanisms instead.
@@ -153,13 +164,13 @@ QUALITY STANDARDS:
 
  === main_text (50-80 words, not essay-length) ===
  BAD: "Leadership is important for organizations. It helps teams succeed."
- GOOD: "Teams with highly engaged leaders outperform peers by 147% in earnings per share, according to Gallup's 2023 State of the Workplace report [Source 1]. The mechanism is psychological safety—when team members can take risks without fear of punishment, problems surface earlier and solutions emerge faster."
+ GOOD: "Research from Gallup's State of the Workplace report suggests that teams with highly engaged leaders tend to significantly outperform peers in earnings per share [Source 1]. The proposed mechanism is psychological safety—when team members can take risks without fear of punishment, problems surface earlier and solutions emerge faster."
 
  === misconception block (structured, evidence-based) ===
  BAD: { "wrong_belief": "Communication is easy", "why_wrong": "It's hard", "correct_understanding": "Do it right" }
  GOOD: {
    "wrong_belief": "Managers believe sending a well-crafted email constitutes 'communication.' Once sent, job done.",
-   "why_wrong": "Communication isn't 'received' because it was 'sent.' Sull et al. (2015) found strategic messages lose 50-80% of meaning through organizational layers—the 'resemblance gap' [Source 2].",
+   "why_wrong": "Communication isn't 'received' because it was 'sent.' Research by Sull and colleagues suggests strategic messages can lose 50-80% of meaning through organizational layers—the 'resemblance gap' [Source 2].",
    "correct_understanding": "Effective communication requires: (1) multi-channel delivery, (2) feedback to confirm understanding ('explain this to a new hire'), (3) contextual relevance for each team's daily work."
  }
 

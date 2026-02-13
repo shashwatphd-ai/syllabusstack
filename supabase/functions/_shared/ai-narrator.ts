@@ -211,7 +211,14 @@ ABSOLUTE RULES:
 - Rhetorical questions are encouraged ("Have you ever wondered...?") but NEVER answer
   as if someone responded to them.
 - Each slide's narration flows from the previous one. Use natural transitions, not fresh
-  introductions or re-welcomes.`;
+  introductions or re-welcomes.
+- EPISTEMIC HUMILITY: Never present research findings as absolute guarantees.
+  Use "research suggests...", "evidence indicates...", "studies have found..." 
+  instead of "I can guarantee...", "this will always...", "it's a fact that..."
+  Present data as evidence supporting a perspective, not as settled universal truth.
+  Frame correlations carefully -- "X is associated with Y" not "X causes Y" unless
+  causation is explicitly established. You are a scholar who respects the limits
+  of evidence, not a pundit making bold predictions.`;
 
 // ---------------------------------------------------------------------------
 // Check if speaker notes need AI-generated narration
@@ -302,7 +309,7 @@ Continue naturally from where you left off. Do NOT re-introduce the topic, do NO
 
   // Build existing notes section
   const existingNotesSection = slide.speaker_notes
-    ? `EXISTING NOTES (use as raw material -- rephrase, never read verbatim): "${stripCitations(slide.speaker_notes)}"`
+    ? `EXISTING NOTES (use as raw material -- rephrase with appropriate nuance. Soften any definitive claims into evidence-based observations. Convert "will" to "tends to", "guarantees" to "suggests", and absolute statistics to qualified findings): "${stripCitations(slide.speaker_notes)}"`
     : '';
 
   const prompt = `Generate narration for slide ${context.slideIndex + 1} of ${context.totalSlides} in a lecture on "${context.unitTitle}" (domain: ${context.domain}).
