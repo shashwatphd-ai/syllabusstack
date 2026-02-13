@@ -410,7 +410,7 @@ async function generateImageOpenRouter(request: {
         messages: [
           {
             role: 'system',
-            content: 'You are an educational diagram generator for university lecture slides. Generate a single clean, professional infographic-style diagram on a white background. The image must be visually clear at presentation scale (1920x1080). All text labels in the image must be spelled correctly and placed inside shapes. Use flat design with meaningful colors. Do not include decorative borders, watermarks, or stock-photo elements.',
+            content: 'You are an educational visual generator for university lecture slides. Generate a single high-quality image that accurately represents the described concept. The image must be visually clear at presentation scale (1920x1080). If the description calls for a diagram, render clean labeled shapes. If it describes a real-world scene, render it realistically. If it describes a graph or equation, render it precisely. All text in the image must be spelled correctly and legible. Do not include decorative borders or watermarks.',
           },
           {
             role: 'user',
@@ -622,7 +622,7 @@ async function generateImageGoogle(request: {
         systemInstruction: {
           parts: [
             {
-              text: 'You are an educational diagram generator for university lecture slides. Generate a single clean, professional infographic-style diagram on a white background. The image must be visually clear at presentation scale (1920x1080). All text labels in the image must be spelled correctly and placed inside shapes. Use flat design with meaningful colors. Do not include decorative borders, watermarks, or stock-photo elements.',
+              text: 'You are an educational visual generator for university lecture slides. Generate a single high-quality image that accurately represents the described concept. The image must be visually clear at presentation scale (1920x1080). If the description calls for a diagram, render clean labeled shapes. If it describes a real-world scene, render it realistically. If it describes a graph or equation, render it precisely. All text in the image must be spelled correctly and legible. Do not include decorative borders or watermarks.',
             },
           ],
         },
