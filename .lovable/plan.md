@@ -1,113 +1,135 @@
 
 
-# Batch Audio Generation: Course-Level "Generate All Audio" Button
+# Diagnostic Report: Bundle Timeout and Instructor Audio Preview
 
-## Current State
-- 49 teaching units in this course need audio generation
-- Audio is generated one teaching unit at a time via "Generate Audio" in the slide viewer
-- Each unit takes several minutes (6 voices x ~6 slides = ~36 TTS calls per unit)
-- The existing `generate-lecture-audio` edge function handles one `slideId` at a time
+## Issue 1: Bundle Generation Timeout (SUPABASE_CODEGEN_ERROR)
 
-## Architecture: Sequential Queue with Self-Continuation
+### Status: Partially Fixed, 82 Files Remaining
 
-The batch audio system will follow the exact same proven pattern used by `process-batch-images`: a self-continuing edge function that processes one unit at a time, then invokes itself for the next. This avoids gateway timeouts and respects TTS rate limits.
+The `"Bundle generation timed out"` error occurs because the Lovable/Supabase bundler attempts to fetch external packages from CDN URLs (`https://esm.sh/` and `https://deno.land/`) at deployment time. These fetches are non-deterministic -- they sometimes succeed, sometimes stall past the bundler's hard timeout.
 
-```text
-+---------------------+       +---------------------------+       +---------------------------+
-| Frontend Button     | ----> | generate-batch-audio      | ----> | generate-lecture-audio    |
-| "Generate All Audio"|       | (orchestrator)            |       | (existing, unchanged)     |
-| fire-and-forget     |       | picks next pending unit,  |       | processes 1 unit          |
-+---------------------+       | invokes audio fn,         |       | (6 voices x N slides)     |
-                              | then self-continues       |       +---------------------------+
-                              +---------------------------+
-                                        |
-                                        v
-                              polls audio_status on each
-                              unit before moving to next
+### What Was Fixed (8 files)
+The `_shared/` utilities and the two audio edge functions (`generate-lecture-audio`, `generate-batch-audio`) were migrated to use local `npm:` specifiers via `deno.json`, which the bundler resolves instantly without network calls.
+
+### What Remains (82 files across `supabase/functions/`)
+Two categories of legacy imports still exist:
+
+**Category A: `esm.sh` imports (~74 files)**
+```
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
+```
+Must become:
+```
+import { createClient } from "@supabase/supabase-js";
 ```
 
-## Changes
+**Category B: `deno.land/std` serve() imports (~81 files)**
+```
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+serve(handler);
+```
+Must become:
+```
+Deno.serve(handler);
+```
+(Remove the import entirely and use the native `Deno.serve()` API.)
 
-### 1. New Edge Function: `generate-batch-audio/index.ts`
+**Category C: Other CDN imports (~10 files)**
+- `stripe` from `esm.sh` -- replace with `npm:stripe`
+- `fflate` from `esm.sh` -- replace with `npm:fflate`
 
-A lightweight orchestrator that:
-- Accepts `{ instructorCourseId }` 
-- Queries all `lecture_slides` where `status = 'ready'` and `(has_audio = false OR audio_status IS NULL)` for that course
-- Processes them **one at a time sequentially**:
-  - Sets `audio_status = 'generating'` on the current unit
-  - Calls the existing `generate-lecture-audio` edge function (via internal fetch)
-  - Waits/polls for `audio_status` to become `ready` or `failed` (with timeout)
-  - Moves to the next unit
-- Uses self-continuation (fire-and-forget self-invocation) to bypass the 60s edge function timeout -- processes a small batch (e.g., 2-3 units), then re-invokes itself with a cursor/offset
-- Tracks progress in a `batch_jobs` record (type = 'audio') so the frontend can poll
-
-### 2. New Frontend Hook: `useBatchGenerateAudio` (in `src/hooks/lectureSlides/audio.ts`)
-
-- Mutation that fire-and-forgets the `generate-batch-audio` edge function
-- Companion polling query that watches `lecture_slides` for the course to track how many have `has_audio = true` vs total
-- Returns `{ pendingCount, completedCount, isGenerating }` for the button UI
-
-### 3. UI: "Generate All Audio" Button (in `InstructorCourseDetail.tsx`)
-
-- Placed next to the existing "Generate Images" button
-- Shows count of pending units: "Generate Audio (49 pending)"
-- While generating: shows progress "Audio 3/49"
-- Disabled when already generating or no pending units
-- Same visual pattern as the image generation button
-
-### 4. Config: `supabase/config.toml`
-
-- Add `[functions.generate-batch-audio]` with `verify_jwt = false`
-
-## What Does NOT Change
-
-- The existing `generate-lecture-audio` edge function is untouched -- it remains the single-unit workhorse
-- The per-slide audio generation button in `LectureSlideViewer.tsx` stays as-is
-- The TTS pipeline (Google Cloud Chirp 3 HD, 6 voices, segment mapping) is identical
-- The narration generation (CMM persona, epistemic humility rules) is identical
-- The audio storage structure (`{slideId}/{voiceId}/slide_{i}.wav`) is unchanged
-- The student player, voice picker, and all playback logic remain the same
-
-## Rate Limit Considerations
-
-- Each unit generates ~36 TTS calls (6 voices x 6 slides)
-- Google Cloud TTS has generous quotas but we add a 5-second delay between units
-- 49 units at ~3-5 minutes each = estimated 2.5-4 hours total
-- The self-continuation pattern ensures this runs reliably without browser dependency
-
-## Technical Details
-
-### Edge Function: `generate-batch-audio/index.ts`
-
-```text
-Input:  { instructorCourseId, offset?: number }
-Output: { success, processed, remaining, total }
-
-Logic:
-1. Query lecture_slides WHERE instructor_course_id = X 
-   AND status = 'ready' AND (has_audio = false)
-   ORDER BY title OFFSET offset LIMIT 2
-2. For each slide:
-   a. Call generate-lecture-audio with { slideId }
-   b. Poll audio_status every 10s (max 10 min timeout)
-   c. Log result
-3. If more remain, self-invoke with offset + 2
+### Required Fix
+A mechanical find-and-replace across all 82+ edge function files. The `deno.json` import map already has the correct mappings:
+```json
+{
+  "@supabase/supabase-js": "npm:@supabase/supabase-js@^2.49.0",
+  "stripe": "npm:stripe@^18.5.0"
+}
 ```
 
-### Hook: `useBatchGenerateAudio`
+Each file needs:
+1. Remove `import { serve } from "https://deno.land/std@..."` line
+2. Replace `import { createClient } from "https://esm.sh/@supabase/supabase-js@..."` with `import { createClient } from "@supabase/supabase-js"`
+3. Replace `serve(async (req) => { ... })` wrapper with `Deno.serve(async (req) => { ... })`
+4. Apply same pattern for any `stripe` or `fflate` CDN imports
 
-```text
-- mutationFn: invoke generate-batch-audio (fire-and-forget)
-- Polling query: count lecture_slides by audio status for the course
-- Refetch every 10s while any are 'generating'
+### Estimated Effort
+This is a mechanical refactor -- approximately 2-3 hours of developer time with a search-and-replace tool. No logic changes required.
+
+---
+
+## Issue 2: Instructor Audio Preview
+
+### Status: Working Correctly
+
+After thorough investigation, the instructor audio preview feature IS functional:
+
+**Evidence from live testing:**
+- Clicked the play button (triangle) in the slide viewer footer
+- The button toggled to the pause icon -- confirming the `handlePreviewToggle` handler executed
+- Network request `POST /storage/v1/object/sign/lecture-audio/669b5493.../Charon/slide_0.wav` returned **200** with a valid signed URL
+- Audio files exist in storage with real content (3-4 MB per slide WAV files)
+- Zero console errors were logged
+- All 6 voice variants are stored correctly
+
+**The audio preview code path (in `LectureSlideViewer.tsx`, line 180-211):**
+1. Reads `audio_urls[selectedVoice]` from the current slide
+2. Creates a signed URL via `supabase.storage.createSignedUrl()` (with cache-buster)
+3. Instantiates `new Audio(signedUrl)` and calls `audio.play()`
+4. Toggles button between Play/Pause icons
+5. Stops and cleans up on slide change, dialog close, or unmount
+
+**Storage RLS policies are correct:**
+- "Instructors can manage audio for their courses" (ALL operations) validates `lecture_slides.id` matches the first folder segment in the storage path -- this is correct since audio is stored at `{lecture_slide_id}/{voiceId}/slide_{i}.wav`
+
+### If the User Cannot Hear Audio
+If the user clicked play and saw the button change but heard no sound, possible causes are:
+- **Browser autoplay policy**: Some browsers block audio playback in certain contexts. The current code creates `Audio` after an async `createSignedUrl` call, which can break the user-gesture chain. Fix: create the `Audio` element synchronously in the click handler, call `audio.play().catch(() => {})` immediately to unlock it, then set `audio.src` after the signed URL resolves.
+- **System volume/mute**: The audio is playing but the user's system volume may be muted
+- **WAV format compatibility**: The files are LINEAR16 WAV at 24kHz -- broadly supported, but worth confirming
+
+### Recommended Defensive Fix
+Apply the iOS Safari / autoplay-safe pattern to `handlePreviewToggle`:
+
+```typescript
+const handlePreviewToggle = useCallback(async () => {
+  if (isPreviewPlaying) { stopPreview(); return; }
+
+  const slideAudioUrl = /* existing logic to get URL */;
+  if (!slideAudioUrl) return;
+
+  // 1. Create Audio element synchronously in gesture context
+  const audio = new Audio();
+  audio.play().catch(() => {}); // Unlock for iOS Safari
+  audioRef.current = audio;
+
+  try {
+    // 2. Async: get signed URL
+    const { data } = await supabase.storage
+      .from('lecture-audio')
+      .createSignedUrl(slideAudioUrl, 3600);
+    if (!data?.signedUrl) return;
+
+    // 3. Set source and play
+    audio.src = data.signedUrl + cacheBuster;
+    audio.addEventListener('ended', () => setIsPreviewPlaying(false));
+    await audio.play();
+    setIsPreviewPlaying(true);
+  } catch (err) {
+    console.error('Audio preview failed:', err);
+    setIsPreviewPlaying(false);
+  }
+}, [/* deps */]);
 ```
 
-### Button States
+---
 
-```text
-Idle:       [Volume2 icon] Generate Audio (49 pending)
-Starting:   [Spinner] Starting...
-Progress:   [Spinner] Audio 3/49
-Complete:   [hidden - no pending units]
-```
+## Summary for Developer Handoff
+
+| Item | Status | Action Required |
+|------|--------|----------------|
+| Bundle timeout | Blocking deploys | Migrate 82 edge function files from CDN to npm: imports |
+| Audio preview | Functional but fragile | Apply autoplay-safe Audio pattern for cross-browser reliability |
+| Batch audio button | Working | Deployed and fires correctly |
+| Audio data/storage | Verified | All 6 voices, 3-4 MB WAV files, valid signed URLs |
 
