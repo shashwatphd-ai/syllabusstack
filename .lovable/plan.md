@@ -1,70 +1,96 @@
 
-
-# Fix Single Slide Generation Timeout: Fire-and-Forget + Poll
+# Balance Bold Claims: Add Epistemic Humility to Speaker Notes Pipeline
 
 ## Problem
 
-`generate-lecture-slides-v3` takes ~150 seconds (research + Professor AI + CMM notes + image queuing). The edge function gateway has a ~60s timeout. The function completes successfully server-side (slides saved, images queued), but the HTTP connection is killed before the response reaches the browser, causing a `FunctionsFetchError: Failed to fetch` on the frontend.
+Speaker notes make definitive, unhedged claims like "I can guarantee that operational costs will climb" and cite statistics as absolute truth. This violates the reference prompt's core principle of **Multi-Perspectival Fairness** ("Never present only one side of a debatable issue as if it were settled truth") and **Conceptual Understanding Over Memorization**.
 
-**The slides actually generate fine** -- the error is purely a client-side timeout. The user sees "Generation Failed" even though the slides are sitting in the database ready to view.
+Two files cause this, compounding each other:
 
-## Solution
-
-Apply the same fire-and-forget + polling pattern already proven by audio generation (`useGenerateLectureAudio`). No new edge functions, no schema changes.
+1. **`slide-prompts.ts`** (Professor AI) -- the quality examples on lines 156-163 model bold, citation-heavy assertions as the gold standard (e.g., "outperform peers by 147%")
+2. **`ai-narrator.ts`** (CMM Narrator) -- inherits those bold notes as "raw material" and lacks any instruction to soften claims
 
 ## Changes
 
-### File 1: `src/hooks/lectureSlides/mutations.ts` (useGenerateLectureSlides)
+### File 1: `supabase/functions/_shared/slide-prompts.ts`
 
-**Current behavior:**
+**A. Rewrite quality examples (lines 152-168) to model epistemic humility:**
+
+Current:
 ```
-await supabase.functions.invoke('generate-lecture-slides-v3', { body })
-// Waits for full response --> times out after 60s --> error
+GOOD: "Teams with highly engaged leaders outperform peers by 147% in earnings per share, according to Gallup's 2023 State of the Workplace report [Source 1]. The mechanism is psychological safety..."
 ```
 
-**New behavior:**
-1. Fire the edge function call without awaiting the response (fire-and-forget)
-2. Poll `lecture_slides` table every 5 seconds checking for `status` change
-3. Resolve when status becomes `'ready'` or `'failed'`
-4. Use real `generation_phases` data from the DB for progress instead of simulated timers
+New:
+```
+GOOD: "Research from Gallup's State of the Workplace report suggests that teams with highly engaged leaders tend to significantly outperform peers in earnings per share [Source 1]. The proposed mechanism is psychological safety..."
+```
 
-Specifically:
-- Replace the `await supabase.functions.invoke(...)` with a fire-and-forget call (`.then().catch()` or just don't await)
-- Add a polling loop that queries `lecture_slides` by `teaching_unit_id` every 5 seconds
-- Read `status`, `generation_phases`, and `total_slides` from the DB row
-- If `status === 'ready'`: resolve the mutation with slide data
-- If `status === 'failed'`: reject with `error_message` from the DB row
-- Timeout safety: if no status change after 5 minutes, reject with a timeout error
-- Replace the simulated progress `useEffect` (lines 73-94) with real progress from `generation_phases.current_phase` and `generation_phases.progress_percent`
+Similarly for the misconception example -- change "Sull et al. (2015) found strategic messages lose 50-80%" to "Research by Sull and colleagues suggests strategic messages can lose 50-80%".
 
-### File 2: No other files change
+**B. Add an epistemic humility rule to the QUALITY STANDARDS section (after line 127):**
 
-The edge function (`generate-lecture-slides-v3`) already:
-- Creates the `lecture_slides` record with `status: 'generating'` before doing any work
-- Updates `generation_phases` at each step (research, professor, narration, finalize)
-- Sets `status: 'ready'` when slides are saved
-- Sets `status: 'failed'` with `error_message` on any error
-- Queues images and triggers `process-batch-images` independently
+Add a new rule:
+```
+EPISTEMIC HUMILITY (CRITICAL):
+- Present research findings as evidence, not absolute truth: "research suggests..." not "studies prove..."
+- Use hedging language for causal claims: "tends to," "is associated with," "evidence indicates" -- not "will," "always," "guarantees"
+- Distinguish between well-established findings and emerging evidence
+- When citing statistics, acknowledge they represent specific studies, not universal laws
+- Frame correlations as correlations, not causation, unless the research explicitly establishes causation
+- Never use "I can guarantee" or "I promise you" for empirical claims
+```
 
-All the server-side infrastructure is already correct. Only the frontend hook needs to stop waiting for the HTTP response.
+**C. Add "GUARANTEE LANGUAGE" as banned pattern #7 (after line 149):**
+
+```
+7. GUARANTEE LANGUAGE: "I can guarantee..." / "I promise you that..."
+   -> Delete: empirical claims carry uncertainty. Use "evidence strongly suggests..." or "research consistently shows..."
+```
+
+### File 2: `supabase/functions/_shared/ai-narrator.ts`
+
+**A. Add epistemic humility rule to the ABSOLUTE RULES section in `CMM_SYSTEM_PROMPT` (after line 213):**
+
+Add before the closing backtick:
+```
+- EPISTEMIC HUMILITY: Never present research findings as absolute guarantees.
+  Use "research suggests...", "evidence indicates...", "studies have found..." 
+  instead of "I can guarantee...", "this will always...", "it's a fact that..."
+  Present data as evidence supporting a perspective, not as settled universal truth.
+  Frame correlations carefully -- "X is associated with Y" not "X causes Y" unless
+  causation is explicitly established. You are a scholar who respects the limits
+  of evidence, not a pundit making bold predictions.
+```
+
+**B. Update the user prompt's EXISTING NOTES instruction (around line 300 in the `generateNarration` function):**
+
+Current:
+```
+EXISTING NOTES (use as raw material -- rephrase, never read verbatim): "${stripCitations(slide.speaker_notes)}"
+```
+
+New:
+```
+EXISTING NOTES (use as raw material -- rephrase with appropriate nuance. Soften any definitive claims into evidence-based observations. Convert "will" to "tends to", "guarantees" to "suggests", and absolute statistics to qualified findings): "${stripCitations(slide.speaker_notes)}"
+```
 
 ## What Does NOT Change
 
-| Component | Status |
-|-----------|--------|
-| `generate-lecture-slides-v3` edge function | Unchanged |
-| `process-batch-images` worker | Unchanged |
-| `image_generation_queue` | Unchanged |
-| Database schema | Unchanged |
-| Image generation pipeline | Unchanged |
-| Batch generation pipeline | Unchanged |
-| Audio generation | Unchanged |
-| All other hooks | Unchanged |
+- The core CMM persona, teaching philosophy, and Zero-to-Expert arc remain intact
+- The ABSOLUTE RULES about monologue format, no audience reactions, citation stripping all stay
+- The slide content generation structure (JSON format, slide types, visual directives) is untouched
+- No database, schema, or frontend changes
+- The research pipeline (Perplexity/Sonar) is unchanged
 
-## Risk Assessment
+## Expected Outcome
 
-- **Zero backend risk**: No edge function changes
-- **Proven pattern**: Identical to `useGenerateLectureAudio` which already works reliably
-- **Better UX**: Real progress data from DB instead of fake simulated timers
-- **Safety net**: 5-minute client-side timeout prevents infinite polling; server-side self-healing (existing) resets stale records after 30 minutes
+Speaker notes will shift from:
+- "I can guarantee that operational costs will climb" 
+- to "evidence consistently shows that operational costs tend to increase"
 
+From:
+- "outperform peers by 147% in earnings per share"
+- to "research suggests teams tend to significantly outperform peers in earnings"
+
+The tone remains warm, conversational, and confident -- but intellectually honest rather than making bold pundit-style predictions.
