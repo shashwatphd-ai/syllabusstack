@@ -1,96 +1,113 @@
 
-# Balance Bold Claims: Add Epistemic Humility to Speaker Notes Pipeline
 
-## Problem
+# Batch Audio Generation: Course-Level "Generate All Audio" Button
 
-Speaker notes make definitive, unhedged claims like "I can guarantee that operational costs will climb" and cite statistics as absolute truth. This violates the reference prompt's core principle of **Multi-Perspectival Fairness** ("Never present only one side of a debatable issue as if it were settled truth") and **Conceptual Understanding Over Memorization**.
+## Current State
+- 49 teaching units in this course need audio generation
+- Audio is generated one teaching unit at a time via "Generate Audio" in the slide viewer
+- Each unit takes several minutes (6 voices x ~6 slides = ~36 TTS calls per unit)
+- The existing `generate-lecture-audio` edge function handles one `slideId` at a time
 
-Two files cause this, compounding each other:
+## Architecture: Sequential Queue with Self-Continuation
 
-1. **`slide-prompts.ts`** (Professor AI) -- the quality examples on lines 156-163 model bold, citation-heavy assertions as the gold standard (e.g., "outperform peers by 147%")
-2. **`ai-narrator.ts`** (CMM Narrator) -- inherits those bold notes as "raw material" and lacks any instruction to soften claims
+The batch audio system will follow the exact same proven pattern used by `process-batch-images`: a self-continuing edge function that processes one unit at a time, then invokes itself for the next. This avoids gateway timeouts and respects TTS rate limits.
+
+```text
++---------------------+       +---------------------------+       +---------------------------+
+| Frontend Button     | ----> | generate-batch-audio      | ----> | generate-lecture-audio    |
+| "Generate All Audio"|       | (orchestrator)            |       | (existing, unchanged)     |
+| fire-and-forget     |       | picks next pending unit,  |       | processes 1 unit          |
++---------------------+       | invokes audio fn,         |       | (6 voices x N slides)     |
+                              | then self-continues       |       +---------------------------+
+                              +---------------------------+
+                                        |
+                                        v
+                              polls audio_status on each
+                              unit before moving to next
+```
 
 ## Changes
 
-### File 1: `supabase/functions/_shared/slide-prompts.ts`
+### 1. New Edge Function: `generate-batch-audio/index.ts`
 
-**A. Rewrite quality examples (lines 152-168) to model epistemic humility:**
+A lightweight orchestrator that:
+- Accepts `{ instructorCourseId }` 
+- Queries all `lecture_slides` where `status = 'ready'` and `(has_audio = false OR audio_status IS NULL)` for that course
+- Processes them **one at a time sequentially**:
+  - Sets `audio_status = 'generating'` on the current unit
+  - Calls the existing `generate-lecture-audio` edge function (via internal fetch)
+  - Waits/polls for `audio_status` to become `ready` or `failed` (with timeout)
+  - Moves to the next unit
+- Uses self-continuation (fire-and-forget self-invocation) to bypass the 60s edge function timeout -- processes a small batch (e.g., 2-3 units), then re-invokes itself with a cursor/offset
+- Tracks progress in a `batch_jobs` record (type = 'audio') so the frontend can poll
 
-Current:
-```
-GOOD: "Teams with highly engaged leaders outperform peers by 147% in earnings per share, according to Gallup's 2023 State of the Workplace report [Source 1]. The mechanism is psychological safety..."
-```
+### 2. New Frontend Hook: `useBatchGenerateAudio` (in `src/hooks/lectureSlides/audio.ts`)
 
-New:
-```
-GOOD: "Research from Gallup's State of the Workplace report suggests that teams with highly engaged leaders tend to significantly outperform peers in earnings per share [Source 1]. The proposed mechanism is psychological safety..."
-```
+- Mutation that fire-and-forgets the `generate-batch-audio` edge function
+- Companion polling query that watches `lecture_slides` for the course to track how many have `has_audio = true` vs total
+- Returns `{ pendingCount, completedCount, isGenerating }` for the button UI
 
-Similarly for the misconception example -- change "Sull et al. (2015) found strategic messages lose 50-80%" to "Research by Sull and colleagues suggests strategic messages can lose 50-80%".
+### 3. UI: "Generate All Audio" Button (in `InstructorCourseDetail.tsx`)
 
-**B. Add an epistemic humility rule to the QUALITY STANDARDS section (after line 127):**
+- Placed next to the existing "Generate Images" button
+- Shows count of pending units: "Generate Audio (49 pending)"
+- While generating: shows progress "Audio 3/49"
+- Disabled when already generating or no pending units
+- Same visual pattern as the image generation button
 
-Add a new rule:
-```
-EPISTEMIC HUMILITY (CRITICAL):
-- Present research findings as evidence, not absolute truth: "research suggests..." not "studies prove..."
-- Use hedging language for causal claims: "tends to," "is associated with," "evidence indicates" -- not "will," "always," "guarantees"
-- Distinguish between well-established findings and emerging evidence
-- When citing statistics, acknowledge they represent specific studies, not universal laws
-- Frame correlations as correlations, not causation, unless the research explicitly establishes causation
-- Never use "I can guarantee" or "I promise you" for empirical claims
-```
+### 4. Config: `supabase/config.toml`
 
-**C. Add "GUARANTEE LANGUAGE" as banned pattern #7 (after line 149):**
-
-```
-7. GUARANTEE LANGUAGE: "I can guarantee..." / "I promise you that..."
-   -> Delete: empirical claims carry uncertainty. Use "evidence strongly suggests..." or "research consistently shows..."
-```
-
-### File 2: `supabase/functions/_shared/ai-narrator.ts`
-
-**A. Add epistemic humility rule to the ABSOLUTE RULES section in `CMM_SYSTEM_PROMPT` (after line 213):**
-
-Add before the closing backtick:
-```
-- EPISTEMIC HUMILITY: Never present research findings as absolute guarantees.
-  Use "research suggests...", "evidence indicates...", "studies have found..." 
-  instead of "I can guarantee...", "this will always...", "it's a fact that..."
-  Present data as evidence supporting a perspective, not as settled universal truth.
-  Frame correlations carefully -- "X is associated with Y" not "X causes Y" unless
-  causation is explicitly established. You are a scholar who respects the limits
-  of evidence, not a pundit making bold predictions.
-```
-
-**B. Update the user prompt's EXISTING NOTES instruction (around line 300 in the `generateNarration` function):**
-
-Current:
-```
-EXISTING NOTES (use as raw material -- rephrase, never read verbatim): "${stripCitations(slide.speaker_notes)}"
-```
-
-New:
-```
-EXISTING NOTES (use as raw material -- rephrase with appropriate nuance. Soften any definitive claims into evidence-based observations. Convert "will" to "tends to", "guarantees" to "suggests", and absolute statistics to qualified findings): "${stripCitations(slide.speaker_notes)}"
-```
+- Add `[functions.generate-batch-audio]` with `verify_jwt = false`
 
 ## What Does NOT Change
 
-- The core CMM persona, teaching philosophy, and Zero-to-Expert arc remain intact
-- The ABSOLUTE RULES about monologue format, no audience reactions, citation stripping all stay
-- The slide content generation structure (JSON format, slide types, visual directives) is untouched
-- No database, schema, or frontend changes
-- The research pipeline (Perplexity/Sonar) is unchanged
+- The existing `generate-lecture-audio` edge function is untouched -- it remains the single-unit workhorse
+- The per-slide audio generation button in `LectureSlideViewer.tsx` stays as-is
+- The TTS pipeline (Google Cloud Chirp 3 HD, 6 voices, segment mapping) is identical
+- The narration generation (CMM persona, epistemic humility rules) is identical
+- The audio storage structure (`{slideId}/{voiceId}/slide_{i}.wav`) is unchanged
+- The student player, voice picker, and all playback logic remain the same
 
-## Expected Outcome
+## Rate Limit Considerations
 
-Speaker notes will shift from:
-- "I can guarantee that operational costs will climb" 
-- to "evidence consistently shows that operational costs tend to increase"
+- Each unit generates ~36 TTS calls (6 voices x 6 slides)
+- Google Cloud TTS has generous quotas but we add a 5-second delay between units
+- 49 units at ~3-5 minutes each = estimated 2.5-4 hours total
+- The self-continuation pattern ensures this runs reliably without browser dependency
 
-From:
-- "outperform peers by 147% in earnings per share"
-- to "research suggests teams tend to significantly outperform peers in earnings"
+## Technical Details
 
-The tone remains warm, conversational, and confident -- but intellectually honest rather than making bold pundit-style predictions.
+### Edge Function: `generate-batch-audio/index.ts`
+
+```text
+Input:  { instructorCourseId, offset?: number }
+Output: { success, processed, remaining, total }
+
+Logic:
+1. Query lecture_slides WHERE instructor_course_id = X 
+   AND status = 'ready' AND (has_audio = false)
+   ORDER BY title OFFSET offset LIMIT 2
+2. For each slide:
+   a. Call generate-lecture-audio with { slideId }
+   b. Poll audio_status every 10s (max 10 min timeout)
+   c. Log result
+3. If more remain, self-invoke with offset + 2
+```
+
+### Hook: `useBatchGenerateAudio`
+
+```text
+- mutationFn: invoke generate-batch-audio (fire-and-forget)
+- Polling query: count lecture_slides by audio status for the course
+- Refetch every 10s while any are 'generating'
+```
+
+### Button States
+
+```text
+Idle:       [Volume2 icon] Generate Audio (49 pending)
+Starting:   [Spinner] Starting...
+Progress:   [Spinner] Audio 3/49
+Complete:   [hidden - no pending units]
+```
+
