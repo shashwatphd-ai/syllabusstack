@@ -336,7 +336,7 @@ const handler = async (req: Request): Promise<Response> => {
       .from('lecture_slides')
       .update({
         slides: updatedSlides,
-        has_audio: updatedSlides.some(s => s.audio_url),
+        has_audio: updatedSlides.length > 0 && updatedSlides.every(s => s.audio_url),
         audio_status: 'ready',
         audio_generated_at: new Date().toISOString(),
         audio_audit_log: auditLog,
