@@ -1,177 +1,99 @@
 
-# Integrate CMM Narration into Slide Generation Pipeline
 
-## The Problem
+# CMM Post-Processing Step for Speaker Notes
 
-The Conversational Mastery Method (CMM) system prompt -- 1200 tokens of carefully crafted pedagogical instructions covering Zero-to-Expert arc, humor patterns, cross-slide continuity, citation stripping, and anti-hallucination rules -- is never used. Here's why:
+## Approach
 
-```text
-SLIDE GENERATION (Professor AI):
-  speaker_notes instruction: "200-300 words of natural lecture narration"
-  Result: Generic academic notes, 200+ words
+Instead of modifying the Professor AI system prompt (which degraded image quality by changing how the AI reasons about ALL slide content), add a dedicated post-processing step that runs after Professor AI generates slides but before they are saved. This step takes each slide's generic speaker notes and transforms them into CMM-quality conversational narration using the existing `ai-narrator.ts` module.
 
-AUDIO GENERATION (generate-lecture-audio):
-  needsNarration() check: notes < 50 chars?
-  Professor AI already wrote 200+ words --> needsNarration() = FALSE
-  CMM narrator: SKIPPED ENTIRELY
-  TTS reads the generic notes verbatim
-```
+## Why This Is Better
 
-The CMM was designed to transform dry slide content into warm, conversational narration -- but the pipeline never reaches it because Professor AI's generic notes pass the 50-char threshold.
-
-## The Solution
-
-Inject CMM narration principles directly into the Professor AI speaker_notes instructions. This way, every slide -- both individual (v3) and batch -- produces CMM-quality narration from the start. The audio pipeline then reads these notes verbatim via TTS (which is the correct behavior for deterministic audio).
+- Professor AI prompt stays unchanged -- visual directives and slide content quality remain exactly as they were
+- Image generation receives the same quality input as before
+- Speaker notes get the full CMM treatment (Zero-to-Expert arc, analogies, citation stripping, cross-slide continuity)
+- The same CMM logic runs consistently in both individual (v3) and batch paths
 
 ## What Changes
 
-### File 1: `supabase/functions/_shared/slide-prompts.ts`
+### File 1: `supabase/functions/_shared/ai-narrator.ts`
 
-**Change A: Replace the generic speaker_notes instruction in PROFESSOR_SYSTEM_PROMPT (lines 91-96)**
+**Add a new exported function `upgradeSpeakerNotes()`** that takes an array of generated slides and runs the CMM narrator on each one sequentially (to preserve cross-slide continuity via the rolling 100-word tail).
 
-Replace the current 6-line generic instruction with CMM-aligned guidance:
-
-```
-BEFORE:
-5. speaker_notes: 200-300 words of natural, conversational lecture narration that:
-   - Sounds like a professor actually speaking to students
-   - Adds context, anecdotes, and explanatory depth beyond the slides
-   - Anticipates questions students might have
-   - Provides additional examples or clarifications
-   - Guides students through the material with clear transitions
-
-AFTER:
-5. speaker_notes: 200-350 words of CONVERSATIONAL MASTERY narration. These notes
-   will be read verbatim by text-to-speech, so write them as a continuous spoken
-   monologue — not bullet points, not stage directions, not meta-commentary.
-
-   VOICE AND STYLE:
-   - Write as a warm, intellectually generous mentor speaking directly to the student
-   - Use direct address: "Now, you might be wondering...", "Let me show you why..."
-   - Think aloud: "If we look at it this way... but wait, that creates a problem..."
-   - Use everyday analogies to ground abstract concepts (family dynamics, household
-     economics, popular culture, common experiences)
-   - Include well-timed observational humor when cognitive load is heaviest
-   - Pose rhetorical questions, then answer them yourself
-
-   PEDAGOGICAL STRUCTURE:
-   - Start from zero — never assume prior knowledge on this specific point
-   - Build brick by brick — each new idea connects to the previous one
-   - Layer complexity gradually — foundation first, then nuance and exceptions
-   - End with synthesis — connect back to the bigger picture
-
-   ABSOLUTE RULES FOR SPOKEN NARRATION:
-   - NEVER say "Exactly!", "Great point!", "That's crucial!", or any phrase implying
-     someone else is speaking. This is a monologue — the student has said nothing.
-   - NEVER read citations verbatim (e.g., "Sull et al., 2015"). Convert to natural
-     speech: "researchers found..." or "a major workplace study showed..."
-   - NEVER include [Source N] markers — these are visual artifacts, not spoken content
-   - NEVER read URLs aloud. Convert to natural references.
-   - Each slide's notes should flow naturally from the previous slide's content.
-     Use transitions like "Building on that...", "Now let's look at...",
-     "Here's where it gets interesting..."
+```typescript
+export async function upgradeSpeakerNotes(
+  slides: Array<{ order: number; type: string; title: string; content: any; speaker_notes: string }>,
+  unitTitle: string,
+  domain: string
+): Promise<void>
 ```
 
-**Change B: Update the speaker_notes instruction in buildUserPrompt (lines 342-345)**
+This function:
+1. Iterates through slides in order
+2. For each slide, calls `generateNarration()` with the full CMM system prompt
+3. Passes the existing generic speaker notes as "raw material" (the CMM prompt already handles this via the `EXISTING NOTES` section)
+4. Maintains the rolling `previousNarrationTail` for cross-slide continuity
+5. Overwrites `slide.speaker_notes` in place with the CMM-quality narration
+6. Includes error handling -- if CMM upgrade fails for a slide, keeps the original generic notes
 
-Replace:
-```
-3. Speaker notes MUST be 200-300 words of natural lecture narration that:
-   - Sounds like an actual professor speaking
-   - Adds depth beyond what's on the slide
-   - Anticipates student questions
-```
+**Also update `needsNarration()`** -- currently it skips notes longer than 50 chars. The new `upgradeSpeakerNotes` function will bypass this check since it always upgrades, regardless of length.
 
-With:
-```
-3. Speaker notes MUST be 200-350 words of Conversational Mastery narration:
-   - Written as a continuous spoken monologue (will be read by TTS verbatim)
-   - Warm, conversational tone with everyday analogies and rhetorical questions
-   - NO citation markers [Source N], NO "Exactly!", NO reading URLs aloud
-   - Natural transitions from the previous slide's content
-```
+### File 2: `supabase/functions/generate-lecture-slides-v3/index.ts`
 
-**Change C: Update the output example and final CRITICAL line (lines 415, 426)**
+**Add CMM post-processing step between Phase 2C (Professor AI) and Phase 3 (Save).**
+
+After `runProfessorAI()` returns slides (around line 225), insert:
 
 ```
-BEFORE: "speaker_notes": "200-300 words of natural lecture narration..."
-AFTER:  "speaker_notes": "200-350 words of conversational mastery narration (spoken monologue, no citations)..."
-
-BEFORE: CRITICAL: Every slide MUST have speaker_notes with 200-300 words.
-AFTER:  CRITICAL: Every slide MUST have speaker_notes with 200-350 words of conversational narration written as a spoken monologue.
+// PHASE 2D: CMM Speaker Notes Upgrade
+await updateProgress(supabase, slideRecordId, 'narration', 55, 'Upgrading speaker notes with Conversational Mastery Method...');
+await upgradeSpeakerNotes(slides, context.title, context.domain);
 ```
 
-### File 2: `supabase/functions/process-batch-research/index.ts`
+This runs before slides are saved, so the database always contains CMM-quality notes. Progress tracking shows users this step is happening.
 
-**Change D: Update the batch pipeline speaker_notes instruction (line 89)**
+### File 3: `supabase/functions/process-batch-research/index.ts`
 
-Replace:
-```
-3. Speaker notes MUST be 200-300 words of natural lecture narration
-```
+**Add the same CMM post-processing step in the batch pipeline.**
 
-With:
-```
-3. Speaker notes MUST be 200-350 words of conversational mastery narration (spoken monologue for TTS — no [Source N] markers, no "Exactly!", use natural transitions between slides)
-```
+After slides are parsed from the AI response in `processBatchViaOpenRouter()` (or `processVertexBatchResults()`), call `upgradeSpeakerNotes()` on each unit's slides before saving to the database.
 
-Also update the final CRITICAL line (line 114):
-```
-BEFORE: CRITICAL: Every slide MUST have speaker_notes with 200-300 words.
-AFTER:  CRITICAL: Every slide MUST have speaker_notes with 200-350 words of conversational narration as a spoken monologue.
-```
-
-### File 3: `supabase/functions/_shared/ai-narrator.ts`
-
-No structural changes. The CMM_SYSTEM_PROMPT and generateNarration() function remain as a **safety net** -- if for any reason a slide arrives at audio generation with notes < 50 chars, the full CMM narrator still kicks in and generates rich narration. This preserves the fallback architecture.
-
-### File 4: `supabase/functions/generate-lecture-audio/index.ts`
-
-No changes. The `needsNarration()` check at line 162 continues to work correctly:
-- Professor AI now generates CMM-quality 200-350 word notes -> `needsNarration()` returns false -> TTS reads them verbatim (correct behavior)
-- If notes are somehow missing/short -> `needsNarration()` returns true -> full CMM narrator generates them (safety net)
+This ensures batch-generated slides get identical CMM treatment.
 
 ## What Does NOT Change
 
-| Component | Why |
-|-----------|-----|
-| `ai-narrator.ts` (CMM system prompt + functions) | Preserved as safety net fallback |
-| `generate-lecture-audio/index.ts` | Already correct -- reads notes verbatim via TTS |
-| `generate-lecture-slides-v3/index.ts` | Uses shared `PROFESSOR_SYSTEM_PROMPT` and `buildUserPrompt` from slide-prompts.ts |
-| Database schema | No changes needed |
-| Frontend components | No changes needed |
-| Audio generation (TTS, voices, storage) | Untouched |
-| Image generation pipeline | Untouched |
-| Research agent | Untouched |
+| Component | Status |
+|-----------|--------|
+| `PROFESSOR_SYSTEM_PROMPT` in slide-prompts.ts | Unchanged -- keeps "200-300 words" generic instruction |
+| `buildUserPrompt()` in slide-prompts.ts | Unchanged |
+| `buildPromptForUnit()` in process-batch-research | Unchanged |
+| Image prompt builder (`image-prompt-builder.ts`) | Unchanged |
+| Image generation pipeline | Unchanged |
+| Visual directive quality | Restored to previous quality |
+| `CMM_SYSTEM_PROMPT` in ai-narrator.ts | Unchanged -- reused as-is |
+| `generateNarration()` in ai-narrator.ts | Unchanged -- called by new wrapper |
+| Audio generation pipeline | Unchanged -- reads notes verbatim via TTS |
+| Database schema | No changes |
+| Frontend | No changes |
 
 ## Pipeline After This Change
 
 ```text
-SLIDE GENERATION (Professor AI + CMM instructions):
-  speaker_notes: 200-350 words, conversational mastery style
-  - Warm tone, analogies, rhetorical questions
-  - No citation markers, no dialogue hallucinations
-  - Natural cross-slide transitions
+Phase 1: Context Gathering (unchanged)
+Phase 2: Research Agent (unchanged)  
+Phase 2C: Professor AI --> generic slides with 200-300 word notes + high-quality visual directives
+Phase 2D: CMM Upgrade --> each slide's speaker_notes transformed to 200-350 word CMM narration  [NEW]
+Phase 3: Save slides (now with CMM notes) + queue images (visual directives unchanged)
+Phase 4: Async image generation (unchanged, receives same quality input as before)
 
-AUDIO GENERATION:
+Audio Generation (later):
   needsNarration() = FALSE (notes are 200+ words, CMM quality)
-  TTS reads notes VERBATIM --> perfectly synced audio
-  CMM narrator: available as safety net, rarely triggered
-
-RESULT: Consistent narration quality across:
-  - Individual v3 slide generation
-  - Batch slide generation
-  - Audio generation (verbatim TTS)
-  - Regeneration (same prompts)
+  TTS reads notes verbatim --> perfectly synced audio
 ```
 
-## Consistency Check
+## Cost and Latency Impact
 
-| Path | Prompt Source | Speaker Notes Quality |
-|------|-------------|----------------------|
-| Individual v3 | `PROFESSOR_SYSTEM_PROMPT` + `buildUserPrompt()` (slide-prompts.ts) | CMM-aligned |
-| Batch (process-batch-research) | `PROFESSOR_SYSTEM_PROMPT` + local `buildPromptForUnit()` | CMM-aligned |
-| Audio fallback | `CMM_SYSTEM_PROMPT` (ai-narrator.ts) | Full CMM (safety net) |
-| Regeneration | Same as individual v3 | CMM-aligned |
+- Adds 6 sequential LLM calls per teaching unit (one per slide) using `gemini-3-flash-preview`
+- Estimated ~8-12 seconds additional latency per unit
+- Cost: ~$0.003 per unit (6 x ~500 input tokens + ~400 output tokens at Flash pricing)
+- The cross-slide continuity requires sequential processing (each slide needs the previous one's tail)
 
-All four paths now produce consistent, conversational narration optimized for spoken delivery.
