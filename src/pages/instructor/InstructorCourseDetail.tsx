@@ -693,7 +693,7 @@ export default function InstructorCourseDetailPage() {
                       )}
                       
                       {/* Generate All Audio Button */}
-                      {(slidesStats.ready > 0 || slidesStats.published > 0) && (batchAudio.audioStatus.pending > 0 || batchAudio.audioStatus.generating > 0 || batchAudio.audioStatus.failed > 0) && (
+                      {(slidesStats.ready > 0 || slidesStats.published > 0) && (batchAudio.audioStatus.actionable > 0 || batchAudio.audioStatus.generating > 0) && (
                         <Button
                           variant="outline"
                           className="gap-2 h-9 flex-1 sm:flex-none"
@@ -720,10 +720,10 @@ export default function InstructorCourseDetailPage() {
                             <>
                               <Volume2 className="h-4 w-4" />
                               <span className="hidden sm:inline">
-                                Generate Audio ({batchAudio.audioStatus.pending} pending)
+                                Generate Audio ({batchAudio.audioStatus.actionable} pending{batchAudio.audioStatus.failed > 0 ? `, ${batchAudio.audioStatus.failed} failed` : ''})
                               </span>
                               <span className="sm:hidden">
-                                Audio ({batchAudio.audioStatus.pending})
+                                Audio ({batchAudio.audioStatus.actionable})
                               </span>
                             </>
                           )}
