@@ -1,99 +1,130 @@
 
 
-# CMM Post-Processing Step for Speaker Notes
+# Adaptive Image Generation: Let Content Drive the Visual
 
-## Approach
+## Summary
 
-Instead of modifying the Professor AI system prompt (which degraded image quality by changing how the AI reasons about ALL slide content), add a dedicated post-processing step that runs after Professor AI generates slides but before they are saved. This step takes each slide's generic speaker notes and transforms them into CMM-quality conversational narration using the existing `ai-narrator.ts` module.
+Two string constants need updating across two files. No structural, schema, or pipeline changes. The data flow is already correct -- `serializeSlideContext()` already passes all slide content (type, title, main_text, definition, example, misconception, steps, speaker_notes, visual description, elements, educational_purpose, domain) to the prompt writer LLM. The prompt writer just needs permission to use that context intelligently instead of following a rigid format lookup table.
 
-## Why This Is Better
+## What's Actually Happening Now (Verified)
 
-- Professor AI prompt stays unchanged -- visual directives and slide content quality remain exactly as they were
-- Image generation receives the same quality input as before
-- Speaker notes get the full CMM treatment (Zero-to-Expert arc, analogies, citation stripping, cross-slide continuity)
-- The same CMM logic runs consistently in both individual (v3) and batch paths
+The context pipeline works correctly:
+
+```text
+Professor AI generates slide with visual_directive
+    |
+    v
+Save step maps visual_directive.description --> visual.fallback_description
+    |
+    v
+buildImagePrompt() calls serializeSlideContext()
+    |
+    v
+serializeSlideContext() reads visual.fallback_description, elements, style,
+educational_purpose, content.main_text, definition, example, misconception,
+steps, speaker_notes, slide type, lecture title, domain
+    |
+    v
+All of this is sent to the Prompt Writer LLM as structured text
+    |
+    v
+Prompt Writer LLM generates image prompt... BUT is forced to output
+"A horizontal flowchart..." / "A radial diagram..." because of rigid
+format templates in IMAGE_PROMPT_WRITER_SYSTEM
+    |
+    v
+Image model receives prompt... BUT its system instruction forces
+"flat design", "infographic-style diagram", "no stock-photo elements"
+```
+
+The intelligence is there. The content is there. Two hardcoded prompts are blocking it.
 
 ## What Changes
 
-### File 1: `supabase/functions/_shared/ai-narrator.ts`
+### File 1: `supabase/functions/_shared/image-prompt-builder.ts`
 
-**Add a new exported function `upgradeSpeakerNotes()`** that takes an array of generated slides and runs the CMM narrator on each one sequentially (to preserve cross-slide continuity via the rolling 100-word tail).
+**Replace the `IMAGE_PROMPT_WRITER_SYSTEM` constant.**
 
-```typescript
-export async function upgradeSpeakerNotes(
-  slides: Array<{ order: number; type: string; title: string; content: any; speaker_notes: string }>,
-  unitTitle: string,
-  domain: string
-): Promise<void>
+Remove:
+- The rigid type-to-format lookup table ("process" = "numbered step boxes connected by arrows")
+- Forced style endings ("Clean infographic style, white background, professional academic design.")
+- Three hardcoded domain-to-metaphor mappings (business/science/ethics only)
+- "Style: clean infographic, NOT clipart or stock icons"
+
+Replace with instructions that tell the prompt writer LLM to:
+- Read all the context fields it receives (visual description, content, domain, slide type, speaker notes)
+- Let the visual description from Professor AI be the primary signal for what to depict
+- Choose the format that best represents the actual content (diagram for frameworks, realistic scene for case studies, rendered equation for math, graph for data, faithful reproduction for known models like Porter's Five Forces or SWOT)
+- Keep generation-quality constraints: max 6 text labels, short, spelled correctly, spatial precision
+- No forced opening ("A horizontal flowchart...") or closing lines
+
+**Update `buildFallbackPrompt` style hints:**
+- Change `'clean infographic style, white background'` to `'professional academic visual, clear and well-composed'`
+- Change the type-specific hints similarly (no longer forcing "flowchart" or "panel layout")
+
+### File 2: `supabase/functions/_shared/unified-ai-client.ts`
+
+**Replace the system prompt string at line 413 (OpenRouter) and line 625 (Google).**
+
+Current (both locations):
+```
+You are an educational diagram generator for university lecture slides. Generate a single
+clean, professional infographic-style diagram on a white background. The image must be
+visually clear at presentation scale (1920x1080). All text labels in the image must be
+spelled correctly and placed inside shapes. Use flat design with meaningful colors.
+Do not include decorative borders, watermarks, or stock-photo elements.
 ```
 
-This function:
-1. Iterates through slides in order
-2. For each slide, calls `generateNarration()` with the full CMM system prompt
-3. Passes the existing generic speaker notes as "raw material" (the CMM prompt already handles this via the `EXISTING NOTES` section)
-4. Maintains the rolling `previousNarrationTail` for cross-slide continuity
-5. Overwrites `slide.speaker_notes` in place with the CMM-quality narration
-6. Includes error handling -- if CMM upgrade fails for a slide, keeps the original generic notes
-
-**Also update `needsNarration()`** -- currently it skips notes longer than 50 chars. The new `upgradeSpeakerNotes` function will bypass this check since it always upgrades, regardless of length.
-
-### File 2: `supabase/functions/generate-lecture-slides-v3/index.ts`
-
-**Add CMM post-processing step between Phase 2C (Professor AI) and Phase 3 (Save).**
-
-After `runProfessorAI()` returns slides (around line 225), insert:
-
+New (both locations):
 ```
-// PHASE 2D: CMM Speaker Notes Upgrade
-await updateProgress(supabase, slideRecordId, 'narration', 55, 'Upgrading speaker notes with Conversational Mastery Method...');
-await upgradeSpeakerNotes(slides, context.title, context.domain);
+You are an educational visual generator for university lecture slides. Generate a single
+high-quality image that accurately represents the described concept. The image must be
+visually clear at presentation scale (1920x1080). If the description calls for a diagram,
+render clean labeled shapes. If it describes a real-world scene, render it realistically.
+If it describes a graph or equation, render it precisely. All text in the image must be
+spelled correctly and legible. Do not include decorative borders or watermarks.
 ```
 
-This runs before slides are saved, so the database always contains CMM-quality notes. Progress tracking shows users this step is happening.
+Removes the three constraints that lock output to flat infographics:
+- "infographic-style diagram" -- gone
+- "flat design" -- gone
+- "no stock-photo elements" -- gone
 
-### File 3: `supabase/functions/process-batch-research/index.ts`
-
-**Add the same CMM post-processing step in the batch pipeline.**
-
-After slides are parsed from the AI response in `processBatchViaOpenRouter()` (or `processVertexBatchResults()`), call `upgradeSpeakerNotes()` on each unit's slides before saving to the database.
-
-This ensures batch-generated slides get identical CMM treatment.
+Keeps the constraints that matter for quality:
+- 1920x1080 clarity
+- Correct spelling
+- No borders/watermarks
 
 ## What Does NOT Change
 
-| Component | Status |
-|-----------|--------|
-| `PROFESSOR_SYSTEM_PROMPT` in slide-prompts.ts | Unchanged -- keeps "200-300 words" generic instruction |
-| `buildUserPrompt()` in slide-prompts.ts | Unchanged |
-| `buildPromptForUnit()` in process-batch-research | Unchanged |
-| Image prompt builder (`image-prompt-builder.ts`) | Unchanged |
-| Image generation pipeline | Unchanged |
-| Visual directive quality | Restored to previous quality |
-| `CMM_SYSTEM_PROMPT` in ai-narrator.ts | Unchanged -- reused as-is |
-| `generateNarration()` in ai-narrator.ts | Unchanged -- called by new wrapper |
-| Audio generation pipeline | Unchanged -- reads notes verbatim via TTS |
+| Component | Why |
+|-----------|-----|
+| `serializeSlideContext()` | Already passes all context correctly |
+| `buildImagePrompt()` function logic | Unchanged -- calls LLM, validates length, falls back |
+| `slideNeedsImage()` | Unchanged |
+| Professor AI prompt | Unchanged |
+| Image model selection (gemini-3-pro-image-preview) | Unchanged |
+| Image generation routing (Google/OpenRouter) | Unchanged |
+| Queue system (image_generation_queue) | Unchanged |
+| Storage upload | Unchanged |
+| Retry/fallback logic | Unchanged |
+| Rate limiting | Unchanged |
 | Database schema | No changes |
 | Frontend | No changes |
+| `process-batch-images` worker | Unchanged |
+| `poll-active-batches` queuing | Unchanged |
 
-## Pipeline After This Change
+## Files Modified
 
-```text
-Phase 1: Context Gathering (unchanged)
-Phase 2: Research Agent (unchanged)  
-Phase 2C: Professor AI --> generic slides with 200-300 word notes + high-quality visual directives
-Phase 2D: CMM Upgrade --> each slide's speaker_notes transformed to 200-350 word CMM narration  [NEW]
-Phase 3: Save slides (now with CMM notes) + queue images (visual directives unchanged)
-Phase 4: Async image generation (unchanged, receives same quality input as before)
+| File | Change |
+|------|--------|
+| `supabase/functions/_shared/image-prompt-builder.ts` | Replace `IMAGE_PROMPT_WRITER_SYSTEM` string; update 4 style hint strings in `buildFallbackPrompt` |
+| `supabase/functions/_shared/unified-ai-client.ts` | Replace system prompt string at line 413 and line 625 (identical change, two locations) |
 
-Audio Generation (later):
-  needsNarration() = FALSE (notes are 200+ words, CMM quality)
-  TTS reads notes verbatim --> perfectly synced audio
-```
+## Risk Assessment
 
-## Cost and Latency Impact
-
-- Adds 6 sequential LLM calls per teaching unit (one per slide) using `gemini-3-flash-preview`
-- Estimated ~8-12 seconds additional latency per unit
-- Cost: ~$0.003 per unit (6 x ~500 input tokens + ~400 output tokens at Flash pricing)
-- The cross-slide continuity requires sequential processing (each slide needs the previous one's tail)
-
+- **Zero pipeline risk**: Only string constants change; no function signatures, no data flow, no schema
+- **Text legibility**: Realistic scenes may make embedded text harder to read -- mitigated by keeping the "max 6 labels, short, spelled correctly, legible" constraint in the prompt writer
+- **Cost/latency**: Zero change -- same models, same token counts, same pipeline
+- **Existing images**: Unaffected -- stored images remain as-is; only new generations use updated prompts
+- **Queue items already stored**: Their prompts are already persisted; unaffected by this change
