@@ -234,7 +234,7 @@ export function useBatchGenerateAudio(instructorCourseId?: string) {
       if (data && data.isRunning) return 10_000; // 10s while generating
       return false;
     },
-    staleTime: 5_000,
+    staleTime: 10_000,
   });
 
   const mutation = useMutation({

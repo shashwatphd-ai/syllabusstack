@@ -331,13 +331,23 @@ const handler = async (req: Request): Promise<Response> => {
       },
     };
 
+    // Determine audio completeness — only mark has_audio=true when ALL
+    // content slides got audio (slides without narration text are excluded)
+    const slidesWithAudio = updatedSlides.filter(s => s.audio_url).length;
+    const slidesNeedingAudio = updatedSlides.filter(s => {
+      // Slides that were skipped (no narration text) don't count against completeness
+      const hasNarration = s.speaker_notes && s.speaker_notes.trim().length > 0;
+      return hasNarration;
+    }).length;
+    const allComplete = slidesNeedingAudio > 0 && slidesWithAudio >= slidesNeedingAudio;
+
     // Update the lecture slide with audio URLs, segment maps, and audit log
     const { error: updateError } = await supabase
       .from('lecture_slides')
       .update({
         slides: updatedSlides,
-        has_audio: updatedSlides.length > 0 && updatedSlides.every(s => s.audio_url),
-        audio_status: 'ready',
+        has_audio: allComplete,
+        audio_status: allComplete ? 'ready' : (slidesWithAudio > 0 ? 'ready' : 'failed'),
         audio_generated_at: new Date().toISOString(),
         audio_audit_log: auditLog,
       })
@@ -348,16 +358,10 @@ const handler = async (req: Request): Promise<Response> => {
       throw new Error(`Failed to save audio URLs: ${updateError.message}`);
     }
 
-    const slidesWithAudio = updatedSlides.filter(s => s.audio_url).length;
     const slidesWithSegments = updatedSlides.filter(s => s.audio_segment_map?.length).length;
 
-    // If no slides got audio, treat as failure
+    // If no slides got audio, the update above already set audio_status='failed'
     if (slidesWithAudio === 0) {
-      await supabase
-        .from('lecture_slides')
-        .update({ audio_status: 'failed' })
-        .eq('id', slideId);
-
       logError('generate-lecture-audio', new Error(`All slides failed: ${lastSlideError}`));
       return createErrorResponse('INTERNAL_ERROR', corsHeaders, `Audio generation failed for all slides: ${lastSlideError || 'Unknown error'}`);
     }

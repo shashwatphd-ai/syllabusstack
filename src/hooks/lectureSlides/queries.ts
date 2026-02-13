@@ -77,7 +77,8 @@ export function useLectureSlide(slideId?: string) {
 export function useCourseLectureSlides(instructorCourseId?: string) {
   const queryClient = useQueryClient();
 
-  // Set up Realtime subscription for status changes
+  // Set up Realtime subscription for status changes — throttled to avoid
+  // cascading re-fetches during batch operations (audio, images, slides).
   useEffect(() => {
     if (!instructorCourseId) return;
 
@@ -90,6 +91,37 @@ export function useCourseLectureSlides(instructorCourseId?: string) {
       return;
     }
 
+    // Throttle: at most one invalidation per 5 seconds during batch ops
+    let lastInvalidation = 0;
+    let pendingTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    const throttledInvalidate = (payload: any) => {
+      const now = Date.now();
+      const elapsed = now - lastInvalidation;
+
+      const doInvalidate = () => {
+        lastInvalidation = Date.now();
+        queryClient.invalidateQueries({
+          queryKey: ['course-lecture-slides', instructorCourseId]
+        });
+        // Also invalidate specific teaching unit query if available
+        if (payload?.new && typeof payload.new === 'object' && 'teaching_unit_id' in payload.new) {
+          queryClient.invalidateQueries({
+            queryKey: ['lecture-slides', (payload.new as { teaching_unit_id: string }).teaching_unit_id]
+          });
+        }
+      };
+
+      if (elapsed >= 5000) {
+        doInvalidate();
+      } else if (!pendingTimeout) {
+        pendingTimeout = setTimeout(() => {
+          pendingTimeout = null;
+          doInvalidate();
+        }, 5000 - elapsed);
+      }
+    };
+
     const channel = supabase
       .channel(channelName)
       .on(
@@ -100,28 +132,12 @@ export function useCourseLectureSlides(instructorCourseId?: string) {
           table: 'lecture_slides',
           filter: `instructor_course_id=eq.${instructorCourseId}`,
         },
-        (payload) => {
-          // Use setTimeout to ensure we're not in a render cycle
-          setTimeout(() => {
-            queryClient.invalidateQueries({
-              queryKey: ['course-lecture-slides', instructorCourseId]
-            });
-            queryClient.invalidateQueries({
-              queryKey: ['lecture-queue-status', instructorCourseId]
-            });
-
-            // Also invalidate specific teaching unit query if available
-            if (payload.new && typeof payload.new === 'object' && 'teaching_unit_id' in payload.new) {
-              queryClient.invalidateQueries({
-                queryKey: ['lecture-slides', (payload.new as { teaching_unit_id: string }).teaching_unit_id]
-              });
-            }
-          }, 0);
-        }
+        throttledInvalidate
       )
       .subscribe();
 
     return () => {
+      if (pendingTimeout) clearTimeout(pendingTimeout);
       supabase.removeChannel(channel);
     };
   }, [instructorCourseId, queryClient]);
@@ -131,11 +147,16 @@ export function useCourseLectureSlides(instructorCourseId?: string) {
     queryFn: async () => {
       if (!instructorCourseId) return [];
 
-      // Join with teaching_units to get sequence_order for proper ordering
+      // Fetch only the columns needed for the course detail page — avoid
+      // pulling the full slides JSONB (which can be multi-MB) on every refetch.
+      // The full JSONB is fetched on-demand by useLectureSlide(slideId).
       const { data, error } = await supabase
         .from('lecture_slides')
         .select(`
-          *,
+          id, title, status, has_audio, audio_status, teaching_unit_id,
+          instructor_course_id, learning_objective_id, total_slides,
+          estimated_duration_minutes, slide_style, error_message,
+          created_at, updated_at, slides,
           teaching_unit:teaching_units!teaching_unit_id (
             sequence_order
           )
@@ -157,6 +178,7 @@ export function useCourseLectureSlides(instructorCourseId?: string) {
       })) as LectureSlide[];
     },
     enabled: !!instructorCourseId,
+    staleTime: 10_000, // 10s — prevents cascading refetches from Realtime + polling
   });
 }
 
