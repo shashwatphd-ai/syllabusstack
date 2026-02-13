@@ -9,7 +9,7 @@
  * - Model: gpt-4o-mini via OpenRouter, falls back to Gemini Flash
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
+import { createClient } from "@supabase/supabase-js";
 import { simpleCompletion, MODELS, parseJsonResponse } from './openrouter-client.ts';
 
 const supabaseUrl = Deno.env.get('SUPABASE_URL')!;

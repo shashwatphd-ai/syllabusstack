@@ -9,7 +9,7 @@
  * a skill has decayed to a fraction of its original proficiency.
  */
 
-import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { SupabaseClient } from "@supabase/supabase-js";
 
 // ============================================================================
 // TYPES

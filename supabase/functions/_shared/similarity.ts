@@ -2,7 +2,7 @@
 // Keyword-based similarity matching for semantic search
 // Per AI Orchestration Implementation Plan - Phase 3
 
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { generateKeywordVector, calculateSimilarity } from "./ai-orchestrator.ts";
 
 /**

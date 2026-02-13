@@ -14,7 +14,7 @@
  * No hardcoded concept lists - the system learns from each syllabus.
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
+import { createClient } from "@supabase/supabase-js";
 import {
   getDynamicSynonyms,
   normalizeQueryDynamic,

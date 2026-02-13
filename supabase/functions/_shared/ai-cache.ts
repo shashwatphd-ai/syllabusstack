@@ -1,7 +1,7 @@
 // SyllabusStack AI Cache Utilities
 // Implements caching strategy from Technical Specification v3.0
 
-import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
 export interface CacheEntry {
   cache_key: string;
