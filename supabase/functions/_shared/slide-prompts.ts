@@ -442,6 +442,30 @@ Generate all ${targetSlides} slides now with RICH, EDUCATIONAL content and LAYOU
 // JSON PARSER - Extract JSON from AI responses
 // ============================================================================
 
+/**
+ * Sanitize a JSON string to fix common LLM output issues:
+ * - Trailing commas before } or ]
+ * - Control characters inside strings
+ */
+function sanitizeJsonString(jsonStr: string): string {
+  // Remove trailing commas before closing braces/brackets (common LLM issue)
+  let sanitized = jsonStr.replace(/,\s*([\]}])/g, '$1');
+  // Remove control characters (except \n, \r, \t which are valid in JSON strings when escaped)
+  // This handles raw control chars that LLMs sometimes emit
+  sanitized = sanitized.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
+  return sanitized;
+}
+
+function tryParseJson(jsonStr: string): any {
+  // First try raw parse
+  try {
+    return JSON.parse(jsonStr);
+  } catch (_e) {
+    // Try with sanitization
+    return JSON.parse(sanitizeJsonString(jsonStr));
+  }
+}
+
 export function parseJsonFromAI(content: string): any {
   if (!content || !content.trim()) {
     throw new Error('Empty AI response content');
@@ -458,7 +482,7 @@ export function parseJsonFromAI(content: string): any {
     // Ensure the last fence is after the content start (not the same opening fence)
     if (lastFence > contentStart) {
       try {
-        return JSON.parse(raw.substring(contentStart, lastFence).trim());
+        return tryParseJson(raw.substring(contentStart, lastFence).trim());
       } catch (_e) {
         // Fall through to other strategies
       }
@@ -478,7 +502,7 @@ export function parseJsonFromAI(content: string): any {
     const lastClose = raw.lastIndexOf(closeChar);
     if (lastClose > jsonStart) {
       try {
-        return JSON.parse(raw.substring(jsonStart, lastClose + 1));
+        return tryParseJson(raw.substring(jsonStart, lastClose + 1));
       } catch (_e) {
         // Fall through
       }
@@ -513,7 +537,7 @@ export function parseJsonFromAI(content: string): any {
     const closers = ']'.repeat(Math.max(0, openBrackets)) + '}'.repeat(Math.max(0, openBraces));
     if (closers.length > 0) {
       try {
-        const repaired = JSON.parse(candidate + closers);
+        const repaired = tryParseJson(candidate + closers);
         console.warn(`[parseJsonFromAI] Repaired truncated JSON by appending ${closers.length} closing chars`);
         return repaired;
       } catch (_e) {
@@ -524,7 +548,7 @@ export function parseJsonFromAI(content: string): any {
 
   // Strategy 4: Try parsing the raw content directly
   try {
-    return JSON.parse(raw);
+    return tryParseJson(raw);
   } catch (_e) {
     const preview = raw.length > 500 ? raw.substring(0, 250) + '\n...[truncated]...\n' + raw.substring(raw.length - 250) : raw;
     console.error('[parseJsonFromAI] All strategies failed. Content preview:', preview);
