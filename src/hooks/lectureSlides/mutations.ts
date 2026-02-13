@@ -4,20 +4,112 @@
  * Contains hooks for slide generation, CRUD operations, and publishing.
  */
 
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Slide, GenerationProgress } from './types';
+
+/** Max time (ms) to poll before giving up */
+const GENERATION_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
 /**
  * Generate lecture slides for a teaching unit
- * Uses the v3 Professor AI system for research-grounded content
+ * Uses fire-and-forget + polling to avoid gateway timeouts.
  */
 export function useGenerateLectureSlides() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [progress, setProgress] = useState<GenerationProgress | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [pollingTeachingUnitId, setPollingTeachingUnitId] = useState<string | null>(null);
+  const toastShownRef = useRef(false);
+  const startTimeRef = useRef<number>(0);
+
+  // Poll lecture_slides status every 5s while generating
+  const { data: pollingData } = useQuery({
+    queryKey: ['slide-generation-poll', pollingTeachingUnitId],
+    queryFn: async () => {
+      if (!pollingTeachingUnitId) return null;
+      const { data, error } = await supabase
+        .from('lecture_slides')
+        .select('id, status, total_slides, generation_phases, error_message')
+        .eq('teaching_unit_id', pollingTeachingUnitId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!pollingTeachingUnitId && isGenerating,
+    refetchInterval: 5000,
+    refetchIntervalInBackground: true,
+  });
+
+  // React to polling results
+  useEffect(() => {
+    if (!pollingData || !pollingTeachingUnitId || !isGenerating) return;
+
+    const status = pollingData.status;
+
+    // Update progress from real generation_phases data
+    const phases = pollingData.generation_phases as Record<string, unknown> | null;
+    if (phases && status === 'generating') {
+      const currentPhase = (phases.current_phase as string) || 'generating';
+      const progressPercent = (phases.progress_percent as number) || 0;
+      const phaseMessage = (phases.phase_message as string) || `Generating: ${currentPhase}...`;
+      setProgress({ phase: currentPhase, percent: progressPercent, message: phaseMessage });
+    }
+
+    if (status === 'ready') {
+      setIsGenerating(false);
+      setPollingTeachingUnitId(null);
+      setProgress(null);
+
+      queryClient.invalidateQueries({ queryKey: ['lecture-slides', pollingTeachingUnitId] });
+      queryClient.invalidateQueries({ queryKey: ['course-lecture-slides'] });
+
+      if (!toastShownRef.current) {
+        toastShownRef.current = true;
+        toast({
+          title: 'Lecture Slides Generated',
+          description: `Created ${pollingData.total_slides || ''} slides successfully.`,
+        });
+      }
+    } else if (status === 'failed') {
+      setIsGenerating(false);
+      setPollingTeachingUnitId(null);
+      setProgress(null);
+
+      queryClient.invalidateQueries({ queryKey: ['lecture-slides', pollingTeachingUnitId] });
+      queryClient.invalidateQueries({ queryKey: ['course-lecture-slides'] });
+
+      if (!toastShownRef.current) {
+        toastShownRef.current = true;
+        toast({
+          title: 'Generation Failed',
+          description: (pollingData.error_message as string) || 'Slide generation failed. Please try again.',
+          variant: 'destructive',
+        });
+      }
+    }
+
+    // Timeout safety
+    if (Date.now() - startTimeRef.current > GENERATION_TIMEOUT_MS && status === 'generating') {
+      setIsGenerating(false);
+      setPollingTeachingUnitId(null);
+      setProgress(null);
+
+      if (!toastShownRef.current) {
+        toastShownRef.current = true;
+        toast({
+          title: 'Generation Timeout',
+          description: 'Generation is taking longer than expected. Check back shortly — it may still complete.',
+          variant: 'destructive',
+        });
+      }
+    }
+  }, [pollingData, pollingTeachingUnitId, isGenerating, queryClient, toast]);
 
   const mutation = useMutation({
     mutationFn: async ({
@@ -29,37 +121,71 @@ export function useGenerateLectureSlides() {
       style?: 'standard' | 'minimal' | 'detailed' | 'interactive';
       regenerate?: boolean;
     }) => {
+      // Reset state for new generation
+      toastShownRef.current = false;
+      startTimeRef.current = Date.now();
+      setIsGenerating(true);
+      setPollingTeachingUnitId(teachingUnitId);
       setProgress({ phase: 'starting', percent: 0, message: 'Initializing Professor AI...' });
 
-      // Use v3 Professor AI endpoint
-      const { data, error } = await supabase.functions.invoke('generate-lecture-slides-v3', {
+      // Fire-and-forget: invoke the edge function but don't await the full response.
+      // The edge function creates/updates the lecture_slides record with status='generating'
+      // before doing work, so our polling query will pick up progress.
+      supabase.functions.invoke('generate-lecture-slides-v3', {
         body: {
           teaching_unit_id: teachingUnitId,
           style,
           regenerate,
         }
+      }).then(({ error, data }) => {
+        // Handle only immediate failures (e.g. validation errors returned quickly)
+        if (error) {
+          console.error('Slide generation invocation error:', error);
+          let errorMessage = 'Slide generation failed';
+          try {
+            if (error.context?.body) {
+              const body = typeof error.context.body === 'string'
+                ? JSON.parse(error.context.body)
+                : error.context.body;
+              errorMessage = body?.error?.message || body?.message || error.message || errorMessage;
+            } else {
+              errorMessage = error.message || errorMessage;
+            }
+          } catch {
+            errorMessage = error.message || errorMessage;
+          }
+          // Only show toast if polling hasn't already resolved
+          if (!toastShownRef.current) {
+            toastShownRef.current = true;
+            setIsGenerating(false);
+            setPollingTeachingUnitId(null);
+            setProgress(null);
+            toast({
+              title: 'Generation Failed',
+              description: errorMessage,
+              variant: 'destructive',
+            });
+          }
+        }
+        // Success response is ignored — polling handles the result
+      }).catch((err) => {
+        // Network-level errors (gateway timeout) are expected for long jobs.
+        // Polling will pick up the actual result. Only log.
+        console.warn('Slide generation request did not return (expected for long jobs):', err?.message);
       });
 
-      if (error) {
-        console.error('Edge function error:', error);
-        throw new Error(error.message || 'Generation failed');
-      }
-      if (!data?.success) throw new Error(data?.error || 'Generation failed');
-
-      return data;
+      // Return immediately — don't block the UI
+      return { started: true, teachingUnitId };
     },
-    onSuccess: (data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['lecture-slides', variables.teachingUnitId] });
-      queryClient.invalidateQueries({ queryKey: ['course-lecture-slides'] });
-
-      setProgress(null);
-
+    onSuccess: (_data, variables) => {
       toast({
-        title: 'Lecture Slides Generated',
-        description: `Created ${data.slideCount} slides${data.visualCount ? ` with ${data.visualCount} custom visuals` : ''} (Quality: ${data.qualityScore || 'N/A'}%)`,
+        title: 'Slide Generation Started',
+        description: 'Professor AI is creating your lecture slides. This may take a few minutes.',
       });
     },
     onError: (error: Error) => {
+      setIsGenerating(false);
+      setPollingTeachingUnitId(null);
       setProgress(null);
       toast({
         title: 'Generation Failed',
@@ -69,33 +195,18 @@ export function useGenerateLectureSlides() {
     },
   });
 
-  // Progress simulation while waiting - v3 two-phase approach
-  useEffect(() => {
-    if (!mutation.isPending) return;
-
-    const phases = [
-      { phase: 'professor', percent: 15, message: 'Professor AI: Analyzing teaching context...' },
-      { phase: 'professor', percent: 35, message: 'Professor AI: Designing pedagogical sequence...' },
-      { phase: 'professor', percent: 55, message: 'Professor AI: Writing slide content...' },
-      { phase: 'visual', percent: 70, message: 'Visual AI: Generating custom diagrams...' },
-      { phase: 'visual', percent: 85, message: 'Visual AI: Processing images...' },
-      { phase: 'finalize', percent: 95, message: 'Finalizing lecture deck...' },
-    ];
-
-    let currentPhaseIndex = 0;
-    const interval = setInterval(() => {
-      if (currentPhaseIndex < phases.length) {
-        setProgress(phases[currentPhaseIndex]);
-        currentPhaseIndex++;
-      }
-    }, 8000); // ~8s per phase estimate (faster v3)
-
-    return () => clearInterval(interval);
-  }, [mutation.isPending]);
+  // Allow external reset (e.g. when navigating away)
+  const cancelPolling = useCallback(() => {
+    setIsGenerating(false);
+    setPollingTeachingUnitId(null);
+    setProgress(null);
+  }, []);
 
   return {
     ...mutation,
     progress,
+    isGenerating,
+    cancelPolling,
   };
 }
 
