@@ -1,164 +1,177 @@
 
+# Integrate CMM Narration into Slide Generation Pipeline
 
-# Upgrade Curriculum Decomposition: DeepSeek R1 to Gemini 3 Pro (Thinking + Search Grounding)
+## The Problem
 
-## Why This Change
+The Conversational Mastery Method (CMM) system prompt -- 1200 tokens of carefully crafted pedagogical instructions covering Zero-to-Expert arc, humor patterns, cross-slide continuity, citation stripping, and anti-hallucination rules -- is never used. Here's why:
 
-DeepSeek R1 via OpenRouter has known issues:
-- Connection drops during long thinking times
-- 100KB OpenRouter body limit can be hit with large syllabus context
-- No web search capability -- it reasons only from the prompt content
-- Fallback chain (R1 -> Gemini 2.5 Pro -> Flash Lite) degrades quality significantly
+```text
+SLIDE GENERATION (Professor AI):
+  speaker_notes instruction: "200-300 words of natural lecture narration"
+  Result: Generic academic notes, 200+ words
 
-Gemini 3 Pro via direct Google API offers:
-- Native `thinking` with configurable levels (minimal/low/medium/high)
-- Native `search` tool (Google Search Grounding) -- the model can look up current information
-- 1M token input context (no truncation needed)
-- 65,536 output tokens
-- `responseMimeType: "application/json"` for guaranteed valid JSON
-- Same direct API pattern already proven in `process-syllabus` (`callGeminiDirect`)
-- No OpenRouter dependency, no 100KB body limit
+AUDIO GENERATION (generate-lecture-audio):
+  needsNarration() check: notes < 50 chars?
+  Professor AI already wrote 200+ words --> needsNarration() = FALSE
+  CMM narrator: SKIPPED ENTIRELY
+  TTS reads the generic notes verbatim
+```
+
+The CMM was designed to transform dry slide content into warm, conversational narration -- but the pipeline never reaches it because Professor AI's generic notes pass the 50-char threshold.
+
+## The Solution
+
+Inject CMM narration principles directly into the Professor AI speaker_notes instructions. This way, every slide -- both individual (v3) and batch -- produces CMM-quality narration from the start. The audio pipeline then reads these notes verbatim via TTS (which is the correct behavior for deterministic audio).
 
 ## What Changes
 
-### File 1: `supabase/functions/curriculum-reasoning-agent/index.ts`
+### File 1: `supabase/functions/_shared/slide-prompts.ts`
 
-**Change A: Replace `callAI` function (lines 181-206)**
+**Change A: Replace the generic speaker_notes instruction in PROFESSOR_SYSTEM_PROMPT (lines 91-96)**
 
-Remove the `generateText()` call via OpenRouter. Replace with a direct Google API call using `gemini-3-pro-preview` with thinking enabled and search grounding.
+Replace the current 6-line generic instruction with CMM-aligned guidance:
 
-```typescript
-async function callAI(systemPrompt: string, userPrompt: string): Promise<DecomposeResponse> {
-  console.log('[curriculum-reasoning-agent] Calling Gemini 3 Pro with thinking + search...');
+```
+BEFORE:
+5. speaker_notes: 200-300 words of natural, conversational lecture narration that:
+   - Sounds like a professor actually speaking to students
+   - Adds context, anecdotes, and explanatory depth beyond the slides
+   - Anticipates questions students might have
+   - Provides additional examples or clarifications
+   - Guides students through the material with clear transitions
 
-  const GOOGLE_CLOUD_API_KEY = Deno.env.get("GOOGLE_CLOUD_API_KEY");
-  if (!GOOGLE_CLOUD_API_KEY) {
-    throw new Error("GOOGLE_CLOUD_API_KEY not configured");
-  }
+AFTER:
+5. speaker_notes: 200-350 words of CONVERSATIONAL MASTERY narration. These notes
+   will be read verbatim by text-to-speech, so write them as a continuous spoken
+   monologue — not bullet points, not stage directions, not meta-commentary.
 
-  const model = 'gemini-3-pro-preview';
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GOOGLE_CLOUD_API_KEY}`;
+   VOICE AND STYLE:
+   - Write as a warm, intellectually generous mentor speaking directly to the student
+   - Use direct address: "Now, you might be wondering...", "Let me show you why..."
+   - Think aloud: "If we look at it this way... but wait, that creates a problem..."
+   - Use everyday analogies to ground abstract concepts (family dynamics, household
+     economics, popular culture, common experiences)
+   - Include well-timed observational humor when cognitive load is heaviest
+   - Pose rhetorical questions, then answer them yourself
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{
-        parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }]
-      }],
-      generationConfig: {
-        temperature: 0.3,
-        maxOutputTokens: 65536,
-        responseMimeType: "application/json",
-        thinkingConfig: { thinkingLevel: "high" },
-      },
-      tools: [{
-        googleSearch: {}
-      }],
-    }),
-  });
+   PEDAGOGICAL STRUCTURE:
+   - Start from zero — never assume prior knowledge on this specific point
+   - Build brick by brick — each new idea connects to the previous one
+   - Layer complexity gradually — foundation first, then nuance and exceptions
+   - End with synthesis — connect back to the bigger picture
 
-  if (!response.ok) {
-    const err = await response.text();
-    console.error('[curriculum-reasoning-agent] Gemini API error:', err.substring(0, 500));
-
-    // Fallback to OpenRouter
-    console.log('[curriculum-reasoning-agent] Falling back to OpenRouter...');
-    const fallbackResult = await generateText({
-      prompt: userPrompt,
-      systemPrompt: systemPrompt,
-      model: MODELS.GEMINI_PRO,
-      fallbacks: [MODELS.GEMINI_FLASH, MODELS.FAST],
-      logPrefix: '[curriculum-reasoning-agent-fallback]'
-    });
-    if (!fallbackResult.content) throw new Error('No content from fallback');
-    return parseJsonFromAI(fallbackResult.content) as DecomposeResponse;
-  }
-
-  const data = await response.json();
-  const text = data.candidates?.[0]?.content?.parts
-    ?.filter((p: any) => p.text)
-    ?.map((p: any) => p.text)
-    ?.join("") || "";
-
-  if (!text) throw new Error('No content in Gemini response');
-
-  console.log('[curriculum-reasoning-agent] Response:', text.length, 'chars');
-  return parseJsonFromAI(text) as DecomposeResponse;
-}
+   ABSOLUTE RULES FOR SPOKEN NARRATION:
+   - NEVER say "Exactly!", "Great point!", "That's crucial!", or any phrase implying
+     someone else is speaking. This is a monologue — the student has said nothing.
+   - NEVER read citations verbatim (e.g., "Sull et al., 2015"). Convert to natural
+     speech: "researchers found..." or "a major workplace study showed..."
+   - NEVER include [Source N] markers — these are visual artifacts, not spoken content
+   - NEVER read URLs aloud. Convert to natural references.
+   - Each slide's notes should flow naturally from the previous slide's content.
+     Use transitions like "Building on that...", "Now let's look at...",
+     "Here's where it gets interesting..."
 ```
 
-Key capabilities unlocked:
-- **`thinkingConfig: { thinkingLevel: "high" }`** -- Deep reasoning before output (replaces R1's chain-of-thought)
-- **`tools: [{ googleSearch: {} }]`** -- Model can search the web for current pedagogical practices, real-world examples, authoritative definitions
-- **`responseMimeType: "application/json"`** -- Guaranteed valid JSON output (eliminates markdown wrapping parse failures)
-- **Direct API** -- No OpenRouter body limit, no connection drops
+**Change B: Update the speaker_notes instruction in buildUserPrompt (lines 342-345)**
 
-**Change B: Enhance the system prompt (lines 66-93)**
-
-Add instructions that leverage Gemini 3 Pro's search grounding capability:
-
-- Add: "USE YOUR SEARCH CAPABILITY to verify: (1) Current real-world applications and case studies from the last 2 years, (2) Authoritative definitions of domain-specific terms, (3) Current best practices in pedagogy for this domain"
-- Update date reference from "2024-2025" to "2025-2026"
-- Add: "SEARCH QUERY GENERATION: For each teaching unit, your search queries should be informed by what you found during your research -- use verified terminology, not guesses"
-
-**Change C: Enhance syllabus context in user prompt (line 112)**
-
-Currently truncates syllabus to 3,000 chars. With Gemini 3 Pro's 1M context, increase to 15,000 chars:
-
-```typescript
-// BEFORE
-${course.syllabus_text ? `\nSYLLABUS EXCERPT (for context):\n${course.syllabus_text.substring(0, 3000)}` : ''}
-
-// AFTER
-${course.syllabus_text ? `\nSYLLABUS EXCERPT (for deeper context):\n${course.syllabus_text.substring(0, 15000)}` : ''}
+Replace:
+```
+3. Speaker notes MUST be 200-300 words of natural lecture narration that:
+   - Sounds like an actual professor speaking
+   - Adds depth beyond what's on the slide
+   - Anticipates student questions
 ```
 
-This gives the model 5x more syllabus context for better prerequisite mapping and domain-aware decomposition.
-
-### File 2: `supabase/functions/_shared/openrouter-client.ts`
-
-No changes needed. The `MODELS` constants and `generateText` remain available for the fallback path.
-
-### File 3: `supabase/functions/_shared/ai-orchestrator.ts`
-
-No changes needed. `MODEL_CONFIG.GEMINI_PRO` = `gemini-3-pro-preview` is already defined.
-
-### File 4: `supabase/functions/process-syllabus/index.ts` (Fallback truncation fix)
-
-**Change D: Increase fallback truncation limit (line 580)**
-
-Currently truncates to 80,000 chars when falling back to OpenRouter. The OpenRouter body limit is ~100KB which includes headers/JSON wrapper. Increase to the safe maximum:
-
-```typescript
-// BEFORE
-const truncatedPrompt = structurePrompt.substring(0, 80000) +
-
-// AFTER  
-const truncatedPrompt = structurePrompt.substring(0, 90000) +
+With:
+```
+3. Speaker notes MUST be 200-350 words of Conversational Mastery narration:
+   - Written as a continuous spoken monologue (will be read by TTS verbatim)
+   - Warm, conversational tone with everyday analogies and rhetorical questions
+   - NO citation markers [Source N], NO "Exactly!", NO reading URLs aloud
+   - Natural transitions from the previous slide's content
 ```
 
-This squeezes the maximum possible content through the fallback pipe (90K chars + JSON overhead stays under 100KB).
+**Change C: Update the output example and final CRITICAL line (lines 415, 426)**
+
+```
+BEFORE: "speaker_notes": "200-300 words of natural lecture narration..."
+AFTER:  "speaker_notes": "200-350 words of conversational mastery narration (spoken monologue, no citations)..."
+
+BEFORE: CRITICAL: Every slide MUST have speaker_notes with 200-300 words.
+AFTER:  CRITICAL: Every slide MUST have speaker_notes with 200-350 words of conversational narration written as a spoken monologue.
+```
+
+### File 2: `supabase/functions/process-batch-research/index.ts`
+
+**Change D: Update the batch pipeline speaker_notes instruction (line 89)**
+
+Replace:
+```
+3. Speaker notes MUST be 200-300 words of natural lecture narration
+```
+
+With:
+```
+3. Speaker notes MUST be 200-350 words of conversational mastery narration (spoken monologue for TTS — no [Source N] markers, no "Exactly!", use natural transitions between slides)
+```
+
+Also update the final CRITICAL line (line 114):
+```
+BEFORE: CRITICAL: Every slide MUST have speaker_notes with 200-300 words.
+AFTER:  CRITICAL: Every slide MUST have speaker_notes with 200-350 words of conversational narration as a spoken monologue.
+```
+
+### File 3: `supabase/functions/_shared/ai-narrator.ts`
+
+No structural changes. The CMM_SYSTEM_PROMPT and generateNarration() function remain as a **safety net** -- if for any reason a slide arrives at audio generation with notes < 50 chars, the full CMM narrator still kicks in and generates rich narration. This preserves the fallback architecture.
+
+### File 4: `supabase/functions/generate-lecture-audio/index.ts`
+
+No changes. The `needsNarration()` check at line 162 continues to work correctly:
+- Professor AI now generates CMM-quality 200-350 word notes -> `needsNarration()` returns false -> TTS reads them verbatim (correct behavior)
+- If notes are somehow missing/short -> `needsNarration()` returns true -> full CMM narrator generates them (safety net)
 
 ## What Does NOT Change
 
-- `submit-batch-curriculum` (Vertex AI Batch) -- still uses `gemini-3-pro-preview` for bulk processing, untouched
-- All downstream functions (slides, audio, images, evaluation) -- untouched
-- Frontend hooks (`useDecomposeLearningObjective`, `useTeachingUnits`) -- untouched, same request/response shape
-- Database schema -- untouched
-- `process-syllabus` primary path (direct Gemini) -- untouched (only fallback truncation adjusted)
+| Component | Why |
+|-----------|-----|
+| `ai-narrator.ts` (CMM system prompt + functions) | Preserved as safety net fallback |
+| `generate-lecture-audio/index.ts` | Already correct -- reads notes verbatim via TTS |
+| `generate-lecture-slides-v3/index.ts` | Uses shared `PROFESSOR_SYSTEM_PROMPT` and `buildUserPrompt` from slide-prompts.ts |
+| Database schema | No changes needed |
+| Frontend components | No changes needed |
+| Audio generation (TTS, voices, storage) | Untouched |
+| Image generation pipeline | Untouched |
+| Research agent | Untouched |
 
-## Pipeline Continuity Check
+## Pipeline After This Change
 
-The `curriculum-reasoning-agent` receives a `learning_objective_id`, fetches LO + module + course context from the DB, calls AI, and inserts `teaching_units` rows. The input/output contract is identical -- only the AI provider changes internally. Both the manual "Analyze & Break Down" button and the batch curriculum path feed into the same `teaching_units` table.
+```text
+SLIDE GENERATION (Professor AI + CMM instructions):
+  speaker_notes: 200-350 words, conversational mastery style
+  - Warm tone, analogies, rhetorical questions
+  - No citation markers, no dialogue hallucinations
+  - Natural cross-slide transitions
 
-## Cost Comparison
+AUDIO GENERATION:
+  needsNarration() = FALSE (notes are 200+ words, CMM quality)
+  TTS reads notes VERBATIM --> perfectly synced audio
+  CMM narrator: available as safety net, rarely triggered
 
-| Model | Input (per 1M) | Output (per 1M) | Thinking | Search |
-|-------|----------------|------------------|----------|--------|
-| DeepSeek R1 (current) | $0.55 | $2.19 | Yes (uncontrolled) | No |
-| Gemini 3 Pro (proposed) | $2.00 | $12.00 | Yes (configurable) | Yes |
-| Gemini 3 Flash (batch) | $0.50 | $3.00 | No | No |
+RESULT: Consistent narration quality across:
+  - Individual v3 slide generation
+  - Batch slide generation
+  - Audio generation (verbatim TTS)
+  - Regeneration (same prompts)
+```
 
-Gemini 3 Pro is more expensive per token but: (1) produces better structured output requiring fewer retries, (2) search grounding eliminates stale/hallucinated content, (3) configurable thinking avoids R1's unbounded token consumption. For single-LO decomposition (the agentic path), the cost per call is typically $0.01-0.03.
+## Consistency Check
 
+| Path | Prompt Source | Speaker Notes Quality |
+|------|-------------|----------------------|
+| Individual v3 | `PROFESSOR_SYSTEM_PROMPT` + `buildUserPrompt()` (slide-prompts.ts) | CMM-aligned |
+| Batch (process-batch-research) | `PROFESSOR_SYSTEM_PROMPT` + local `buildPromptForUnit()` | CMM-aligned |
+| Audio fallback | `CMM_SYSTEM_PROMPT` (ai-narrator.ts) | Full CMM (safety net) |
+| Regeneration | Same as individual v3 | CMM-aligned |
+
+All four paths now produce consistent, conversational narration optimized for spoken delivery.
