@@ -105,7 +105,7 @@ const handler = async (req: Request): Promise<Response> => {
     // Fetch the lecture slide
     const { data: lectureSlide, error: fetchError } = await supabase
       .from('lecture_slides')
-      .select('*')
+      .select('*, instructor_course:instructor_courses!instructor_course_id (instructor_id)')
       .eq('id', slideId)
       .single();
 
@@ -114,6 +114,32 @@ const handler = async (req: Request): Promise<Response> => {
       return new Response(
         JSON.stringify({ error: 'Lecture slide not found' }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // ========================================================================
+    // SECURITY: Verify caller identity and slide ownership
+    // ========================================================================
+    const authHeader = req.headers.get('Authorization');
+    let userId: string | null = null;
+    if (authHeader) {
+      const token = authHeader.replace('Bearer ', '');
+      if (token !== supabaseServiceKey) {
+        const { data: { user } } = await supabase.auth.getUser(token);
+        userId = user?.id || null;
+      }
+    }
+
+    const courseOwner = (lectureSlide.instructor_course as any)?.instructor_id;
+    if (userId && courseOwner && courseOwner !== userId) {
+      logError('generate-lecture-audio', new Error('Authorization failed'), {
+        userId,
+        courseOwner,
+        slideId,
+      });
+      return new Response(
+        JSON.stringify({ error: 'Not authorized to generate audio for this slide' }),
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -347,7 +373,7 @@ const handler = async (req: Request): Promise<Response> => {
       .update({
         slides: updatedSlides,
         has_audio: allComplete,
-        audio_status: allComplete ? 'ready' : (slidesWithAudio > 0 ? 'ready' : 'failed'),
+        audio_status: allComplete ? 'ready' : 'failed',
         audio_generated_at: new Date().toISOString(),
         audio_audit_log: auditLog,
       })

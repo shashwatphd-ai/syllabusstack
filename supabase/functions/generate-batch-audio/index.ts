@@ -46,15 +46,51 @@ Deno.serve(async (req: Request) => {
     const gatewayKey = serviceKey;
     const supabase = createClient(supabaseUrl, serviceKey);
 
-    // Query units needing audio — exclude units already being generated.
-    // Each invocation re-queries because processed units drop out (has_audio flips).
+    // ========================================================================
+    // SECURITY: Verify caller identity and course ownership
+    // ========================================================================
+    const authHeader = req.headers.get('Authorization');
+    let userId: string | null = null;
+    if (authHeader) {
+      const token = authHeader.replace('Bearer ', '');
+      if (token !== serviceKey) {
+        const { data: { user } } = await supabase.auth.getUser(token);
+        userId = user?.id || null;
+      }
+    }
+
+    const { data: course, error: courseError } = await supabase
+      .from('instructor_courses')
+      .select('id, instructor_id')
+      .eq('id', instructorCourseId)
+      .single();
+
+    if (courseError || !course) {
+      return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'Course not found');
+    }
+
+    if (userId && course.instructor_id && course.instructor_id !== userId) {
+      logError('generate-batch-audio', new Error('Authorization failed'), {
+        userId,
+        courseOwner: course.instructor_id,
+        instructorCourseId,
+      });
+      return new Response(
+        JSON.stringify({ success: false, error: 'Not authorized to generate audio for this course' }),
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Query units needing audio — only pick up units that haven't been attempted.
+    // Exclude 'generating' (in-flight), 'ready' (done), and 'failed' (already tried)
+    // to avoid infinite retry loops. Failed units can be retried manually by the user.
     const { data: pendingUnits, error: queryError } = await supabase
       .from('lecture_slides')
       .select('id, title')
       .eq('instructor_course_id', instructorCourseId)
       .in('status', ['ready', 'published'])
       .eq('has_audio', false)
-      .not('audio_status', 'eq', 'generating')
+      .not('audio_status', 'in', '("generating","ready","failed")')
       .order('title', { ascending: true })
       .limit(BATCH_SIZE);
 
@@ -172,14 +208,14 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // Re-count remaining units (don't rely on stale counts)
+    // Re-count remaining units (must match the main query filter)
     const { count: remainingCount } = await supabase
       .from('lecture_slides')
       .select('id', { count: 'exact', head: true })
       .eq('instructor_course_id', instructorCourseId)
       .in('status', ['ready', 'published'])
       .eq('has_audio', false)
-      .not('audio_status', 'eq', 'generating');
+      .not('audio_status', 'in', '("generating","ready","failed")');
 
     const remaining = remainingCount || 0;
 
@@ -212,7 +248,7 @@ Deno.serve(async (req: Request) => {
           });
         }
         if (attempt < SELF_CONTINUE_MAX_RETRIES) {
-          await new Promise(r => setTimeout(r, SELF_CONTINUE_DELAY_MS * attempt));
+          await new Promise(r => setTimeout(r, SELF_CONTINUE_DELAY_MS * Math.pow(2, attempt - 1)));
         }
       }
 

@@ -156,7 +156,7 @@ export function useCourseLectureSlides(instructorCourseId?: string) {
           id, title, status, has_audio, audio_status, teaching_unit_id,
           instructor_course_id, learning_objective_id, total_slides,
           estimated_duration_minutes, slide_style, error_message,
-          created_at, updated_at, slides,
+          created_at, updated_at,
           teaching_unit:teaching_units!teaching_unit_id (
             sequence_order
           )
