@@ -176,3 +176,7 @@ verify_jwt = false
 [functions.trigger-pending-evaluations]
 # One-time admin function to evaluate pending content matches
 verify_jwt = false
+
+[functions.generate-batch-audio]
+# Batch audio orchestrator - self-continuing, called with service role
+verify_jwt = false

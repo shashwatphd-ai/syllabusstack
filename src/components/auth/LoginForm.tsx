@@ -136,8 +136,8 @@ export function LoginForm() {
               </Link>
             </div>
 
-            <form.Subscribe selector={(state) => [state.canSubmit, state.isSubmitting]}>
-              {([canSubmit, isSubmitting]) => (
+            <form.Subscribe selector={(state: any) => ({ canSubmit: state.canSubmit, isSubmitting: state.isSubmitting })}>
+              {({ canSubmit, isSubmitting }: any) => (
                 <Button type="submit" className="w-full" disabled={!canSubmit || isSubmitting}>
                   {isSubmitting && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
                   Sign in

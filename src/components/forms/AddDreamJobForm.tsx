@@ -329,8 +329,8 @@ export function AddDreamJobForm({ onSubmit, onCancel, isSubmitting = false }: Ad
           </div>
 
           {/* Popular Roles - only show when job query is empty */}
-          <form.Subscribe selector={(state) => state.values.jobQuery}>
-            {(jobQuery) => !jobQuery && (
+          <form.Subscribe selector={(state: any) => state.values?.jobQuery ?? ''}>
+            {(jobQuery: any) => !jobQuery && (
               <div className="space-y-2">
                 <label className="text-sm text-muted-foreground">
                   Popular roles
@@ -434,8 +434,8 @@ export function AddDreamJobForm({ onSubmit, onCancel, isSubmitting = false }: Ad
                 Cancel
               </Button>
             )}
-            <form.Subscribe selector={(state) => [state.canSubmit, state.isSubmitting]}>
-              {([canSubmit, formIsSubmitting]) => (
+            <form.Subscribe selector={(state: any) => ({ canSubmit: state.canSubmit, isSubmitting: state.isSubmitting })}>
+              {({ canSubmit, isSubmitting: formIsSubmitting }: any) => (
                 <Button type="submit" disabled={!canSubmit || isSubmitting || formIsSubmitting} className="w-full sm:w-auto min-h-11">
                   {(isSubmitting || formIsSubmitting) ? (
                     <>

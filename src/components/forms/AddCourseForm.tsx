@@ -478,8 +478,8 @@ export function AddCourseForm({ onSubmit, onCancel, isSubmitting = false }: AddC
             Cancel
           </Button>
         )}
-        <form.Subscribe selector={(state) => [state.canSubmit, state.isSubmitting]}>
-          {([canSubmit, formIsSubmitting]) => (
+        <form.Subscribe selector={(state: any) => ({ canSubmit: state.canSubmit, isSubmitting: state.isSubmitting })}>
+          {({ canSubmit, isSubmitting: formIsSubmitting }: any) => (
             <Button
               type="submit"
               disabled={!canSubmit || isProcessing || formIsSubmitting || !hasContent}

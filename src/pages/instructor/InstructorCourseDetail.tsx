@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, FileText, Video, CheckCircle2, Clock, AlertCircle, Settings2, Copy, Share2, Loader2, Sparkles, Users, Presentation, RotateCcw, Image } from 'lucide-react';
+import { ArrowLeft, Plus, FileText, Video, CheckCircle2, Clock, AlertCircle, Settings2, Copy, Share2, Loader2, Sparkles, Users, Presentation, RotateCcw, Image, Volume2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { VerificationBanner, useVerificationStatus } from '@/components/instructor/VerificationBanner';
 import { AppShell } from '@/components/layout/AppShell';
@@ -37,7 +37,7 @@ import { useInstructorCourse, useModules, useCreateModule, useUpdateInstructorCo
 import { useLearningObjectives, useSearchYouTubeContent } from '@/hooks/useLearningObjectives';
 import { useContentStats } from '@/hooks/useContentStats';
 import { useLOContentStatus } from '@/hooks/useContentStats';
-import { useCourseLectureSlides, useBulkPublishSlides, useCleanupStuckSlides, useRetryFailedSlides } from '@/hooks/useLectureSlides';
+import { useCourseLectureSlides, useBulkPublishSlides, useCleanupStuckSlides, useRetryFailedSlides, useBatchGenerateAudio } from '@/hooks/useLectureSlides';
 // NEW: Use batch API hooks for "Generate All" functionality (50% cost savings)
 import { useSubmitBatchSlides, useCourseSlideStatus, useTriggerImageGeneration, useImageGenerationStatus, useRetryFailedImages } from '@/hooks/useBatchSlides';
 import { LoadingState } from '@/components/common/LoadingState';
@@ -93,6 +93,10 @@ export default function InstructorCourseDetailPage() {
   const triggerImageGen = useTriggerImageGeneration();
   const retryFailedImages = useRetryFailedImages();
   const imageGenStatus = useImageGenerationStatus(id);
+
+  // Batch audio generation
+  const batchAudio = useBatchGenerateAudio(id);
+
   // Calculate slide stats.
   // Prefer backend-computed counts (poll-batch-status) because Realtime can be flaky on some networks.
   // Fallback to local lectureSlides-derived counts when status API isn't available yet.
@@ -688,7 +692,44 @@ export default function InstructorCourseDetailPage() {
                         </Button>
                       )}
                       
-                      {/* Reset Stuck Slides - visible when generating for extended time */}
+                      {/* Generate All Audio Button */}
+                      {(slidesStats.ready > 0 || slidesStats.published > 0) && (batchAudio.audioStatus.pending > 0 || batchAudio.audioStatus.generating > 0 || batchAudio.audioStatus.failed > 0) && (
+                        <Button
+                          variant="outline"
+                          className="gap-2 h-9 flex-1 sm:flex-none"
+                          onClick={() => id && batchAudio.mutate(id)}
+                          disabled={batchAudio.isPending || batchAudio.audioStatus.isRunning}
+                        >
+                          {batchAudio.isPending ? (
+                            <>
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              <span className="hidden sm:inline">Starting...</span>
+                              <span className="sm:hidden">...</span>
+                            </>
+                          ) : batchAudio.audioStatus.isRunning ? (
+                            <>
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              <span className="hidden sm:inline">
+                                Audio {batchAudio.audioStatus.completed}/{batchAudio.audioStatus.total}
+                              </span>
+                              <span className="sm:hidden">
+                                {batchAudio.audioStatus.completed}/{batchAudio.audioStatus.total}
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <Volume2 className="h-4 w-4" />
+                              <span className="hidden sm:inline">
+                                Generate Audio ({batchAudio.audioStatus.pending} pending)
+                              </span>
+                              <span className="sm:hidden">
+                                Audio ({batchAudio.audioStatus.pending})
+                              </span>
+                            </>
+                          )}
+                        </Button>
+                      )}
+                      
                       {slidesStats.generating > 0 && (
                         <Button 
                           variant="ghost" 
