@@ -352,6 +352,77 @@ Write 200-350 words. Return ONLY the narration text, nothing else.`;
 // Batch generate narration with cross-slide continuity
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Upgrade speaker notes via CMM post-processing
+// ---------------------------------------------------------------------------
+// Called AFTER Professor AI generates slides (with generic notes) but BEFORE
+// saving. Transforms each slide's speaker_notes into CMM-quality narration
+// while preserving cross-slide continuity via the rolling 100-word tail.
+// Unlike batchGenerateNarration, this ALWAYS upgrades — it does not check
+// needsNarration() because the goal is to replace generic notes, not fill
+// missing ones.
+
+export async function upgradeSpeakerNotes(
+  slides: Array<{ order: number; type: string; title: string; content: any; speaker_notes: string }>,
+  unitTitle: string,
+  domain: string
+): Promise<void> {
+  const allSlideTitles = slides.map(s => s.title || 'Untitled');
+  let previousNarrationTail = '';
+
+  for (let i = 0; i < slides.length; i++) {
+    const slide = slides[i];
+    const original = slide.speaker_notes || '';
+
+    try {
+      const slideForNarration: SlideForNarration = {
+        order: slide.order,
+        type: slide.type,
+        title: slide.title,
+        content: slide.content,
+        speaker_notes: original, // passed as "raw material" via EXISTING NOTES
+      };
+
+      const narration = await generateNarration(
+        slideForNarration,
+        {
+          slideIndex: i,
+          totalSlides: slides.length,
+          unitTitle,
+          domain,
+          previousNarrationTail,
+          allSlideTitles,
+        }
+      );
+
+      // Overwrite in place
+      slide.speaker_notes = narration;
+
+      // Update continuity tail
+      const words = narration.split(/\s+/);
+      previousNarrationTail = words.slice(Math.max(0, words.length - 100)).join(' ');
+
+      // Small delay to avoid rate limiting
+      if (i < slides.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+    } catch (error) {
+      console.error(`[CMM Upgrade] Failed for slide ${i + 1}, keeping original notes:`, error);
+      // Keep original notes — don't blank them out
+      if (original) {
+        const words = original.split(/\s+/);
+        previousNarrationTail = words.slice(Math.max(0, words.length - 100)).join(' ');
+      }
+    }
+  }
+
+  console.log(`[CMM Upgrade] Completed: ${slides.length} slides upgraded for "${unitTitle}"`);
+}
+
+// ---------------------------------------------------------------------------
+// Batch generate narration with cross-slide continuity
+// ---------------------------------------------------------------------------
+
 export async function batchGenerateNarration(
   slides: SlideForNarration[],
   unitTitle: string,
