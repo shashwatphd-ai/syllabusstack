@@ -14,7 +14,7 @@
 //
 // ============================================================================
 
-import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
 // Task types for model selection (kept for backwards compatibility)
 export type AITaskType =
