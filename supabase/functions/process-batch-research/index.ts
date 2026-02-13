@@ -25,6 +25,7 @@ import {
 } from '../_shared/slide-prompts.ts';
 import { runResearchAgent, getEmptyResearchContext } from '../_shared/research-agent.ts';
 import { calculateQualityMetrics } from '../_shared/quality-metrics.ts';
+import { upgradeSpeakerNotes } from '../_shared/ai-narrator.ts';
 
 // ============================================================================
 // PROCESS BATCH RESEARCH - Background Research and Batch Slide Generation
@@ -185,6 +186,16 @@ async function processBatchViaOpenRouter(
           slides = parsed.slides || parsed;
         } catch (parseError) {
           throw new Error(`Failed to parse AI response: ${parseError instanceof Error ? parseError.message : 'Unknown parse error'}`);
+        }
+
+        // PHASE: CMM Speaker Notes Upgrade (before saving)
+        if (Array.isArray(slides)) {
+          console.log(`[Batch-OR] [${i + 1}] Upgrading speaker notes via CMM...`);
+          try {
+            await upgradeSpeakerNotes(slides, unit.title, course.detected_domain || 'general');
+          } catch (cmmErr) {
+            console.warn(`[Batch-OR] [${i + 1}] CMM upgrade failed, keeping original notes:`, cmmErr);
+          }
         }
 
         // Build stored slides with proper structure (v3 parity)

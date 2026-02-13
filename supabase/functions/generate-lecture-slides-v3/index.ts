@@ -14,6 +14,7 @@ import { checkRateLimit, getUserLimits, createRateLimitResponse } from "../_shar
 // Shared slide system modules (consolidated from duplicated code)
 import type { ProfessorSlide, ResearchContext, StoredSlide, TeachingUnitContext } from '../_shared/slide-types.ts';
 import { PROFESSOR_SYSTEM_PROMPT, buildLectureBrief, mergeResearchIntoBrief, buildUserPrompt, parseJsonFromAI } from '../_shared/slide-prompts.ts';
+import { upgradeSpeakerNotes } from '../_shared/ai-narrator.ts';
 import { fetchTeachingUnitContext } from '../_shared/context-fetcher.ts';
 import { runResearchAgent, getEmptyResearchContext } from '../_shared/research-agent.ts';
 import { calculateQualityMetrics } from '../_shared/quality-metrics.ts';
@@ -314,9 +315,15 @@ const handler = async (req: Request): Promise<Response> => {
       const groundedBrief = mergeResearchIntoBrief(baseBrief, researchContext);
 
       const slides = await runProfessorAI(context, groundedBrief);
-      await updateProgress(supabase, slideRecordId, 'professor', 60, `Generated ${slides.length} slides`);
+      await updateProgress(supabase, slideRecordId, 'professor', 50, `Generated ${slides.length} slides`);
 
       console.log('[Main] Professor AI complete:', slides.length, 'slides');
+
+      // PHASE 2D: CMM Speaker Notes Upgrade
+      console.log('[Main] === PHASE 2D: CMM SPEAKER NOTES UPGRADE ===');
+      await updateProgress(supabase, slideRecordId, 'narration', 55, 'Upgrading speaker notes with Conversational Mastery Method...');
+      await upgradeSpeakerNotes(slides, context.title, context.domain);
+      await updateProgress(supabase, slideRecordId, 'narration', 65, 'Speaker notes upgraded');
 
       // PHASE 3: Save slides FIRST (before image generation to avoid timeout)
       console.log('[Main] === PHASE 3: SAVING SLIDES ===');
