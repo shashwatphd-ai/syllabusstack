@@ -42,7 +42,8 @@ Deno.serve(async (req: Request) => {
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const anonKey = Deno.env.get('SUPABASE_ANON_KEY') || Deno.env.get('SUPABASE_PUBLISHABLE_KEY') || '';
+    // Use service role key for apikey header too — gateway rejects mismatched keys
+    const gatewayKey = serviceKey;
     const supabase = createClient(supabaseUrl, serviceKey);
 
     // BUG 1 FIX: Query with LIMIT instead of offset. Processed units drop out
@@ -86,7 +87,7 @@ Deno.serve(async (req: Request) => {
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${serviceKey}`,
-            'apikey': anonKey,
+            'apikey': gatewayKey,
           },
           body: JSON.stringify({ slideId: unit.id, enableSegmentMapping: true }),
           signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
@@ -197,7 +198,7 @@ Deno.serve(async (req: Request) => {
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${serviceKey}`,
-              'apikey': anonKey,
+              'apikey': gatewayKey,
             },
             body: JSON.stringify({ instructorCourseId }),
             signal: AbortSignal.timeout(30_000),
