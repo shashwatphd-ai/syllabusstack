@@ -16,8 +16,7 @@
  * 4. Secret only returned once in response (not stored in readable form)
  */
 
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
+import { createClient } from "@supabase/supabase-js";
 import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
 import { createErrorResponse, createSuccessResponse, logInfo, withErrorHandling } from "../_shared/error-handler.ts";
 import { validateRequest, webhookCreateSchema } from "../_shared/validators/index.ts";

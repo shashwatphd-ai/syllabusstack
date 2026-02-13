@@ -387,7 +387,7 @@ function scoreResult(result: ContentResult, queryWords: string[]): number {
   return Math.min(score, 1.0);
 }
 
-serve(withErrorHandling(async (req) => {
+Deno.serve(withErrorHandling(async (req) => {
   const corsHeaders = getCorsHeaders(req);
   
   const authHeader = req.headers.get("Authorization");

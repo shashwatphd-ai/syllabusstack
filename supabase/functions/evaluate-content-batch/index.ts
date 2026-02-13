@@ -1,5 +1,4 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "@supabase/supabase-js";
 import { generateText, MODELS, parseJsonResponse } from "../_shared/unified-ai-client.ts";
 import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
 import {
@@ -354,4 +353,4 @@ Note: total_score = (relevance_score * 0.4) + (pedagogy_score * 0.35) + (quality
   return createSuccessResponse(evaluations, corsHeaders);
 };
 
-serve(withErrorHandling(handler, getCorsHeaders));
+Deno.serve(withErrorHandling(handler, getCorsHeaders));

@@ -24,7 +24,7 @@ import {
  *     "limit": 5
  *   }
  */
-serve(async (req) => {
+Deno.serve(async (req) => {
   const preflightResponse = handleCorsPreFlight(req);
   if (preflightResponse) return preflightResponse;
 

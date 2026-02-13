@@ -1,5 +1,4 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.47.12';
+import { createClient } from "@supabase/supabase-js";
 import { generateText, MODELS } from "../_shared/unified-ai-client.ts";
 import { parseJsonFromAI } from "../_shared/slide-prompts.ts";
 import { getCorsHeaders } from "../_shared/cors.ts";
@@ -249,7 +248,7 @@ async function callAI(systemPrompt: string, userPrompt: string): Promise<Decompo
   }
 }
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
   
   // Handle CORS preflight

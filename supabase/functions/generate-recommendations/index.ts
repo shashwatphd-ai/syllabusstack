@@ -13,7 +13,7 @@ import {
 } from "../_shared/error-handler.ts";
 import { validateRequest, generateRecommendationsSchema } from "../_shared/validators/index.ts";
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
   
   if (req.method === "OPTIONS") {

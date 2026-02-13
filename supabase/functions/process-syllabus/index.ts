@@ -309,7 +309,7 @@ interface CourseStructure {
  * 3. Extracts learning objectives and assigns to modules
  * 4. Saves everything to the database
  */
-serve(async (req: Request) => {
+Deno.serve(async (req: Request) => {
   const preflightResponse = handleCorsPreFlight(req);
   if (preflightResponse) return preflightResponse;
 

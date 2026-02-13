@@ -1,5 +1,4 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
+import { createClient } from "@supabase/supabase-js";
 import { generateText, MODELS } from '../_shared/unified-ai-client.ts';
 import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
 import {
@@ -535,4 +534,4 @@ const handler = async (req: Request): Promise<Response> => {
   }
 };
 
-serve(withErrorHandling(handler, getCorsHeaders));
+Deno.serve(withErrorHandling(handler, getCorsHeaders));

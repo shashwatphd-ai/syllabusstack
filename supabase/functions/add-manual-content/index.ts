@@ -12,7 +12,7 @@ import { validateRequest, addManualContentSchema } from "../_shared/validators/i
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   const preflightResponse = handleCorsPreFlight(req);
   if (preflightResponse) return preflightResponse;
 

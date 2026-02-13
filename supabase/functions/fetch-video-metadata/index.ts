@@ -1,4 +1,4 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
 import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
 import {
   createErrorResponse,
@@ -68,4 +68,4 @@ const handler = async (req: Request): Promise<Response> => {
   }
 };
 
-serve(withErrorHandling(handler, getCorsHeaders));
+Deno.serve(withErrorHandling(handler, getCorsHeaders));

@@ -188,20 +188,27 @@ export function LectureSlideViewer({
     const slideAudioUrl = slideAudioUrls?.[selectedVoice] || (currentSlide as any)?.audio_url;
     if (!slideAudioUrl) return;
 
+    // Create Audio element synchronously in gesture context for autoplay-safety
+    const audio = new Audio();
+    audio.play().catch(() => {}); // Unlock audio context (iOS Safari)
+    audioRef.current = audio;
+
     try {
       const { data: signedUrlData } = await supabase.storage
         .from('lecture-audio')
         .createSignedUrl(slideAudioUrl, 3600);
 
-      if (!signedUrlData?.signedUrl) return;
+      if (!signedUrlData?.signedUrl) {
+        stopPreview();
+        return;
+      }
 
       const cacheBuster = lectureSlide.audio_generated_at
         ? `&t=${new Date(lectureSlide.audio_generated_at).getTime()}`
         : '';
 
-      const audio = new Audio(signedUrlData.signedUrl + cacheBuster);
+      audio.src = signedUrlData.signedUrl + cacheBuster;
       audio.addEventListener('ended', () => setIsPreviewPlaying(false));
-      audioRef.current = audio;
       await audio.play();
       setIsPreviewPlaying(true);
     } catch (err) {

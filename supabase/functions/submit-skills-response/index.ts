@@ -28,7 +28,7 @@ interface AssessmentItem {
   sequence_order: number | null;
 }
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   const requestId = generateRequestId();
   const logger = new PipelineLogger('submit-skills-response', requestId);
   const startTime = Date.now();

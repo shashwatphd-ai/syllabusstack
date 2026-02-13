@@ -1,5 +1,4 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { MODEL_CONFIG, getVertexAIModelPath } from '../_shared/ai-orchestrator.ts';
 import { createVertexAIAuth } from '../_shared/vertex-ai-auth.ts';
 import { createGCSClient } from '../_shared/gcs-client.ts';
@@ -307,7 +306,7 @@ async function processBatchViaOpenRouter(
 // MAIN HANDLER
 // ============================================================================
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   const preflightResponse = handleCorsPreFlight(req);
   if (preflightResponse) return preflightResponse;
 
