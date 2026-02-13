@@ -11,8 +11,7 @@
  * Output: { success, processed, remaining, total }
  */
 
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0";
+import { createClient } from "@supabase/supabase-js";
 import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
 import {
   createErrorResponse,
@@ -26,7 +25,7 @@ const POLL_INTERVAL_MS = 10_000; // 10s between status polls
 const MAX_POLL_ATTEMPTS = 60; // 10 min max wait per unit (60 × 10s)
 const INTER_UNIT_DELAY_MS = 5_000; // 5s pause between units
 
-serve(async (req: Request) => {
+Deno.serve(async (req: Request) => {
   const preflightResponse = handleCorsPreFlight(req);
   if (preflightResponse) return preflightResponse;
   const corsHeaders = getCorsHeaders(req);

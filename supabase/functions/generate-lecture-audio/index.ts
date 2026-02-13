@@ -1,5 +1,4 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0";
+import { createClient } from "@supabase/supabase-js";
 import { generateNarration, needsNarration } from "../_shared/ai-narrator.ts";
 import { mapAudioSegments } from "../_shared/segment-mapper.ts";
 import { synthesizeSpeech, TTS_VOICES, resolveVoiceId } from "../_shared/tts-client.ts";
@@ -400,4 +399,4 @@ const handler = async (req: Request): Promise<Response> => {
   }
 };
 
-serve(withErrorHandling(handler, getCorsHeaders));
+Deno.serve(withErrorHandling(handler, getCorsHeaders));
