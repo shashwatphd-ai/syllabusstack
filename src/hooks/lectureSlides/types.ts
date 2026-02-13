@@ -163,7 +163,7 @@ export interface LectureSlide {
   generation_model: string | null;
   status: 'pending' | 'preparing' | 'batch_pending' | 'generating' | 'ready' | 'published' | 'failed';
   error_message: string | null;
-  has_audio: boolean;
+  has_audio: boolean | null;
   audio_status: 'pending' | 'generating' | 'ready' | 'failed' | null;
   audio_generated_at: string | null;
   created_at: string;
