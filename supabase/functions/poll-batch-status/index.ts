@@ -16,8 +16,7 @@
 //
 // ============================================================================
 
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
+import { createClient } from "@supabase/supabase-js";
 import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
 import {
   createErrorResponse,
@@ -271,4 +270,4 @@ async function selfHealSlides(
   }
 }
 
-serve(withErrorHandling(handler, getCorsHeaders));
+Deno.serve(withErrorHandling(handler, getCorsHeaders));

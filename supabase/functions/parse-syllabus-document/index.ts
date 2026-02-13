@@ -1,6 +1,5 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
-import { unzipSync, strFromU8 } from "https://esm.sh/fflate@0.8.2?target=deno";
+import { createClient } from "@supabase/supabase-js";
+import { unzipSync, strFromU8 } from "npm:fflate@^0.8.2";
 import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
 import {
   createErrorResponse,
@@ -421,4 +420,4 @@ Do NOT summarize - extract the complete text content.`;
   }
 };
 
-serve(withErrorHandling(handler, getCorsHeaders));
+Deno.serve(withErrorHandling(handler, getCorsHeaders));

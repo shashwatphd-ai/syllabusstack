@@ -1,5 +1,5 @@
 // Cancel a Vertex AI batch prediction job to stop API charges
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
+
 import { VertexAIAuth } from '../_shared/vertex-ai-auth.ts';
 import { VertexAIBatchClient } from '../_shared/vertex-ai-batch.ts';
 import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
@@ -11,7 +11,7 @@ import {
   logError,
 } from "../_shared/error-handler.ts";
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   const preflightResponse = handleCorsPreFlight(req);
   if (preflightResponse) return preflightResponse;
 

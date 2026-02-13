@@ -1,4 +1,4 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+
 import { createClient } from "@supabase/supabase-js";
 import {
   searchYouTubeOrchestrated,
@@ -126,4 +126,4 @@ const handler = async (req: Request): Promise<Response> => {
   return createSuccessResponse(response, corsHeaders);
 };
 
-serve(withErrorHandling(handler, getCorsHeaders));
+Deno.serve(withErrorHandling(handler, getCorsHeaders));

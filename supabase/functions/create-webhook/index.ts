@@ -209,4 +209,4 @@ const handler = async (req: Request): Promise<Response> => {
   );
 };
 
-serve(withErrorHandling(handler, getCorsHeaders));
+Deno.serve(withErrorHandling(handler, getCorsHeaders));

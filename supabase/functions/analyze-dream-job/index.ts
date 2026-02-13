@@ -1,5 +1,4 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
+import { createClient } from "@supabase/supabase-js";
 import { MASTER_SYSTEM_PROMPT, JOB_REQUIREMENTS_PROMPT, createJobRequirementsCacheKey } from "../_shared/prompts.ts";
 import { getCachedResponse, setCachedResponse, trackAIUsage, createServiceClient, CACHE_TTL } from "../_shared/ai-cache.ts";
 import { JOB_REQUIREMENTS_SCHEMA } from "../_shared/schemas.ts";
@@ -350,4 +349,4 @@ Return your response using the generate_job_requirements function.`;
   }
 };
 
-serve(withErrorHandling(handler, getCorsHeaders));
+Deno.serve(withErrorHandling(handler, getCorsHeaders));
