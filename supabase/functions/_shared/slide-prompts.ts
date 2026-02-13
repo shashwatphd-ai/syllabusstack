@@ -88,12 +88,35 @@ CONTENT DEPTH REQUIREMENTS:
    - connection_to_concept: Explicit link back to the abstract principle
    - real_world_data: Include actual statistics, case study references, or verifiable facts when possible
 
-5. speaker_notes: 200-300 words of natural, conversational lecture narration that:
-   - Sounds like a professor actually speaking to students
-   - Adds context, anecdotes, and explanatory depth beyond the slides
-   - Anticipates questions students might have
-   - Provides additional examples or clarifications
-   - Guides students through the material with clear transitions
+5. speaker_notes: 200-350 words of CONVERSATIONAL MASTERY narration. These notes
+   will be read verbatim by text-to-speech, so write them as a continuous spoken
+   monologue — not bullet points, not stage directions, not meta-commentary.
+
+   VOICE AND STYLE:
+   - Write as a warm, intellectually generous mentor speaking directly to the student
+   - Use direct address: "Now, you might be wondering...", "Let me show you why..."
+   - Think aloud: "If we look at it this way... but wait, that creates a problem..."
+   - Use everyday analogies to ground abstract concepts (family dynamics, household
+     economics, popular culture, common experiences)
+   - Include well-timed observational humor when cognitive load is heaviest
+   - Pose rhetorical questions, then answer them yourself
+
+   PEDAGOGICAL STRUCTURE:
+   - Start from zero — never assume prior knowledge on this specific point
+   - Build brick by brick — each new idea connects to the previous one
+   - Layer complexity gradually — foundation first, then nuance and exceptions
+   - End with synthesis — connect back to the bigger picture
+
+   ABSOLUTE RULES FOR SPOKEN NARRATION:
+   - NEVER say "Exactly!", "Great point!", "That's crucial!", or any phrase implying
+     someone else is speaking. This is a monologue — the student has said nothing.
+   - NEVER read citations verbatim (e.g., "Sull et al., 2015"). Convert to natural
+     speech: "researchers found..." or "a major workplace study showed..."
+   - NEVER include [Source N] markers — these are visual artifacts, not spoken content
+   - NEVER read URLs aloud. Convert to natural references.
+   - Each slide's notes should flow naturally from the previous slide's content.
+     Use transitions like "Building on that...", "Now let's look at...",
+     "Here's where it gets interesting..."
 
 6. MANDATORY COVERAGE:
    - Every common_misconception from the brief MUST have a dedicated slide
@@ -339,10 +362,11 @@ CRITICAL REQUIREMENTS:
    - Real-world example showing the concept in action
    - Why this concept matters in the field
 
-3. Speaker notes MUST be 200-300 words of natural lecture narration that:
-   - Sounds like an actual professor speaking
-   - Adds depth beyond what's on the slide
-   - Anticipates student questions
+3. Speaker notes MUST be 200-350 words of Conversational Mastery narration:
+   - Written as a continuous spoken monologue (will be read by TTS verbatim)
+   - Warm, conversational tone with everyday analogies and rhetorical questions
+   - NO citation markers [Source N], NO "Exactly!", NO reading URLs aloud
+   - Natural transitions from the previous slide's content
 
 4. Bloom level "${context.learning_objective.bloom_level}" dictates cognitive depth:
    - remember: Emphasize clear definitions, memorable examples, key facts
@@ -412,7 +436,7 @@ OUTPUT (JSON array of slides):
         "style": "clean academic",
         "educational_purpose": "What this visual helps students understand"
       },
-      "speaker_notes": "200-300 words of natural lecture narration...",
+      "speaker_notes": "200-350 words of conversational mastery narration (spoken monologue, no citations)...",
       "estimated_seconds": 90,
       "pedagogy": {
         "purpose": "Hook attention and establish real-world relevance",
@@ -423,7 +447,7 @@ OUTPUT (JSON array of slides):
   ]
 }
 
-CRITICAL: Every slide MUST have speaker_notes with 200-300 words. Never leave speaker_notes empty or short.
+CRITICAL: Every slide MUST have speaker_notes with 200-350 words of conversational narration written as a spoken monologue. Never leave speaker_notes empty or short.
 Generate all ${targetSlides} slides now with RICH, EDUCATIONAL content and LAYOUT HINTS for every key_point.`;
 }
 
