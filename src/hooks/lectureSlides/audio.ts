@@ -173,3 +173,96 @@ export function useGenerateLectureAudio() {
     cancelPolling,
   };
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Batch Audio Generation Hook
+// ──────────────────────────────────────────────────────────────────────────────
+
+interface BatchAudioStatus {
+  total: number;
+  completed: number;
+  pending: number;
+  generating: number;
+  failed: number;
+  isRunning: boolean;
+}
+
+/**
+ * Hook for batch audio generation across an entire course.
+ *
+ * - Mutation fires `generate-batch-audio` (fire-and-forget).
+ * - Polling query watches `lecture_slides` audio_status for progress.
+ */
+export function useBatchGenerateAudio(instructorCourseId?: string) {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  // Poll audio progress for the course
+  const { data: audioStatus } = useQuery<BatchAudioStatus>({
+    queryKey: ['batch-audio-status', instructorCourseId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('lecture_slides')
+        .select('has_audio, audio_status')
+        .eq('instructor_course_id', instructorCourseId!)
+        .in('status', ['ready', 'published']);
+
+      if (error) throw error;
+
+      const slides = data || [];
+      const completed = slides.filter(s => s.has_audio === true).length;
+      const generating = slides.filter(s => s.audio_status === 'generating').length;
+      const failed = slides.filter(s => s.audio_status === 'failed').length;
+      const pending = slides.filter(s => !s.has_audio && s.audio_status !== 'generating' && s.audio_status !== 'failed').length;
+
+      return {
+        total: slides.length,
+        completed,
+        pending,
+        generating,
+        failed,
+        isRunning: generating > 0,
+      };
+    },
+    enabled: !!instructorCourseId,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (data && data.isRunning) return 10_000; // 10s while generating
+      return false;
+    },
+    staleTime: 5_000,
+  });
+
+  const mutation = useMutation({
+    mutationFn: async (courseId: string) => {
+      // Fire-and-forget — the edge function self-continues
+      supabase.functions.invoke('generate-batch-audio', {
+        body: { instructorCourseId: courseId },
+      }).catch(err => {
+        console.warn('Batch audio invocation warning (expected for long jobs):', err?.message);
+      });
+
+      return { started: true };
+    },
+    onSuccess: () => {
+      toast({
+        title: 'Batch Audio Generation Started',
+        description: 'Generating audio for all pending teaching units. This runs in the background and may take a few hours.',
+      });
+      // Start polling
+      queryClient.invalidateQueries({ queryKey: ['batch-audio-status', instructorCourseId] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Batch Audio Failed',
+        description: error.message,
+        variant: 'destructive',
+      });
+    },
+  });
+
+  return {
+    ...mutation,
+    audioStatus: audioStatus ?? { total: 0, completed: 0, pending: 0, generating: 0, failed: 0, isRunning: false },
+  };
+}

@@ -244,8 +244,8 @@ export function ProfileForm({
 
           {!autoSave && (
             <div className="flex justify-end">
-              <form.Subscribe selector={(state) => [state.canSubmit, state.isSubmitting]}>
-                {([canSubmit, formIsSubmitting]) => (
+              <form.Subscribe selector={(state: any) => ({ canSubmit: state.canSubmit, isSubmitting: state.isSubmitting })}>
+                {({ canSubmit, isSubmitting: formIsSubmitting }: any) => (
                   <Button type="submit" disabled={!canSubmit || isLoading || formIsSubmitting}>
                     {(isLoading || formIsSubmitting) ? (
                       <>

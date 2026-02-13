@@ -312,8 +312,8 @@ export default function ProfilePage() {
               </div>
 
               <div className="flex justify-end">
-                <form.Subscribe selector={(state) => [state.canSubmit, state.isSubmitting]}>
-                  {([canSubmit, isSubmitting]) => (
+                <form.Subscribe selector={(state: any) => ({ canSubmit: state.canSubmit, isSubmitting: state.isSubmitting })}>
+                  {({ canSubmit, isSubmitting }: any) => (
                     <Button type="submit" disabled={!canSubmit || isSubmitting || updateProfile.isPending}>
                       {(isSubmitting || updateProfile.isPending) ? (
                         <>

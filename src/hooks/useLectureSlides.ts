@@ -34,6 +34,7 @@ export {
   useCancelQueuedSlide,
   // Audio hooks
   useGenerateLectureAudio,
+  useBatchGenerateAudio,
   // Queue/Bulk operation hooks
   useBulkPublishSlides,
   useBulkQueueSlides,

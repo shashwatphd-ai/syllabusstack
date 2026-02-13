@@ -38,7 +38,7 @@ export {
 } from './mutations';
 
 // Audio hooks
-export { useGenerateLectureAudio } from './audio';
+export { useGenerateLectureAudio, useBatchGenerateAudio } from './audio';
 
 // Queue/Bulk operation hooks
 export {
