@@ -1,5 +1,4 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
+import { createClient } from "@supabase/supabase-js";
 import { generateText, MODELS, parseJsonResponse } from "../_shared/unified-ai-client.ts";
 import {
   createErrorResponse,
@@ -318,4 +317,4 @@ Respond with JSON only:
   }, corsHeaders);
 };
 
-serve(withErrorHandling(handler, getCorsHeaders));
+Deno.serve(withErrorHandling(handler, getCorsHeaders));

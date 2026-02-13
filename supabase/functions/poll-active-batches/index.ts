@@ -19,8 +19,7 @@
  //
  // ============================================================================
  
- import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
- import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.12";
+import { createClient } from "@supabase/supabase-js";
  import { createVertexAIAuth } from '../_shared/vertex-ai-auth.ts';
  import { createGCSClient, GCSClient } from '../_shared/gcs-client.ts';
  import { createVertexAIBatchClient, VertexAIBatchClient, BatchJobStatus } from '../_shared/vertex-ai-batch.ts';
