@@ -86,7 +86,7 @@ Create a comprehensive ${targetSlides}-slide lecture deck for this teaching unit
 CRITICAL REQUIREMENTS:
 1. Every common_misconception MUST have a dedicated "misconception" slide
 2. Every required_concept MUST be defined with formal + plain-language definitions
-3. Speaker notes MUST be 200-350 words of conversational mastery narration (spoken monologue for TTS — no [Source N] markers, no "Exactly!", use natural transitions between slides)
+3. Speaker notes MUST be 200-300 words of natural lecture narration
 4. Bloom level "${unitData.learning_objective.bloom_level}" dictates cognitive depth
 
 5. CONTENT DEPTH:
@@ -111,7 +111,7 @@ CRITICAL REQUIREMENTS:
 
 OUTPUT: JSON with "slides" array. Each slide has order, type, title, content, visual_directive, speaker_notes, estimated_seconds, pedagogy.
 
-CRITICAL: Every slide MUST have speaker_notes with 200-350 words of conversational narration as a spoken monologue. Generate all ${targetSlides} slides with RICH content.`;
+CRITICAL: Every slide MUST have speaker_notes with 200-300 words. Generate all ${targetSlides} slides with RICH content.`;
 }
 
 // ============================================================================
