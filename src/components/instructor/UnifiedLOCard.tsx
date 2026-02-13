@@ -359,6 +359,12 @@ export const UnifiedLOCard = memo(function UnifiedLOCard({ learningObjective, co
                         />
                       ))}
                     </div>
+                  ) : learningObjective.decomposition_status === 'completed' ? (
+                    /* Decomposition finished but teaching units haven't loaded yet */
+                    <div className="flex items-center justify-center py-6">
+                      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                      <span className="ml-2 text-xs text-muted-foreground">Loading units...</span>
+                    </div>
                   ) : (
                     <div className="text-center py-4 border border-dashed border-border rounded-lg">
                       <Brain className="h-8 w-8 mx-auto mb-2 text-muted-foreground/50" />

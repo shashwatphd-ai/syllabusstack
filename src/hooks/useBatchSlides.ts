@@ -401,7 +401,7 @@ export function useCourseSlideStatus(instructorCourseId?: string) {
       return false;
     },
 
-    staleTime: 3000,
+    staleTime: 10_000,
   });
 }
 
@@ -686,20 +686,17 @@ export function useImageGenerationStatus(instructorCourseId?: string) {
     enabled: !!instructorCourseId,
     refetchInterval: (query) => {
       const data = query.state.data;
-      // Poll every 10 seconds while there's active work
+      // Poll every 10 seconds only while there's genuinely active work
       if (data?.processing && data.processing > 0) {
-        return 10000;
+        return 10_000;
       }
       if (data?.queued && data.queued > 0) {
-        return 10000;
+        return 10_000;
       }
-      // Keep polling briefly after data arrives to catch transitions
-      if (data?.total && data.total > 0 && data.completed !== data.total) {
-        return 15000;
-      }
+      // Stop polling when idle — no active processing or queued items
       return false;
     },
-    staleTime: 5000,
+    staleTime: 10_000,
   });
 }
 
