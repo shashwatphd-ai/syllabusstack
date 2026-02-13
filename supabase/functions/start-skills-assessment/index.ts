@@ -1,5 +1,4 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
+import { createClient } from "@supabase/supabase-js";
 import {
   validateStartAssessmentRequest,
   successResponse,
@@ -26,7 +25,7 @@ interface AssessmentItem {
   sequence_order: number | null;
 }
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   const requestId = generateRequestId();
   const logger = new PipelineLogger('start-skills-assessment', requestId);
   const startTime = Date.now();

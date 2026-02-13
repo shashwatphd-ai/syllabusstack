@@ -1,5 +1,4 @@
-import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
+import { createClient } from "@supabase/supabase-js";
 import { getWebProvider } from "../_shared/web-provider.ts";
 import { generateText, MODELS } from "../_shared/unified-ai-client.ts";
 import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
@@ -208,7 +207,7 @@ Return a JSON object with these fields (use null for missing fields):
   }
 };
 
-serve(withErrorHandling(handler, getCorsHeaders));
+Deno.serve(withErrorHandling(handler, getCorsHeaders));
 
 function extractJobDataFallback(markdown: string, metadata: any): JobPostingData {
   const lines = markdown.split("\n").filter(l => l.trim());

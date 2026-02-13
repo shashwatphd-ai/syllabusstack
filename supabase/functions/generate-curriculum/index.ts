@@ -39,7 +39,7 @@ interface CurriculumSubject {
   skills_covered: string[];
 }
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
   
   if (req.method === 'OPTIONS') {

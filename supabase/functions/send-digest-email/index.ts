@@ -1,6 +1,5 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { Resend } from "https://esm.sh/resend@2.0.0?target=deno";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
+import { Resend } from "npm:resend@^2.0.0";
+import { createClient } from "@supabase/supabase-js";
 import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
 import { createErrorResponse, createSuccessResponse, logInfo, logError, withErrorHandling } from "../_shared/error-handler.ts";
 
@@ -415,4 +414,4 @@ function generateEnhancedDigestHtml(data: DigestData): string {
   `;
 }
 
-serve(withErrorHandling(handler, getCorsHeaders));
+Deno.serve(withErrorHandling(handler, getCorsHeaders));

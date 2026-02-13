@@ -243,4 +243,4 @@ function generateFallbackQueries(
   return queries.filter(q => q.trim().length > 5);
 }
 
-serve(withErrorHandling(handler, getCorsHeaders));
+Deno.serve(withErrorHandling(handler, getCorsHeaders));

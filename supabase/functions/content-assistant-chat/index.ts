@@ -10,7 +10,7 @@ import {
 } from "../_shared/error-handler.ts";
 import { checkRateLimit, getUserLimits, createRateLimitResponse } from "../_shared/rate-limiter.ts";
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   const preflightResponse = handleCorsPreFlight(req);
   if (preflightResponse) return preflightResponse;
 

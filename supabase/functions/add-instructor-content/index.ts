@@ -1,5 +1,4 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0?target=deno&deno-std=0.168.0";
+import { createClient } from "@supabase/supabase-js";
 import { enrichVideoMetadata, YouTubeSearchResult } from "../_shared/youtube-search/index.ts";
 import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
 import {
@@ -348,7 +347,7 @@ async function extractMetadata(url: string): Promise<ContentMetadata | null> {
   return getGenericMetadata(url);
 }
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   const preflightResponse = handleCorsPreFlight(req);
   if (preflightResponse) return preflightResponse;
 
