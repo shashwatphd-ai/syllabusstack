@@ -184,6 +184,7 @@ interface BatchAudioStatus {
   pending: number;
   generating: number;
   failed: number;
+  actionable: number;
   isRunning: boolean;
 }
 
@@ -214,6 +215,8 @@ export function useBatchGenerateAudio(instructorCourseId?: string) {
       const generating = slides.filter(s => s.audio_status === 'generating').length;
       const failed = slides.filter(s => s.audio_status === 'failed').length;
       const pending = slides.filter(s => !s.has_audio && s.audio_status !== 'generating' && s.audio_status !== 'failed').length;
+      // "actionable" = pending + failed (units that need audio generation)
+      const actionable = pending + failed;
 
       return {
         total: slides.length,
@@ -221,6 +224,7 @@ export function useBatchGenerateAudio(instructorCourseId?: string) {
         pending,
         generating,
         failed,
+        actionable,
         isRunning: generating > 0,
       };
     },
@@ -263,6 +267,6 @@ export function useBatchGenerateAudio(instructorCourseId?: string) {
 
   return {
     ...mutation,
-    audioStatus: audioStatus ?? { total: 0, completed: 0, pending: 0, generating: 0, failed: 0, isRunning: false },
+    audioStatus: audioStatus ?? { total: 0, completed: 0, pending: 0, generating: 0, failed: 0, actionable: 0, isRunning: false },
   };
 }
