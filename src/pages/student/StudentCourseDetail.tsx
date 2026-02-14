@@ -37,6 +37,24 @@ export default function StudentCourseDetailPage() {
   const navigate = useNavigate();
   const { data: course, isLoading, error } = useEnrolledCourseDetail(id);
 
+  // Compute loIds defensively before any conditional returns
+  const allLOs = course?.modules.flatMap(m => m.learning_objectives) ?? [];
+  const loIds = allLOs.map(lo => lo.id);
+
+  // This hook must be called unconditionally (before any early returns)
+  const { data: losWithQuestions } = useQuery({
+    queryKey: ['lo-question-availability', loIds.join(',')],
+    queryFn: async () => {
+      if (loIds.length === 0) return new Set<string>();
+      const { data } = await supabase
+        .from('assessment_questions')
+        .select('learning_objective_id')
+        .in('learning_objective_id', loIds);
+      return new Set((data || []).map(d => d.learning_objective_id));
+    },
+    enabled: loIds.length > 0,
+  });
+
   if (isLoading) {
     return (
       <AppShell>
@@ -66,28 +84,12 @@ export default function StudentCourseDetailPage() {
   }
 
   // Calculate overall progress using state machine
-  const allLOs = course.modules.flatMap(m => m.learning_objectives);
   const completedLOs = allLOs.filter(lo =>
     isComplete(lo.verification_state as VerificationState)
   );
   const progressPercent = allLOs.length > 0
     ? (completedLOs.length / allLOs.length) * 100
     : 0;
-
-  // Check which LOs have assessment questions available
-  const loIds = allLOs.map(lo => lo.id);
-  const { data: losWithQuestions } = useQuery({
-    queryKey: ['lo-question-availability', loIds.join(',')],
-    queryFn: async () => {
-      if (loIds.length === 0) return new Set<string>();
-      const { data } = await supabase
-        .from('assessment_questions')
-        .select('learning_objective_id')
-        .in('learning_objective_id', loIds);
-      return new Set((data || []).map(d => d.learning_objective_id));
-    },
-    enabled: loIds.length > 0,
-  });
 
   return (
     <AppShell>
