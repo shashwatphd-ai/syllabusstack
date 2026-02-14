@@ -175,12 +175,23 @@ export function useSearchYouTubeContent() {
     },
     onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['content-matches', variables.id] });
-      const found = data.total_found ?? data.videos_discovered ?? 0;
+      const saved = data.content_matches?.length ?? 0;
       const autoApproved = data.auto_approved_count ?? 0;
-      const description = data.batch_evaluation_pending
-        ? `Discovered ${found} videos, queued for evaluation`
-        : `Found ${found} videos, ${autoApproved} auto-approved`;
-      toast({ title: 'Content Found', description });
+      const totalDiscovered = data.total_found ?? 0;
+      if (data.batch_evaluation_pending) {
+        toast({ title: 'Content Found', description: `Discovered ${totalDiscovered} videos, queued for evaluation` });
+      } else if (saved > 0) {
+        const desc = autoApproved > 0
+          ? `${saved} videos saved (${autoApproved} auto-approved)`
+          : `${saved} videos saved for review`;
+        toast({ title: 'Content Found', description: desc });
+      } else {
+        toast({ 
+          title: 'No Matches', 
+          description: `Scanned ${totalDiscovered} videos but none met quality thresholds. Try manual search.`,
+          variant: 'destructive',
+        });
+      }
     },
     onError: (error) => {
       toast({

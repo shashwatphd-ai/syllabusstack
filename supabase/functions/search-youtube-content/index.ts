@@ -974,7 +974,7 @@ const handler = async (req: Request): Promise<Response> => {
     const channelCounts = new Map<string, number>();
     const viableCandidates = scoredVideos.filter((sv) => {
       // Minimum quality threshold
-      if (sv.scores.total < 0.45) return false;
+      if (sv.scores.total < 0.35) return false;
       // Never save videos that AI explicitly rejected
       if (sv.ai_recommendation === 'not_recommended') return false;
       // Limit per channel to ensure diversity
