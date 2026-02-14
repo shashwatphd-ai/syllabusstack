@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, PlayCircle, CheckCircle2, Clock, ChevronDown, ClipboardCheck, XCircle, Presentation } from 'lucide-react';
+import { ArrowLeft, PlayCircle, CheckCircle2, Clock, ChevronDown, ClipboardCheck, XCircle, Presentation, Award, AlertTriangle } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { useLearningObjectiveProgress } from '@/hooks/useStudentCourses';
@@ -415,6 +415,47 @@ export default function LearningObjectivePage() {
                   >
                     Continue Assessment
                   </Button>
+                </CardContent>
+              </Card>
+            )}
+
+            {learningObjective.verification_state === 'passed' && (
+              <Card className="border-success/50 bg-success/5">
+                <CardContent className="py-4">
+                  <div className="flex items-center gap-3">
+                    <Award className="h-8 w-8 text-success shrink-0" />
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold">Assessment Passed!</p>
+                      <p className="text-xs text-muted-foreground">You've demonstrated mastery</p>
+                    </div>
+                    <Button 
+                      variant="outline"
+                      size="sm"
+                      onClick={() => navigate(`/learn/objective/${loId}/assess`)}
+                    >
+                      Retake
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {learningObjective.verification_state === 'remediation_required' && (
+              <Card className="border-warning/50 bg-warning/5">
+                <CardContent className="py-4">
+                  <div className="flex items-center gap-3">
+                    <AlertTriangle className="h-8 w-8 text-warning shrink-0" />
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold">Review & Retry</p>
+                      <p className="text-xs text-muted-foreground">Review the material and try again</p>
+                    </div>
+                    <Button 
+                      size="sm"
+                      onClick={() => navigate(`/learn/objective/${loId}/assess`)}
+                    >
+                      Retry Assessment
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             )}

@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo, memo } from 'react';
-import { ChevronDown, ChevronRight, Video, Search, Loader2, CheckCircle, XCircle, Play, Link, Clock, ExternalLink, Sparkles, Bot, AlertTriangle, ThumbsUp, Info, MessageSquare, Zap, Award, Users, Trash2, Brain, Layers } from 'lucide-react';
+import { ChevronDown, ChevronRight, Video, Search, Loader2, CheckCircle, XCircle, Play, Link, Clock, ExternalLink, Sparkles, Bot, AlertTriangle, ThumbsUp, Info, MessageSquare, Zap, Award, Users, Trash2, Brain, Layers, FileQuestion } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -7,7 +7,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 
 import { LearningObjective, ContentMatch, useContentMatches, useSearchYouTubeContent, useUpdateContentMatchStatus } from '@/hooks/useLearningObjectives';
 import { useVideoOtherMatches } from '@/hooks/useVideoOtherMatches';
-import { useGenerateMicroChecks } from '@/hooks/useAssessment';
+import { useGenerateMicroChecks, useAssessmentQuestions } from '@/hooks/useAssessment';
 import { useTeachingUnits, useDecomposeLearningObjective, useSearchForTeachingUnit, TeachingUnit } from '@/hooks/useTeachingUnits';
 import { useCourseLectureSlides, useGenerateLectureSlides, useCancelQueuedSlide } from '@/hooks/useLectureSlides';
 import { VideoPreviewModal } from './VideoPreviewModal';
@@ -67,6 +67,10 @@ export const UnifiedLOCard = memo(function UnifiedLOCard({ learningObjective, co
   const [showAddByURL, setShowAddByURL] = useState(false);
   const [showAIAssistant, setShowAIAssistant] = useState(false);
   const [slideViewerUnit, setSlideViewerUnit] = useState<TeachingUnit | null>(null);
+  const [showQuestions, setShowQuestions] = useState(false);
+
+  // Fetch assessment question count
+  const { data: assessmentQuestions } = useAssessmentQuestions(learningObjective.id);
 
   const { data: contentMatches, isLoading: loadingMatches } = useContentMatches(isOpen ? learningObjective.id : undefined);
   const searchContent = useSearchYouTubeContent();
@@ -308,6 +312,16 @@ export const UnifiedLOCard = memo(function UnifiedLOCard({ learningObjective, co
                       {contentStatus.pendingCount} pending
                     </Badge>
                   )}
+                  {assessmentQuestions && assessmentQuestions.length > 0 && (
+                    <Badge 
+                      variant="outline" 
+                      className="text-[10px] sm:text-xs text-primary border-primary/30 cursor-pointer hover:bg-primary/10"
+                      onClick={(e) => { e.stopPropagation(); setShowQuestions(!showQuestions); }}
+                    >
+                      <FileQuestion className="h-2.5 w-2.5 mr-0.5" />
+                      {assessmentQuestions.length} Qs
+                    </Badge>
+                  )}
                 </div>
               </div>
 
@@ -332,6 +346,43 @@ export const UnifiedLOCard = memo(function UnifiedLOCard({ learningObjective, co
           </CollapsibleTrigger>
 
           <CollapsibleContent>
+            {/* Inline Question Preview */}
+            {showQuestions && assessmentQuestions && assessmentQuestions.length > 0 && (
+              <div className="px-4 py-3 border-t border-border/50 bg-muted/20">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                  <FileQuestion className="h-3 w-3" />
+                  Assessment Questions ({assessmentQuestions.length})
+                </p>
+                <div className="space-y-2 max-h-80 overflow-y-auto">
+                  {assessmentQuestions.map((q, i) => (
+                    <div key={q.id} className="p-2.5 rounded-md bg-card border border-border/50 text-sm">
+                      <div className="flex items-start gap-2">
+                        <span className="text-xs font-mono text-muted-foreground shrink-0 mt-0.5">Q{i + 1}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm">{q.question_text}</p>
+                          <div className="flex items-center gap-2 mt-1.5">
+                            <Badge variant="secondary" className="text-[10px]">{q.question_type}</Badge>
+                            {q.difficulty && <Badge variant="outline" className="text-[10px]">{q.difficulty}</Badge>}
+                          </div>
+                          {q.options && Array.isArray(q.options) && (
+                            <div className="mt-1.5 space-y-0.5">
+                              {(q.options as Array<{ label: string; text: string; is_correct?: boolean }>).map((opt, j) => (
+                                <p key={j} className={`text-xs ${opt.is_correct ? 'text-success font-medium' : 'text-muted-foreground'}`}>
+                                  {opt.label}. {opt.text} {opt.is_correct && '✓'}
+                                </p>
+                              ))}
+                            </div>
+                          )}
+                          {q.correct_answer && !q.options && (
+                            <p className="text-xs text-success mt-1">Answer: {q.correct_answer}</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="px-4 pb-4 pt-0 border-t border-border/50">
               {/* Action buttons */}
               <div className="flex items-center gap-2 py-3 flex-wrap">
