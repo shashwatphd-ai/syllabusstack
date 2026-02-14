@@ -1,4 +1,4 @@
-import React, { useState, useCallback, memo } from 'react';
+import React, { useState, useCallback, useMemo, memo } from 'react';
 import { ChevronDown, ChevronRight, Video, Search, Loader2, CheckCircle, XCircle, Play, Link, Clock, ExternalLink, Sparkles, Bot, AlertTriangle, ThumbsUp, Info, MessageSquare, Zap, Award, Users, Trash2, Brain, Layers } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -93,6 +93,53 @@ export const UnifiedLOCard = memo(function UnifiedLOCard({ learningObjective, co
   const approvedMatches = contentMatches?.filter(m => m.status === 'approved' || m.status === 'auto_approved') || [];
   
   const hasTeachingUnits = teachingUnits && teachingUnits.length > 0;
+
+  // Auto-assign unlinked content matches to best matching teaching unit
+  const matchesByUnitId = useMemo(() => {
+    if (!contentMatches || !teachingUnits || teachingUnits.length === 0) return {};
+    
+    const result: Record<string, ContentMatch[]> = {};
+    teachingUnits.forEach(u => { result[u.id] = []; });
+    
+    for (const match of contentMatches) {
+      if (match.teaching_unit_id && result[match.teaching_unit_id]) {
+        // Already assigned
+        result[match.teaching_unit_id].push(match);
+      } else if (!match.teaching_unit_id) {
+        // Auto-assign: score each teaching unit by keyword overlap with video title
+        const videoTitle = (match.content?.title || '').toLowerCase();
+        const videoDesc = (match.content?.description || '').toLowerCase();
+        const videoText = videoTitle + ' ' + videoDesc;
+        
+        let bestUnitId = teachingUnits[0].id;
+        let bestScore = 0;
+        
+        for (const unit of teachingUnits) {
+          let score = 0;
+          // Check required_concepts
+          const concepts = [
+            ...(unit.required_concepts || []),
+            ...(unit.search_queries || []),
+            unit.title,
+          ];
+          for (const concept of concepts) {
+            const words = concept.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+            for (const word of words) {
+              if (videoText.includes(word)) score++;
+            }
+          }
+          if (score > bestScore) {
+            bestScore = score;
+            bestUnitId = unit.id;
+          }
+        }
+        
+        result[bestUnitId].push(match);
+      }
+    }
+    
+    return result;
+  }, [contentMatches, teachingUnits]);
   
   // Handle lecture slide creation/viewing
   const handleCreateLecture = async (unit: TeachingUnit) => {
@@ -146,7 +193,25 @@ export const UnifiedLOCard = memo(function UnifiedLOCard({ learningObjective, co
       });
     }
     
-    setPreviewMatch(null);
+    // Auto-advance to next pending video in batch mode
+    const currentIdx = pendingMatches.findIndex(m => m.id === match.id);
+    if (currentIdx >= 0 && currentIdx < pendingMatches.length - 1) {
+      setPreviewMatch(pendingMatches[currentIdx + 1]);
+    } else {
+      setPreviewMatch(null);
+    }
+  };
+
+  const handleReject = (match: ContentMatch) => {
+    updateStatus.mutate({ matchId: match.id, status: 'rejected' });
+    
+    // Auto-advance to next pending video
+    const currentIdx = pendingMatches.findIndex(m => m.id === match.id);
+    if (currentIdx >= 0 && currentIdx < pendingMatches.length - 1) {
+      setPreviewMatch(pendingMatches[currentIdx + 1]);
+    } else {
+      setPreviewMatch(null);
+    }
   };
 
   const formatDuration = (seconds: number | null) => {
@@ -348,7 +413,7 @@ export const UnifiedLOCard = memo(function UnifiedLOCard({ learningObjective, co
                         <TeachingUnitCard
                           key={unit.id}
                           unit={unit}
-                          contentMatches={contentMatches?.filter(m => m.teaching_unit_id === unit.id) || []}
+                          contentMatches={matchesByUnitId[unit.id] || []}
                           onSearch={() => searchForUnit.mutate(unit.id)}
                           isSearching={searchForUnit.isSearching(unit.id)}
                           onCreateLecture={handleCreateLecture}
@@ -389,16 +454,16 @@ export const UnifiedLOCard = memo(function UnifiedLOCard({ learningObjective, co
                     </div>
                   )}
 
-                  {/* Existing content that isn't tied to teaching units */}
-                  {contentMatches && contentMatches.length > 0 && (
+                  {/* Show unlinked content only when there are NO teaching units */}
+                  {!hasTeachingUnits && contentMatches && contentMatches.length > 0 && (
                     <div className="space-y-3">
                       {/* Approved content */}
-                      {approvedMatches.filter(m => !m.teaching_unit_id).length > 0 && (
+                      {approvedMatches.length > 0 && (
                         <div className="space-y-2">
                           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                            Approved ({approvedMatches.filter(m => !m.teaching_unit_id).length})
+                            Approved ({approvedMatches.length})
                           </p>
-                          {approvedMatches.filter(m => !m.teaching_unit_id).map((match) => (
+                          {approvedMatches.map((match) => (
                             <CompactContentCard
                               key={match.id}
                               match={match}
@@ -419,19 +484,19 @@ export const UnifiedLOCard = memo(function UnifiedLOCard({ learningObjective, co
                       )}
 
                       {/* Pending content */}
-                      {pendingMatches.filter(m => !m.teaching_unit_id).length > 0 && (
+                      {pendingMatches.length > 0 && (
                         <div className="space-y-2">
                           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                            Pending Review ({pendingMatches.filter(m => !m.teaching_unit_id).length})
+                            Pending Review ({pendingMatches.length})
                           </p>
-                          {pendingMatches.filter(m => !m.teaching_unit_id).map((match) => (
+                          {pendingMatches.map((match) => (
                             <CompactContentCard
                               key={match.id}
                               match={match}
                               learningObjectiveId={learningObjective.id}
                               onPreview={() => setPreviewMatch(match)}
                               onApprove={() => handleApprove(match)}
-                              onReject={() => updateStatus.mutate({ matchId: match.id, status: 'rejected' })}
+                              onReject={() => handleReject(match)}
                               formatDuration={formatDuration}
                               getScoreColor={getScoreColor}
                               isLoading={updateStatus.isPending}
@@ -463,13 +528,10 @@ export const UnifiedLOCard = memo(function UnifiedLOCard({ learningObjective, co
         open={previewMatch !== null}
         onOpenChange={(open) => !open && setPreviewMatch(null)}
         onApprove={() => previewMatch && handleApprove(previewMatch)}
-        onReject={() => {
-          if (previewMatch) {
-            updateStatus.mutate({ matchId: previewMatch.id, status: 'rejected' });
-            setPreviewMatch(null);
-          }
-        }}
+        onReject={() => previewMatch && handleReject(previewMatch)}
         isLoading={updateStatus.isPending}
+        pendingMatches={pendingMatches}
+        onNavigate={(match) => setPreviewMatch(match)}
       />
 
       {/* Manual Search Dialog */}

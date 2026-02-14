@@ -1,7 +1,8 @@
+import { useState, useEffect, useCallback } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { CheckCircle, XCircle, ExternalLink } from 'lucide-react';
+import { CheckCircle, XCircle, ExternalLink, ChevronLeft, ChevronRight } from 'lucide-react';
 import { ContentMatch } from '@/hooks/useLearningObjectives';
 
 interface VideoPreviewModalProps {
@@ -11,12 +12,15 @@ interface VideoPreviewModalProps {
   onApprove: () => void;
   onReject: () => void;
   isLoading?: boolean;
+  /** All pending matches for batch review flow */
+  pendingMatches?: ContentMatch[];
+  /** Called when navigating to a different match in batch mode */
+  onNavigate?: (match: ContentMatch) => void;
 }
 
 function extractVideoId(url: string | null | undefined): string | null {
   if (!url) return null;
   
-  // Handle various YouTube URL formats
   const patterns = [
     /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/,
     /youtube\.com\/v\/([^&\n?#]+)/,
@@ -36,10 +40,40 @@ export function VideoPreviewModal({
   onOpenChange, 
   onApprove, 
   onReject,
-  isLoading 
+  isLoading,
+  pendingMatches = [],
+  onNavigate,
 }: VideoPreviewModalProps) {
   const content = match?.content;
   const videoId = extractVideoId(content?.source_url);
+
+  // Find current index in pending matches
+  const currentIndex = match ? pendingMatches.findIndex(m => m.id === match.id) : -1;
+  const hasPrev = currentIndex > 0;
+  const hasNext = currentIndex >= 0 && currentIndex < pendingMatches.length - 1;
+  const isBatchMode = pendingMatches.length > 1;
+
+  const goToNext = useCallback(() => {
+    if (hasNext && onNavigate) {
+      onNavigate(pendingMatches[currentIndex + 1]);
+    }
+  }, [hasNext, onNavigate, pendingMatches, currentIndex]);
+
+  const goToPrev = useCallback(() => {
+    if (hasPrev && onNavigate) {
+      onNavigate(pendingMatches[currentIndex - 1]);
+    }
+  }, [hasPrev, onNavigate, pendingMatches, currentIndex]);
+
+  // After approve/reject, auto-advance to next pending
+  const handleApprove = () => {
+    onApprove();
+    // The parent will handle advancing via onNavigate after the mutation succeeds
+  };
+
+  const handleReject = () => {
+    onReject();
+  };
 
   const formatDuration = (seconds: number | null) => {
     if (!seconds) return 'Unknown';
@@ -67,7 +101,14 @@ export function VideoPreviewModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="text-lg pr-8">{content?.title || 'Video Preview'}</DialogTitle>
+          <div className="flex items-center justify-between gap-2 pr-8">
+            <DialogTitle className="text-lg">{content?.title || 'Video Preview'}</DialogTitle>
+            {isBatchMode && currentIndex >= 0 && (
+              <Badge variant="secondary" className="shrink-0 text-xs">
+                {currentIndex + 1} / {pendingMatches.length}
+              </Badge>
+            )}
+          </div>
           <DialogDescription>
             {content?.channel_name} • {formatViews(content?.view_count || null)} views • {formatDuration(content?.duration_seconds || null)}
           </DialogDescription>
@@ -87,6 +128,17 @@ export function VideoPreviewModal({
           ) : (
             <div className="aspect-video rounded-lg bg-muted flex items-center justify-center">
               <p className="text-muted-foreground">Video preview not available</p>
+            </div>
+          )}
+
+          {/* AI Reasoning */}
+          {match.ai_reasoning && (
+            <div className="p-3 bg-muted/50 rounded-lg text-sm">
+              <p className="text-xs font-medium text-muted-foreground mb-1">AI Analysis</p>
+              <p className="text-foreground">{match.ai_reasoning}</p>
+              {match.ai_concern && (
+                <p className="text-warning text-xs mt-1">⚠ {match.ai_concern}</p>
+              )}
             </div>
           )}
 
@@ -119,17 +171,44 @@ export function VideoPreviewModal({
         </div>
 
         <DialogFooter className="flex-col sm:flex-row gap-2 mt-4">
-          {content?.source_url && (
-            <Button variant="ghost" size="sm" asChild className="sm:mr-auto">
-              <a href={content.source_url} target="_blank" rel="noopener noreferrer">
-                <ExternalLink className="h-4 w-4 mr-2" />
-                Open in YouTube
-              </a>
-            </Button>
-          )}
+          {/* Left side: navigation + YouTube link */}
+          <div className="flex items-center gap-2 sm:mr-auto">
+            {isBatchMode && (
+              <div className="flex items-center gap-1">
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={goToPrev}
+                  disabled={!hasPrev}
+                  className="h-8 w-8 p-0"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={goToNext}
+                  disabled={!hasNext}
+                  className="h-8 w-8 p-0"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
+            {content?.source_url && (
+              <Button variant="ghost" size="sm" asChild>
+                <a href={content.source_url} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink className="h-4 w-4 mr-2" />
+                  YouTube
+                </a>
+              </Button>
+            )}
+          </div>
+          
+          {/* Right side: actions */}
           <Button 
             variant="outline" 
-            onClick={onReject}
+            onClick={handleReject}
             disabled={isLoading}
             className="gap-2"
           >
@@ -137,12 +216,12 @@ export function VideoPreviewModal({
             Reject
           </Button>
           <Button 
-            onClick={onApprove}
+            onClick={handleApprove}
             disabled={isLoading}
             className="gap-2"
           >
             <CheckCircle className="h-4 w-4" />
-            Approve
+            Approve{hasNext ? ' & Next' : ''}
           </Button>
         </DialogFooter>
       </DialogContent>
