@@ -39,8 +39,6 @@ export {
   DirectSyllabusBuilder,
   BloomQueryBuilder,
   ModuleContextBuilder,
-  PlatformOptimizedBuilder,
-  ConceptExpansionBuilder,
   createDefaultBuilders,
 } from './builders/query-builders.ts';
 
