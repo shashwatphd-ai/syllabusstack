@@ -84,13 +84,15 @@ Deno.serve(async (req: Request) => {
     // Query units needing audio — only pick up units that haven't been attempted.
     // Exclude 'generating' (in-flight), 'ready' (done), and 'failed' (already tried)
     // to avoid infinite retry loops. Failed units can be retried manually by the user.
+    // NOTE: audio_status can be NULL (never attempted) or 'pending' (reset for retry).
+    // SQL `NOT IN` does not match NULLs, so we use an explicit OR filter.
     const { data: pendingUnits, error: queryError } = await supabase
       .from('lecture_slides')
       .select('id, title')
       .eq('instructor_course_id', instructorCourseId)
       .in('status', ['ready', 'published'])
       .eq('has_audio', false)
-      .not('audio_status', 'in', '("generating","ready","failed")')
+      .or('audio_status.is.null,audio_status.eq.pending')
       .order('title', { ascending: true })
       .limit(BATCH_SIZE);
 
@@ -215,7 +217,7 @@ Deno.serve(async (req: Request) => {
       .eq('instructor_course_id', instructorCourseId)
       .in('status', ['ready', 'published'])
       .eq('has_audio', false)
-      .not('audio_status', 'in', '("generating","ready","failed")');
+      .or('audio_status.is.null,audio_status.eq.pending');
 
     const remaining = remainingCount || 0;
 
