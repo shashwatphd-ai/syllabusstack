@@ -188,7 +188,7 @@ const handler = async (req: Request): Promise<Response> => {
       .select(`
         text, core_concept, bloom_level, domain, search_keywords,
         expected_duration_minutes, instructor_course_id, module_id,
-        decomposition_status, curriculum_batch_job_id,
+        decomposition_status,
         module:module_id(title, description),
         course:instructor_course_id(title, description, code, detected_domain)
       `)
@@ -233,13 +233,12 @@ const handler = async (req: Request): Promise<Response> => {
       console.log(`[TEACHING UNITS] Found ${teachingUnits.length} existing teaching units`);
     } else {
       // No teaching units exist - check if batch job is processing
-      if (contextData.decomposition_status === 'in_progress' && contextData.curriculum_batch_job_id) {
+      if (contextData.decomposition_status === 'in_progress') {
         console.log(`[TEACHING UNITS] Batch decomposition in progress for LO ${learning_objective_id}`);
         return new Response(
           JSON.stringify({
             success: false,
             retry_later: true,
-            batch_job_id: contextData.curriculum_batch_job_id,
             message: 'Teaching unit decomposition in progress, please retry in 30 seconds'
           }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 202 }
