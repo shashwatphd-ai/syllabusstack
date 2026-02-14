@@ -1,87 +1,103 @@
 
-# Fix All Build Errors (10 issues across 8 files)
 
-These are all pre-existing issues exposed by the build checker. No logic changes -- just fixing types, imports, and variable scoping so everything compiles and deploys cleanly.
+## Diagnosis: Runaway Orchestrator Loop Burning API Costs
 
----
+### What's Happening Right Now
 
-## 1. Stripe `apiVersion` mismatch (5 files)
+The batch audio orchestrator (`generate-batch-audio`) is stuck in an **infinite tight loop**, calling itself every ~1 second, doing nothing productive:
 
-The installed Stripe SDK v18.5.0 expects `"2025-08-27.basil"` but code says `"2023-10-16"`.
+```text
+Status:  20/53 ready | 4 stuck in "generating" | 29 pending (NULL)
 
-**Fix:** Remove `apiVersion` from all Stripe constructors so the SDK uses its built-in default.
-
-| File | Line |
-|------|------|
-| `cancel-subscription/index.ts` | 26 |
-| `create-portal-session/index.ts` | 26 |
-| `get-invoices/index.ts` | 26 |
-| `purchase-certificate/index.ts` | 108 |
-| `stripe-webhook/index.ts` | 28 |
-
-## 2. `current_period_end` type errors (cancel-subscription + stripe-webhook)
-
-With the updated SDK types, `current_period_end` moves from a direct property to being accessed properly. 
-
-**Fix:** After removing `apiVersion`, the SDK's default types will expose `current_period_end` correctly. No additional code changes needed beyond fix #1.
-
-## 3. Duplicate import in `fetch-video-metadata/index.ts`
-
-Line 1 and line 2 are identical CORS imports.
-
-**Fix:** Delete line 2.
-
-## 4. `serve()` not defined in `poll-active-batches/index.ts`
-
-Line 56 uses bare `serve(...)` which is not imported or globally available.
-
-**Fix:** Change `serve(` to `Deno.serve(`.
-
-## 5. `.catch()` on PromiseLike in `process-syllabus/index.ts`
-
-Supabase client returns `PromiseLike` which lacks `.catch()`. Line 617.
-
-**Fix:** Wrap in `Promise.resolve()` so `.then().catch()` works:
-```typescript
-Promise.resolve(
-  supabaseClient
-    .from('instructor_courses')
-    .update({ domain_config: enrichedConfig })
-    .eq('id', instructor_course_id)
-)
-  .then(() => console.log('...'))
-  .catch((e: unknown) => console.warn('...'));
+Loop behavior (every ~1 second):
+  1. Check in-flight count -> 4 (at MAX_CONCURRENT)
+  2. Slots available -> 0
+  3. Dispatch 0 new slides
+  4. remaining=29, totalInFlight=4 -> self-continue
+  5. Repeat forever
 ```
 
-## 6. Missing `course` variable in `process-batch-research/index.ts`
+The 4 slides stuck in "generating" have been that way since 02:15. The workers that were processing them crashed or timed out, but **never updated the status back to "failed"**. The orchestrator has **no staleness detection**, so it keeps looping forever waiting for those 4 zombie workers to finish.
 
-Line 194 inside `processBatchViaOpenRouter()` references `course.detected_domain` but `course` is not in scope -- it's only in the main handler.
+### Cost Waste
 
-**Fix:** Add a `domain: string` parameter to `processBatchViaOpenRouter()` and pass `course.detected_domain || 'general'` from the caller (line 681). Use `domain` instead of `course.detected_domain` on line 194.
+Over the ~3 hours this has been running:
+- ~10,000+ edge function invocations (orchestrator self-calls)
+- Each invocation does 2 database queries + 1 fetch call
+- The workers themselves are NOT running (no TTS API costs being wasted), but the orchestrator overhead is significant
 
-## 7. Frontend type cast in `src/hooks/lectureSlides/queries.ts`
+### Root Causes (Three Issues)
 
-The lightweight select query doesn't include `generation_context`, `generation_model`, `audio_generated_at`, `created_by`, or `slides`, so TypeScript won't cast directly to `LectureSlide[]`.
+1. **No stale worker detection**: The orchestrator never checks if "generating" slides have been stuck for too long. It just trusts they'll finish eventually.
 
-**Fix:**
-- Line 177: `slide.slides` doesn't exist in the select -- default to empty array: `slides: [] as Slide[]`
-- Line 178: Cast through `unknown`: `as unknown as LectureSlide[]`
+2. **No backoff / circuit breaker**: When slots are full and nothing is dispatched, the orchestrator immediately self-continues instead of waiting or stopping. This creates a ~1 call/second infinite loop.
 
----
+3. **Worker crash doesn't update status**: When `generate-lecture-audio` times out (150s edge function limit), the error handler tries to set `audio_status='failed'`, but this is a last-resort catch block that may not execute if the Deno isolate is forcefully killed.
 
-## Summary
+### Fix Plan
 
-| # | File | What changes |
-|---|------|-------------|
-| 1 | `cancel-subscription/index.ts` | Remove `apiVersion` from Stripe constructor |
-| 2 | `create-portal-session/index.ts` | Remove `apiVersion` from Stripe constructor |
-| 3 | `get-invoices/index.ts` | Remove `apiVersion` from Stripe constructor |
-| 4 | `purchase-certificate/index.ts` | Remove `apiVersion` from Stripe constructor |
-| 5 | `stripe-webhook/index.ts` | Remove `apiVersion` from Stripe constructor |
-| 6 | `fetch-video-metadata/index.ts` | Delete duplicate import line |
-| 7 | `poll-active-batches/index.ts` | `serve(` to `Deno.serve(` |
-| 8 | `process-syllabus/index.ts` | Wrap fire-and-forget in `Promise.resolve()` |
-| 9 | `process-batch-research/index.ts` | Add `domain` param, pass from caller |
-| 10 | `src/hooks/lectureSlides/queries.ts` | Fix type cast + default empty slides |
+#### Step 1: Stop the current loop immediately
 
-All edge functions will be redeployed after fixes. Zero logic changes -- purely compilation fixes.
+Reset the 4 stuck "generating" slides back to NULL so they can be reprocessed, and let the loop terminate naturally (it will see 0 in-flight + pending items after the reset).
+
+Actually, the 29 pending slides will keep it going, so we need the code fix deployed first.
+
+#### Step 2: Fix the orchestrator (`generate-batch-audio/index.ts`)
+
+Add three safeguards:
+
+**A. Stale worker detection (lines 81-88 area)**
+Before counting in-flight workers, reset any slide that has been "generating" for more than 10 minutes back to NULL:
+
+```typescript
+// Reset stale workers (stuck > 10 minutes)
+const staleThreshold = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+const { data: staleSlides } = await supabase
+  .from('lecture_slides')
+  .update({ audio_status: null })
+  .eq('instructor_course_id', instructorCourseId)
+  .eq('audio_status', 'generating')
+  .lt('updated_at', staleThreshold)
+  .select('id');
+
+if (staleSlides?.length) {
+  console.warn(`Reset ${staleSlides.length} stale workers`);
+}
+```
+
+**B. Circuit breaker — stop looping when idle (line 178 area)**
+If nothing was dispatched AND nothing is making progress, stop the loop instead of spinning endlessly:
+
+```typescript
+// Only self-continue if we actually dispatched work or there are available slots
+if (dispatched > 0 || (remaining > 0 && slotsAvailable > 0)) {
+  // self-continue
+} else if (totalInFlight > 0) {
+  // Workers are running but no slots — schedule a delayed check (30s)
+  // Use a longer delay to avoid tight looping
+} else {
+  // Nothing to do — stop
+}
+```
+
+**C. Add a delay between self-continuations**
+Instead of instant self-calls, add a minimum 15-second gap by including a `delayMs` parameter that the next invocation will sleep on before doing work.
+
+#### Step 3: Fix the worker (`generate-lecture-audio/index.ts`)
+
+Ensure the worker ALWAYS updates `audio_status` to `failed` on timeout/crash, even if the main catch block fails. This is already partially implemented but may not survive Deno isolate termination.
+
+#### Step 4: Reset stuck slides and redeploy
+
+Reset all 4 stuck slides and 29 pending slides, then redeploy both functions.
+
+### Technical Details
+
+**Files to modify:**
+- `supabase/functions/generate-batch-audio/index.ts` — Add stale detection, circuit breaker, and backoff delay
+- `supabase/functions/generate-lecture-audio/index.ts` — Minor hardening of error status updates
+
+**Database operations:**
+- Reset 4 "generating" slides to NULL
+- No schema changes needed
+
