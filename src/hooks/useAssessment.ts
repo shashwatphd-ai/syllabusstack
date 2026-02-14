@@ -29,6 +29,7 @@ export {
   useSubmitAssessmentAnswer,
   useCompleteAssessment,
   useGenerateAssessmentQuestions,
+  useDeleteAssessmentQuestion,
   // Micro-checks hooks
   useGenerateMicroChecks,
   useMicroChecks,

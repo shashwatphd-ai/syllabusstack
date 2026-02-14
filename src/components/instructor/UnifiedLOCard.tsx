@@ -7,7 +7,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 
 import { LearningObjective, ContentMatch, useContentMatches, useSearchYouTubeContent, useUpdateContentMatchStatus } from '@/hooks/useLearningObjectives';
 import { useVideoOtherMatches } from '@/hooks/useVideoOtherMatches';
-import { useGenerateMicroChecks, useAssessmentQuestions } from '@/hooks/useAssessment';
+import { useGenerateMicroChecks, useAssessmentQuestions, useDeleteAssessmentQuestion } from '@/hooks/useAssessment';
 import { useTeachingUnits, useDecomposeLearningObjective, useSearchForTeachingUnit, TeachingUnit } from '@/hooks/useTeachingUnits';
 import { useCourseLectureSlides, useGenerateLectureSlides, useCancelQueuedSlide } from '@/hooks/useLectureSlides';
 import { VideoPreviewModal } from './VideoPreviewModal';
@@ -96,6 +96,7 @@ export const UnifiedLOCard = memo(function UnifiedLOCard({ learningObjective, co
   const searchContent = useSearchYouTubeContent();
   const updateStatus = useUpdateContentMatchStatus();
   const generateMicroChecks = useGenerateMicroChecks();
+  const deleteQuestion = useDeleteAssessmentQuestion();
   
   // Teaching Units integration
   const { data: teachingUnits, isLoading: loadingUnits } = useTeachingUnits(isOpen ? learningObjective.id : undefined);
@@ -378,7 +379,7 @@ export const UnifiedLOCard = memo(function UnifiedLOCard({ learningObjective, co
                 </p>
                 <div className="space-y-2 max-h-80 overflow-y-auto">
                   {assessmentQuestions.map((q, i) => (
-                    <div key={q.id} className="p-2.5 rounded-md bg-card border border-border/50 text-sm">
+                    <div key={q.id} className="p-2.5 rounded-md bg-card border border-border/50 text-sm group/question">
                       <div className="flex items-start gap-2">
                         <span className="text-xs font-mono text-muted-foreground shrink-0 mt-0.5">Q{i + 1}</span>
                         <div className="flex-1 min-w-0">
@@ -400,6 +401,15 @@ export const UnifiedLOCard = memo(function UnifiedLOCard({ learningObjective, co
                             <p className="text-xs text-success mt-1">Answer: {q.correct_answer}</p>
                           )}
                         </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 w-6 p-0 opacity-0 group-hover/question:opacity-100 transition-opacity text-muted-foreground hover:text-destructive shrink-0"
+                          onClick={() => deleteQuestion.mutate({ questionId: q.id, learningObjectiveId: learningObjective.id })}
+                          disabled={deleteQuestion.isPending}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
                       </div>
                     </div>
                   ))}

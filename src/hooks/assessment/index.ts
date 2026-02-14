@@ -32,6 +32,7 @@ export {
   useSubmitAssessmentAnswer,
   useCompleteAssessment,
   useGenerateAssessmentQuestions,
+  useDeleteAssessmentQuestion,
 } from './mutations';
 
 // Micro-checks hooks

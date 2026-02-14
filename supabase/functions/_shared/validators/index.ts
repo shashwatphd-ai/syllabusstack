@@ -383,6 +383,7 @@ export const generateAssessmentQuestionsSchema = z.object({
   content_context: z.string().max(10000).optional(),
   count: z.number().int().min(1).max(10).optional().default(5),
   difficulty: z.enum(['easy', 'medium', 'hard']).optional(),
+  existing_questions: z.array(z.string()).max(50).optional(),
 }).refine(
   data => data.learning_objective_id || data.learning_objective_text,
   { message: 'Either learning_objective_id or learning_objective_text is required' }
