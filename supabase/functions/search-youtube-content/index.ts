@@ -4,7 +4,8 @@ import {
   saveToCache,
   extractKeywords
 } from "../_shared/content-cache.ts";
-import { generateSearchQueries } from "../_shared/query-intelligence/index.ts";
+import { generateSearchQueries, generateSearchQueriesWithBrief } from "../_shared/query-intelligence/index.ts";
+import type { ContentBrief, ContentRoleType, GeneratedQuery } from "../_shared/query-intelligence/types.ts";
 import {
   searchYouTubeOrchestrated,
   toYouTubeVideoArray,
@@ -64,13 +65,35 @@ interface ScoredContent {
   ai_pedagogy_score?: number | null;
   ai_quality_score?: number | null;
   match_score: number;
+  content_role?: ContentRoleType;
 }
 
 // ============================================================================
 // PRE-FILTER FUNCTIONS (kept as lightweight filters, not scoring weights)
 // ============================================================================
 
-function calculateDurationFitScore(actualSeconds: number, expectedMinutes: number): number {
+function calculateDurationFitScore(
+  actualSeconds: number,
+  expectedMinutes: number,
+  role?: ContentRoleType
+): number {
+  // For non-tutorial roles, duration is much less important
+  if (role === 'curiosity_spark' || role === 'adjacent_insight') {
+    if (actualSeconds === 0) return 0.5; // unknown duration — don't kill it
+    if (actualSeconds > 30 && actualSeconds < 600) return 0.9;
+    if (actualSeconds >= 600 && actualSeconds < 1800) return 0.8;
+    return 0.6;
+  }
+
+  if (role === 'real_world_case' || role === 'practitioner_perspective' || role === 'debate_or_analysis') {
+    if (actualSeconds === 0) return 0.5; // unknown — benefit of the doubt
+    if (actualSeconds > 60 && actualSeconds < 3600) return 0.85;
+    return 0.6;
+  }
+
+  // For core_explainer or untagged (tutorial), use existing logic but handle 0-duration
+  if (actualSeconds === 0) return 0.4; // unknown duration — let AI evaluate
+
   const expectedSeconds = expectedMinutes * 60;
   const ratio = Math.min(actualSeconds, expectedSeconds) / Math.max(actualSeconds, expectedSeconds);
 
@@ -83,18 +106,45 @@ function calculateDurationFitScore(actualSeconds: number, expectedMinutes: numbe
   return ratio * 0.7;
 }
 
-function calculateChannelAuthorityScore(channelTitle: string): number {
-  const highAuthority = ["university", "professor", "mit", "stanford", "yale", "harvard", "khan academy", "coursera", "edx", "crash course", "ted-ed"];
-  const mediumAuthority = ["academy", "edu", "college", "course", "learn", "tutorial", "school", "institute"];
-  const lowerTitle = channelTitle.toLowerCase();
+function calculateChannelQualityScore(video: YouTubeVideo): number {
+  let score = 0.5; // neutral baseline
 
-  for (const indicator of highAuthority) {
-    if (lowerTitle.includes(indicator)) return 0.95;
+  // View count signal (from metadata enrichment)
+  if (video.viewCount) {
+    if (video.viewCount > 1_000_000) score += 0.2;
+    else if (video.viewCount > 100_000) score += 0.15;
+    else if (video.viewCount > 10_000) score += 0.1;
+    else if (video.viewCount > 1_000) score += 0.05;
   }
-  for (const indicator of mediumAuthority) {
-    if (lowerTitle.includes(indicator)) return 0.7;
-  }
-  return 0.4;
+
+  const channel = (video.channelTitle || '').toLowerCase();
+
+  // Known high-quality creators (expanded beyond universities)
+  const highQualityCreators = [
+    // Universities & MOOCs
+    'university', 'mit', 'stanford', 'yale', 'harvard', 'khan academy',
+    'coursera', 'edx', 'professor',
+    // Science communicators
+    '3blue1brown', 'veritasium', 'kurzgesagt', 'minutephysics',
+    'vsauce', 'smarter every day', 'numberphile', 'computerphile',
+    'crash course', 'ted-ed', 'ted', 'scishow',
+    // Tech/CS educators
+    'fireship', 'the coding train', 'traversy media', 'freecodecamp',
+    'cs dojo', 'sentdex', 'two minute papers',
+    // News/analysis (non-controversial, factual)
+    'wendover productions', 'real engineering', 'practical engineering',
+    'economics explained', 'polymatter', 'cnbc', 'bloomberg',
+    'vox', 'caspian report',
+    // Business/industry
+    'y combinator', 'a16z', 'harvard business review',
+  ];
+  if (highQualityCreators.some(c => channel.includes(c))) score += 0.15;
+
+  // General educational signals
+  const eduSignals = ['academy', 'edu', 'learn', 'school', 'institute', 'college'];
+  if (eduSignals.some(s => channel.includes(s))) score += 0.05;
+
+  return Math.min(score, 1.0);
 }
 
 /**
@@ -123,8 +173,8 @@ function formatDuration(seconds: number): string {
   return result;
 }
 
-// Pre-filter thresholds
-const MIN_DURATION_FIT = 0.3;
+// Pre-filter thresholds (lowered from 0.3 — AI evaluation is the real quality gate)
+const MIN_DURATION_FIT = 0.2;
 
 // ============================================================================
 // MAIN HANDLER
@@ -334,8 +384,11 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     // If no cache hit (or empty), run query intelligence + multi-source discovery
+    let contentBrief: ContentBrief | null = null;
+    let generatedQueries: GeneratedQuery[] = [];
+
     if (!skipSearch) {
-      // Query Intelligence
+      // Query Intelligence with Content Role Reasoning
       let queries: string[] = [];
 
       // Use teaching unit's specific search_queries if available
@@ -347,12 +400,12 @@ const handler = async (req: Request): Promise<Response> => {
         }
       }
 
-      // Fallback to Query Intelligence if no teaching unit queries available
+      // Use full Query Intelligence with role reasoning if no teaching unit queries
       if (queries.length === 0) {
         const targetUnit = teaching_unit_id ? teachingUnits.find((u: any) => u.id === teaching_unit_id) : teachingUnits[0];
 
         try {
-          console.log('[QUERY INTELLIGENCE] Generating search queries...');
+          console.log('[QUERY INTELLIGENCE] Generating search queries with role reasoning...');
 
           const queryText = targetUnit?.what_to_teach || targetUnit?.title || effectiveLoText;
           const queryConcept = targetUnit?.title || effectiveCoreConcept;
@@ -360,7 +413,7 @@ const handler = async (req: Request): Promise<Response> => {
             ? targetUnit.required_concepts
             : effectiveSearchKeywords || [];
 
-          queries = await generateSearchQueries(
+          const qiResult = await generateSearchQueriesWithBrief(
             {
               id: learning_objective_id,
               text: queryText,
@@ -375,7 +428,10 @@ const handler = async (req: Request): Promise<Response> => {
             moduleContext ? { title: moduleContext.title, description: moduleContext.description } : undefined,
             courseContext ? { title: courseContext.title, description: courseContext.description, code: courseContext.code } : undefined
           );
-          console.log(`[QUERY INTELLIGENCE] Generated ${queries.length} queries:`, queries.slice(0, 3));
+          contentBrief = qiResult.contentBrief;
+          generatedQueries = qiResult.queries;
+          queries = generatedQueries.map(q => q.query);
+          console.log(`[QUERY INTELLIGENCE] Generated ${queries.length} queries (brief: ${contentBrief ? contentBrief.roles.map(r => r.role).join(', ') : 'none'}):`, queries.slice(0, 5));
         } catch (qiError) {
           console.error('[QUERY INTELLIGENCE] Failed, using fallback:', qiError);
           const concept = targetUnit?.title || targetUnit?.what_to_teach?.split(' ').slice(0, 6).join(' ') ||
@@ -394,12 +450,21 @@ const handler = async (req: Request): Promise<Response> => {
 
       // =========================================================================
       // Multi-Query Multi-Source Discovery
-      // Search with top 3 queries in parallel for broader coverage
+      // Search with top 5 queries in parallel for role diversity coverage
       // =========================================================================
-      const topQueries = queries.slice(0, 3);
+      const topQueries = queries.slice(0, 5);
       const seenVideoIds = new Set<string>();
       let orchestratorSource = 'none';
       let orchestratorFallbacks: string[] = [];
+
+      // Build a map from query string to its content_role for video tagging
+      const queryRoleMap = new Map<number, ContentRoleType | undefined>();
+      for (let i = 0; i < topQueries.length; i++) {
+        const gq = generatedQueries.find(q => q.query === topQueries[i]);
+        queryRoleMap.set(i, gq?.content_role);
+      }
+      // Track which role each video was discovered from (first query wins)
+      const videoRoleMap = new Map<string, ContentRoleType>();
 
       if (topQueries.length > 0) {
         console.log(`[ORCHESTRATOR] Searching with ${topQueries.length} queries in parallel`);
@@ -421,16 +486,23 @@ const handler = async (req: Request): Promise<Response> => {
 
         const searchResults = await Promise.all(searchPromises);
 
-        for (const searchResult of searchResults) {
+        for (let idx = 0; idx < searchResults.length; idx++) {
+          const searchResult = searchResults[idx];
           if (!searchResult) continue;
           if (orchestratorSource === 'none') {
             orchestratorSource = searchResult.source;
           }
           orchestratorFallbacks.push(...searchResult.fallbacks_used);
 
+          const queryRole = queryRoleMap.get(idx);
+
           for (const result of searchResult.results) {
             if (!existingVideoIds.has(result.video_id) && !seenVideoIds.has(result.video_id)) {
               seenVideoIds.add(result.video_id);
+              // Tag video with the role of the query that found it
+              if (queryRole) {
+                videoRoleMap.set(result.video_id, queryRole);
+              }
               allVideos.push({
                 id: result.video_id,
                 title: result.title,
@@ -457,27 +529,31 @@ const handler = async (req: Request): Promise<Response> => {
     console.log(`Found ${allVideos.length} unique videos total`);
 
     // =========================================================================
-    // STEP 4: Lightweight Pre-Filter (duration fit + channel authority)
+    // STEP 4: Lightweight Pre-Filter (duration fit + channel quality)
+    // Role-aware: non-tutorial roles get flexible duration scoring
     // =========================================================================
     let filteredVideos: ScoredContent[] = allVideos.map(video => {
+      const videoRole = videoRoleMap.get(video.id);
       const durationFit = calculateDurationFitScore(
         video.duration,
-        effectiveDuration || 15
+        effectiveDuration || 15,
+        videoRole
       );
-      const channelAuthority = calculateChannelAuthorityScore(video.channelTitle);
+      const channelQuality = calculateChannelQualityScore(video);
 
       return {
         video,
         pre_filter: {
           duration_fit: Math.round(durationFit * 100) / 100,
-          channel_authority: Math.round(channelAuthority * 100) / 100,
+          channel_authority: Math.round(channelQuality * 100) / 100,
           passes: durationFit >= MIN_DURATION_FIT,
         },
         match_score: 0,
+        content_role: videoRole,
       };
     }).filter(sv => sv.pre_filter.passes);
 
-    // Sort by channel authority as tiebreaker for AI evaluation ordering
+    // Sort by channel quality as tiebreaker for AI evaluation ordering
     filteredVideos.sort((a, b) =>
       b.pre_filter.channel_authority - a.pre_filter.channel_authority
     );
@@ -514,6 +590,12 @@ const handler = async (req: Request): Promise<Response> => {
               channel_name: sv.video.channelTitle,
               duration_seconds: sv.video.duration,
             })),
+            // Pass content roles so AI evaluates each video against its intended purpose
+            content_roles: Object.fromEntries(
+              topCandidatesForAI
+                .filter(sv => sv.content_role)
+                .map(sv => [sv.video.id, sv.content_role])
+            ),
           }),
         });
 
@@ -572,22 +654,69 @@ const handler = async (req: Request): Promise<Response> => {
     filteredVideos.sort((a, b) => b.match_score - a.match_score);
 
     // =========================================================================
-    // STEP 6: Filter and Select Top Candidates
+    // STEP 6: Portfolio-Aware Selection
+    // Ensures diverse roles (tutorial + curiosity + real-world, etc.)
     // =========================================================================
     const channelCounts = new Map<string, number>();
-    const viableCandidates = filteredVideos.filter((sv) => {
-      // Minimum AI score threshold (50/100 = "acceptable")
-      if (sv.match_score < 0.50) return false;
-      // Never save videos that AI explicitly rejected
-      if (sv.ai_recommendation === 'not_recommended') return false;
-      // Limit per channel to ensure diversity
-      const count = channelCounts.get(sv.video.channelId) || 0;
-      if (count >= 2) return false;
-      channelCounts.set(sv.video.channelId, count + 1);
-      return true;
-    });
+    let viableCandidates: ScoredContent[];
+    let finalCandidates: ScoredContent[];
 
-    const finalCandidates = viableCandidates.slice(0, 10);
+    if (contentBrief && contentBrief.roles.length > 0) {
+      // Portfolio-aware selection: ensure role diversity
+      const portfolio: ScoredContent[] = [];
+      const filledRoles = new Set<string>();
+
+      // Pass 1: Best video per role (ensure diversity)
+      for (const role of contentBrief.roles) {
+        const roleVideos = filteredVideos
+          .filter(sv =>
+            sv.content_role === role.role &&
+            sv.match_score >= 0.45 && // slightly lower for non-tutorial roles
+            sv.ai_recommendation !== 'not_recommended' &&
+            (channelCounts.get(sv.video.channelId) || 0) < 2
+          )
+          .sort((a, b) => b.match_score - a.match_score);
+
+        if (roleVideos.length > 0) {
+          portfolio.push(roleVideos[0]);
+          channelCounts.set(roleVideos[0].video.channelId,
+            (channelCounts.get(roleVideos[0].video.channelId) || 0) + 1);
+          filledRoles.add(role.role);
+        }
+      }
+
+      // Pass 2: Fill remaining slots with best remaining videos (any role)
+      const remaining = filteredVideos
+        .filter(sv =>
+          !portfolio.includes(sv) &&
+          sv.match_score >= 0.50 &&
+          sv.ai_recommendation !== 'not_recommended' &&
+          (channelCounts.get(sv.video.channelId) || 0) < 2
+        )
+        .sort((a, b) => b.match_score - a.match_score);
+
+      for (const v of remaining) {
+        if (portfolio.length >= 10) break;
+        portfolio.push(v);
+        channelCounts.set(v.video.channelId,
+          (channelCounts.get(v.video.channelId) || 0) + 1);
+      }
+
+      viableCandidates = portfolio;
+      finalCandidates = portfolio;
+      console.log(`[PORTFOLIO] Selected ${portfolio.length} videos covering roles: ${[...filledRoles].join(', ')}`);
+    } else {
+      // Fallback: original linear selection (no content brief)
+      viableCandidates = filteredVideos.filter((sv) => {
+        if (sv.match_score < 0.50) return false;
+        if (sv.ai_recommendation === 'not_recommended') return false;
+        const count = channelCounts.get(sv.video.channelId) || 0;
+        if (count >= 2) return false;
+        channelCounts.set(sv.video.channelId, count + 1);
+        return true;
+      });
+      finalCandidates = viableCandidates.slice(0, 10);
+    }
 
     // =========================================================================
     // STEP 7: Save Content and Matches to Database
@@ -655,6 +784,7 @@ const handler = async (req: Request): Promise<Response> => {
           ai_quality_score: candidate.ai_quality_score ?? null,
           ai_recommendation: candidate.ai_recommendation || null,
           ai_concern: candidate.ai_concern || null,
+          content_role: candidate.content_role || null,
           status: autoApprove ? "auto_approved" : "pending",
           approved_by: autoApprove ? user.id : null,
           approved_at: autoApprove ? new Date().toISOString() : null,

@@ -23,11 +23,14 @@ import {
   QueryIntelligenceConfig,
   DEFAULT_CONFIG,
   ExpandedTerms,
+  ContentBrief,
 } from './types.ts';
 
 import { ConceptExtractor, ModuleContextExtractor } from './extractors/concept-extractor.ts';
 import { createDefaultExpander } from './expanders/base-expander.ts';
 import { createDefaultBuilders } from './builders/query-builders.ts';
+import { RoleAwareBuilder } from './builders/role-aware-builder.ts';
+import { generateContentBrief } from './reasoners/content-role-reasoner.ts';
 
 /**
  * Main orchestrator implementation
@@ -38,6 +41,8 @@ export class QueryIntelligenceOrchestrator implements IQueryIntelligenceOrchestr
   private config: QueryIntelligenceConfig;
   private conceptExtractor: ConceptExtractor;
   private moduleExtractor: ModuleContextExtractor;
+  private roleAwareBuilder: RoleAwareBuilder;
+  private lastContentBrief: ContentBrief | null = null;
 
   constructor(config: Partial<QueryIntelligenceConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -47,6 +52,19 @@ export class QueryIntelligenceOrchestrator implements IQueryIntelligenceOrchestr
     // Initialize with defaults
     this.expanders.push(createDefaultExpander());
     this.builders = createDefaultBuilders();
+
+    // Add role-aware builder (highest priority)
+    this.roleAwareBuilder = new RoleAwareBuilder();
+    this.builders.push(this.roleAwareBuilder);
+    this.builders.sort((a, b) => b.priority - a.priority);
+  }
+
+  /**
+   * Get the content brief from the last generateQueries call.
+   * Used by downstream pipeline to tag videos with their roles.
+   */
+  getContentBrief(): ContentBrief | null {
+    return this.lastContentBrief;
   }
 
   /**
@@ -78,6 +96,20 @@ export class QueryIntelligenceOrchestrator implements IQueryIntelligenceOrchestr
     const lo = context.learningObjective;
 
     console.log(`[QueryIntelligence] Generating queries for: "${lo.core_concept}" (${lo.bloom_level})`);
+
+    // Step 0: Content Role Reasoning (LLM-powered creative query generation)
+    try {
+      const contentBrief = await generateContentBrief(context, 5000);
+      this.lastContentBrief = contentBrief;
+      this.roleAwareBuilder.setContentBrief(contentBrief);
+      if (contentBrief) {
+        console.log(`[QueryIntelligence] Content brief: ${contentBrief.roles.map(r => r.role).join(', ')}`);
+      }
+    } catch (e) {
+      console.log('[QueryIntelligence] Content role reasoning failed (non-blocking):', e);
+      this.lastContentBrief = null;
+      this.roleAwareBuilder.setContentBrief(null);
+    }
 
     // Step 1: Extract additional concepts from LO text
     const extractedConcepts = this.conceptExtractor.extract(lo.text, context);
@@ -236,19 +268,35 @@ export class QueryIntelligenceOrchestrator implements IQueryIntelligenceOrchestr
   }
 
   /**
-   * Apply diversity filter and limit results
+   * Apply diversity filter and limit results.
+   * Ensures at least one query per content role before filling with best remaining.
    */
   private applyDiversityAndLimit(queries: GeneratedQuery[]): GeneratedQuery[] {
     const result: GeneratedQuery[] = [];
     const usedSources = new Map<string, number>();
     const usedDerivations = new Set<string>();
+    const filledRoles = new Set<string>();
 
+    // Pass 1: Ensure at least one query per content role
+    const roleQueries = queries.filter(q => q.content_role);
+    for (const query of roleQueries) {
+      if (result.length >= this.config.maxQueries) break;
+      if (filledRoles.has(query.content_role!)) continue;
+
+      result.push(query);
+      filledRoles.add(query.content_role!);
+      usedSources.set(query.source, (usedSources.get(query.source) || 0) + 1);
+      usedDerivations.add(query.derivedFrom.toLowerCase());
+    }
+
+    // Pass 2: Fill remaining slots with best queries (any source)
     for (const query of queries) {
       if (result.length >= this.config.maxQueries) break;
+      if (result.includes(query)) continue;
 
       // Ensure source diversity
       const sourceCount = usedSources.get(query.source) || 0;
-      if (sourceCount >= 3) continue; // Max 3 queries per source
+      if (sourceCount >= 4) continue; // Max 4 queries per source (was 3, raised for role queries)
 
       // Ensure term diversity
       const derivedLower = query.derivedFrom.toLowerCase();
@@ -256,8 +304,7 @@ export class QueryIntelligenceOrchestrator implements IQueryIntelligenceOrchestr
         d.includes(derivedLower) || derivedLower.includes(d)
       );
 
-      if (similarExists && result.length >= 6) {
-        // Allow some repetition for top 6, then enforce diversity
+      if (similarExists && result.length >= 8) {
         continue;
       }
 
@@ -275,6 +322,14 @@ export class QueryIntelligenceOrchestrator implements IQueryIntelligenceOrchestr
  */
 export function createQueryIntelligence(config?: Partial<QueryIntelligenceConfig>): IQueryIntelligenceOrchestrator {
   return new QueryIntelligenceOrchestrator(config);
+}
+
+/**
+ * Result of query generation including the content brief for downstream use
+ */
+export interface QueryGenerationResult {
+  queries: GeneratedQuery[];
+  contentBrief: ContentBrief | null;
 }
 
 /**
@@ -300,7 +355,30 @@ export async function generateSearchQueries(
   module?: { title: string; description?: string; sequence_order?: number },
   course?: { title: string; description?: string; code?: string }
 ): Promise<string[]> {
-  const orchestrator = createQueryIntelligence();
+  const result = await generateSearchQueriesWithBrief(learningObjective, module, course);
+  return result.queries.map(q => q.query);
+}
+
+/**
+ * Full query generation that also returns the ContentBrief and GeneratedQuery objects.
+ * Used by search-youtube-content for role-aware pipeline.
+ */
+export async function generateSearchQueriesWithBrief(
+  learningObjective: {
+    id: string;
+    text: string;
+    core_concept: string;
+    action_verb?: string;
+    bloom_level: string;
+    domain: string;
+    specificity?: string;
+    search_keywords: string[];
+    expected_duration_minutes: number;
+  },
+  module?: { title: string; description?: string; sequence_order?: number },
+  course?: { title: string; description?: string; code?: string }
+): Promise<QueryGenerationResult> {
+  const orchestrator = new QueryIntelligenceOrchestrator();
 
   const context: QueryGenerationContext = {
     learningObjective: {
@@ -328,6 +406,8 @@ export async function generateSearchQueries(
 
   const queries = await orchestrator.generateQueries(context);
 
-  // Return just the query strings for backward compatibility
-  return queries.map(q => q.query);
+  return {
+    queries,
+    contentBrief: orchestrator.getContentBrief(),
+  };
 }

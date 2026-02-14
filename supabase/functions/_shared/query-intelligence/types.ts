@@ -129,13 +129,15 @@ export interface GeneratedQuery {
   priority: number;                // 1-10, higher = more likely to find content
   expectedType: VideoType;         // What type of content expected
   derivedFrom: string;             // Which syllabus term it came from
+  content_role?: ContentRoleType;  // What role this query targets
 }
 
 export type QuerySource =
   | 'syllabus_direct'              // Direct from syllabus keywords
   | 'module_context'               // Derived from module title
   | 'bloom_template'               // Bloom's level template
-  | 'llm_enriched';                // Enhanced by open LLM
+  | 'llm_enriched'                 // Enhanced by open LLM
+  | 'role_reasoning';              // From content role reasoning
 
 export type VideoType =
   | 'lecture'
@@ -146,6 +148,41 @@ export type VideoType =
   | 'worked_example'
   | 'animation'
   | 'discussion';
+
+// ============================================================================
+// CONTENT ROLE TYPES (for intelligent content discovery)
+// ============================================================================
+
+/**
+ * The role a video plays in a learner's experience.
+ * Goes beyond "tutorial" to include curiosity triggers, real-world cases, etc.
+ */
+export type ContentRoleType =
+  | 'core_explainer'
+  | 'curiosity_spark'
+  | 'real_world_case'
+  | 'practitioner_perspective'
+  | 'debate_or_analysis'
+  | 'adjacent_insight';
+
+/**
+ * A content role with its search strategy
+ */
+export interface ContentRole {
+  role: ContentRoleType;
+  description: string;
+  target_content_types: string[];
+  suggested_queries: string[];
+  duration_flexibility: 'strict' | 'flexible' | 'any';
+}
+
+/**
+ * LLM-generated brief describing what kinds of videos would be valuable
+ */
+export interface ContentBrief {
+  roles: ContentRole[];
+  real_world_connections: string[];
+}
 
 // ============================================================================
 // INTERFACE CONTRACTS (Dependency Inversion)
@@ -205,7 +242,7 @@ export interface QueryIntelligenceConfig {
 }
 
 export const DEFAULT_CONFIG: QueryIntelligenceConfig = {
-  maxQueries: 8,
+  maxQueries: 12,
   enableLLMExpansion: true,
   llmTimeoutMs: 3000,
   minQueryDiversity: 0.3,

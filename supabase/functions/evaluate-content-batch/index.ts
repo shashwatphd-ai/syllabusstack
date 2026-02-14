@@ -56,6 +56,41 @@ RED FLAGS TO DETECT:
 - Excessive length without clear structure
 `;
 
+// Role-specific evaluation criteria for diverse content types
+const ROLE_EVALUATION_CRITERIA: Record<string, string> = {
+  core_explainer: `This video should directly teach the concept. Evaluate as a tutorial/lecture:
+- Does it clearly explain the core concept?
+- Is the teaching structured and pedagogically sound?
+- Would a student understand the topic after watching?`,
+  curiosity_spark: `This video should make the topic feel SURPRISING, FASCINATING, or personally relevant.
+- Does it present a "wow" angle, counterintuitive fact, or unexpected connection?
+- Would it make a student genuinely curious to learn more?
+- A short, engaging clip that sparks curiosity is BETTER than a long lecture here.
+- Entertainment value matters — boredom is failure for this role.
+- Score 80+ if it would make someone say "I had no idea that was related!"`,
+  real_world_case: `This video should show a CONCRETE, real-world instance of this concept in action.
+- Does it feature an actual event, industry, company, or phenomenon?
+- Is the connection to the concept clear (even if implicit)?
+- News clips, documentaries, and case studies excel here.
+- A 3-minute news report about a relevant real event can score 90+.
+- Score based on how well it ILLUSTRATES the concept through reality, not how well it TEACHES it.`,
+  practitioner_perspective: `This video should feature someone with REAL EXPERIENCE discussing this topic.
+- Is the speaker a practitioner, professional, or industry expert?
+- Does it provide insights you wouldn't get from a textbook?
+- Interviews, conference talks, podcast clips, and industry talks excel here.
+- Credibility and practical insight matter more than production quality.`,
+  debate_or_analysis: `This video should present MULTIPLE VIEWPOINTS or THOUGHTFUL ANALYSIS.
+- Does it explore trade-offs, debates, or nuanced perspectives?
+- Does it model critical thinking or evaluation?
+- Panel discussions, expert debates, and analytical deep-dives excel here.
+- One-sided advocacy should score lower than balanced analysis.`,
+  adjacent_insight: `This video should illuminate the topic through an UNEXPECTED CONNECTION.
+- Does it come from a different field but shed light on this concept?
+- Would it help build cross-disciplinary understanding?
+- History, analogies, and "surprisingly related" topics excel here.
+- Score based on how well the connection deepens understanding of the main concept.`,
+};
+
 // Scoring calibration guidance with concrete examples
 const SCORING_CALIBRATION = `
 SCORING CALIBRATION WITH CONCRETE EXAMPLES:
@@ -137,14 +172,16 @@ const handler = async (req: Request): Promise<Response> => {
     return createRateLimitResponse(rateLimitResult, corsHeaders);
   }
 
-  const { learning_objective, teaching_unit, videos } = await req.json();
+  const { learning_objective, teaching_unit, videos, content_roles } = await req.json();
 
   if (!learning_objective || !videos || !Array.isArray(videos)) {
     return createErrorResponse('BAD_REQUEST', corsHeaders, 'learning_objective and videos array are required');
   }
 
-  // NEW: Check if we have teaching unit context for enhanced evaluation
+  // Check if we have teaching unit context for enhanced evaluation
   const hasTeachingUnit = teaching_unit && teaching_unit.title;
+  // Check if we have content role assignments for role-aware evaluation
+  const hasContentRoles = content_roles && typeof content_roles === 'object' && Object.keys(content_roles).length > 0;
 
   if (videos.length === 0) {
     return createSuccessResponse({ evaluations: [] }, corsHeaders);
@@ -162,26 +199,52 @@ const handler = async (req: Request): Promise<Response> => {
 
   // Format videos for evaluation (limit to 15 to manage token usage)
   const videosToEvaluate = videos.slice(0, 15);
-  const videoListText = videosToEvaluate.map((v: any, i: number) => 
-    `${i + 1}. VIDEO_ID: ${v.video_id || v.source_id}
+  const videoListText = videosToEvaluate.map((v: any, i: number) => {
+    const videoId = v.video_id || v.source_id;
+    const role = hasContentRoles ? content_roles[videoId] : null;
+    const roleLabel = role ? ` [ROLE: ${role.replace(/_/g, ' ').toUpperCase()}]` : '';
+    return `${i + 1}. VIDEO_ID: ${videoId}${roleLabel}
    Title: ${v.title}
    Channel: ${v.channel_name || 'Unknown'}
    Duration: ${Math.round((v.duration_seconds || 0) / 60)} minutes
-   Description: ${(v.description || '').substring(0, 300)}...`
-  ).join('\n\n');
+   Description: ${(v.description || '').substring(0, 300)}...`;
+  }).join('\n\n');
+
+  // Build system prompt — role-aware when content_roles are provided
+  let roleGuidance = '';
+  if (hasContentRoles) {
+    const uniqueRoles = [...new Set(Object.values(content_roles) as string[])];
+    const roleDescriptions = uniqueRoles
+      .filter(r => ROLE_EVALUATION_CRITERIA[r])
+      .map(r => `### ${r.replace(/_/g, ' ').toUpperCase()}\n${ROLE_EVALUATION_CRITERIA[r]}`)
+      .join('\n\n');
+
+    roleGuidance = `
+IMPORTANT: Videos are tagged with different ROLES. Each role serves a different purpose in the learning experience.
+Evaluate each video against ITS ASSIGNED ROLE, not as a generic tutorial.
+
+A 3-minute news clip tagged as "REAL WORLD CASE" that brilliantly illustrates the concept should score 85+ for relevance.
+A fascinating short video tagged as "CURIOSITY SPARK" should score 85+ even without step-by-step structure.
+The "tangentially related = never above 65" rule applies ONLY to CORE EXPLAINER videos.
+
+ROLE-SPECIFIC CRITERIA:
+${roleDescriptions}
+`;
+  }
 
   const systemPrompt = `You are an expert educational content evaluator with deep expertise in instructional design, Bloom's Taxonomy, and Mayer's Multimedia Learning Principles. Your job is to critically assess YouTube videos for their pedagogical fit with specific learning objectives.
 
 ${MAYER_PRINCIPLES}
 
 ${SCORING_CALIBRATION}
-
+${roleGuidance}
 EVALUATION MINDSET:
 - Be HONEST and CRITICAL - most videos are mediocre (60-75 range)
 - A 90+ score should be rare - reserved for near-perfect pedagogical matches
 - A great video for "understanding" might be poor for "applying" the same concept
 - Consider both content accuracy AND pedagogical effectiveness
-- Flag any red flags that would make content unsuitable`;
+- Flag any red flags that would make content unsuitable
+${hasContentRoles ? '- EVALUATE EACH VIDEO AGAINST ITS ASSIGNED ROLE - a news clip is NOT a tutorial and should not be judged as one' : ''}`;
 
   // Build the user prompt - enhanced when teaching unit context is available
   let userPrompt: string;
