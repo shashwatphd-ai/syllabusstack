@@ -25,13 +25,14 @@ import {
   DEFAULT_CONFIG,
   ExpandedTerms,
   ContentBrief,
+  TeachingContext,
 } from './types.ts';
 
 import { ConceptExtractor, ModuleContextExtractor } from './extractors/concept-extractor.ts';
 import { createDefaultExpander } from './expanders/base-expander.ts';
 import { createDefaultBuilders } from './builders/query-builders.ts';
 import { RoleAwareBuilder } from './builders/role-aware-builder.ts';
-import { generateContentBrief } from './reasoners/content-role-reasoner.ts';
+import { generateStudentSearchBrief } from './reasoners/student-search-agent.ts';
 
 /**
  * Main orchestrator implementation
@@ -86,7 +87,7 @@ export class QueryIntelligenceOrchestrator implements IQueryIntelligenceOrchestr
     // Step 0: Content Role Reasoning (NEW — LLM creative reasoning)
     let contentBrief: ContentBrief | null = null;
     try {
-      contentBrief = await generateContentBrief(context);
+      contentBrief = await generateStudentSearchBrief(context);
       if (contentBrief) {
         this.roleAwareBuilder.setContentBrief(contentBrief);
         console.log(`[QueryIntelligence] Content brief: ${contentBrief.roles.map(r => r.role).join(', ')}`);
@@ -288,7 +289,8 @@ export async function generateSearchQueries(
     expected_duration_minutes: number;
   },
   module?: { title: string; description?: string; sequence_order?: number },
-  course?: { title: string; description?: string; code?: string }
+  course?: { title: string; description?: string; code?: string },
+  teaching?: TeachingContext
 ): Promise<string[]> {
   const orchestrator = createQueryIntelligence();
 
@@ -314,6 +316,7 @@ export async function generateSearchQueries(
       description: course.description,
       code: course.code,
     } : undefined,
+    teaching,
   };
 
   const queries = await orchestrator.generateQueries(context);
@@ -337,7 +340,8 @@ export async function generateSearchQueriesWithBrief(
     expected_duration_minutes: number;
   },
   module?: { title: string; description?: string; sequence_order?: number },
-  course?: { title: string; description?: string; code?: string }
+  course?: { title: string; description?: string; code?: string },
+  teaching?: TeachingContext
 ): Promise<{ queries: GeneratedQuery[]; contentBrief: ContentBrief | null }> {
   const orchestrator = createQueryIntelligence();
 
@@ -363,6 +367,7 @@ export async function generateSearchQueriesWithBrief(
       description: course.description,
       code: course.code,
     } : undefined,
+    teaching,
   };
 
   const queries = await orchestrator.generateQueries(context);

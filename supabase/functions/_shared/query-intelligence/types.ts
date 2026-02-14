@@ -45,12 +45,32 @@ export interface CourseContext {
 }
 
 /**
+ * Teaching context from the instructor's teaching unit decomposition.
+ * Rich pedagogical content that informs what a student just learned,
+ * what might confuse them, and what they should explore next.
+ */
+export interface TeachingContext {
+  what_to_teach: string;
+  why_this_matters?: string;
+  how_to_teach?: string;
+  common_misconceptions?: string[];
+  prerequisites?: string[];
+  enables?: string[];
+  required_concepts?: string[];
+  target_video_type?: string;
+  // Forward-compatible: future rich content sources
+  slide_summaries?: string[];
+  transcript_excerpts?: string[];
+}
+
+/**
  * Complete context for query generation
  */
 export interface QueryGenerationContext {
   learningObjective: ExtractedLearningObjective;
   module?: ModuleContext;
   course?: CourseContext;
+  teaching?: TeachingContext;
 }
 
 // ============================================================================

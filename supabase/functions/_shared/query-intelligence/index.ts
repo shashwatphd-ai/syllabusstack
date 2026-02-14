@@ -46,6 +46,8 @@ export { RoleAwareBuilder } from './builders/role-aware-builder.ts';
 
 // Reasoners
 export { generateContentBrief } from './reasoners/content-role-reasoner.ts';
+export { generateStudentSearchBrief } from './reasoners/student-search-agent.ts';
+export { validateContentBrief } from './reasoners/validate-content-brief.ts';
 
 // Orchestrator
 export {
