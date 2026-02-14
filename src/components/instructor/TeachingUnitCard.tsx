@@ -90,7 +90,8 @@ export const TeachingUnitCard = memo(function TeachingUnitCard({
   const [isExpanded, setIsExpanded] = useState(false);
   const [showAllVideos, setShowAllVideos] = useState(false);
   
-  const unitMatches = contentMatches.filter(m => m.teaching_unit_id === unit.id);
+  // contentMatches is already pre-filtered by the parent (includes auto-assigned unlinked videos)
+  const unitMatches = contentMatches.filter(m => m.status !== 'pending_evaluation');
   const approvedVideos = unitMatches.filter(m => 
     m.status === 'approved' || m.status === 'auto_approved'
   );
