@@ -1,13 +1,14 @@
 /**
  * generate-batch-audio – Course-level batch audio orchestrator
  *
- * Self-continuation pattern (shrinking-queue):
- *  1. Pick the next N units that need audio (has_audio = false, audio_status != 'generating')
- *  2. Fire generate-lecture-audio for each (non-blocking with 30s timeout), then poll status
- *  3. Re-count remaining and self-invoke with retry logic to continue
+ * Fire-and-forget pattern (no in-function polling):
+ *  1. Pick the next N units that need audio (audio_status IS NULL or 'pending')
+ *  2. Fire generate-lecture-audio for each (non-blocking, don't wait)
+ *  3. Self-continue after a delay so the next invocation picks up more pending units
+ *     or detects all are done/in-flight.
  *
  * Input:  { instructorCourseId }
- * Output: { success, processed, remaining, total }
+ * Output: { success, dispatched, remaining, generating }
  */
 
 import { createClient } from "@supabase/supabase-js";
@@ -19,13 +20,9 @@ import {
   logError,
 } from "../_shared/error-handler.ts";
 
-const BATCH_SIZE = 2; // Units per invocation before self-continuing
-const POLL_INTERVAL_MS = 10_000; // 10s between status polls
-const MAX_POLL_ATTEMPTS = 36; // 6 min max wait per unit (36 × 10s)
-const INTER_UNIT_DELAY_MS = 5_000; // 5s pause between units
-const FETCH_TIMEOUT_MS = 30_000; // 30s timeout for initial generate-lecture-audio call
+const BATCH_SIZE = 4; // Fire up to 4 units per invocation
+const SELF_CONTINUE_DELAY_MS = 15_000; // 15s delay before self-continuing (gives units time to start)
 const SELF_CONTINUE_MAX_RETRIES = 3;
-const SELF_CONTINUE_DELAY_MS = 2_000;
 
 Deno.serve(async (req: Request) => {
   const preflightResponse = handleCorsPreFlight(req);
@@ -42,8 +39,6 @@ Deno.serve(async (req: Request) => {
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    // Use service role key for apikey header too — gateway rejects mismatched keys
-    const gatewayKey = serviceKey;
     const supabase = createClient(supabaseUrl, serviceKey);
 
     // ========================================================================
@@ -81,11 +76,19 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // Query units needing audio — only pick up units that haven't been attempted.
-    // Exclude 'generating' (in-flight), 'ready' (done), and 'failed' (already tried)
-    // to avoid infinite retry loops. Failed units can be retried manually by the user.
-    // NOTE: audio_status can be NULL (never attempted) or 'pending' (reset for retry).
-    // SQL `NOT IN` does not match NULLs, so we use an explicit OR filter.
+    // ========================================================================
+    // Count current state
+    // ========================================================================
+    const { count: generatingCount } = await supabase
+      .from('lecture_slides')
+      .select('id', { count: 'exact', head: true })
+      .eq('instructor_course_id', instructorCourseId)
+      .in('status', ['ready', 'published'])
+      .eq('audio_status', 'generating');
+
+    const currentlyGenerating = generatingCount || 0;
+
+    // Query units needing audio — NULL or 'pending' status
     const { data: pendingUnits, error: queryError } = await supabase
       .from('lecture_slides')
       .select('id, title')
@@ -103,114 +106,51 @@ Deno.serve(async (req: Request) => {
 
     const batch = pendingUnits || [];
 
-    if (batch.length === 0) {
+    if (batch.length === 0 && currentlyGenerating === 0) {
       logInfo('generate-batch-audio', 'nothing-to-do', { instructorCourseId });
-      return createSuccessResponse({ success: true, processed: 0, remaining: 0, total: 0 }, corsHeaders);
+      return createSuccessResponse({ success: true, dispatched: 0, remaining: 0, generating: 0 }, corsHeaders);
     }
 
-    let processed = 0;
+    // ========================================================================
+    // Fire-and-forget: dispatch audio generation for each pending unit
+    // ========================================================================
+    let dispatched = 0;
 
     for (const unit of batch) {
-      logInfo('generate-batch-audio', 'processing-unit', {
+      logInfo('generate-batch-audio', 'dispatching-unit', {
         slideId: unit.id,
         title: unit.title,
       });
 
-      try {
-        // Fire generate-lecture-audio with a timeout so we don't block on the
-        // full processing duration. The polling loop handles completion detection.
-        try {
-          const audioResponse = await fetch(`${supabaseUrl}/functions/v1/generate-lecture-audio`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${serviceKey}`,
-              'apikey': gatewayKey,
-            },
-            body: JSON.stringify({ slideId: unit.id, enableSegmentMapping: true }),
-            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-          });
+      // Mark as generating immediately so next invocation skips it
+      await supabase
+        .from('lecture_slides')
+        .update({ audio_status: 'generating' })
+        .eq('id', unit.id);
 
-          if (!audioResponse.ok) {
-            const errorBody = await audioResponse.text();
-            logError('generate-batch-audio', new Error(`generate-lecture-audio returned ${audioResponse.status}`), {
-              slideId: unit.id,
-              body: errorBody.substring(0, 500),
-            });
-            await supabase
-              .from('lecture_slides')
-              .update({ audio_status: 'failed' })
-              .eq('id', unit.id);
-            processed++;
-            continue;
-          }
-        } catch (fetchErr) {
-          // Timeout or network error — the function may still be running in the background.
-          // Proceed to polling which checks the DB directly.
-          const isTimeout = fetchErr instanceof DOMException && fetchErr.name === 'TimeoutError';
-          const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
-          logInfo('generate-batch-audio', isTimeout ? 'fetch-timeout-proceeding-to-poll' : 'fetch-error-proceeding-to-poll', {
-            slideId: unit.id,
-            reason: msg,
-          });
-        }
-
-        // Poll until audio_status becomes ready or failed
-        let pollCount = 0;
-        let finalStatus = 'generating';
-
-        while (pollCount < MAX_POLL_ATTEMPTS) {
-          await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
-          pollCount++;
-
-          const { data: statusData } = await supabase
-            .from('lecture_slides')
-            .select('audio_status, has_audio')
-            .eq('id', unit.id)
-            .single();
-
-          finalStatus = statusData?.audio_status || 'unknown';
-
-          if (finalStatus === 'ready' || finalStatus === 'failed') {
-            break;
-          }
-        }
-
-        // If polling timed out, mark as failed so it doesn't stay stuck
-        if (finalStatus !== 'ready' && finalStatus !== 'failed') {
-          logError('generate-batch-audio', new Error('Polling timeout — marking unit as failed'), {
-            slideId: unit.id,
-            lastStatus: finalStatus,
-            pollAttempts: pollCount,
-          });
-          await supabase
-            .from('lecture_slides')
-            .update({ audio_status: 'failed' })
-            .eq('id', unit.id);
-          finalStatus = 'failed';
-        }
-
-        logInfo('generate-batch-audio', 'unit-complete', {
-          slideId: unit.id,
-          title: unit.title,
-          finalStatus,
-          pollAttempts: pollCount,
-        });
-
-      } catch (err) {
+      // Fire-and-forget — don't await the response
+      fetch(`${supabaseUrl}/functions/v1/generate-lecture-audio`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${serviceKey}`,
+          'apikey': serviceKey,
+        },
+        body: JSON.stringify({ slideId: unit.id, enableSegmentMapping: true }),
+      }).catch((err) => {
+        // Log but don't block — the worker function handles its own status updates
         logError('generate-batch-audio', err instanceof Error ? err : new Error(String(err)), {
           slideId: unit.id,
+          context: 'fire-and-forget dispatch failed',
         });
-      }
+      });
 
-      processed++;
-
-      if (processed < batch.length) {
-        await new Promise(r => setTimeout(r, INTER_UNIT_DELAY_MS));
-      }
+      dispatched++;
     }
 
-    // Re-count remaining units (must match the main query filter)
+    // ========================================================================
+    // Re-count remaining pending units
+    // ========================================================================
     const { count: remainingCount } = await supabase
       .from('lecture_slides')
       .select('id', { count: 'exact', head: true })
@@ -221,9 +161,31 @@ Deno.serve(async (req: Request) => {
 
     const remaining = remainingCount || 0;
 
-    // Self-continuation with retry
+    // Also count how many are now in-flight
+    const { count: newGeneratingCount } = await supabase
+      .from('lecture_slides')
+      .select('id', { count: 'exact', head: true })
+      .eq('instructor_course_id', instructorCourseId)
+      .in('status', ['ready', 'published'])
+      .eq('audio_status', 'generating');
+
+    const totalInFlight = newGeneratingCount || 0;
+
+    logInfo('generate-batch-audio', 'batch-dispatched', {
+      instructorCourseId,
+      dispatched,
+      remaining,
+      totalInFlight,
+    });
+
+    // ========================================================================
+    // Self-continuation: if there are still pending units, schedule next batch
+    // ========================================================================
     if (remaining > 0) {
-      logInfo('generate-batch-audio', 'self-continuing', { remaining });
+      logInfo('generate-batch-audio', 'self-continuing', { remaining, delayMs: SELF_CONTINUE_DELAY_MS });
+
+      // Wait before self-continuing to avoid overwhelming the system
+      await new Promise(r => setTimeout(r, SELF_CONTINUE_DELAY_MS));
 
       let continued = false;
       for (let attempt = 1; attempt <= SELF_CONTINUE_MAX_RETRIES; attempt++) {
@@ -233,7 +195,7 @@ Deno.serve(async (req: Request) => {
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${serviceKey}`,
-              'apikey': gatewayKey,
+              'apikey': serviceKey,
             },
             body: JSON.stringify({ instructorCourseId }),
             signal: AbortSignal.timeout(30_000),
@@ -250,7 +212,7 @@ Deno.serve(async (req: Request) => {
           });
         }
         if (attempt < SELF_CONTINUE_MAX_RETRIES) {
-          await new Promise(r => setTimeout(r, SELF_CONTINUE_DELAY_MS * Math.pow(2, attempt - 1)));
+          await new Promise(r => setTimeout(r, 2_000 * Math.pow(2, attempt - 1)));
         }
       }
 
@@ -260,15 +222,21 @@ Deno.serve(async (req: Request) => {
           remaining,
         });
       }
+    } else if (totalInFlight > 0) {
+      // All dispatched but some still generating — schedule a check-back
+      logInfo('generate-batch-audio', 'all-dispatched-waiting', {
+        instructorCourseId,
+        totalInFlight,
+      });
     } else {
-      logInfo('generate-batch-audio', 'batch-complete', { instructorCourseId, totalProcessed: processed });
+      logInfo('generate-batch-audio', 'batch-complete', { instructorCourseId, dispatched });
     }
 
     return createSuccessResponse({
       success: true,
-      processed,
+      dispatched,
       remaining,
-      total: processed + remaining,
+      generating: totalInFlight,
     }, corsHeaders);
 
   } catch (error) {
