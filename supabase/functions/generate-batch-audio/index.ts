@@ -181,47 +181,26 @@ Deno.serve(async (req: Request) => {
     // ========================================================================
     // Self-continuation: if there are still pending units, schedule next batch
     // ========================================================================
-    if (remaining > 0) {
-      logInfo('generate-batch-audio', 'self-continuing', { remaining, delayMs: SELF_CONTINUE_DELAY_MS });
+    if (remaining > 0 || totalInFlight > 0) {
+      logInfo('generate-batch-audio', 'scheduling-self-continuation', { remaining, totalInFlight, delayMs: SELF_CONTINUE_DELAY_MS });
 
-      // Wait before self-continuing to avoid overwhelming the system
-      await new Promise(r => setTimeout(r, SELF_CONTINUE_DELAY_MS));
-
-      let continued = false;
-      for (let attempt = 1; attempt <= SELF_CONTINUE_MAX_RETRIES; attempt++) {
-        try {
-          const res = await fetch(`${supabaseUrl}/functions/v1/generate-batch-audio`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${serviceKey}`,
-              'apikey': serviceKey,
-            },
-            body: JSON.stringify({ instructorCourseId }),
-            signal: AbortSignal.timeout(30_000),
-          });
-          if (res.ok) {
-            continued = true;
-            logInfo('generate-batch-audio', 'self-continuation-success', { attempt });
-            break;
-          }
-          logError('generate-batch-audio', new Error(`Self-continue returned ${res.status}`), { attempt });
-        } catch (err) {
+      // Fire-and-forget self-continuation after a delay
+      // Do NOT await — this lets the current invocation return immediately
+      setTimeout(() => {
+        fetch(`${supabaseUrl}/functions/v1/generate-batch-audio`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${serviceKey}`,
+            'apikey': serviceKey,
+          },
+          body: JSON.stringify({ instructorCourseId }),
+        }).catch((err) => {
           logError('generate-batch-audio', err instanceof Error ? err : new Error(String(err)), {
-            context: `self-continuation attempt ${attempt}/${SELF_CONTINUE_MAX_RETRIES}`,
+            context: 'self-continuation fire-and-forget failed',
           });
-        }
-        if (attempt < SELF_CONTINUE_MAX_RETRIES) {
-          await new Promise(r => setTimeout(r, 2_000 * Math.pow(2, attempt - 1)));
-        }
-      }
-
-      if (!continued) {
-        logError('generate-batch-audio', new Error('All self-continuation attempts failed'), {
-          instructorCourseId,
-          remaining,
         });
-      }
+      }, SELF_CONTINUE_DELAY_MS);
     } else if (totalInFlight > 0) {
       // All dispatched but some still generating — schedule a check-back
       logInfo('generate-batch-audio', 'all-dispatched-waiting', {
