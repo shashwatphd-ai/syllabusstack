@@ -123,7 +123,8 @@ async function processBatchViaOpenRouter(
   batchJobId: string,
   unitsToProcess: TeachingUnitContext[],
   requestMapping: Record<string, string>,
-  researchMap: Map<string, ResearchContext>
+  researchMap: Map<string, ResearchContext>,
+  domain: string
 ): Promise<{
   success: boolean;
   processed: number;
@@ -191,7 +192,7 @@ async function processBatchViaOpenRouter(
         if (Array.isArray(slides)) {
           console.log(`[Batch-OR] [${i + 1}] Upgrading speaker notes via CMM...`);
           try {
-            await upgradeSpeakerNotes(slides, unit.title, course.detected_domain || 'general');
+            await upgradeSpeakerNotes(slides, unit.title, domain);
           } catch (cmmErr) {
             console.warn(`[Batch-OR] [${i + 1}] CMM upgrade failed, keeping original notes:`, cmmErr);
           }
@@ -683,7 +684,8 @@ Deno.serve(async (req) => {
         batch_job_id,
         chunkToProcess,
         slideIdMapping,
-        researchMap
+        researchMap,
+        course.detected_domain || 'general'
       );
 
       // Update batch job with progress

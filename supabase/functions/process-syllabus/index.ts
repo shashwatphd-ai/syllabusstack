@@ -609,10 +609,12 @@ RULES:
         },
       };
       // Update domain_config with enriched metadata (fire and forget)
-      supabaseClient
-        .from('instructor_courses')
-        .update({ domain_config: enrichedConfig })
-        .eq('id', instructor_course_id)
+      Promise.resolve(
+        supabaseClient
+          .from('instructor_courses')
+          .update({ domain_config: enrichedConfig })
+          .eq('id', instructor_course_id)
+      )
         .then(() => console.log('[PROCESS-SYLLABUS] Stored enriched syllabus metadata in domain_config'))
         .catch((e: unknown) => console.warn('[PROCESS-SYLLABUS] Failed to store enriched metadata:', e));
     }

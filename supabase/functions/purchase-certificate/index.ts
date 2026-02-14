@@ -105,7 +105,7 @@ const handler = async (req: Request): Promise<Response> => {
       return createErrorResponse('VALIDATION_ERROR', corsHeaders, `You already have a ${existingCert.certificate_type} certificate for this course`);
     }
 
-    const stripe = new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" });
+    const stripe = new Stripe(stripeSecretKey);
 
     // Get or create Stripe customer
     const { data: profile } = await supabase
