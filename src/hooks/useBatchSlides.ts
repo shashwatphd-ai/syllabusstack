@@ -568,12 +568,17 @@ export function useTriggerImageGeneration() {
         }
       }
 
-      // Fire-and-forget: trigger processing without waiting for response
-      // The edge function takes ~60s to process 3 images, which exceeds browser fetch timeout.
-      // Instead, we fire it and let the polling hook track progress.
+      // Step 1: Fire-and-forget populate call to queue any missing slides
+      // This scans all slides and adds missing ones to the image_generation_queue
       supabase.functions.invoke('process-batch-images', {
-        body: { continue: true },
-      }).catch(err => console.warn('[ImageGen] Background processing call failed (likely timeout, processing continues):', err));
+        body: { instructor_course_id: instructorCourseId },
+      }).then(() => {
+        // Step 2: After populate completes, trigger the processing worker
+        // This picks up pending items and generates images
+        supabase.functions.invoke('process-batch-images', {
+          body: { continue: true },
+        }).catch(err => console.warn('[ImageGen] Background processing call failed (likely timeout, processing continues):', err));
+      }).catch(err => console.warn('[ImageGen] Background populate failed:', err));
 
       return { success: true, message: 'Image generation started in background.' } as ImageGenerationStatusResponse;
     },
