@@ -1,103 +1,82 @@
 
 
-## Diagnosis: Runaway Orchestrator Loop Burning API Costs
+## Complete the Instructor-to-Student Assessment Flow
 
-### What's Happening Right Now
+### Problem Identified
+The "Generate Qs" button runs successfully, but **zero questions are saved to the database** due to a mismatch between what the AI generates and what the database accepts:
 
-The batch audio orchestrator (`generate-batch-audio`) is stuck in an **infinite tight loop**, calling itself every ~1 second, doing nothing productive:
+- **AI generates**: `multiple_choice`, `true_false`, `short_answer`
+- **DB constraint allows**: `mcq`, `short_answer` only
 
-```text
-Status:  20/53 ready | 4 stuck in "generating" | 29 pending (NULL)
+This is the root cause of why the quiz generation appeared to succeed (toast showed "Created 7 questions") but nothing is actually available for students.
 
-Loop behavior (every ~1 second):
-  1. Check in-flight count -> 4 (at MAX_CONCURRENT)
-  2. Slots available -> 0
-  3. Dispatch 0 new slides
-  4. remaining=29, totalInFlight=4 -> self-continue
-  5. Repeat forever
-```
+### Plan Overview
 
-The 4 slides stuck in "generating" have been that way since 02:15. The workers that were processing them crashed or timed out, but **never updated the status back to "failed"**. The orchestrator has **no staleness detection**, so it keeps looping forever waiting for those 4 zombie workers to finish.
+**Phase 1: Fix the question generation pipeline (critical)**
+**Phase 2: Add instructor question preview**
+**Phase 3: Improve student assessment discoverability**
 
-### Cost Waste
+---
 
-Over the ~3 hours this has been running:
-- ~10,000+ edge function invocations (orchestrator self-calls)
-- Each invocation does 2 database queries + 1 fetch call
-- The workers themselves are NOT running (no TTS API costs being wasted), but the orchestrator overhead is significant
+### Phase 1: Fix Question Generation (Broken Pipeline)
 
-### Root Causes (Three Issues)
+1. **Update the edge function** `generate-assessment-questions/index.ts`:
+   - Change the AI schema enum from `["multiple_choice", "short_answer", "true_false"]` to match DB values
+   - Add a mapping layer that normalizes `multiple_choice` to `mcq` and `true_false` to `mcq` (with True/False as the two options) before inserting
+   - This ensures any AI output is safely mapped to valid DB values
 
-1. **No stale worker detection**: The orchestrator never checks if "generating" slides have been stuck for too long. It just trusts they'll finish eventually.
+2. **Expand the DB constraint** to also accept `true_false` as a valid question type:
+   - Migration: `ALTER TABLE assessment_questions DROP CONSTRAINT assessment_questions_question_type_check; ALTER TABLE assessment_questions ADD CONSTRAINT assessment_questions_question_type_check CHECK (question_type = ANY (ARRAY['mcq', 'short_answer', 'true_false']));`
 
-2. **No backoff / circuit breaker**: When slots are full and nothing is dispatched, the orchestrator immediately self-continues instead of waiting or stopping. This creates a ~1 call/second infinite loop.
+### Phase 2: Instructor Question Preview
 
-3. **Worker crash doesn't update status**: When `generate-lecture-audio` times out (150s edge function limit), the error handler tries to set `audio_status='failed'`, but this is a last-resort catch block that may not execute if the Deno isolate is forcefully killed.
+Currently after generating questions, the instructor has no way to see what was created. Add:
 
-### Fix Plan
+1. **Question count badge** on each LO in `ModuleCard.tsx` -- show "5 Qs" badge when questions exist (using the existing `useAssessmentQuestions` hook)
+2. **Expandable question list** -- clicking the badge or a "View Questions" button shows the generated questions inline with correct answers highlighted
+3. This gives instructors confidence that the quiz content is appropriate before students see it
 
-#### Step 1: Stop the current loop immediately
+### Phase 3: Student Assessment Discoverability
 
-Reset the 4 stuck "generating" slides back to NULL so they can be reprocessed, and let the loop terminate naturally (it will see 0 in-flight + pending items after the reset).
+The current flow requires students to:
+1. Watch content until `verification_state` becomes `verified`
+2. Then see the "Start Assessment" CTA on the LO page
+3. Navigate to `/learn/objective/:loId/assess`
 
-Actually, the 29 pending slides will keep it going, so we need the code fix deployed first.
+Improvements:
+1. **Show assessment availability earlier** -- on the `StudentCourseDetail` page, add a small icon/badge on LOs that have assessment questions available, even if the student hasn't unlocked them yet (motivates content completion)
+2. **Assessment CTA for all unlocked states** -- currently only `verified` shows the CTA. Update `LearningObjective.tsx` to also show it for `assessment_unlocked`, `passed`, and `remediation_required` states (the `passed` state should show "Retake" or "View Results" instead)
+3. **"No questions yet" graceful handling** -- the `AssessmentSession` already handles this with a "Not Ready Yet" screen, which is good
 
-#### Step 2: Fix the orchestrator (`generate-batch-audio/index.ts`)
-
-Add three safeguards:
-
-**A. Stale worker detection (lines 81-88 area)**
-Before counting in-flight workers, reset any slide that has been "generating" for more than 10 minutes back to NULL:
-
-```typescript
-// Reset stale workers (stuck > 10 minutes)
-const staleThreshold = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-const { data: staleSlides } = await supabase
-  .from('lecture_slides')
-  .update({ audio_status: null })
-  .eq('instructor_course_id', instructorCourseId)
-  .eq('audio_status', 'generating')
-  .lt('updated_at', staleThreshold)
-  .select('id');
-
-if (staleSlides?.length) {
-  console.warn(`Reset ${staleSlides.length} stale workers`);
-}
-```
-
-**B. Circuit breaker — stop looping when idle (line 178 area)**
-If nothing was dispatched AND nothing is making progress, stop the loop instead of spinning endlessly:
-
-```typescript
-// Only self-continue if we actually dispatched work or there are available slots
-if (dispatched > 0 || (remaining > 0 && slotsAvailable > 0)) {
-  // self-continue
-} else if (totalInFlight > 0) {
-  // Workers are running but no slots — schedule a delayed check (30s)
-  // Use a longer delay to avoid tight looping
-} else {
-  // Nothing to do — stop
-}
-```
-
-**C. Add a delay between self-continuations**
-Instead of instant self-calls, add a minimum 15-second gap by including a `delayMs` parameter that the next invocation will sleep on before doing work.
-
-#### Step 3: Fix the worker (`generate-lecture-audio/index.ts`)
-
-Ensure the worker ALWAYS updates `audio_status` to `failed` on timeout/crash, even if the main catch block fails. This is already partially implemented but may not survive Deno isolate termination.
-
-#### Step 4: Reset stuck slides and redeploy
-
-Reset all 4 stuck slides and 29 pending slides, then redeploy both functions.
+---
 
 ### Technical Details
 
-**Files to modify:**
-- `supabase/functions/generate-batch-audio/index.ts` — Add stale detection, circuit breaker, and backoff delay
-- `supabase/functions/generate-lecture-audio/index.ts` — Minor hardening of error status updates
+**Edge function fix** (Phase 1 -- most critical):
+```text
+In generate-assessment-questions/index.ts:
+- Line 31: Change enum to ["mcq", "short_answer", "true_false"]
+- Lines 247-261: Add normalization before insert:
+  question_type: q.question_type === 'multiple_choice' ? 'mcq' : q.question_type
+```
 
-**Database operations:**
-- Reset 4 "generating" slides to NULL
-- No schema changes needed
+**DB migration** (Phase 1):
+```text
+ALTER TABLE assessment_questions 
+  DROP CONSTRAINT assessment_questions_question_type_check;
+ALTER TABLE assessment_questions 
+  ADD CONSTRAINT assessment_questions_question_type_check 
+  CHECK (question_type = ANY (ARRAY['mcq', 'short_answer', 'true_false']));
+```
+
+**ModuleCard.tsx** (Phase 2):
+- Fetch question counts per LO using a lightweight query
+- Display badge: "5 Qs" next to existing bloom level badges
+- Add collapsible section to preview questions
+
+**LearningObjective.tsx** (Phase 3):
+- Lines 388-406: Expand the assessment CTA condition from just `verified` to include all assessment-eligible states
+- Add a "quiz available" indicator badge on the LO header when questions exist
+
+**QuestionCard.tsx** -- already handles `mcq`, `true_false`, and `short_answer` correctly, so no changes needed there.
 
