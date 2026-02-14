@@ -115,7 +115,9 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.generate-lecture-audio]
-verify_jwt = true
+# verify_jwt = false: gateway signing-keys system rejects service role JWT;
+# auth is validated in-code (lines 123-144) to allow batch orchestrator calls
+verify_jwt = false
 
 [functions.start-skills-assessment]
 verify_jwt = true
