@@ -88,6 +88,7 @@ export const TeachingUnitCard = memo(function TeachingUnitCard({
   existingSlides
 }: TeachingUnitCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [showAllVideos, setShowAllVideos] = useState(false);
   
   const unitMatches = contentMatches.filter(m => m.teaching_unit_id === unit.id);
   const approvedVideos = unitMatches.filter(m => 
@@ -432,7 +433,7 @@ export const TeachingUnitCard = memo(function TeachingUnitCard({
                   Found Videos ({unitMatches.length})
                 </p>
                 <div className="space-y-2">
-                  {unitMatches.slice(0, 3).map(match => (
+                  {(showAllVideos ? unitMatches : unitMatches.slice(0, 3)).map(match => (
                     <div 
                       key={match.id} 
                       className="flex items-center gap-2 p-2 bg-muted/50 rounded text-sm cursor-pointer hover:bg-muted transition-colors"
@@ -460,12 +461,20 @@ export const TeachingUnitCard = memo(function TeachingUnitCard({
                       )}
                     </div>
                   ))}
-                  {unitMatches.length > 3 && (
+                  {unitMatches.length > 3 && !showAllVideos && (
                     <button
-                      onClick={() => onReviewVideo?.(unitMatches[3])}
+                      onClick={() => setShowAllVideos(true)}
                       className="text-xs text-primary hover:underline text-center w-full py-1 cursor-pointer"
                     >
-                      +{unitMatches.length - 3} more videos — click to review
+                      +{unitMatches.length - 3} more videos — click to expand
+                    </button>
+                  )}
+                  {unitMatches.length > 3 && showAllVideos && (
+                    <button
+                      onClick={() => setShowAllVideos(false)}
+                      className="text-xs text-primary hover:underline text-center w-full py-1 cursor-pointer"
+                    >
+                      Show less
                     </button>
                   )}
                 </div>
