@@ -13,6 +13,26 @@ import { useLOContentStatus } from '@/hooks/useContentStats';
 import { EmptyState } from '@/components/common/EmptyState';
 import { VideoPreviewModal } from './VideoPreviewModal';
 
+// Content role badge colors and labels
+const contentRoleConfig: Record<string, { label: string; className: string }> = {
+  core_explainer: { label: 'Tutorial', className: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300' },
+  curiosity_spark: { label: 'Curiosity Spark', className: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300' },
+  real_world_case: { label: 'Real-World Case', className: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300' },
+  practitioner_perspective: { label: 'Expert Perspective', className: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300' },
+  debate_or_analysis: { label: 'Analysis', className: 'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300' },
+  adjacent_insight: { label: 'Related Insight', className: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300' },
+};
+
+function ContentRoleBadge({ role }: { role: string }) {
+  const config = contentRoleConfig[role];
+  if (!config) return null;
+  return (
+    <Badge className={`text-[9px] h-4 px-1.5 font-medium ${config.className}`}>
+      {config.label}
+    </Badge>
+  );
+}
+
 interface ContentCurationPanelProps {
   courseId: string;
   learningObjectives: LearningObjective[];
@@ -437,7 +457,10 @@ function ContentMatchCard({
           <div className="flex items-start justify-between gap-4">
             <div className="flex-1 min-w-0">
               <h4 className="font-medium text-foreground line-clamp-2">{content?.title || 'Unknown Title'}</h4>
-              <p className="text-sm text-muted-foreground mt-1">{content?.channel_name || 'Unknown Channel'}</p>
+              <div className="flex items-center gap-2 mt-1">
+                <p className="text-sm text-muted-foreground">{content?.channel_name || 'Unknown Channel'}</p>
+                {match.content_role && <ContentRoleBadge role={match.content_role} />}
+              </div>
               <div className="flex items-center gap-3 mt-2 text-sm text-muted-foreground">
                 <span>{formatViews(content?.view_count || null)} views</span>
                 {content?.source_url && (
