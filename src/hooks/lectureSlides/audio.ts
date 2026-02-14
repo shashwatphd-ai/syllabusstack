@@ -197,6 +197,11 @@ interface BatchAudioStatus {
 export function useBatchGenerateAudio(instructorCourseId?: string) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  // Local flag: stays true from the moment the user clicks until generation
+  // finishes. This ensures polling starts immediately — even before the DB
+  // has any rows with audio_status = 'generating'.
+  const [batchActive, setBatchActive] = useState(false);
+  const prevCompletedRef = useRef<number | null>(null);
 
   // Poll audio progress for the course
   const { data: audioStatus } = useQuery<BatchAudioStatus>({
@@ -215,7 +220,6 @@ export function useBatchGenerateAudio(instructorCourseId?: string) {
       const generating = slides.filter(s => s.audio_status === 'generating').length;
       const failed = slides.filter(s => s.audio_status === 'failed').length;
       const pending = slides.filter(s => !s.has_audio && s.audio_status !== 'generating' && s.audio_status !== 'failed').length;
-      // "actionable" = pending + failed (units that need audio generation)
       const actionable = pending + failed;
 
       return {
@@ -225,20 +229,40 @@ export function useBatchGenerateAudio(instructorCourseId?: string) {
         generating,
         failed,
         actionable,
-        isRunning: generating > 0,
+        isRunning: generating > 0 || (batchActive && actionable > 0),
       };
     },
     enabled: !!instructorCourseId,
     refetchInterval: (query) => {
       const data = query.state.data;
-      if (data && data.isRunning) return 10_000; // 10s while generating
+      // Poll every 10s while batch is active OR DB shows generating
+      if (batchActive || (data && (data.generating > 0))) return 10_000;
       return false;
     },
-    staleTime: 10_000,
+    // Reduced staleTime so invalidations trigger immediate refetches
+    staleTime: 3_000,
   });
+
+  // When audio progress changes, also refresh the slide cards in the course view
+  useEffect(() => {
+    if (!audioStatus || !instructorCourseId) return;
+    const prev = prevCompletedRef.current;
+    if (prev !== null && prev !== audioStatus.completed) {
+      queryClient.invalidateQueries({ queryKey: ['course-lecture-slides', instructorCourseId] });
+    }
+    prevCompletedRef.current = audioStatus.completed;
+
+    // Auto-deactivate batch when nothing is left to process
+    if (batchActive && audioStatus.generating === 0 && audioStatus.pending === 0) {
+      setBatchActive(false);
+    }
+  }, [audioStatus, instructorCourseId, batchActive, queryClient]);
 
   const mutation = useMutation({
     mutationFn: async (courseId: string) => {
+      // Activate polling immediately
+      setBatchActive(true);
+
       // Fire-and-forget — the edge function self-continues
       supabase.functions.invoke('generate-batch-audio', {
         body: { instructorCourseId: courseId },
@@ -253,10 +277,11 @@ export function useBatchGenerateAudio(instructorCourseId?: string) {
         title: 'Batch Audio Generation Started',
         description: 'Generating audio for all pending teaching units. This runs in the background and may take a few hours.',
       });
-      // Start polling
+      // Force immediate refetch
       queryClient.invalidateQueries({ queryKey: ['batch-audio-status', instructorCourseId] });
     },
     onError: (error: Error) => {
+      setBatchActive(false);
       toast({
         title: 'Batch Audio Failed',
         description: error.message,
