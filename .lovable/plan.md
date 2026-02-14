@@ -1,81 +1,87 @@
 
-# Fix All 7 Batch Audio Bugs
+# Fix All Build Errors (10 issues across 8 files)
 
-## Overview
-This plan fixes 2 critical bugs, 3 medium flaws, and 2 low-severity issues in the batch audio generation pipeline. No existing pipeline logic is changed -- only the specific bugs are corrected.
+These are all pre-existing issues exposed by the build checker. No logic changes -- just fixing types, imports, and variable scoping so everything compiles and deploys cleanly.
 
-## Bug Fixes
+---
 
-### BUG 1 (CRITICAL): Offset pagination skips units
-**File:** `supabase/functions/generate-batch-audio/index.ts`
-**Root cause:** The query filters `has_audio = false`, so processed units disappear from results. But the offset from the previous invocation is applied to this shorter list, skipping items.
-**Fix:** Remove the offset parameter entirely. Always query with `LIMIT BATCH_SIZE` from the top. Since processed units drop out of the result set (`has_audio` flips to `true`), the next batch naturally picks up the next unprocessed units. Also add `.not('audio_status', 'eq', 'generating')` to avoid double-processing units.
+## 1. Stripe `apiVersion` mismatch (5 files)
 
-### BUG 2 (CRITICAL): `has_audio = true` on partial success
-**File:** `supabase/functions/generate-lecture-audio/index.ts`, line 339
-**Root cause:** `updatedSlides.some(s => s.audio_url)` marks the unit as complete even if only 1 of 20 slides got audio.
-**Fix:** Change `.some()` to `.every()` so that `has_audio` is only `true` when all slides in the unit have audio. Partially-completed units stay in the "needs audio" queue.
+The installed Stripe SDK v18.5.0 expects `"2025-08-27.basil"` but code says `"2023-10-16"`.
 
-### FLAW 3 (MEDIUM): SSML transformer dead code
-**Action:** No code change. This is a planned feature for future quality improvement. Documenting as known unused code. No pipeline impact.
+**Fix:** Remove `apiVersion` from all Stripe constructors so the SDK uses its built-in default.
 
-### FLAW 4 (MEDIUM): Polling timeout leaves units stuck in `generating`
-**File:** `supabase/functions/generate-batch-audio/index.ts`, after polling loop
-**Fix:** After the polling loop exits without reaching `ready` or `failed`, explicitly update the unit to `audio_status = 'failed'`. This prevents infinite stuck loops where the self-healing guard in `generate-lecture-audio` keeps returning `alreadyGenerating`.
+| File | Line |
+|------|------|
+| `cancel-subscription/index.ts` | 26 |
+| `create-portal-session/index.ts` | 26 |
+| `get-invoices/index.ts` | 26 |
+| `purchase-certificate/index.ts` | 108 |
+| `stripe-webhook/index.ts` | 28 |
 
-### FLAW 5 (MEDIUM): Single fire-and-forget self-continuation with no retry
-**File:** `supabase/functions/generate-batch-audio/index.ts`, self-continuation block
-**Fix:** Replace the single fire-and-forget `fetch().catch()` with a retry loop (3 attempts, exponential backoff). Each attempt is awaited with a 10s timeout. Log an error if all attempts fail so the issue is visible.
+## 2. `current_period_end` type errors (cancel-subscription + stripe-webhook)
 
-### FLAW 6 (LOW): `has_audio` type mismatch
-**File:** `src/hooks/lectureSlides/types.ts`, line 166
-**Fix:** Change `has_audio: boolean` to `has_audio: boolean | null` to match the database schema where new rows can have `null`.
+With the updated SDK types, `current_period_end` moves from a direct property to being accessed properly. 
 
-### FLAW 7 (LOW): Batch orchestrator blocks on full audio response
-**File:** `supabase/functions/generate-batch-audio/index.ts`, the `await fetch(generate-lecture-audio)` call
-**Fix:** Add `AbortSignal.timeout(30_000)` to the initial fetch so the orchestrator doesn't block indefinitely waiting for the full response. The polling loop handles the actual completion detection. Also mark failed units in the catch block so they don't stay stuck.
+**Fix:** After removing `apiVersion`, the SDK's default types will expose `current_period_end` correctly. No additional code changes needed beyond fix #1.
 
-## Files Changed
+## 3. Duplicate import in `fetch-video-metadata/index.ts`
 
-| File | Changes |
-|------|---------|
-| `supabase/functions/generate-batch-audio/index.ts` | Full rewrite: remove offset, use LIMIT, add timeout marking, retry self-continuation |
-| `supabase/functions/generate-lecture-audio/index.ts` | Line 339: `.some()` to `.every()` |
-| `src/hooks/lectureSlides/types.ts` | Line 166: `boolean` to `boolean \| null` |
+Line 1 and line 2 are identical CORS imports.
 
-## Technical Details
+**Fix:** Delete line 2.
 
-### generate-batch-audio rewrite key changes:
+## 4. `serve()` not defined in `poll-active-batches/index.ts`
 
-```text
-BEFORE (buggy):
-  Query all pending -> slice(offset, offset + BATCH_SIZE) -> process -> self-invoke(offset + processed)
-  
-AFTER (fixed):
-  Query pending with LIMIT BATCH_SIZE -> process -> re-count remaining -> self-invoke (no offset)
-```
+Line 56 uses bare `serve(...)` which is not imported or globally available.
 
-### generate-lecture-audio single-line fix:
+**Fix:** Change `serve(` to `Deno.serve(`.
+
+## 5. `.catch()` on PromiseLike in `process-syllabus/index.ts`
+
+Supabase client returns `PromiseLike` which lacks `.catch()`. Line 617.
+
+**Fix:** Wrap in `Promise.resolve()` so `.then().catch()` works:
 ```typescript
-// BEFORE (Bug 2):
-has_audio: updatedSlides.some(s => s.audio_url),
-
-// AFTER:
-has_audio: updatedSlides.length > 0 && updatedSlides.every(s => s.audio_url),
+Promise.resolve(
+  supabaseClient
+    .from('instructor_courses')
+    .update({ domain_config: enrichedConfig })
+    .eq('id', instructor_course_id)
+)
+  .then(() => console.log('...'))
+  .catch((e: unknown) => console.warn('...'));
 ```
 
-### Types fix:
-```typescript
-// BEFORE (Flaw 6):
-has_audio: boolean;
+## 6. Missing `course` variable in `process-batch-research/index.ts`
 
-// AFTER:
-has_audio: boolean | null;
-```
+Line 194 inside `processBatchViaOpenRouter()` references `course.detected_domain` but `course` is not in scope -- it's only in the main handler.
 
-## Pipeline Safety
-- No changes to `generate-lecture-audio` logic beyond the single `.some()` to `.every()` fix
-- No changes to the TTS client, AI narrator, segment mapper, or any shared utilities
-- No database schema changes required
-- The batch orchestrator changes are internal to its own file and don't affect any other edge function
-- Frontend hook logic (`audio.ts`) is unchanged -- the `!s.has_audio` filter already handles `null` correctly
+**Fix:** Add a `domain: string` parameter to `processBatchViaOpenRouter()` and pass `course.detected_domain || 'general'` from the caller (line 681). Use `domain` instead of `course.detected_domain` on line 194.
+
+## 7. Frontend type cast in `src/hooks/lectureSlides/queries.ts`
+
+The lightweight select query doesn't include `generation_context`, `generation_model`, `audio_generated_at`, `created_by`, or `slides`, so TypeScript won't cast directly to `LectureSlide[]`.
+
+**Fix:**
+- Line 177: `slide.slides` doesn't exist in the select -- default to empty array: `slides: [] as Slide[]`
+- Line 178: Cast through `unknown`: `as unknown as LectureSlide[]`
+
+---
+
+## Summary
+
+| # | File | What changes |
+|---|------|-------------|
+| 1 | `cancel-subscription/index.ts` | Remove `apiVersion` from Stripe constructor |
+| 2 | `create-portal-session/index.ts` | Remove `apiVersion` from Stripe constructor |
+| 3 | `get-invoices/index.ts` | Remove `apiVersion` from Stripe constructor |
+| 4 | `purchase-certificate/index.ts` | Remove `apiVersion` from Stripe constructor |
+| 5 | `stripe-webhook/index.ts` | Remove `apiVersion` from Stripe constructor |
+| 6 | `fetch-video-metadata/index.ts` | Delete duplicate import line |
+| 7 | `poll-active-batches/index.ts` | `serve(` to `Deno.serve(` |
+| 8 | `process-syllabus/index.ts` | Wrap fire-and-forget in `Promise.resolve()` |
+| 9 | `process-batch-research/index.ts` | Add `domain` param, pass from caller |
+| 10 | `src/hooks/lectureSlides/queries.ts` | Fix type cast + default empty slides |
+
+All edge functions will be redeployed after fixes. Zero logic changes -- purely compilation fixes.
