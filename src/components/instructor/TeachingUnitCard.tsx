@@ -461,9 +461,12 @@ export const TeachingUnitCard = memo(function TeachingUnitCard({
                     </div>
                   ))}
                   {unitMatches.length > 3 && (
-                    <p className="text-xs text-muted-foreground text-center">
-                      +{unitMatches.length - 3} more videos
-                    </p>
+                    <button
+                      onClick={() => onReviewVideo?.(unitMatches[3])}
+                      className="text-xs text-primary hover:underline text-center w-full py-1 cursor-pointer"
+                    >
+                      +{unitMatches.length - 3} more videos — click to review
+                    </button>
                   )}
                 </div>
               </div>
