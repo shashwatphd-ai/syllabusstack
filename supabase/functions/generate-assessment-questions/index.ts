@@ -89,50 +89,48 @@ const QUESTION_GENERATION_SCHEMA = {
   }
 };
 
-const QUESTION_GENERATION_PROMPT = `You are an expert educator creating assessment questions to verify student learning.
+const QUESTION_GENERATION_PROMPT = `You are an expert assessment designer creating questions that test deep understanding, not just surface recall.
 
-QUESTION DESIGN RULES:
-1. Create questions that TEST understanding, not just recall
-2. For multiple choice: All distractors should be plausible but clearly wrong
-3. For short answer: Be specific about expected answer format
-4. Mix difficulty levels: 2 easy, 3 medium, 1-2 hard
-5. Cover different Bloom's taxonomy levels
-6. Include at least one application/scenario question
+CRITICAL RULES FOR CORRECT ANSWERS:
+- For MCQ: correct_answer MUST be the label of the correct option (e.g. "A", "B", "C", or "D")
+- For short_answer: correct_answer MUST be a complete, substantive model answer (2-4 sentences) that a student could compare against
+- For true_false: correct_answer MUST be exactly "True" or "False"
+- NEVER use source names, citations, brand names, or placeholder text as answers
+- NEVER output "CliffsNotes", "Wikipedia", "Textbook", or any reference source as an answer
 
-QUESTION TYPES:
-- multiple_choice: 4 options (A, B, C, D), only one correct
-- short_answer: Open response with required keywords for grading
-- true_false: Statement to evaluate (use sparingly)
+QUESTION DESIGN PRINCIPLES:
+1. Test UNDERSTANDING and APPLICATION, not memorization
+2. Use real-world scenarios that require students to apply concepts
+3. For MCQ: All distractors must be plausible and based on common misconceptions
+4. For short_answer: Provide a detailed model answer AND required_keywords for grading
+5. Include at least 2 scenario/application questions
+6. Every question must have a clear, defensible correct answer
 
-QUALITY STANDARDS:
-- Clear, unambiguous wording
-- No trick questions or wordplay
-- Distractors based on common misconceptions
-- Time-appropriate (30-60 seconds per question)
+QUESTION MIX:
+- 2-3 MCQ questions testing conceptual understanding
+- 1-2 scenario-based MCQ questions (apply concepts to a situation)
+- 1-2 short_answer questions requiring explanation/analysis
+- 0-1 true_false questions (use sparingly)
 
-DISTRACTOR GUIDELINES WITH EXAMPLES:
+DIFFICULTY DISTRIBUTION: 2 easy, 2-3 medium, 1-2 hard
 
-Good distractors are based on common misconceptions:
+BLOOM'S TAXONOMY COVERAGE:
+- Easy: remember/understand level
+- Medium: apply/analyze level  
+- Hard: evaluate/create level
 
-Example Question: "What is the primary function of mitochondria?"
-Correct: "Generate ATP through cellular respiration"
-Good Distractor: "Store genetic information" (common misconception - that's the nucleus)
-Good Distractor: "Break down waste products" (plausible cell function)
-Bad Distractor: "Make the cell blue" (obviously absurd)
-Bad Distractor: "Generate ATP" (too close to correct answer)
-
-Example Question: "In JavaScript, what does 'const' primarily indicate?"
-Correct: "The variable binding cannot be reassigned"
-Good Distractor: "The value is deeply immutable" (common misconception)
-Good Distractor: "The variable is only accessible in the current block" (true but not primary)
-Bad Distractor: "The variable must be a number" (obviously wrong)
-
-DISTRACTOR RULES:
+MCQ DISTRACTOR RULES:
 1. Each distractor should be grammatically similar to the correct answer
-2. Distractors should be similar in length to the correct answer
+2. Similar length to correct answer
 3. At least one distractor should be a common misconception
-4. No distractor should be partially correct
-5. Avoid "all of the above" or "none of the above"
+4. No "all of the above" or "none of the above"
+5. Distractors must be clearly wrong to an expert, but tempting to a novice
+
+SHORT ANSWER RULES:
+1. correct_answer must contain the FULL MODEL ANSWER (2-4 sentences)
+2. accepted_answers should list 3-5 alternative phrasings
+3. required_keywords should list 3-6 key terms that indicate understanding
+4. Ask students to explain WHY or HOW, not just WHAT
 
 OUTPUT 5-7 QUESTIONS per learning objective.`;
 
@@ -227,20 +225,36 @@ Include a mix of:
 For each multiple choice question, provide exactly 4 options with one correct answer.
 For short answer questions, include keywords that indicate correct understanding.`;
 
-    // Use unified AI client for structured extraction
+    // Use gemini-3-flash-preview for better reasoning quality (flash-lite produced garbage answers)
     const result = await generateStructured<{ questions: any[] }>({
       prompt: userPrompt,
       systemPrompt: QUESTION_GENERATION_PROMPT,
       schema: QUESTION_GENERATION_SCHEMA,
-      model: MODELS.FAST,
+      model: MODELS.PROFESSOR_AI,
       fallbacks: [MODELS.GEMINI_FLASH],
       logPrefix: '[generate-assessment-questions]'
     });
     const parsed = result.data;
 
-    const questions = parsed.questions || [];
+    // Validate and sanitize generated questions
+    const GARBAGE_ANSWERS = ['cliffsnotes', 'wikipedia', 'textbook', 'n/a', 'see above', 'refer to'];
+    const questions = (parsed.questions || []).filter((q: any) => {
+      // Reject questions with garbage/placeholder answers
+      const answer = (q.correct_answer || '').toLowerCase().trim();
+      if (!answer || answer.length < 3) return false;
+      if (GARBAGE_ANSWERS.some(g => answer.includes(g))) {
+        console.warn(`Filtered garbage answer: "${q.correct_answer}" for Q: "${q.question_text?.slice(0, 50)}"`);
+        return false;
+      }
+      // For short_answer, ensure answer is substantive (>20 chars)
+      if (q.question_type === 'short_answer' && answer.length < 20) {
+        console.warn(`Filtered too-short answer for short_answer Q: "${q.correct_answer}"`);
+        return false;
+      }
+      return true;
+    });
 
-    console.log(`Generated ${questions.length} questions`);
+    console.log(`Generated ${parsed.questions?.length || 0} questions, ${questions.length} passed validation`);
 
     // If learning_objective_id provided, save questions to database
     if (loId) {
