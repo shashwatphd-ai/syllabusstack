@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { LearningObjective, useSearchYouTubeContent } from '@/hooks/useLearningObjectives';
 import { useLOContentStatus } from '@/hooks/useContentStats';
-import { useGenerateAssessmentQuestions, useAssessmentQuestions } from '@/hooks/useAssessment';
+import { useGenerateAssessmentQuestions } from '@/hooks/useAssessment';
 import { useToast } from '@/hooks/use-toast';
 import { UnifiedLOCard } from './UnifiedLOCard';
 
@@ -76,8 +76,16 @@ export function UnifiedModuleCard({ module, learningObjectives }: UnifiedModuleC
     setBulkSearching(false);
   };
 
-  // Fetch existing questions for all LOs to pass as context
-  const loQuestionQueries = learningObjectives.map(lo => useAssessmentQuestions(lo.id));
+  // Fetch existing questions lazily during quiz generation (cannot call hooks in a loop)
+  const fetchExistingQuestions = async (loId: string): Promise<string[]> => {
+    try {
+      const { data } = await (await import('@/integrations/supabase/client')).supabase
+        .from('assessment_questions')
+        .select('question_text')
+        .eq('learning_objective_id', loId);
+      return data?.map(q => q.question_text).filter(Boolean) as string[] || [];
+    } catch { return []; }
+  };
 
   // Generate quiz questions for all LOs in this module
   const handleGenerateQuiz = async () => {
@@ -94,11 +102,8 @@ export function UnifiedModuleCard({ module, learningObjectives }: UnifiedModuleC
     let totalQuestionsGenerated = 0;
 
     try {
-      for (let i = 0; i < learningObjectives.length; i++) {
-        const lo = learningObjectives[i];
-        const existingQs = loQuestionQueries[i]?.data;
-        const existingTexts = existingQs?.map(q => q.question_text).filter(Boolean) || [];
-        
+      for (const lo of learningObjectives) {
+        const existingTexts = await fetchExistingQuestions(lo.id);
         try {
           const result = await generateQuestions.mutateAsync({
             learningObjectiveId: lo.id,
