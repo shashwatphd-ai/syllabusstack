@@ -1,103 +1,72 @@
 
 
-## Fix: Self-Healing Audio Generation with User Recovery
+## Fix: Image Generation "Failed to Fetch" Toast
 
 ### Problem
 
-When a worker fails to update a slide's `audio_status` back from `generating`, the orchestrator loop stops because it sees no pending work and no available slots. The stuck slide never gets reset because the stale detection (10-minute threshold) only runs inside the orchestrator loop -- which has already terminated. The UI shows a frozen progress bar (e.g., "53/54") with no explanation and no recovery option.
+When you click "Generate Images", the browser calls `process-batch-images` with `{ continue: true }`. This mode processes 3 images synchronously (~60 seconds) before sending a response. The browser's fetch times out before the function finishes, causing a `Failed to fetch` error and a scary toast message. Meanwhile, the images ARE generating successfully in the background via self-continuation -- the toast is misleading.
 
-### Root Cause (3 gaps)
+### Root Cause
 
-1. **Orchestrator exits too early**: When all remaining slides are `generating` (not pending), the circuit breaker sees `remaining === 0` and stops the loop -- even though workers may still be in-flight and could fail silently.
-2. **No external self-healing**: Stale detection only runs inside the orchestrator. If the loop stops, stuck slides stay stuck forever.
-3. **No user-facing recovery**: The UI shows a spinner with a count but offers no "retry" or "something went wrong" message when progress stalls.
+The "fast path" (`continue: true` mode) is not actually fast. It fetches 3 pending items, generates images for all of them (~20s each), THEN responds. By the time it responds, the browser has already given up.
 
-### Solution (3 layers)
+### Solution (2 parts)
 
 ---
 
-### Layer 1: Fix Orchestrator Circuit Breaker
+### Part 1: Make the Frontend Trigger Fire-and-Forget
 
-**File**: `supabase/functions/generate-batch-audio/index.ts`
+Instead of waiting for `process-batch-images` to finish processing, the frontend should:
 
-Change the circuit breaker logic so the orchestrator does NOT exit when there are still in-flight workers (`currentlyGenerating > 0`), even if `remaining === 0`. It should self-continue with idle backoff to check if those workers finish or go stale.
+1. Call `process-batch-images` but NOT await the full response (fire-and-forget with a catch)
+2. Immediately show a success toast: "Image generation started in background"
+3. Let the polling hook (`useImageGenerationStatus`) handle progress updates
 
-Current logic (line 241):
-```
-else {
-  // stops the loop
-}
-```
+**File**: `src/hooks/useBatchSlides.ts` (useTriggerImageGeneration)
 
-New logic:
-```
-else if (currentlyGenerating > 0) {
-  // Workers still in-flight -- keep polling so stale detection can catch them
-  self-continue with IDLE_DELAY_MS
-} else {
-  // Truly nothing to do -- stop
-}
-```
+Changes to `mutationFn`:
+- Fire the edge function call without awaiting it (fire-and-forget)
+- Return immediately with a success status
+- The edge function continues processing and self-continues in the background
+- This eliminates the browser timeout entirely
 
-This ensures the stale detection at the top of each iteration (lines 93-107) gets a chance to reset stuck `generating` slides back to `null`, which then become pending work for the next iteration.
+### Part 2: Add Resilient Error Handling in the Toast
 
----
+**File**: `src/hooks/useBatchSlides.ts` (useTriggerImageGeneration)
 
-### Layer 2: Frontend Stall Detection and Recovery UI
-
-**File**: `src/hooks/lectureSlides/audio.ts` (useBatchGenerateAudio)
-
-Add stall detection: track the last time `completed` count changed. If generating > 0 but completed hasn't changed for 3+ minutes, mark the status as `stalled`.
-
-**File**: `src/pages/instructor/InstructorCourseDetail.tsx`
-
-Update the audio progress UI to:
-- Show an amber warning when stalled: "Audio generation appears stuck. Click to retry."
-- Change the button to a "Retry Audio" action that re-invokes `generate-batch-audio`, which will trigger stale detection and restart processing.
-- Show failed count explicitly when > 0.
-
----
-
-### Layer 3: Add a "Retry Stuck Audio" Manual Action
-
-**File**: `src/hooks/lectureSlides/audio.ts`
-
-Add a new `useRetryStuckAudio` mutation that:
-1. Resets all `audio_status = 'generating'` slides older than 5 minutes back to `null`
-2. Re-invokes the batch orchestrator
-
-This gives the user an explicit escape hatch independent of automatic self-healing.
+Changes to `onError`:
+- Detect `FunctionsFetchError` / `Failed to fetch` errors specifically
+- Instead of showing "Image Generation Failed", show an amber info toast: "Image generation is running in the background. Check progress below."
+- This accounts for cases where the fire-and-forget still fails (e.g., network issues)
 
 ---
 
 ### Technical Details
 
-**Orchestrator fix** (generate-batch-audio/index.ts):
-- After the existing circuit breaker conditions, add: if `currentlyGenerating > 0` and `remaining === 0` and `dispatched === 0`, self-continue with `IDLE_DELAY_MS` instead of stopping
-- Add a max-idle counter (passed via body param `idleLoops`, default 0) that increments each idle continuation and caps at 20 iterations (~10 minutes) to prevent infinite loops. After 20 idle loops, the stale detection will have already reset any stuck slides, so the loop can safely exit.
+**useTriggerImageGeneration mutationFn** (useBatchSlides.ts ~line 537):
 
-**Frontend stall detection** (audio.ts - useBatchGenerateAudio):
-- Add `lastProgressAt` ref, updated whenever `completed` changes
-- Add `isStalled` to `BatchAudioStatus`: true when `generating > 0` and `Date.now() - lastProgressAt > 180_000` (3 min)
-- Continue polling even when stalled (don't deactivate)
+Current flow:
+```
+1. Check for failed items -> reset them (awaited)
+2. Call process-batch-images { continue: true } (AWAITED - THIS IS THE PROBLEM)
+3. If empty, fire background populate
+4. Return response
+```
 
-**Stall UI** (InstructorCourseDetail.tsx):
-- When `audioStatus.isStalled`, show amber-colored button text: "Audio stalled -- Retry"
-- Clicking re-fires `batchAudio.mutate(id)` which restarts the orchestrator (with its stale detection)
-- When `audioStatus.failed > 0` and not running, show: "Retry N failed"
+New flow:
+```
+1. Check for failed items -> reset them (awaited, this is fast)
+2. Fire process-batch-images { continue: true } (FIRE AND FORGET)
+3. Return immediately with { success: true, message: "started" }
+```
 
-**useRetryStuckAudio hook** (audio.ts):
-- Direct DB update: set `audio_status = null` where `audio_status = 'generating'` and `updated_at < 5 min ago`
-- Then invoke `generate-batch-audio` to restart the loop
-- This is exposed as a secondary action in the UI
+**Error handler** (useBatchSlides.ts ~line 605):
+- Check if `error.message` includes "Failed to fetch" or "Failed to send"
+- If so, show a non-destructive toast since the backend is likely still processing
+- Otherwise show the existing destructive toast
 
 ### Files Changed
 
 | File | Change |
 |------|--------|
-| `supabase/functions/generate-batch-audio/index.ts` | Fix circuit breaker to keep looping while workers are in-flight; add idle loop counter |
-| `src/hooks/lectureSlides/audio.ts` | Add stall detection to `useBatchGenerateAudio`; add `useRetryStuckAudio` hook |
-| `src/hooks/lectureSlides/index.ts` | Export new hook |
-| `src/hooks/useLectureSlides.ts` | Re-export new hook |
-| `src/pages/instructor/InstructorCourseDetail.tsx` | Update audio button UI with stall/retry states |
-
+| `src/hooks/useBatchSlides.ts` | Make image generation trigger fire-and-forget; improve error toast for network timeouts |
