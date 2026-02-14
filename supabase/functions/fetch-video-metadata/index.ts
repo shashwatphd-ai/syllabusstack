@@ -1,5 +1,4 @@
 import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
-import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
 import {
   createErrorResponse,
   createSuccessResponse,

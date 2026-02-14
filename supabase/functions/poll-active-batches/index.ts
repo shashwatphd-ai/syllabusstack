@@ -53,7 +53,7 @@ import { createClient } from "@supabase/supabase-js";
  // MAIN HANDLER
  // ============================================================================
  
- serve(async (req: Request): Promise<Response> => {
+ Deno.serve(async (req: Request): Promise<Response> => {
    // Handle CORS preflight
    const preflightResponse = handleCorsPreFlight(req);
    if (preflightResponse) return preflightResponse;

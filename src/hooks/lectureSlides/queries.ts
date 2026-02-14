@@ -174,8 +174,8 @@ export function useCourseLectureSlides(instructorCourseId?: string) {
 
       return sortedData.map(slide => ({
         ...slide,
-        slides: (slide.slides as unknown as Slide[]) || [],
-      })) as LectureSlide[];
+        slides: [] as Slide[],
+      })) as unknown as LectureSlide[];
     },
     enabled: !!instructorCourseId,
     staleTime: 10_000, // 10s — prevents cascading refetches from Realtime + polling
