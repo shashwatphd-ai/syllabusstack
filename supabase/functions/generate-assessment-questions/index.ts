@@ -28,7 +28,7 @@ const QUESTION_GENERATION_SCHEMA = {
           properties: {
             question_type: {
               type: "string",
-              enum: ["multiple_choice", "short_answer", "true_false"],
+              enum: ["mcq", "short_answer", "true_false"],
               description: "Type of question"
             },
             question_text: {
@@ -244,21 +244,27 @@ For short answer questions, include keywords that indicate correct understanding
 
     // If learning_objective_id provided, save questions to database
     if (loId) {
-      const questionsToInsert = questions.map((q: any) => ({
-        learning_objective_id: loId,
-        question_type: q.question_type,
-        question_text: q.question_text,
-        difficulty: q.difficulty,
-        bloom_level: q.bloom_level,
-        options: q.options || null,
-        correct_answer: q.correct_answer,
-        accepted_answers: q.accepted_answers || null,
-        required_keywords: q.required_keywords || null,
-        scenario_context: q.scenario_context || null,
-        is_ai_generated: true,
-        ai_reviewed: false,
-        created_by: user.id
-      }));
+      const questionsToInsert = questions.map((q: any) => {
+        // Normalize question types: AI may still output 'multiple_choice' -> map to 'mcq'
+        let questionType = q.question_type;
+        if (questionType === 'multiple_choice') questionType = 'mcq';
+        
+        return {
+          learning_objective_id: loId,
+          question_type: questionType,
+          question_text: q.question_text,
+          difficulty: q.difficulty,
+          bloom_level: q.bloom_level,
+          options: q.options || null,
+          correct_answer: q.correct_answer,
+          accepted_answers: q.accepted_answers || null,
+          required_keywords: q.required_keywords || null,
+          scenario_context: q.scenario_context || null,
+          is_ai_generated: true,
+          ai_reviewed: false,
+          created_by: user.id
+        };
+      });
 
       const { data: inserted, error: insertError } = await supabase
         .from("assessment_questions")

@@ -1,8 +1,10 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, BookOpen, CheckCircle2, Clock, Play, Lock, AlertCircle } from 'lucide-react';
+import { ArrowLeft, BookOpen, CheckCircle2, Clock, Play, Lock, AlertCircle, FileQuestion } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { AppShell } from '@/components/layout/AppShell';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { useEnrolledCourseDetail } from '@/hooks/useStudentCourses';
+import { supabase } from '@/integrations/supabase/client';
 import { LoadingState } from '@/components/common/LoadingState';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -71,6 +73,21 @@ export default function StudentCourseDetailPage() {
   const progressPercent = allLOs.length > 0
     ? (completedLOs.length / allLOs.length) * 100
     : 0;
+
+  // Check which LOs have assessment questions available
+  const loIds = allLOs.map(lo => lo.id);
+  const { data: losWithQuestions } = useQuery({
+    queryKey: ['lo-question-availability', loIds.join(',')],
+    queryFn: async () => {
+      if (loIds.length === 0) return new Set<string>();
+      const { data } = await supabase
+        .from('assessment_questions')
+        .select('learning_objective_id')
+        .in('learning_objective_id', loIds);
+      return new Set((data || []).map(d => d.learning_objective_id));
+    },
+    enabled: loIds.length > 0,
+  });
 
   return (
     <AppShell>
@@ -213,6 +230,12 @@ export default function StudentCourseDetailPage() {
                                           <span className="text-xs text-muted-foreground">
                                             ~{lo.expected_duration_minutes} min
                                           </span>
+                                        )}
+                                        {losWithQuestions?.has(lo.id) && (
+                                          <Badge variant="outline" className="text-xs text-primary border-primary/30">
+                                            <FileQuestion className="h-2.5 w-2.5 mr-0.5" />
+                                            Quiz
+                                          </Badge>
                                         )}
                                       </div>
                                     </div>
