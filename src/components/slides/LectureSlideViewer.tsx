@@ -31,7 +31,8 @@ import {
   usePublishLectureSlides, 
   useUnpublishLectureSlides, 
   useGenerateLectureSlides,
-  useGenerateLectureAudio
+  useGenerateLectureAudio,
+  useLectureSlide
 } from '@/hooks/useLectureSlides';
 import { supabase } from '@/integrations/supabase/client';
 import { TeachingUnit } from '@/hooks/useTeachingUnits';
@@ -60,26 +61,30 @@ export function LectureSlideViewer({
   const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  // Fetch full slide data on-demand (the course-level query omits the slides JSONB)
+  const { data: fullSlideData } = useLectureSlide(lectureSlide.id);
+  const resolvedSlide = fullSlideData || lectureSlide;
+
   const publishSlides = usePublishLectureSlides();
   const unpublishSlides = useUnpublishLectureSlides();
   const regenerateSlides = useGenerateLectureSlides();
   const generateAudio = useGenerateLectureAudio();
 
-  const slides = lectureSlide.slides;
+  const slides = resolvedSlide.slides;
   const currentSlide = slides[currentSlideIndex];
-  const hasAudio = lectureSlide.has_audio;
-  const audioStatus = lectureSlide.audio_status;
+  const hasAudio = resolvedSlide.has_audio;
+  const audioStatus = resolvedSlide.audio_status;
 
   // Detect if audio is out of sync with slide content
   const isAudioOutdated = useMemo(() => {
-    if (!hasAudio || !lectureSlide.audio_generated_at) return false;
-    const contentTimestamp = (lectureSlide as any).slides_updated_at || lectureSlide.updated_at;
-    return new Date(contentTimestamp) > new Date(lectureSlide.audio_generated_at);
-  }, [hasAudio, lectureSlide.updated_at, lectureSlide.audio_generated_at]);
+    if (!hasAudio || !resolvedSlide.audio_generated_at) return false;
+    const contentTimestamp = (resolvedSlide as any).slides_updated_at || resolvedSlide.updated_at;
+    return new Date(contentTimestamp) > new Date(resolvedSlide.audio_generated_at);
+  }, [hasAudio, resolvedSlide.updated_at, resolvedSlide.audio_generated_at]);
 
   // Extract citations from research_context for rendering
   const citations = useMemo(() => {
-    const researchContext = lectureSlide.research_context as {
+    const researchContext = resolvedSlide.research_context as {
       grounded_content?: Array<{
         claim: string;
         source_url: string;
@@ -94,7 +99,7 @@ export function LectureSlideViewer({
       source_title: item.source_title || '',
       confidence: item.confidence,
     })) || [];
-  }, [lectureSlide.research_context]);
+  }, [resolvedSlide.research_context]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -203,8 +208,8 @@ export function LectureSlideViewer({
         return;
       }
 
-      const cacheBuster = lectureSlide.audio_generated_at
-        ? `&t=${new Date(lectureSlide.audio_generated_at).getTime()}`
+      const cacheBuster = resolvedSlide.audio_generated_at
+        ? `&t=${new Date(resolvedSlide.audio_generated_at).getTime()}`
         : '';
 
       audio.src = signedUrlData.signedUrl + cacheBuster;
@@ -215,7 +220,7 @@ export function LectureSlideViewer({
       console.error('Audio preview failed:', err);
       setIsPreviewPlaying(false);
     }
-  }, [isPreviewPlaying, currentSlide, lectureSlide.audio_generated_at, stopPreview]);
+  }, [isPreviewPlaying, currentSlide, resolvedSlide.audio_generated_at, stopPreview]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
