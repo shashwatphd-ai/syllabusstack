@@ -184,8 +184,8 @@ export function useSearchForTeachingUnit() {
         throw error;
       }
       
-      // Update status based on results
-      const videosFound = data?.total_found || data?.content_matches?.length || 0;
+      // Update status based on actually saved matches (not total_found which is pre-filter count)
+      const videosFound = data?.content_matches?.length || 0;
       await supabase
         .from('teaching_units')
         .update({ 
