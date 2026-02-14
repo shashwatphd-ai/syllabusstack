@@ -65,7 +65,7 @@ const handler = async (req: Request): Promise<Response> => {
     const subscription = await stripe.subscriptions.update(
       profile.stripe_subscription_id,
       { cancel_at_period_end: true }
-    );
+    ) as any;
 
     // Update profile
     await supabaseAdmin

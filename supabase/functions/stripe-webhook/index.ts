@@ -210,7 +210,7 @@ async function handleCheckoutComplete(
 
   // Get subscription details
   if (session.subscription) {
-    const subscription = await stripe.subscriptions.retrieve(session.subscription as string);
+    const subscription = await stripe.subscriptions.retrieve(session.subscription as string) as any;
 
     const { data: updatedProfile, error: updateError } = await supabase
       .from("profiles")
@@ -273,8 +273,8 @@ async function handleSubscriptionUpdate(
       subscription_tier: tier,
       subscription_status: status,
       stripe_subscription_id: subscription.id,
-      subscription_ends_at: subscription.current_period_end
-        ? new Date(subscription.current_period_end * 1000).toISOString()
+      subscription_ends_at: (subscription as any).current_period_end
+        ? new Date((subscription as any).current_period_end * 1000).toISOString()
         : null,
     })
     .eq("user_id", userId)

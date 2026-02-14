@@ -210,8 +210,8 @@ const handler = async (req: Request): Promise<Response> => {
     const effectiveCourseId = instructor_course_id || contextData.instructor_course_id;
 
     // Module and course context from joined query
-    const moduleContext = contextData.module as { title: string; description?: string } | null;
-    const courseContext = contextData.course as { title: string; description?: string; code?: string; detected_domain?: string } | null;
+    const moduleContext = contextData.module as unknown as { title: string; description?: string } | null;
+    const courseContext = contextData.course as unknown as { title: string; description?: string; code?: string; detected_domain?: string } | null;
 
     console.log(`[UNIFIED SEARCH] LO: ${learning_objective_id}, Teaching Unit: ${teaching_unit_id || 'all'}, AI Eval: ${use_ai_evaluation}`);
 
