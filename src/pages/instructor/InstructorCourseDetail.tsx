@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, FileText, Video, CheckCircle2, Clock, AlertCircle, Settings2, Copy, Share2, Loader2, Sparkles, Users, Presentation, RotateCcw, Image, Volume2 } from 'lucide-react';
+import { ArrowLeft, Plus, FileText, Video, CheckCircle2, Clock, AlertCircle, Settings2, Copy, Share2, Loader2, Sparkles, Users, Presentation, RotateCcw, Image, Volume2, AlertTriangle } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { VerificationBanner, useVerificationStatus } from '@/components/instructor/VerificationBanner';
 import { AppShell } from '@/components/layout/AppShell';
@@ -680,18 +680,28 @@ export default function InstructorCourseDetailPage() {
                       )}
                       
                       {/* Generate All Audio Button */}
-                      {(slidesStats.ready > 0 || slidesStats.published > 0) && (batchAudio.audioStatus.actionable > 0 || batchAudio.audioStatus.generating > 0) && (
+                      {(slidesStats.ready > 0 || slidesStats.published > 0) && (batchAudio.audioStatus.actionable > 0 || batchAudio.audioStatus.generating > 0 || batchAudio.audioStatus.isStalled) && (
                         <Button
                           variant="outline"
-                          className="gap-2 h-9 flex-1 sm:flex-none"
+                          className={`gap-2 h-9 flex-1 sm:flex-none ${batchAudio.audioStatus.isStalled ? 'border-amber-500 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950' : ''}`}
                           onClick={() => id && batchAudio.mutate(id)}
-                          disabled={batchAudio.isPending || batchAudio.audioStatus.isRunning}
+                          disabled={batchAudio.isPending || (batchAudio.audioStatus.isRunning && !batchAudio.audioStatus.isStalled)}
                         >
                           {batchAudio.isPending ? (
                             <>
                               <Loader2 className="h-4 w-4 animate-spin" />
                               <span className="hidden sm:inline">Starting...</span>
                               <span className="sm:hidden">...</span>
+                            </>
+                          ) : batchAudio.audioStatus.isStalled ? (
+                            <>
+                              <AlertTriangle className="h-4 w-4 text-amber-500" />
+                              <span className="hidden sm:inline">
+                                Audio stalled ({batchAudio.audioStatus.completed}/{batchAudio.audioStatus.total}) — Retry
+                              </span>
+                              <span className="sm:hidden">
+                                Stalled — Retry
+                              </span>
                             </>
                           ) : batchAudio.audioStatus.isRunning ? (
                             <>

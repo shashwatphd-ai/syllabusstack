@@ -7,7 +7,7 @@
  *  3. Fire generate-lecture-audio for each (non-blocking).
  *  4. Self-continue with backoff delay via fetch() (NOT setTimeout).
  *
- * Input:  { instructorCourseId, delayMs? }
+ * Input:  { instructorCourseId, delayMs?, idleLoops? }
  * Output: { success, dispatched, remaining, generating }
  */
 
@@ -25,6 +25,7 @@ const MAX_CONCURRENT = 4;
 const STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
 const BACKOFF_DELAY_MS = 15_000;            // 15s between self-calls
 const IDLE_DELAY_MS = 30_000;               // 30s when waiting for workers
+const MAX_IDLE_LOOPS = 20;                  // Cap idle continuations (~10 min)
 
 Deno.serve(async (req: Request) => {
   const preflightResponse = handleCorsPreFlight(req);
@@ -33,7 +34,7 @@ Deno.serve(async (req: Request) => {
 
   try {
     const body = await req.json();
-    const { instructorCourseId, delayMs } = body;
+    const { instructorCourseId, delayMs, idleLoops = 0 } = body;
 
     if (!instructorCourseId) {
       return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'instructorCourseId is required');
@@ -215,7 +216,7 @@ Deno.serve(async (req: Request) => {
           'Authorization': `Bearer ${serviceKey}`,
           'apikey': serviceKey,
         },
-        body: JSON.stringify({ instructorCourseId, delayMs: BACKOFF_DELAY_MS }),
+        body: JSON.stringify({ instructorCourseId, delayMs: BACKOFF_DELAY_MS, idleLoops: 0 }),
       }).catch((err) => {
         logError('generate-batch-audio', err instanceof Error ? err : new Error(String(err)), {
           context: 'self-continuation failed',
@@ -232,20 +233,43 @@ Deno.serve(async (req: Request) => {
           'Authorization': `Bearer ${serviceKey}`,
           'apikey': serviceKey,
         },
-        body: JSON.stringify({ instructorCourseId, delayMs: IDLE_DELAY_MS }),
+        body: JSON.stringify({ instructorCourseId, delayMs: IDLE_DELAY_MS, idleLoops: 0 }),
       }).catch((err) => {
         logError('generate-batch-audio', err instanceof Error ? err : new Error(String(err)), {
           context: 'idle self-continuation failed',
         });
       });
+    } else if (currentlyGenerating > 0 && remaining === 0 && dispatched === 0 && idleLoops < MAX_IDLE_LOOPS) {
+      // Workers still in-flight but no pending work — keep polling so stale detection can catch failures
+      const nextIdleLoop = idleLoops + 1;
+      logInfo('generate-batch-audio', 'idle-polling-for-stale', {
+        currentlyGenerating,
+        idleLoop: nextIdleLoop,
+        maxIdleLoops: MAX_IDLE_LOOPS,
+        delay: IDLE_DELAY_MS,
+      });
+
+      fetch(`${supabaseUrl}/functions/v1/generate-batch-audio`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${serviceKey}`,
+          'apikey': serviceKey,
+        },
+        body: JSON.stringify({ instructorCourseId, delayMs: IDLE_DELAY_MS, idleLoops: nextIdleLoop }),
+      }).catch((err) => {
+        logError('generate-batch-audio', err instanceof Error ? err : new Error(String(err)), {
+          context: 'idle-stale-detection self-continuation failed',
+        });
+      });
     } else {
-      // No remaining work AND no in-flight workers, OR no remaining and workers will finish on their own
       logInfo('generate-batch-audio', 'loop-stopped', {
         instructorCourseId,
         dispatched,
         remaining,
         totalInFlight,
-        reason: remaining === 0 ? 'no-remaining-work' : 'no-progress-possible',
+        idleLoops,
+        reason: currentlyGenerating > 0 ? 'max-idle-loops-reached' : remaining === 0 ? 'no-remaining-work' : 'no-progress-possible',
       });
     }
 

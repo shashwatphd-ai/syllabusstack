@@ -35,6 +35,7 @@ export {
   // Audio hooks
   useGenerateLectureAudio,
   useBatchGenerateAudio,
+  useRetryStuckAudio,
   // Queue/Bulk operation hooks
   useBulkPublishSlides,
   useBulkQueueSlides,

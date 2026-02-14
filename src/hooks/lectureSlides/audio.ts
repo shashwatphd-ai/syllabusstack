@@ -186,7 +186,10 @@ interface BatchAudioStatus {
   failed: number;
   actionable: number;
   isRunning: boolean;
+  isStalled: boolean;
 }
+
+const STALL_THRESHOLD_MS = 180_000; // 3 minutes without progress
 
 /**
  * Hook for batch audio generation across an entire course.
@@ -202,6 +205,8 @@ export function useBatchGenerateAudio(instructorCourseId?: string) {
   // has any rows with audio_status = 'generating'.
   const [batchActive, setBatchActive] = useState(false);
   const prevCompletedRef = useRef<number | null>(null);
+  const lastProgressAtRef = useRef<number>(Date.now());
+  const [isStalled, setIsStalled] = useState(false);
 
   // Poll audio progress for the course
   const { data: audioStatus } = useQuery<BatchAudioStatus>({
@@ -230,16 +235,16 @@ export function useBatchGenerateAudio(instructorCourseId?: string) {
         failed,
         actionable,
         isRunning: generating > 0 || (batchActive && actionable > 0),
+        isStalled: false, // calculated in effect below
       };
     },
     enabled: !!instructorCourseId,
     refetchInterval: (query) => {
       const data = query.state.data;
-      // Poll every 10s while batch is active OR DB shows generating
-      if (batchActive || (data && (data.generating > 0))) return 10_000;
+      // Poll every 10s while batch is active, generating, OR stalled (keep polling to detect recovery)
+      if (batchActive || isStalled || (data && (data.generating > 0))) return 10_000;
       return false;
     },
-    // Reduced staleTime so invalidations trigger immediate refetches
     staleTime: 3_000,
   });
 
@@ -249,8 +254,18 @@ export function useBatchGenerateAudio(instructorCourseId?: string) {
     const prev = prevCompletedRef.current;
     if (prev !== null && prev !== audioStatus.completed) {
       queryClient.invalidateQueries({ queryKey: ['course-lecture-slides', instructorCourseId] });
+      // Progress happened — reset stall timer
+      lastProgressAtRef.current = Date.now();
+      setIsStalled(false);
     }
     prevCompletedRef.current = audioStatus.completed;
+
+    // Stall detection: generating > 0 but no progress for 3 min
+    if (audioStatus.generating > 0 && Date.now() - lastProgressAtRef.current > STALL_THRESHOLD_MS) {
+      setIsStalled(true);
+    } else if (audioStatus.generating === 0) {
+      setIsStalled(false);
+    }
 
     // Auto-deactivate batch when nothing is left to process
     if (batchActive && audioStatus.generating === 0 && audioStatus.pending === 0) {
@@ -262,6 +277,10 @@ export function useBatchGenerateAudio(instructorCourseId?: string) {
     mutationFn: async (courseId: string) => {
       // Activate polling immediately
       setBatchActive(true);
+
+      // Reset stall state
+      setIsStalled(false);
+      lastProgressAtRef.current = Date.now();
 
       // Fire-and-forget — the edge function self-continues
       supabase.functions.invoke('generate-batch-audio', {
@@ -292,6 +311,62 @@ export function useBatchGenerateAudio(instructorCourseId?: string) {
 
   return {
     ...mutation,
-    audioStatus: audioStatus ?? { total: 0, completed: 0, pending: 0, generating: 0, failed: 0, actionable: 0, isRunning: false },
+    audioStatus: audioStatus
+      ? { ...audioStatus, isStalled }
+      : { total: 0, completed: 0, pending: 0, generating: 0, failed: 0, actionable: 0, isRunning: false, isStalled: false },
   };
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Retry Stuck Audio Hook
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Resets slides stuck in `audio_status = 'generating'` for >5 minutes
+ * back to null, then re-invokes the batch orchestrator.
+ */
+export function useRetryStuckAudio() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async (instructorCourseId: string) => {
+      const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+
+      // Reset stuck slides
+      const { data: reset, error: resetError } = await supabase
+        .from('lecture_slides')
+        .update({ audio_status: null } as Record<string, unknown>)
+        .eq('instructor_course_id', instructorCourseId)
+        .eq('audio_status', 'generating')
+        .lt('updated_at', fiveMinAgo)
+        .select('id');
+
+      if (resetError) throw resetError;
+
+      // Re-invoke orchestrator
+      supabase.functions.invoke('generate-batch-audio', {
+        body: { instructorCourseId },
+      }).catch(err => {
+        console.warn('Retry stuck audio invocation warning:', err?.message);
+      });
+
+      return { resetCount: reset?.length ?? 0 };
+    },
+    onSuccess: ({ resetCount }) => {
+      toast({
+        title: 'Retrying Audio Generation',
+        description: `Reset ${resetCount} stuck slide(s) and restarted the audio pipeline.`,
+      });
+      queryClient.invalidateQueries({ queryKey: ['batch-audio-status'] });
+      queryClient.invalidateQueries({ queryKey: ['course-lecture-slides'] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Retry Failed',
+        description: error.message,
+        variant: 'destructive',
+      });
+    },
+  });
 }
