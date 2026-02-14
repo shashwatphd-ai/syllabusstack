@@ -2,12 +2,12 @@
  * generate-batch-audio – Course-level batch audio orchestrator
  *
  * Fire-and-forget pattern with concurrency control:
- *  1. Count in-flight workers. If under MAX_CONCURRENT, pick next pending/failed units.
- *  2. Fire generate-lecture-audio for each (non-blocking).
- *  3. Self-continue immediately via fetch() (NOT setTimeout — Deno kills timers after response).
- *     Each invocation is short-lived; the chain continues until all units are done.
+ *  1. Reset stale workers (stuck > 10 min in "generating").
+ *  2. Count in-flight workers. If under MAX_CONCURRENT, pick next pending/failed units.
+ *  3. Fire generate-lecture-audio for each (non-blocking).
+ *  4. Self-continue with backoff delay via fetch() (NOT setTimeout).
  *
- * Input:  { instructorCourseId }
+ * Input:  { instructorCourseId, delayMs? }
  * Output: { success, dispatched, remaining, generating }
  */
 
@@ -20,8 +20,11 @@ import {
   logError,
 } from "../_shared/error-handler.ts";
 
-const BATCH_SIZE = 2;       // Dispatch up to 2 units per invocation
-const MAX_CONCURRENT = 4;   // Max workers running simultaneously
+const BATCH_SIZE = 2;
+const MAX_CONCURRENT = 4;
+const STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
+const BACKOFF_DELAY_MS = 15_000;            // 15s between self-calls
+const IDLE_DELAY_MS = 30_000;               // 30s when waiting for workers
 
 Deno.serve(async (req: Request) => {
   const preflightResponse = handleCorsPreFlight(req);
@@ -30,7 +33,7 @@ Deno.serve(async (req: Request) => {
 
   try {
     const body = await req.json();
-    const { instructorCourseId } = body;
+    const { instructorCourseId, delayMs } = body;
 
     if (!instructorCourseId) {
       return createErrorResponse('VALIDATION_ERROR', corsHeaders, 'instructorCourseId is required');
@@ -39,6 +42,15 @@ Deno.serve(async (req: Request) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, serviceKey);
+
+    // ========================================================================
+    // Backoff delay: sleep if the previous invocation requested a delay
+    // ========================================================================
+    if (delayMs && delayMs > 0) {
+      const sleepTime = Math.min(delayMs, 55_000); // Cap at 55s to stay under timeout
+      logInfo('generate-batch-audio', 'sleeping', { sleepTime });
+      await new Promise((resolve) => setTimeout(resolve, sleepTime));
+    }
 
     // ========================================================================
     // SECURITY: Verify caller identity and course ownership
@@ -76,6 +88,25 @@ Deno.serve(async (req: Request) => {
     }
 
     // ========================================================================
+    // STALE WORKER DETECTION: Reset slides stuck in "generating" > 10 min
+    // ========================================================================
+    const staleThreshold = new Date(Date.now() - STALE_THRESHOLD_MS).toISOString();
+    const { data: staleSlides } = await supabase
+      .from('lecture_slides')
+      .update({ audio_status: null })
+      .eq('instructor_course_id', instructorCourseId)
+      .eq('audio_status', 'generating')
+      .lt('updated_at', staleThreshold)
+      .select('id');
+
+    if (staleSlides?.length) {
+      logInfo('generate-batch-audio', 'reset-stale-workers', {
+        count: staleSlides.length,
+        slideIds: staleSlides.map((s: { id: string }) => s.id),
+      });
+    }
+
+    // ========================================================================
     // Count current state
     // ========================================================================
     const { count: generatingCount } = await supabase
@@ -87,11 +118,10 @@ Deno.serve(async (req: Request) => {
 
     const currentlyGenerating = generatingCount || 0;
 
-    // How many new workers can we start?
     const slotsAvailable = Math.max(0, MAX_CONCURRENT - currentlyGenerating);
     const fetchLimit = Math.min(BATCH_SIZE, slotsAvailable);
 
-    // Query units needing audio — NULL, 'pending', or 'failed' status
+    // Query units needing audio
     const { data: pendingUnits, error: queryError } = await supabase
       .from('lecture_slides')
       .select('id, title')
@@ -127,13 +157,11 @@ Deno.serve(async (req: Request) => {
         title: unit.title,
       });
 
-      // Mark as generating immediately so next invocation skips it
       await supabase
         .from('lecture_slides')
         .update({ audio_status: 'generating' })
         .eq('id', unit.id);
 
-      // Fire-and-forget — don't await the response
       fetch(`${supabaseUrl}/functions/v1/generate-lecture-audio`, {
         method: 'POST',
         headers: {
@@ -153,10 +181,8 @@ Deno.serve(async (req: Request) => {
     }
 
     // ========================================================================
-    // Self-continuation: if work remains, fire another invocation immediately
+    // Remaining count after dispatch
     // ========================================================================
-    // We count remaining AFTER dispatching (the ones we just dispatched are now
-    // 'generating' so they won't appear here).
     const { count: remainingCount } = await supabase
       .from('lecture_slides')
       .select('id', { count: 'exact', head: true })
@@ -175,11 +201,13 @@ Deno.serve(async (req: Request) => {
       totalInFlight,
     });
 
-    if (remaining > 0 || totalInFlight > 0) {
-      logInfo('generate-batch-audio', 'self-continuing', { remaining, totalInFlight });
+    // ========================================================================
+    // CIRCUIT BREAKER: Smart self-continuation
+    // ========================================================================
+    if (dispatched > 0 || (remaining > 0 && slotsAvailable > 0)) {
+      // We did work or have capacity — continue with standard backoff
+      logInfo('generate-batch-audio', 'self-continuing', { remaining, totalInFlight, delay: BACKOFF_DELAY_MS });
 
-      // Fire-and-forget self-continuation via fetch() — NOT setTimeout()
-      // setTimeout is killed when the Deno isolate shuts down after response.
       fetch(`${supabaseUrl}/functions/v1/generate-batch-audio`, {
         method: 'POST',
         headers: {
@@ -187,14 +215,38 @@ Deno.serve(async (req: Request) => {
           'Authorization': `Bearer ${serviceKey}`,
           'apikey': serviceKey,
         },
-        body: JSON.stringify({ instructorCourseId }),
+        body: JSON.stringify({ instructorCourseId, delayMs: BACKOFF_DELAY_MS }),
       }).catch((err) => {
         logError('generate-batch-audio', err instanceof Error ? err : new Error(String(err)), {
           context: 'self-continuation failed',
         });
       });
+    } else if (totalInFlight > 0 && remaining > 0) {
+      // Workers running but no slots — wait longer before checking again
+      logInfo('generate-batch-audio', 'waiting-for-workers', { totalInFlight, remaining, delay: IDLE_DELAY_MS });
+
+      fetch(`${supabaseUrl}/functions/v1/generate-batch-audio`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${serviceKey}`,
+          'apikey': serviceKey,
+        },
+        body: JSON.stringify({ instructorCourseId, delayMs: IDLE_DELAY_MS }),
+      }).catch((err) => {
+        logError('generate-batch-audio', err instanceof Error ? err : new Error(String(err)), {
+          context: 'idle self-continuation failed',
+        });
+      });
     } else {
-      logInfo('generate-batch-audio', 'batch-complete', { instructorCourseId, dispatched });
+      // No remaining work AND no in-flight workers, OR no remaining and workers will finish on their own
+      logInfo('generate-batch-audio', 'loop-stopped', {
+        instructorCourseId,
+        dispatched,
+        remaining,
+        totalInFlight,
+        reason: remaining === 0 ? 'no-remaining-work' : 'no-progress-possible',
+      });
     }
 
     return createSuccessResponse({
