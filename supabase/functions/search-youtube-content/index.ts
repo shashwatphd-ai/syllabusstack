@@ -621,7 +621,12 @@ const handler = async (req: Request): Promise<Response> => {
                 ai_quality_score: aiEval.quality_score ?? null,
               };
             }
-            return sv;
+            // Video wasn't in AI eval response — use pre-filter scores as fallback
+            // (don't leave at 0, which would silently kill all unevaluated videos)
+            return {
+              ...sv,
+              match_score: Math.round((sv.pre_filter.duration_fit * 0.5 + sv.pre_filter.channel_authority * 0.5) * 100) / 100,
+            };
           });
 
           console.log(`[AI EVAL] Applied AI evaluations to ${aiEvaluations.size} videos`);
