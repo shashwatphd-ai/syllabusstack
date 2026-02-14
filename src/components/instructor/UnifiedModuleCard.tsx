@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { LearningObjective, useSearchYouTubeContent } from '@/hooks/useLearningObjectives';
 import { useLOContentStatus } from '@/hooks/useContentStats';
-import { useGenerateAssessmentQuestions } from '@/hooks/useAssessment';
+import { useGenerateAssessmentQuestions, useAssessmentQuestions } from '@/hooks/useAssessment';
 import { useToast } from '@/hooks/use-toast';
 import { UnifiedLOCard } from './UnifiedLOCard';
 
@@ -76,6 +76,9 @@ export function UnifiedModuleCard({ module, learningObjectives }: UnifiedModuleC
     setBulkSearching(false);
   };
 
+  // Fetch existing questions for all LOs to pass as context
+  const loQuestionQueries = learningObjectives.map(lo => useAssessmentQuestions(lo.id));
+
   // Generate quiz questions for all LOs in this module
   const handleGenerateQuiz = async () => {
     if (learningObjectives.length === 0) {
@@ -91,11 +94,16 @@ export function UnifiedModuleCard({ module, learningObjectives }: UnifiedModuleC
     let totalQuestionsGenerated = 0;
 
     try {
-      for (const lo of learningObjectives) {
+      for (let i = 0; i < learningObjectives.length; i++) {
+        const lo = learningObjectives[i];
+        const existingQs = loQuestionQueries[i]?.data;
+        const existingTexts = existingQs?.map(q => q.question_text).filter(Boolean) || [];
+        
         try {
           const result = await generateQuestions.mutateAsync({
             learningObjectiveId: lo.id,
             learningObjectiveText: lo.text,
+            existingQuestions: existingTexts.length > 0 ? existingTexts : undefined,
           });
           totalQuestionsGenerated += result?.count || 0;
         } catch (e) {

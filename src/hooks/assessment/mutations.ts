@@ -153,16 +153,19 @@ export function useGenerateAssessmentQuestions() {
       learningObjectiveId,
       learningObjectiveText,
       contentContext,
+      existingQuestions,
     }: {
       learningObjectiveId?: string;
       learningObjectiveText?: string;
       contentContext?: string;
+      existingQuestions?: string[];
     }) => {
       const { data, error } = await supabase.functions.invoke('generate-assessment-questions', {
         body: {
           learning_objective_id: learningObjectiveId,
           learning_objective_text: learningObjectiveText,
           content_context: contentContext,
+          existing_questions: existingQuestions,
         },
       });
 
@@ -184,6 +187,40 @@ export function useGenerateAssessmentQuestions() {
       toast({
         title: 'Error',
         description: error instanceof Error ? error.message : 'Failed to generate questions',
+        variant: 'destructive',
+      });
+    },
+  });
+}
+
+// Delete an individual assessment question
+export function useDeleteAssessmentQuestion() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async ({ questionId, learningObjectiveId }: { questionId: string; learningObjectiveId: string }) => {
+      const { error } = await supabase
+        .from('assessment_questions')
+        .delete()
+        .eq('id', questionId);
+
+      if (error) throw error;
+      return { questionId, learningObjectiveId };
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({
+        queryKey: ['assessment-questions', data.learningObjectiveId]
+      });
+      toast({
+        title: 'Question Removed',
+        description: 'The question has been deleted.',
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to delete question',
         variant: 'destructive',
       });
     },

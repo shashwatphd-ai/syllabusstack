@@ -180,7 +180,7 @@ Deno.serve(async (req) => {
       return createErrorResponse('VALIDATION_ERROR', corsHeaders, validation.errors.join(', '));
     }
 
-    const { learning_objective_id, learning_objective_text, content_context } = validation.data;
+    const { learning_objective_id, learning_objective_text, content_context, existing_questions } = validation.data;
 
     let objectiveText = learning_objective_text;
     let loId = learning_objective_id;
@@ -214,9 +214,18 @@ CONTENT CONTEXT (from video/reading material):
 ${content_context}`;
     }
 
+    // Add existing questions context to avoid duplicates
+    if (existing_questions && Array.isArray(existing_questions) && existing_questions.length > 0) {
+      userPrompt += `
+
+EXISTING QUESTIONS (DO NOT repeat or rephrase these — generate COMPLETELY DIFFERENT questions covering different aspects, scenarios, or difficulty levels):
+${existing_questions.map((q: string, i: number) => `${i + 1}. ${q}`).join('\n')}`;
+    }
+
     userPrompt += `
 
 Generate 5-7 questions that effectively test whether a student has achieved this learning objective.
+${existing_questions?.length ? `IMPORTANT: You MUST generate entirely new questions that are different from the ${existing_questions.length} existing ones listed above. Cover different concepts, use different scenarios, and test different cognitive levels.` : ''}
 Include a mix of:
 - 3-4 multiple choice questions at different difficulty levels
 - 1-2 short answer questions requiring explanation
