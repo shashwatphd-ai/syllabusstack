@@ -1004,6 +1004,7 @@ export type Database = {
           approved_by: string | null
           channel_authority_score: number | null
           content_id: string
+          content_role: string | null
           created_at: string | null
           duration_fit_score: number | null
           engagement_quality_score: number | null
@@ -1027,6 +1028,7 @@ export type Database = {
           approved_by?: string | null
           channel_authority_score?: number | null
           content_id: string
+          content_role?: string | null
           created_at?: string | null
           duration_fit_score?: number | null
           engagement_quality_score?: number | null
@@ -1050,6 +1052,7 @@ export type Database = {
           approved_by?: string | null
           channel_authority_score?: number | null
           content_id?: string
+          content_role?: string | null
           created_at?: string | null
           duration_fit_score?: number | null
           engagement_quality_score?: number | null

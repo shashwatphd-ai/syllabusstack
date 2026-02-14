@@ -60,6 +60,26 @@ const bloomDescriptions: Record<string, { title: string; description: string; co
   },
 };
 
+// Content role badge colors and labels
+const contentRoleConfig: Record<string, { label: string; className: string }> = {
+  core_explainer: { label: 'Tutorial', className: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300' },
+  curiosity_spark: { label: 'Curiosity Spark', className: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300' },
+  real_world_case: { label: 'Real-World Case', className: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300' },
+  practitioner_perspective: { label: 'Expert Perspective', className: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300' },
+  debate_or_analysis: { label: 'Analysis', className: 'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300' },
+  adjacent_insight: { label: 'Related Insight', className: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300' },
+};
+
+function ContentRoleBadge({ role }: { role: string }) {
+  const config = contentRoleConfig[role];
+  if (!config) return null;
+  return (
+    <Badge className={`text-[9px] h-4 px-1.5 font-medium ${config.className}`}>
+      {config.label}
+    </Badge>
+  );
+}
+
 export const UnifiedLOCard = memo(function UnifiedLOCard({ learningObjective, contentStatus }: UnifiedLOCardProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [previewMatch, setPreviewMatch] = useState<ContentMatch | null>(null);
@@ -739,7 +759,10 @@ function CompactContentCard({
         <div className="flex items-center gap-2">
           <p className="text-sm font-medium text-foreground truncate">{content?.title || 'Unknown'}</p>
         </div>
-        <p className="text-xs text-muted-foreground truncate">{content?.channel_name}</p>
+        <div className="flex items-center gap-1">
+          <p className="text-xs text-muted-foreground truncate">{content?.channel_name}</p>
+          {match.content_role && <ContentRoleBadge role={match.content_role} />}
+        </div>
         
         {/* AI Badges Row */}
         <div className="flex items-center gap-1.5 mt-1 flex-wrap">

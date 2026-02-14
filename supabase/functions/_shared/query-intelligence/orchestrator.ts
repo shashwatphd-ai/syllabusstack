@@ -5,11 +5,12 @@
  * Single Responsibility: Coordinates the query generation pipeline
  *
  * This orchestrator:
- * 1. Receives syllabus-extracted learning objective data
- * 2. Extracts additional concepts from the text
- * 3. Expands terms with synonyms/variations
- * 4. Builds diverse search queries
- * 5. Ranks and deduplicates results
+ * 1. (NEW) Calls content-role-reasoner for creative role-based queries
+ * 2. Receives syllabus-extracted learning objective data
+ * 3. Extracts additional concepts from the text
+ * 4. Expands terms with synonyms/variations
+ * 5. Builds diverse search queries
+ * 6. Ranks and deduplicates results
  *
  * ALL TERMS ORIGINATE FROM THE INSTRUCTOR'S SYLLABUS
  */
@@ -42,7 +43,6 @@ export class QueryIntelligenceOrchestrator implements IQueryIntelligenceOrchestr
   private conceptExtractor: ConceptExtractor;
   private moduleExtractor: ModuleContextExtractor;
   private roleAwareBuilder: RoleAwareBuilder;
-  private lastContentBrief: ContentBrief | null = null;
 
   constructor(config: Partial<QueryIntelligenceConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -60,16 +60,7 @@ export class QueryIntelligenceOrchestrator implements IQueryIntelligenceOrchestr
   }
 
   /**
-   * Get the content brief from the last generateQueries call.
-   * Used by downstream pipeline to tag videos with their roles.
-   */
-  getContentBrief(): ContentBrief | null {
-    return this.lastContentBrief;
-  }
-
-  /**
    * Register additional term expander
-   * Open/Closed: Can add new expanders without modifying existing code
    */
   registerExpander(expander: ITermExpander): void {
     this.expanders.push(expander);
@@ -77,19 +68,14 @@ export class QueryIntelligenceOrchestrator implements IQueryIntelligenceOrchestr
 
   /**
    * Register additional query builder
-   * Open/Closed: Can add new builders without modifying existing code
    */
   registerBuilder(builder: IQueryBuilder): void {
     this.builders.push(builder);
-    // Keep builders sorted by priority (highest first)
     this.builders.sort((a, b) => b.priority - a.priority);
   }
 
   /**
    * Main query generation method
-   *
-   * @param context - Learning objective and context FROM THE SYLLABUS
-   * @returns Ranked list of search queries
    */
   async generateQueries(context: QueryGenerationContext): Promise<GeneratedQuery[]> {
     const startTime = Date.now();
@@ -97,31 +83,26 @@ export class QueryIntelligenceOrchestrator implements IQueryIntelligenceOrchestr
 
     console.log(`[QueryIntelligence] Generating queries for: "${lo.core_concept}" (${lo.bloom_level})`);
 
-    // Step 0: Content Role Reasoning (LLM-powered creative query generation)
+    // Step 0: Content Role Reasoning (NEW — LLM creative reasoning)
+    let contentBrief: ContentBrief | null = null;
     try {
-      const contentBrief = await generateContentBrief(context, 5000);
-      this.lastContentBrief = contentBrief;
-      this.roleAwareBuilder.setContentBrief(contentBrief);
+      contentBrief = await generateContentBrief(context);
       if (contentBrief) {
+        this.roleAwareBuilder.setContentBrief(contentBrief);
         console.log(`[QueryIntelligence] Content brief: ${contentBrief.roles.map(r => r.role).join(', ')}`);
       }
     } catch (e) {
-      console.log('[QueryIntelligence] Content role reasoning failed (non-blocking):', e);
-      this.lastContentBrief = null;
-      this.roleAwareBuilder.setContentBrief(null);
+      console.log('[QueryIntelligence] Content role reasoning failed (using fallback):', e);
     }
 
     // Step 1: Extract additional concepts from LO text
     const extractedConcepts = this.conceptExtractor.extract(lo.text, context);
-    console.log(`[QueryIntelligence] Extracted concepts:`, extractedConcepts.primaryConcept);
 
-    // Step 2: Collect all terms to expand (from syllabus extraction)
+    // Step 2: Collect all terms to expand
     const termsToExpand = this.collectTermsToExpand(context, extractedConcepts);
-    console.log(`[QueryIntelligence] Terms to expand: ${termsToExpand.length}`);
 
     // Step 3: Expand terms with synonyms/variations
     const expandedTerms = await this.expandTerms(termsToExpand, lo.domain);
-    console.log(`[QueryIntelligence] Expanded ${expandedTerms.length} terms`);
 
     // Step 4: Build queries from all builders
     const allQueries = this.buildQueries(context, expandedTerms);
@@ -129,10 +110,9 @@ export class QueryIntelligenceOrchestrator implements IQueryIntelligenceOrchestr
 
     // Step 5: Deduplicate and rank
     const rankedQueries = this.deduplicateAndRank(allQueries);
-    console.log(`[QueryIntelligence] After dedup: ${rankedQueries.length} queries`);
 
-    // Step 6: Apply diversity filter and limit
-    const finalQueries = this.applyDiversityAndLimit(rankedQueries);
+    // Step 6: Apply diversity filter with role awareness
+    const finalQueries = this.applyDiversityAndLimit(rankedQueries, contentBrief);
 
     const elapsed = Date.now() - startTime;
     console.log(`[QueryIntelligence] Final: ${finalQueries.length} queries in ${elapsed}ms`);
@@ -141,9 +121,12 @@ export class QueryIntelligenceOrchestrator implements IQueryIntelligenceOrchestr
   }
 
   /**
-   * Collect all terms that should be expanded
-   * These all come from the syllabus extraction
+   * Get the last generated content brief (for downstream use)
    */
+  getLastContentBrief(): ContentBrief | null {
+    return this.roleAwareBuilder['contentBrief'] || null;
+  }
+
   private collectTermsToExpand(
     context: QueryGenerationContext,
     extractedConcepts: { primaryConcept: string; secondaryConcepts: string[]; impliedConcepts: string[] }
@@ -151,54 +134,40 @@ export class QueryIntelligenceOrchestrator implements IQueryIntelligenceOrchestr
     const terms: string[] = [];
     const lo = context.learningObjective;
 
-    // From syllabus LO extraction
-    if (lo.core_concept) {
-      terms.push(lo.core_concept);
-    }
-
-    // From syllabus search_keywords
+    if (lo.core_concept) terms.push(lo.core_concept);
     terms.push(...lo.search_keywords);
 
-    // From text analysis of syllabus LO
     if (extractedConcepts.primaryConcept !== lo.core_concept) {
       terms.push(extractedConcepts.primaryConcept);
     }
     terms.push(...extractedConcepts.secondaryConcepts.slice(0, 2));
 
-    // From module context (syllabus structure)
     if (context.module) {
       const moduleTerms = this.moduleExtractor.extractFromModule(context.module);
       terms.push(...moduleTerms.slice(0, 2));
     }
 
-    // Deduplicate
     return [...new Set(terms.map(t => t.toLowerCase()))].slice(0, 8);
   }
 
-  /**
-   * Expand all terms using registered expanders
-   */
   private async expandTerms(terms: string[], domain: string): Promise<ExpandedTerms[]> {
     const results: ExpandedTerms[] = [];
 
     for (const term of terms) {
-      // Try each expander
       for (const expander of this.expanders) {
         try {
           if (await expander.isAvailable()) {
             const expanded = await expander.expand(term, domain as any);
             if (expanded.synonyms.length > 0 || expanded.variations.length > 0) {
               results.push(expanded);
-              break; // Use first successful expansion
+              break;
             }
           }
         } catch (e) {
-          console.log(`[QueryIntelligence] Expander ${expander.name} failed for "${term}":`, e);
           continue;
         }
       }
 
-      // If no expansion, add empty result to preserve original term
       if (!results.some(r => r.original.toLowerCase() === term.toLowerCase())) {
         results.push({
           original: term,
@@ -212,9 +181,6 @@ export class QueryIntelligenceOrchestrator implements IQueryIntelligenceOrchestr
     return results;
   }
 
-  /**
-   * Build queries using all registered builders
-   */
   private buildQueries(context: QueryGenerationContext, expandedTerms: ExpandedTerms[]): GeneratedQuery[] {
     const allQueries: GeneratedQuery[] = [];
 
@@ -231,9 +197,6 @@ export class QueryIntelligenceOrchestrator implements IQueryIntelligenceOrchestr
     return allQueries;
   }
 
-  /**
-   * Deduplicate queries and rank by priority
-   */
   private deduplicateAndRank(queries: GeneratedQuery[]): GeneratedQuery[] {
     const seen = new Map<string, GeneratedQuery>();
 
@@ -243,7 +206,6 @@ export class QueryIntelligenceOrchestrator implements IQueryIntelligenceOrchestr
       if (!seen.has(normalized)) {
         seen.set(normalized, query);
       } else {
-        // Keep the higher priority version
         const existing = seen.get(normalized)!;
         if (query.priority > existing.priority) {
           seen.set(normalized, query);
@@ -251,14 +213,10 @@ export class QueryIntelligenceOrchestrator implements IQueryIntelligenceOrchestr
       }
     }
 
-    // Sort by priority (highest first)
     return Array.from(seen.values())
       .sort((a, b) => b.priority - a.priority);
   }
 
-  /**
-   * Normalize query for deduplication
-   */
   private normalizeQuery(query: string): string {
     return query
       .toLowerCase()
@@ -268,49 +226,38 @@ export class QueryIntelligenceOrchestrator implements IQueryIntelligenceOrchestr
   }
 
   /**
-   * Apply diversity filter and limit results.
-   * Ensures at least one query per content role before filling with best remaining.
+   * Apply diversity filter with role awareness
+   * Ensures at least 1 query per role (up to first 5 roles), then fills remaining
    */
-  private applyDiversityAndLimit(queries: GeneratedQuery[]): GeneratedQuery[] {
+  private applyDiversityAndLimit(queries: GeneratedQuery[], brief: ContentBrief | null): GeneratedQuery[] {
     const result: GeneratedQuery[] = [];
     const usedSources = new Map<string, number>();
-    const usedDerivations = new Set<string>();
     const filledRoles = new Set<string>();
 
-    // Pass 1: Ensure at least one query per content role
-    const roleQueries = queries.filter(q => q.content_role);
-    for (const query of roleQueries) {
-      if (result.length >= this.config.maxQueries) break;
-      if (filledRoles.has(query.content_role!)) continue;
-
-      result.push(query);
-      filledRoles.add(query.content_role!);
-      usedSources.set(query.source, (usedSources.get(query.source) || 0) + 1);
-      usedDerivations.add(query.derivedFrom.toLowerCase());
+    if (brief) {
+      // Pass 1: Best query per role (ensure role diversity)
+      for (const role of brief.roles) {
+        const roleQuery = queries.find(q =>
+          q.content_role === role.role && !result.includes(q)
+        );
+        if (roleQuery) {
+          result.push(roleQuery);
+          filledRoles.add(role.role);
+          usedSources.set(roleQuery.source, (usedSources.get(roleQuery.source) || 0) + 1);
+        }
+      }
     }
 
-    // Pass 2: Fill remaining slots with best queries (any source)
+    // Pass 2: Fill remaining slots
     for (const query of queries) {
       if (result.length >= this.config.maxQueries) break;
       if (result.includes(query)) continue;
 
-      // Ensure source diversity
       const sourceCount = usedSources.get(query.source) || 0;
-      if (sourceCount >= 4) continue; // Max 4 queries per source (was 3, raised for role queries)
-
-      // Ensure term diversity
-      const derivedLower = query.derivedFrom.toLowerCase();
-      const similarExists = Array.from(usedDerivations).some(d =>
-        d.includes(derivedLower) || derivedLower.includes(d)
-      );
-
-      if (similarExists && result.length >= 8) {
-        continue;
-      }
+      if (sourceCount >= 4) continue;
 
       result.push(query);
       usedSources.set(query.source, sourceCount + 1);
-      usedDerivations.add(derivedLower);
     }
 
     return result;
@@ -320,16 +267,108 @@ export class QueryIntelligenceOrchestrator implements IQueryIntelligenceOrchestr
 /**
  * Create a configured orchestrator instance
  */
-export function createQueryIntelligence(config?: Partial<QueryIntelligenceConfig>): IQueryIntelligenceOrchestrator {
+export function createQueryIntelligence(config?: Partial<QueryIntelligenceConfig>): QueryIntelligenceOrchestrator {
   return new QueryIntelligenceOrchestrator(config);
 }
 
 /**
- * Result of query generation including the content brief for downstream use
+ * Simplified function for direct use in edge functions
+ * Returns just query strings for backward compatibility
  */
-export interface QueryGenerationResult {
-  queries: GeneratedQuery[];
-  contentBrief: ContentBrief | null;
+export async function generateSearchQueries(
+  learningObjective: {
+    id: string;
+    text: string;
+    core_concept: string;
+    action_verb?: string;
+    bloom_level: string;
+    domain: string;
+    specificity?: string;
+    search_keywords: string[];
+    expected_duration_minutes: number;
+  },
+  module?: { title: string; description?: string; sequence_order?: number },
+  course?: { title: string; description?: string; code?: string }
+): Promise<string[]> {
+  const orchestrator = createQueryIntelligence();
+
+  const context: QueryGenerationContext = {
+    learningObjective: {
+      id: learningObjective.id,
+      text: learningObjective.text,
+      core_concept: learningObjective.core_concept,
+      action_verb: learningObjective.action_verb || 'understand',
+      bloom_level: (learningObjective.bloom_level || 'understand') as any,
+      domain: (learningObjective.domain || 'other') as any,
+      specificity: (learningObjective.specificity || 'intermediate') as any,
+      search_keywords: learningObjective.search_keywords || [],
+      expected_duration_minutes: learningObjective.expected_duration_minutes || 15,
+    },
+    module: module ? {
+      title: module.title,
+      description: module.description,
+      sequence_order: module.sequence_order || 0,
+    } : undefined,
+    course: course ? {
+      title: course.title,
+      description: course.description,
+      code: course.code,
+    } : undefined,
+  };
+
+  const queries = await orchestrator.generateQueries(context);
+  return queries.map(q => q.query);
+}
+
+/**
+ * Enhanced version that also returns the ContentBrief and role-tagged queries
+ * Used by search-youtube-content for role-aware scoring
+ */
+export async function generateSearchQueriesWithBrief(
+  learningObjective: {
+    id: string;
+    text: string;
+    core_concept: string;
+    action_verb?: string;
+    bloom_level: string;
+    domain: string;
+    specificity?: string;
+    search_keywords: string[];
+    expected_duration_minutes: number;
+  },
+  module?: { title: string; description?: string; sequence_order?: number },
+  course?: { title: string; description?: string; code?: string }
+): Promise<{ queries: GeneratedQuery[]; contentBrief: ContentBrief | null }> {
+  const orchestrator = createQueryIntelligence();
+
+  const context: QueryGenerationContext = {
+    learningObjective: {
+      id: learningObjective.id,
+      text: learningObjective.text,
+      core_concept: learningObjective.core_concept,
+      action_verb: learningObjective.action_verb || 'understand',
+      bloom_level: (learningObjective.bloom_level || 'understand') as any,
+      domain: (learningObjective.domain || 'other') as any,
+      specificity: (learningObjective.specificity || 'intermediate') as any,
+      search_keywords: learningObjective.search_keywords || [],
+      expected_duration_minutes: learningObjective.expected_duration_minutes || 15,
+    },
+    module: module ? {
+      title: module.title,
+      description: module.description,
+      sequence_order: module.sequence_order || 0,
+    } : undefined,
+    course: course ? {
+      title: course.title,
+      description: course.description,
+      code: course.code,
+    } : undefined,
+  };
+
+  const queries = await orchestrator.generateQueries(context);
+  const contentBrief = orchestrator.getLastContentBrief();
+
+  return { queries, contentBrief };
 }
 
 /**
