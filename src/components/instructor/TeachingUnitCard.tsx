@@ -35,6 +35,7 @@ interface TeachingUnitCardProps {
   onSearch: (unit: TeachingUnit) => void;
   onCreateLecture?: (unit: TeachingUnit) => void;
   onCancelQueuedSlide?: (teachingUnitId: string) => void;
+  onReviewVideo?: (match: ContentMatch) => void;
   isSearching: boolean;
   isGeneratingSlides?: boolean;
   generationProgress?: GenerationProgress | null;
@@ -80,6 +81,7 @@ export const TeachingUnitCard = memo(function TeachingUnitCard({
   onSearch, 
   onCreateLecture,
   onCancelQueuedSlide,
+  onReviewVideo,
   isSearching,
   isGeneratingSlides,
   generationProgress,
@@ -433,7 +435,8 @@ export const TeachingUnitCard = memo(function TeachingUnitCard({
                   {unitMatches.slice(0, 3).map(match => (
                     <div 
                       key={match.id} 
-                      className="flex items-center gap-2 p-2 bg-muted/50 rounded text-sm"
+                      className="flex items-center gap-2 p-2 bg-muted/50 rounded text-sm cursor-pointer hover:bg-muted transition-colors"
+                      onClick={() => onReviewVideo?.(match)}
                     >
                       {match.content?.thumbnail_url && (
                         <img 
@@ -451,7 +454,9 @@ export const TeachingUnitCard = memo(function TeachingUnitCard({
                       {match.status === 'approved' || match.status === 'auto_approved' ? (
                         <CheckCircle2 className="h-4 w-4 text-green-600" />
                       ) : (
-                        <Badge variant="outline" className="text-xs">Review</Badge>
+                        <Button variant="outline" size="sm" className="text-xs h-7 shrink-0">
+                          Review
+                        </Button>
                       )}
                     </div>
                   ))}
