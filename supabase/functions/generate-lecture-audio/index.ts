@@ -144,7 +144,9 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     // Self-healing: if audio_status is stuck in 'generating' for >10 minutes, allow retry
-    if (lectureSlide.audio_status === 'generating') {
+    // Also skip guard if called from the batch orchestrator (skipGuard flag)
+    const skipGuard = body.skipGuard === true;
+    if (lectureSlide.audio_status === 'generating' && !skipGuard) {
       const updatedAt = new Date(lectureSlide.updated_at);
       const minutesSinceUpdate = (Date.now() - updatedAt.getTime()) / 60000;
       if (minutesSinceUpdate < 10) {

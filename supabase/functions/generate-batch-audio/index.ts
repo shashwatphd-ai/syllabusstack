@@ -136,7 +136,7 @@ Deno.serve(async (req: Request) => {
           'Authorization': `Bearer ${serviceKey}`,
           'apikey': serviceKey,
         },
-        body: JSON.stringify({ slideId: unit.id, enableSegmentMapping: true }),
+        body: JSON.stringify({ slideId: unit.id, enableSegmentMapping: true, skipGuard: true }),
       }).catch((err) => {
         // Log but don't block — the worker function handles its own status updates
         logError('generate-batch-audio', err instanceof Error ? err : new Error(String(err)), {
