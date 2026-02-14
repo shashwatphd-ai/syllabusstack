@@ -386,6 +386,8 @@ const handler = async (req: Request): Promise<Response> => {
     // If no cache hit (or empty), run query intelligence + multi-source discovery
     let contentBrief: ContentBrief | null = null;
     let generatedQueries: GeneratedQuery[] = [];
+    // Track which role each video was discovered from (first query wins)
+    const videoRoleMap = new Map<string, ContentRoleType>();
 
     if (!skipSearch) {
       // Query Intelligence with Content Role Reasoning
@@ -463,8 +465,6 @@ const handler = async (req: Request): Promise<Response> => {
         const gq = generatedQueries.find(q => q.query === topQueries[i]);
         queryRoleMap.set(i, gq?.content_role);
       }
-      // Track which role each video was discovered from (first query wins)
-      const videoRoleMap = new Map<string, ContentRoleType>();
 
       if (topQueries.length > 0) {
         console.log(`[ORCHESTRATOR] Searching with ${topQueries.length} queries in parallel`);
