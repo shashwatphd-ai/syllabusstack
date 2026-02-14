@@ -568,26 +568,14 @@ export function useTriggerImageGeneration() {
         }
       }
 
-      // Fast path: process existing queue items (MODE 1) — returns in <2s
-      const { data, error } = await supabase.functions.invoke('process-batch-images', {
+      // Fire-and-forget: trigger processing without waiting for response
+      // The edge function takes ~60s to process 3 images, which exceeds browser fetch timeout.
+      // Instead, we fire it and let the polling hook track progress.
+      supabase.functions.invoke('process-batch-images', {
         body: { continue: true },
-      });
+      }).catch(err => console.warn('[ImageGen] Background processing call failed (likely timeout, processing continues):', err));
 
-      if (error) {
-        console.error('[ImageGen] Trigger error:', error);
-        throw error;
-      }
-
-      // If nothing was in the queue, populate it in the background (fire-and-forget)
-      if (data?.processed === 0 && data?.remaining === undefined) {
-        supabase.functions.invoke('process-batch-images', {
-          body: { instructor_course_id: instructorCourseId },
-        }).catch(err => console.warn('[ImageGen] Background populate failed:', err));
-        
-        return { ...data, message: 'Image generation queued and starting...' } as ImageGenerationStatusResponse;
-      }
-
-      return data as ImageGenerationStatusResponse;
+      return { success: true, message: 'Image generation started in background.' } as ImageGenerationStatusResponse;
     },
 
     onSuccess: (data, variables) => {
@@ -604,11 +592,21 @@ export function useTriggerImageGeneration() {
 
     onError: (error: Error) => {
       console.error('[ImageGen] Trigger failed:', error);
-      toast({
-        title: 'Image Generation Failed',
-        description: error.message || 'Failed to start image generation.',
-        variant: 'destructive',
-      });
+      const msg = error.message?.toLowerCase() || '';
+      const isTimeoutOrNetwork = msg.includes('failed to fetch') || msg.includes('failed to send') || msg.includes('networkerror');
+      
+      if (isTimeoutOrNetwork) {
+        toast({
+          title: '🖼️ Image Generation Running',
+          description: 'Image generation is running in the background. Check progress below.',
+        });
+      } else {
+        toast({
+          title: 'Image Generation Failed',
+          description: error.message || 'Failed to start image generation.',
+          variant: 'destructive',
+        });
+      }
     },
   });
 }
