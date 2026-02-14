@@ -302,16 +302,19 @@ export const UnifiedLOCard = memo(function UnifiedLOCard({ learningObjective, co
                     </TooltipProvider>
                   )}
                   
-                  {contentStatus.approvedCount > 0 && (
+                  {contentStatus.approvedCount > 0 ? (
                     <Badge variant="outline" className="text-[10px] sm:text-xs text-success border-success/30">
-                      {contentStatus.approvedCount} approved
+                      <CheckCircle className="h-2.5 w-2.5 mr-0.5" />
+                      {contentStatus.approvedCount} video{contentStatus.approvedCount !== 1 ? 's' : ''}
+                      {contentStatus.pendingCount > 0 && (
+                        <span className="text-warning ml-1">+{contentStatus.pendingCount} to review</span>
+                      )}
                     </Badge>
-                  )}
-                  {contentStatus.pendingCount > 0 && (
+                  ) : contentStatus.pendingCount > 0 ? (
                     <Badge variant="outline" className="text-[10px] sm:text-xs text-warning border-warning/30">
-                      {contentStatus.pendingCount} pending
+                      {contentStatus.pendingCount} to review
                     </Badge>
-                  )}
+                  ) : null}
                   {assessmentQuestions && assessmentQuestions.length > 0 && (
                     <Badge 
                       variant="outline" 

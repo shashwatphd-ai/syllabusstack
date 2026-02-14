@@ -35,8 +35,8 @@ export function UnifiedModuleCard({ module, learningObjectives }: UnifiedModuleC
   const loIds = useMemo(() => learningObjectives.map(lo => lo.id), [learningObjectives]);
   const { data: loContentStatus } = useLOContentStatus(loIds);
 
-  // Calculate module stats - single pass instead of 3 separate filter calls
-  const { losWithContent, losWithPending, losWithoutContent } = useMemo(() => {
+  // Calculate module stats - single pass
+  const { losWithContent, losWithPending, losWithoutContent, losCovered } = useMemo(() => {
     let withContent = 0;
     let withPending = 0;
     let withoutContent = 0;
@@ -48,7 +48,12 @@ export function UnifiedModuleCard({ module, learningObjectives }: UnifiedModuleC
       else if (!status?.hasContent) withoutContent++;
     }
     
-    return { losWithContent: withContent, losWithPending: withPending, losWithoutContent: withoutContent };
+    return { 
+      losWithContent: withContent, 
+      losWithPending: withPending, 
+      losWithoutContent: withoutContent,
+      losCovered: withContent + withPending,
+    };
   }, [learningObjectives, loContentStatus]);
 
   const handleFindAllContent = async () => {
@@ -138,14 +143,17 @@ export function UnifiedModuleCard({ module, learningObjectives }: UnifiedModuleC
                     <Badge variant="secondary" className="text-xs shrink-0">
                       {learningObjectives.length} LOs
                     </Badge>
-                    {losWithContent > 0 && (
-                      <Badge variant="outline" className="text-xs text-success border-success/30 shrink-0">
-                        {losWithContent} ready
-                      </Badge>
-                    )}
-                    {losWithPending > 0 && (
-                      <Badge variant="outline" className="text-xs text-warning border-warning/30 shrink-0">
-                        {losWithPending} pending
+                    {losCovered > 0 && (
+                      <Badge 
+                        variant="outline" 
+                        className={`text-xs shrink-0 ${
+                          losWithContent === learningObjectives.length 
+                            ? 'text-success border-success/30' 
+                            : 'text-muted-foreground border-border'
+                        }`}
+                      >
+                        {losWithContent}/{learningObjectives.length} content ready
+                        {losWithPending > 0 && ` · ${losWithPending} to review`}
                       </Badge>
                     )}
                   </div>
