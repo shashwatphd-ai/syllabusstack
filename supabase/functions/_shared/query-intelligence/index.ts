@@ -42,9 +42,15 @@ export {
   createDefaultBuilders,
 } from './builders/query-builders.ts';
 
+export { RoleAwareBuilder } from './builders/role-aware-builder.ts';
+
+// Reasoners
+export { generateContentBrief } from './reasoners/content-role-reasoner.ts';
+
 // Orchestrator
 export {
   QueryIntelligenceOrchestrator,
   createQueryIntelligence,
   generateSearchQueries,
+  generateSearchQueriesWithBrief,
 } from './orchestrator.ts';

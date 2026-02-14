@@ -743,6 +743,23 @@ function CompactContentCard({
         
         {/* AI Badges Row */}
         <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+          {/* Content Role Badge */}
+          {(match as any).content_role && (() => {
+            const roleLabels: Record<string, { label: string; className: string }> = {
+              core_explainer: { label: 'Tutorial', className: 'text-blue-600 border-blue-200 bg-blue-50' },
+              curiosity_spark: { label: 'Curiosity Spark', className: 'text-amber-600 border-amber-200 bg-amber-50' },
+              real_world_case: { label: 'Real-World Case', className: 'text-emerald-600 border-emerald-200 bg-emerald-50' },
+              practitioner_perspective: { label: 'Expert View', className: 'text-purple-600 border-purple-200 bg-purple-50' },
+              debate_or_analysis: { label: 'Analysis', className: 'text-rose-600 border-rose-200 bg-rose-50' },
+              adjacent_insight: { label: 'Related Insight', className: 'text-cyan-600 border-cyan-200 bg-cyan-50' },
+            };
+            const role = roleLabels[(match as any).content_role];
+            return role ? (
+              <Badge variant="outline" className={`text-[10px] h-5 ${role.className}`}>
+                {role.label}
+              </Badge>
+            ) : null;
+          })()}
           {/* AI Recommendation Badge */}
           {aiBadge && (
             <Badge variant={aiBadge.variant} className={`text-[10px] h-5 ${aiBadge.className}`}>
