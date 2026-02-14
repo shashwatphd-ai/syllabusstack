@@ -203,52 +203,6 @@ export function useSearchYouTubeContent() {
   });
 }
 
-// Search for educational content from multiple sources (Invidious, Piped, Archive.org, MIT OCW)
-export function useSearchEducationalContent() {
-  const queryClient = useQueryClient();
-  const { toast } = useToast();
-
-  return useMutation({
-    mutationFn: async ({ 
-      learningObjective, 
-      sources = ['invidious', 'piped', 'archive_org', 'mit_ocw'] 
-    }: {
-      learningObjective: LearningObjective;
-      sources?: string[];
-    }) => {
-      const { data, error } = await supabase.functions.invoke('search-educational-content', {
-        body: {
-          query: learningObjective.core_concept || learningObjective.text,
-          learning_objective_id: learningObjective.id,
-          search_keywords: learningObjective.search_keywords,
-          sources,
-          max_results_per_source: 5,
-        },
-      });
-
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: (data, variables) => {
-      queryClient.invalidateQueries({ 
-        queryKey: ['content-matches', variables.learningObjective.id] 
-      });
-      const totalFound = data?.results?.length || 0;
-      toast({
-        title: 'Multi-Source Search Complete',
-        description: `Found ${totalFound} resources from ${data?.sources_searched?.length || 0} sources`,
-      });
-    },
-    onError: (error) => {
-      toast({
-        title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to search educational content',
-        variant: 'destructive',
-      });
-    },
-  });
-}
-
 // Approve or reject a content match
 export function useUpdateContentMatchStatus() {
   const queryClient = useQueryClient();

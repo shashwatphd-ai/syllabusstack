@@ -133,10 +133,8 @@ export interface GeneratedQuery {
 
 export type QuerySource =
   | 'syllabus_direct'              // Direct from syllabus keywords
-  | 'concept_expansion'            // Expanded from core concept
   | 'module_context'               // Derived from module title
   | 'bloom_template'               // Bloom's level template
-  | 'platform_optimized'           // Optimized for YouTube/etc
   | 'llm_enriched';                // Enhanced by open LLM
 
 export type VideoType =
@@ -207,15 +205,13 @@ export interface QueryIntelligenceConfig {
 }
 
 export const DEFAULT_CONFIG: QueryIntelligenceConfig = {
-  maxQueries: 12,
+  maxQueries: 8,
   enableLLMExpansion: true,
   llmTimeoutMs: 3000,
   minQueryDiversity: 0.3,
   preferredSources: [
     'syllabus_direct',
-    'concept_expansion',
     'module_context',
     'bloom_template',
-    'platform_optimized',
   ],
 };
