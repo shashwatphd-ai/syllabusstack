@@ -5,7 +5,7 @@ import {
   extractKeywords
 } from "../_shared/content-cache.ts";
 import { generateSearchQueries, generateSearchQueriesWithBrief } from "../_shared/query-intelligence/index.ts";
-import type { ContentBrief, ContentRoleType, GeneratedQuery } from "../_shared/query-intelligence/types.ts";
+import type { ContentBrief, ContentRoleType, GeneratedQuery, TeachingContext } from "../_shared/query-intelligence/types.ts";
 import {
   searchYouTubeOrchestrated,
   toYouTubeVideoArray,
@@ -414,6 +414,18 @@ const handler = async (req: Request): Promise<Response> => {
             ? targetUnit.required_concepts
             : effectiveSearchKeywords || [];
 
+          // Build rich teaching context from teaching unit (student search agent consumes this)
+          const teachingContext: TeachingContext | undefined = targetUnit ? {
+            what_to_teach: targetUnit.what_to_teach,
+            why_this_matters: targetUnit.why_this_matters,
+            how_to_teach: targetUnit.how_to_teach,
+            common_misconceptions: targetUnit.common_misconceptions,
+            prerequisites: targetUnit.prerequisites,
+            enables: targetUnit.enables,
+            required_concepts: targetUnit.required_concepts,
+            target_video_type: targetUnit.target_video_type,
+          } : undefined;
+
           const qiResult = await generateSearchQueriesWithBrief(
             {
               id: learning_objective_id,
@@ -427,7 +439,8 @@ const handler = async (req: Request): Promise<Response> => {
               expected_duration_minutes: targetUnit?.target_duration_minutes || effectiveDuration || 15,
             },
             moduleContext ? { title: moduleContext.title, description: moduleContext.description } : undefined,
-            courseContext ? { title: courseContext.title, description: courseContext.description, code: courseContext.code } : undefined
+            courseContext ? { title: courseContext.title, description: courseContext.description, code: courseContext.code } : undefined,
+            teachingContext
           );
           contentBrief = qiResult.contentBrief;
           generatedQueries = qiResult.queries;

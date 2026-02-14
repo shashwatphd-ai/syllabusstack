@@ -10,6 +10,7 @@
 
 import { generateText, MODELS, parseJsonResponse } from '../../unified-ai-client.ts';
 import type { QueryGenerationContext, ContentBrief, ContentRole } from '../types.ts';
+import { validateContentBrief } from './validate-content-brief.ts';
 
 const ROLE_REASONING_PROMPT = `You are a creative, curious educator designing a rich learning experience. Given a learning objective, you must think about what kinds of YouTube videos would make this topic come alive for students.
 
@@ -102,41 +103,17 @@ Think creatively about what videos would make "${lo.core_concept}" fascinating a
       return null;
     }
 
-    const parsed = parseJsonResponse(result.content) as ContentBrief;
+    const parsed = parseJsonResponse(result.content);
 
-    // Validate the response has the minimum required structure
-    if (!parsed.roles || !Array.isArray(parsed.roles) || parsed.roles.length === 0) {
+    const validated = validateContentBrief(parsed, lo.core_concept);
+    if (!validated) {
       console.log('[content-role-reasoner] Invalid response structure - no roles');
       return null;
     }
 
-    // Ensure core_explainer is always first
-    const hasExplainer = parsed.roles.some(r => r.role === 'core_explainer');
-    if (!hasExplainer) {
-      parsed.roles.unshift({
-        role: 'core_explainer',
-        description: 'Direct tutorial or lecture on the concept',
-        target_content_types: ['tutorial', 'lecture'],
-        suggested_queries: [`${lo.core_concept} explained`, `${lo.core_concept} tutorial`],
-        duration_flexibility: 'strict',
-      });
-    }
+    console.log(`[content-role-reasoner] Generated brief with ${validated.roles.length} roles: ${validated.roles.map(r => r.role).join(', ')}`);
 
-    // Cap at 5 roles
-    parsed.roles = parsed.roles.slice(0, 5);
-
-    // Validate each role has suggested_queries
-    for (const role of parsed.roles) {
-      if (!role.suggested_queries || !Array.isArray(role.suggested_queries)) {
-        role.suggested_queries = [];
-      }
-      // Cap queries per role
-      role.suggested_queries = role.suggested_queries.slice(0, 3);
-    }
-
-    console.log(`[content-role-reasoner] Generated brief with ${parsed.roles.length} roles: ${parsed.roles.map(r => r.role).join(', ')}`);
-
-    return parsed;
+    return validated;
   } catch (error) {
     console.log('[content-role-reasoner] Failed (will fall back to standard queries):', error);
     return null;
