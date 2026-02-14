@@ -464,7 +464,7 @@ function ContentMatchCard({
           </div>
 
           {/* Content Role Badge */}
-          {(match as any).content_role && (() => {
+          {match.content_role && (() => {
             const roleLabels: Record<string, { label: string; className: string }> = {
               core_explainer: { label: 'Tutorial', className: 'text-blue-600 border-blue-200 bg-blue-50' },
               curiosity_spark: { label: 'Curiosity Spark', className: 'text-amber-600 border-amber-200 bg-amber-50' },
@@ -473,7 +473,7 @@ function ContentMatchCard({
               debate_or_analysis: { label: 'Analysis', className: 'text-rose-600 border-rose-200 bg-rose-50' },
               adjacent_insight: { label: 'Related Insight', className: 'text-cyan-600 border-cyan-200 bg-cyan-50' },
             };
-            const role = roleLabels[(match as any).content_role];
+            const role = roleLabels[match.content_role];
             return role ? (
               <Badge variant="outline" className={`text-xs mt-2 ${role.className}`}>
                 {role.label}

@@ -47,6 +47,7 @@ export interface ContentMatch {
   ai_quality_score: number | null;
   ai_recommendation: string | null;
   ai_concern: string | null;
+  content_role: string | null;
 }
 
 export interface Content {
