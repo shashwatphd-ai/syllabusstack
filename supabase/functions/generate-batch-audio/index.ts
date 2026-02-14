@@ -1,11 +1,11 @@
 /**
  * generate-batch-audio – Course-level batch audio orchestrator
  *
- * Fire-and-forget pattern (no in-function polling):
- *  1. Pick the next N units that need audio (audio_status IS NULL or 'pending')
- *  2. Fire generate-lecture-audio for each (non-blocking, don't wait)
- *  3. Self-continue after a delay so the next invocation picks up more pending units
- *     or detects all are done/in-flight.
+ * Fire-and-forget pattern with concurrency control:
+ *  1. Count in-flight workers. If under MAX_CONCURRENT, pick next pending/failed units.
+ *  2. Fire generate-lecture-audio for each (non-blocking).
+ *  3. Self-continue immediately via fetch() (NOT setTimeout — Deno kills timers after response).
+ *     Each invocation is short-lived; the chain continues until all units are done.
  *
  * Input:  { instructorCourseId }
  * Output: { success, dispatched, remaining, generating }
@@ -20,9 +20,8 @@ import {
   logError,
 } from "../_shared/error-handler.ts";
 
-const BATCH_SIZE = 4; // Fire up to 4 units per invocation
-const SELF_CONTINUE_DELAY_MS = 15_000; // 15s delay before self-continuing (gives units time to start)
-const SELF_CONTINUE_MAX_RETRIES = 3;
+const BATCH_SIZE = 2;       // Dispatch up to 2 units per invocation
+const MAX_CONCURRENT = 4;   // Max workers running simultaneously
 
 Deno.serve(async (req: Request) => {
   const preflightResponse = handleCorsPreFlight(req);
@@ -88,31 +87,37 @@ Deno.serve(async (req: Request) => {
 
     const currentlyGenerating = generatingCount || 0;
 
-    // Query units needing audio — NULL or 'pending' status
+    // How many new workers can we start?
+    const slotsAvailable = Math.max(0, MAX_CONCURRENT - currentlyGenerating);
+    const fetchLimit = Math.min(BATCH_SIZE, slotsAvailable);
+
+    // Query units needing audio — NULL, 'pending', or 'failed' status
     const { data: pendingUnits, error: queryError } = await supabase
       .from('lecture_slides')
       .select('id, title')
       .eq('instructor_course_id', instructorCourseId)
       .in('status', ['ready', 'published'])
       .eq('has_audio', false)
-      .or('audio_status.is.null,audio_status.eq.pending')
+      .or('audio_status.is.null,audio_status.eq.pending,audio_status.eq.failed')
       .order('title', { ascending: true })
-      .limit(BATCH_SIZE);
+      .limit(fetchLimit > 0 ? fetchLimit : 1);
 
     if (queryError) {
       logError('generate-batch-audio', queryError);
       return createErrorResponse('DATABASE_ERROR', corsHeaders, queryError.message);
     }
 
-    const batch = pendingUnits || [];
+    const pendingTotal = pendingUnits?.length || 0;
+    const batch = fetchLimit > 0 ? (pendingUnits || []) : [];
 
-    if (batch.length === 0 && currentlyGenerating === 0) {
-      logInfo('generate-batch-audio', 'nothing-to-do', { instructorCourseId });
+    // Nothing pending AND nothing generating → done
+    if (pendingTotal === 0 && currentlyGenerating === 0) {
+      logInfo('generate-batch-audio', 'all-complete', { instructorCourseId });
       return createSuccessResponse({ success: true, dispatched: 0, remaining: 0, generating: 0 }, corsHeaders);
     }
 
     // ========================================================================
-    // Fire-and-forget: dispatch audio generation for each pending unit
+    // Fire-and-forget: dispatch audio generation for each unit in the batch
     // ========================================================================
     let dispatched = 0;
 
@@ -138,7 +143,6 @@ Deno.serve(async (req: Request) => {
         },
         body: JSON.stringify({ slideId: unit.id, enableSegmentMapping: true, skipGuard: true }),
       }).catch((err) => {
-        // Log but don't block — the worker function handles its own status updates
         logError('generate-batch-audio', err instanceof Error ? err : new Error(String(err)), {
           slideId: unit.id,
           context: 'fire-and-forget dispatch failed',
@@ -149,27 +153,20 @@ Deno.serve(async (req: Request) => {
     }
 
     // ========================================================================
-    // Re-count remaining pending units
+    // Self-continuation: if work remains, fire another invocation immediately
     // ========================================================================
+    // We count remaining AFTER dispatching (the ones we just dispatched are now
+    // 'generating' so they won't appear here).
     const { count: remainingCount } = await supabase
       .from('lecture_slides')
       .select('id', { count: 'exact', head: true })
       .eq('instructor_course_id', instructorCourseId)
       .in('status', ['ready', 'published'])
       .eq('has_audio', false)
-      .or('audio_status.is.null,audio_status.eq.pending');
+      .or('audio_status.is.null,audio_status.eq.pending,audio_status.eq.failed');
 
     const remaining = remainingCount || 0;
-
-    // Also count how many are now in-flight
-    const { count: newGeneratingCount } = await supabase
-      .from('lecture_slides')
-      .select('id', { count: 'exact', head: true })
-      .eq('instructor_course_id', instructorCourseId)
-      .in('status', ['ready', 'published'])
-      .eq('audio_status', 'generating');
-
-    const totalInFlight = newGeneratingCount || 0;
+    const totalInFlight = currentlyGenerating + dispatched;
 
     logInfo('generate-batch-audio', 'batch-dispatched', {
       instructorCourseId,
@@ -178,34 +175,23 @@ Deno.serve(async (req: Request) => {
       totalInFlight,
     });
 
-    // ========================================================================
-    // Self-continuation: if there are still pending units, schedule next batch
-    // ========================================================================
     if (remaining > 0 || totalInFlight > 0) {
-      logInfo('generate-batch-audio', 'scheduling-self-continuation', { remaining, totalInFlight, delayMs: SELF_CONTINUE_DELAY_MS });
+      logInfo('generate-batch-audio', 'self-continuing', { remaining, totalInFlight });
 
-      // Fire-and-forget self-continuation after a delay
-      // Do NOT await — this lets the current invocation return immediately
-      setTimeout(() => {
-        fetch(`${supabaseUrl}/functions/v1/generate-batch-audio`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${serviceKey}`,
-            'apikey': serviceKey,
-          },
-          body: JSON.stringify({ instructorCourseId }),
-        }).catch((err) => {
-          logError('generate-batch-audio', err instanceof Error ? err : new Error(String(err)), {
-            context: 'self-continuation fire-and-forget failed',
-          });
+      // Fire-and-forget self-continuation via fetch() — NOT setTimeout()
+      // setTimeout is killed when the Deno isolate shuts down after response.
+      fetch(`${supabaseUrl}/functions/v1/generate-batch-audio`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${serviceKey}`,
+          'apikey': serviceKey,
+        },
+        body: JSON.stringify({ instructorCourseId }),
+      }).catch((err) => {
+        logError('generate-batch-audio', err instanceof Error ? err : new Error(String(err)), {
+          context: 'self-continuation failed',
         });
-      }, SELF_CONTINUE_DELAY_MS);
-    } else if (totalInFlight > 0) {
-      // All dispatched but some still generating — schedule a check-back
-      logInfo('generate-batch-audio', 'all-dispatched-waiting', {
-        instructorCourseId,
-        totalInFlight,
       });
     } else {
       logInfo('generate-batch-audio', 'batch-complete', { instructorCourseId, dispatched });
