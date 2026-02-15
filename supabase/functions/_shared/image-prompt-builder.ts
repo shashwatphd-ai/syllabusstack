@@ -163,12 +163,12 @@ export function slideNeedsImage(slide: StoredSlide): boolean {
   if (slide.visual_directive?.type && slide.visual_directive.type !== 'none') return true;
   if (slide.visual_directive?.description) return true;
 
-  // For slides WITHOUT a visual directive, skip non-content types
+  // If slide has a visual with a type (e.g. from older generation), ALWAYS generate
+  if (slide.visual?.type && slide.visual.type !== 'none') return true;
+
+  // For slides with NO visual intent at all, skip non-content types
   const skipTypes = ['conclusion', 'recap', 'further_reading', 'title', 'title_slide', 'summary', 'preview'];
   if (skipTypes.includes(slide.type?.toLowerCase() || '')) return false;
-
-  // Has visual with a type
-  if (slide.visual?.type && slide.visual.type !== 'none') return true;
 
   // Has enough content to generate a meaningful visual
   const c = slide.content || {};
