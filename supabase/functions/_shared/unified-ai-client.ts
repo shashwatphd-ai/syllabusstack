@@ -12,8 +12,8 @@
 //   - Text generation → OpenRouter (MODELS.PROFESSOR_AI, MODELS.FAST, etc.)
 //   - Image generation → Controlled by IMAGE_PROVIDER env var:
 //       • 'openrouter' (default): OpenRouter API (Gemini 3 Pro Image)
-//       • 'google': Native Vertex AI (Gemini 3 Pro Image - same model, GCP billing)
-//       • 'google': Native Vertex AI (Gemini 3 Pro Image - GCP billing)
+//       • 'google': Google Generative Language API (same model, GCP billing)
+//       • 'evolink': EvoLink.ai gateway (~$0.05/image, 63% cheaper)
 //   - Research/grounding → OpenRouter (MODELS.RESEARCH = perplexity/sonar-pro)
 //   - Syllabus parsing → OpenRouter (MODELS.PARSING = gemini-2.5-flash)
 //
@@ -22,6 +22,7 @@
 //   |------------------|----------------------|-------------------|
 //   | IMAGE_PROVIDER   | 'openrouter' (def)   | Image generation  |
 //   |                  | 'google'             | → GCP credits     |
+//   |                  | 'evolink'            | → 63% cheaper     |
 //   | BATCH_PROVIDER   | 'openrouter' (def)   | Batch slides      |
 //   |                  | 'vertex'             | → 50% discount    |
 //
@@ -29,7 +30,7 @@
 //   | Operation     | Provider         | Model                           |
 //   |---------------|------------------|----------------------------------|
 //   | Slide Content | OpenRouter/Vertex| google/gemini-3-flash-preview    |
-//   | Images        | OpenRouter/Google| gemini-3-pro-image-preview       |
+//   | Images        | OpenRouter/Google/EvoLink | nano-banana-pro      |
 //   | Research      | OpenRouter       | perplexity/sonar-pro             |
 //   | Parsing       | OpenRouter       | google/gemini-2.5-flash          |
 //   | Reasoning     | OpenRouter       | deepseek/deepseek-r1             |
@@ -69,11 +70,11 @@ export type Provider = 'openrouter' | 'google_direct' | 'google' | 'vertex';
 // Image provider configuration - read from environment
 const IMAGE_PROVIDER = Deno.env.get('IMAGE_PROVIDER') || 'openrouter';
 
-// Vertex AI image models - using Gemini 3 Pro Image for text-faithful educational diagrams
-// Uses :generateContent endpoint (same as OpenRouter path) instead of Imagen's :predict
-const VERTEX_IMAGE_MODELS = {
-  PRIMARY: 'gemini-3-pro-image-preview',       // Gemini 3 Pro Image - text-faithful diagrams
-  FALLBACK: 'gemini-2.5-flash-preview-image-generation',  // Fallback - lighter model
+// Google Generative Language API image models
+// Uses :generateContent endpoint at generativelanguage.googleapis.com/v1beta
+const GOOGLE_IMAGE_MODELS = {
+  PRIMARY: 'gemini-3-pro-image-preview',  // Nano Banana Pro - text-faithful diagrams
+  FALLBACK: 'gemini-2.5-flash-image',     // Nano Banana GA - reliable fallback
 } as const;
 
 export interface AIRequest {
@@ -348,7 +349,11 @@ export async function generateImage(request: {
   if (IMAGE_PROVIDER === 'google') {
     return generateImageGoogle(request);
   }
-  
+
+  if (IMAGE_PROVIDER === 'evolink') {
+    return generateImageEvoLink(request);
+  }
+
   return generateImageOpenRouter(request);
 }
 
@@ -444,9 +449,10 @@ async function generateImageOpenRouter(request: {
         const errorText = await response.text();
         console.error(`${logPrefix} OpenRouter error ${response.status}:`, errorText.substring(0, 300));
 
-        // On 5xx, 402 (payment required), or 403 (key limit) errors,
-        // try fallback model (cheaper) before giving up
-        const isRetriableError = response.status >= 500 || response.status === 402 || response.status === 403;
+        // On server errors, model-not-found (404), bad-request (400), billing (402/403),
+        // or rate-limit (429) errors, try fallback model before giving up.
+        // 400/404 are retriable because the fallback is a different model on a different endpoint.
+        const isRetriableError = response.status >= 500 || response.status === 400 || response.status === 402 || response.status === 403 || response.status === 404 || response.status === 429;
         if (isRetriableError && model === primaryModel) {
           console.warn(`${logPrefix} HTTP ${response.status} error, trying fallback model (${fallbackModel})...`);
           continue;
@@ -596,9 +602,9 @@ async function generateImageGoogle(request: {
 
   // Model selection with fallback
   const primaryModel = request.useFreeModel
-    ? VERTEX_IMAGE_MODELS.FALLBACK
-    : VERTEX_IMAGE_MODELS.PRIMARY;
-  const fallbackModel = VERTEX_IMAGE_MODELS.FALLBACK;
+    ? GOOGLE_IMAGE_MODELS.FALLBACK
+    : GOOGLE_IMAGE_MODELS.PRIMARY;
+  const fallbackModel = GOOGLE_IMAGE_MODELS.FALLBACK;
 
   for (const model of [primaryModel, fallbackModel]) {
     const isRetry = model === fallbackModel && model !== primaryModel;
@@ -632,8 +638,8 @@ async function generateImageGoogle(request: {
         },
       };
 
-      // Google AI Generative Language API endpoint (uses API key, not OAuth)
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      // Google AI Generative Language API endpoint
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
       console.log(`${logPrefix} Endpoint: generativelanguage.googleapis.com/v1beta/models/${model}`);
 
@@ -641,6 +647,7 @@ async function generateImageGoogle(request: {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey,
         },
         body: JSON.stringify(body),
       });
@@ -650,9 +657,10 @@ async function generateImageGoogle(request: {
         const errorText = await response.text();
         console.error(`${logPrefix} Google GenAI error ${response.status}:`, errorText.substring(0, 500));
 
-        // On retriable errors, try fallback
-        const isRetriableError = response.status >= 500 || response.status === 402 || response.status === 403 || response.status === 429;
-        if (isRetriableError && model === primaryModel && model !== fallbackModel) {
+        // On retriable errors (server errors, model-not-found, billing, rate-limit), try fallback.
+        // 404 is retriable because the fallback is a different model at a different endpoint.
+        const isRetriableError = response.status >= 500 || response.status === 400 || response.status === 402 || response.status === 403 || response.status === 404 || response.status === 429;
+        if (isRetriableError && model === primaryModel) {
           console.warn(`${logPrefix} HTTP ${response.status} error, trying fallback model (${fallbackModel})...`);
           continue;
         }
@@ -681,7 +689,7 @@ async function generateImageGoogle(request: {
         console.error(`${logPrefix} Response keys:`, Object.keys(data));
 
         // If primary model fails extraction, try fallback
-        if (model === primaryModel && model !== fallbackModel) {
+        if (model === primaryModel) {
           console.warn(`${logPrefix} Failed extraction from ${model}, trying fallback...`);
           continue;
         }
@@ -690,7 +698,7 @@ async function generateImageGoogle(request: {
           success: false,
           error: {
             code: 'INVALID_RESPONSE',
-            message: 'Could not extract image data from Vertex AI Gemini response.',
+            message: 'Could not extract image data from Google Gemini response.',
             provider: 'google',
             model,
             rawError: JSON.stringify(data).substring(0, 500),
@@ -719,7 +727,7 @@ async function generateImageGoogle(request: {
       console.error(`${logPrefix} Exception during image generation with ${model}:`, errorMessage);
 
       // If primary model throws, try fallback
-      if (model === primaryModel && model !== fallbackModel) {
+      if (model === primaryModel) {
         console.warn(`${logPrefix} Exception with ${model}, trying fallback...`);
         continue;
       }
@@ -744,6 +752,233 @@ async function generateImageGoogle(request: {
       code: 'IMAGE_GENERATION_FAILED',
       message: 'All GCP image generation models failed',
       provider: 'google',
+      model: primaryModel,
+    },
+  };
+}
+
+// ============================================================================
+// EVOLINK.AI IMAGE GENERATION - Cost-optimized provider (~$0.05/image)
+// ============================================================================
+//
+// EvoLink.ai is an OpenAI-compatible API gateway offering Nano Banana Pro
+// at ~63% cheaper than Google direct pricing.
+//
+// Endpoint: POST https://api.evolink.ai/v1/images/generations
+// Auth: Authorization: Bearer <EVOLINK_API_KEY>
+// Docs: https://docs.evolink.ai/en/quickstart
+//
+// ============================================================================
+
+// EvoLink image model identifiers
+const EVOLINK_IMAGE_MODELS = {
+  PRIMARY: 'google/nano-banana-pro',     // Gemini 3 Pro Image (~$0.05/image)
+  FALLBACK: 'google/gemini-2.5-flash-image',  // Nano Banana GA (cheaper fallback)
+} as const;
+
+/**
+ * Generate an image using EvoLink.ai's image generation API
+ *
+ * EvoLink provides Nano Banana Pro at ~$0.05/image (63% cheaper than Google direct).
+ * Uses a dedicated /images/generations endpoint (not chat completions).
+ *
+ * @internal
+ */
+async function generateImageEvoLink(request: {
+  prompt: string;
+  slideTitle?: string;
+  aspectRatio?: '1:1' | '16:9' | '9:16' | '4:3' | '3:4';
+  useFreeModel?: boolean;
+  logPrefix?: string;
+}): Promise<ImageResult> {
+  const startTime = Date.now();
+  const logPrefix = request.logPrefix || '[Image-EvoLink]';
+
+  const apiKey = Deno.env.get('EVOLINK_API_KEY');
+
+  if (!apiKey) {
+    console.error(`${logPrefix} EVOLINK_API_KEY not configured`);
+    return {
+      success: false,
+      error: {
+        code: 'CONFIG_ERROR',
+        message: 'EVOLINK_API_KEY environment variable is not configured. Set IMAGE_PROVIDER=openrouter to use OpenRouter instead.',
+        provider: 'openrouter', // Report as openrouter for compatibility
+        model: 'none',
+      },
+    };
+  }
+
+  const primaryModel = request.useFreeModel
+    ? EVOLINK_IMAGE_MODELS.FALLBACK
+    : EVOLINK_IMAGE_MODELS.PRIMARY;
+  const fallbackModel = EVOLINK_IMAGE_MODELS.FALLBACK;
+
+  for (const model of [primaryModel, fallbackModel]) {
+    const isRetry = model === fallbackModel && model !== primaryModel;
+
+    if (isRetry) {
+      console.log(`${logPrefix} Retrying with fallback model: ${model}`);
+    } else {
+      console.log(`${logPrefix} Generating image via EvoLink (${model})`);
+    }
+    console.log(`${logPrefix} Prompt: ${request.prompt.substring(0, 100)}...`);
+
+    try {
+      const body: Record<string, unknown> = {
+        model,
+        prompt: request.prompt,
+        aspect_ratio: request.aspectRatio || '16:9',
+        resolution: '1K',
+      };
+
+      const response = await fetch('https://api.evolink.ai/v1/images/generations', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`${logPrefix} EvoLink error ${response.status}:`, errorText.substring(0, 300));
+
+        // On retriable errors, try fallback model before giving up
+        const isRetriableError = response.status >= 500 || response.status === 400 || response.status === 402 || response.status === 403 || response.status === 404 || response.status === 429;
+        if (isRetriableError && model === primaryModel) {
+          console.warn(`${logPrefix} HTTP ${response.status} error, trying fallback model (${fallbackModel})...`);
+          continue;
+        }
+
+        return {
+          success: false,
+          error: {
+            code: 'OPENROUTER_ERROR', // Reuse code for compatibility
+            message: `EvoLink returned HTTP ${response.status}: ${response.statusText}`,
+            provider: 'openrouter',
+            model,
+            httpStatus: response.status,
+            rawError: errorText.substring(0, 500),
+          },
+        };
+      }
+
+      const data = await response.json();
+
+      // EvoLink returns image data — could be URL or base64 depending on model
+      // Try multiple response formats
+      let base64: string | null = null;
+      let mimeType = 'image/png';
+
+      // Format 1: data[].url (image URL — need to fetch and convert)
+      const imageUrl = data?.data?.[0]?.url || data?.url || data?.image_url;
+      if (typeof imageUrl === 'string' && imageUrl.startsWith('http')) {
+        console.log(`${logPrefix} Fetching image from URL: ${imageUrl.substring(0, 80)}...`);
+        const imgResp = await fetch(imageUrl);
+        if (imgResp.ok) {
+          const arrayBuf = await imgResp.arrayBuffer();
+          const bytes = new Uint8Array(arrayBuf);
+          // Convert to base64
+          let binary = '';
+          for (let i = 0; i < bytes.length; i++) {
+            binary += String.fromCharCode(bytes[i]);
+          }
+          base64 = btoa(binary);
+          const contentType = imgResp.headers.get('content-type');
+          if (contentType && contentType.startsWith('image/')) {
+            mimeType = contentType.split(';')[0];
+          }
+        } else {
+          console.error(`${logPrefix} Failed to fetch image from URL: ${imgResp.status}`);
+        }
+      }
+
+      // Format 2: data[].b64_json (base64 directly)
+      if (!base64) {
+        const b64 = data?.data?.[0]?.b64_json || data?.b64_json;
+        if (typeof b64 === 'string' && b64.length > 100) {
+          base64 = b64;
+        }
+      }
+
+      // Format 3: data URL string
+      if (!base64) {
+        const dataUrl = data?.data?.[0]?.url || data?.url;
+        if (typeof dataUrl === 'string' && dataUrl.startsWith('data:image/')) {
+          const match = dataUrl.match(/^data:image\/(\w+);base64,(.+)$/);
+          if (match) {
+            base64 = match[2];
+            mimeType = `image/${match[1]}`;
+          }
+        }
+      }
+
+      if (!base64) {
+        console.error(`${logPrefix} Could not extract image from EvoLink response`);
+        console.error(`${logPrefix} Response keys:`, JSON.stringify(data).substring(0, 300));
+
+        if (model === primaryModel) {
+          console.warn(`${logPrefix} Failed extraction from ${model}, trying fallback...`);
+          continue;
+        }
+
+        return {
+          success: false,
+          error: {
+            code: 'INVALID_RESPONSE',
+            message: 'Could not extract image data from EvoLink response.',
+            provider: 'openrouter',
+            model,
+            rawError: JSON.stringify(data).substring(0, 500),
+          },
+        };
+      }
+
+      const latency_ms = Date.now() - startTime;
+      const imageKB = Math.round(base64.length / 1024);
+      console.log(`${logPrefix} ✓ Image generated successfully in ${latency_ms}ms (${imageKB}KB) model=${model}${isRetry ? ' [FALLBACK]' : ''}`);
+
+      return {
+        success: true,
+        base64,
+        mimeType,
+        provider: 'openrouter', // Report as openrouter for queue compatibility
+        model,
+        cost_usd: 0.05, // EvoLink Nano Banana Pro pricing
+        latency_ms,
+        usedFallback: isRetry,
+      };
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`${logPrefix} Exception during image generation with ${model}:`, errorMessage);
+
+      if (model === primaryModel) {
+        console.warn(`${logPrefix} Exception with ${model}, trying fallback...`);
+        continue;
+      }
+
+      return {
+        success: false,
+        error: {
+          code: 'IMAGE_GENERATION_FAILED',
+          message: `Image generation failed with exception: ${errorMessage}`,
+          provider: 'openrouter',
+          model,
+          rawError: errorMessage,
+        },
+      };
+    }
+  }
+
+  return {
+    success: false,
+    error: {
+      code: 'IMAGE_GENERATION_FAILED',
+      message: 'All EvoLink image generation models failed',
+      provider: 'openrouter',
       model: primaryModel,
     },
   };
