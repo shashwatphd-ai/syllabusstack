@@ -69,11 +69,11 @@ export type Provider = 'openrouter' | 'google_direct' | 'google' | 'vertex';
 // Image provider configuration - read from environment
 const IMAGE_PROVIDER = Deno.env.get('IMAGE_PROVIDER') || 'openrouter';
 
-// Vertex AI image models - using Gemini 3 Pro Image for text-faithful educational diagrams
-// Uses :generateContent endpoint (same as OpenRouter path) instead of Imagen's :predict
-const VERTEX_IMAGE_MODELS = {
-  PRIMARY: 'gemini-3-pro-image-preview',       // Gemini 3 Pro Image - text-faithful diagrams
-  FALLBACK: 'gemini-2.5-flash-preview-image-generation',  // Fallback - lighter model
+// Google Generative Language API image models
+// Uses :generateContent endpoint at generativelanguage.googleapis.com/v1beta
+const GOOGLE_IMAGE_MODELS = {
+  PRIMARY: 'gemini-3-pro-image-preview',  // Nano Banana Pro - text-faithful diagrams
+  FALLBACK: 'gemini-2.5-flash-image',     // Nano Banana GA - reliable fallback
 } as const;
 
 export interface AIRequest {
@@ -444,9 +444,10 @@ async function generateImageOpenRouter(request: {
         const errorText = await response.text();
         console.error(`${logPrefix} OpenRouter error ${response.status}:`, errorText.substring(0, 300));
 
-        // On 5xx, 402 (payment required), or 403 (key limit) errors,
-        // try fallback model (cheaper) before giving up
-        const isRetriableError = response.status >= 500 || response.status === 402 || response.status === 403;
+        // On server errors, model-not-found (404), bad-request (400), billing (402/403),
+        // or rate-limit (429) errors, try fallback model before giving up.
+        // 400/404 are retriable because the fallback is a different model on a different endpoint.
+        const isRetriableError = response.status >= 500 || response.status === 400 || response.status === 402 || response.status === 403 || response.status === 404 || response.status === 429;
         if (isRetriableError && model === primaryModel) {
           console.warn(`${logPrefix} HTTP ${response.status} error, trying fallback model (${fallbackModel})...`);
           continue;
@@ -596,9 +597,9 @@ async function generateImageGoogle(request: {
 
   // Model selection with fallback
   const primaryModel = request.useFreeModel
-    ? VERTEX_IMAGE_MODELS.FALLBACK
-    : VERTEX_IMAGE_MODELS.PRIMARY;
-  const fallbackModel = VERTEX_IMAGE_MODELS.FALLBACK;
+    ? GOOGLE_IMAGE_MODELS.FALLBACK
+    : GOOGLE_IMAGE_MODELS.PRIMARY;
+  const fallbackModel = GOOGLE_IMAGE_MODELS.FALLBACK;
 
   for (const model of [primaryModel, fallbackModel]) {
     const isRetry = model === fallbackModel && model !== primaryModel;
@@ -632,8 +633,8 @@ async function generateImageGoogle(request: {
         },
       };
 
-      // Google AI Generative Language API endpoint (uses API key, not OAuth)
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      // Google AI Generative Language API endpoint
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
       console.log(`${logPrefix} Endpoint: generativelanguage.googleapis.com/v1beta/models/${model}`);
 
@@ -641,6 +642,7 @@ async function generateImageGoogle(request: {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey,
         },
         body: JSON.stringify(body),
       });
@@ -650,9 +652,10 @@ async function generateImageGoogle(request: {
         const errorText = await response.text();
         console.error(`${logPrefix} Google GenAI error ${response.status}:`, errorText.substring(0, 500));
 
-        // On retriable errors, try fallback
-        const isRetriableError = response.status >= 500 || response.status === 402 || response.status === 403 || response.status === 429;
-        if (isRetriableError && model === primaryModel && model !== fallbackModel) {
+        // On retriable errors (server errors, model-not-found, billing, rate-limit), try fallback.
+        // 404 is retriable because the fallback is a different model at a different endpoint.
+        const isRetriableError = response.status >= 500 || response.status === 400 || response.status === 402 || response.status === 403 || response.status === 404 || response.status === 429;
+        if (isRetriableError && model === primaryModel) {
           console.warn(`${logPrefix} HTTP ${response.status} error, trying fallback model (${fallbackModel})...`);
           continue;
         }
@@ -681,7 +684,7 @@ async function generateImageGoogle(request: {
         console.error(`${logPrefix} Response keys:`, Object.keys(data));
 
         // If primary model fails extraction, try fallback
-        if (model === primaryModel && model !== fallbackModel) {
+        if (model === primaryModel) {
           console.warn(`${logPrefix} Failed extraction from ${model}, trying fallback...`);
           continue;
         }
@@ -690,7 +693,7 @@ async function generateImageGoogle(request: {
           success: false,
           error: {
             code: 'INVALID_RESPONSE',
-            message: 'Could not extract image data from Vertex AI Gemini response.',
+            message: 'Could not extract image data from Google Gemini response.',
             provider: 'google',
             model,
             rawError: JSON.stringify(data).substring(0, 500),
@@ -719,7 +722,7 @@ async function generateImageGoogle(request: {
       console.error(`${logPrefix} Exception during image generation with ${model}:`, errorMessage);
 
       // If primary model throws, try fallback
-      if (model === primaryModel && model !== fallbackModel) {
+      if (model === primaryModel) {
         console.warn(`${logPrefix} Exception with ${model}, trying fallback...`);
         continue;
       }
