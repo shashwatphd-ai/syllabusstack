@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Plus, FileText, Video, CheckCircle2, Clock, AlertCircle, Settings2, Copy, Share2, Loader2, Sparkles, Users, Presentation, RotateCcw, Image, Volume2, AlertTriangle } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
@@ -89,10 +89,21 @@ export default function InstructorCourseDetailPage() {
   const cleanupStuck = useCleanupStuckSlides();
   const retryFailed = useRetryFailedSlides();
 
-  // Image generation hooks
+  // Image generation hooks with local active state for progress tracking
   const triggerImageGen = useTriggerImageGeneration();
   const retryFailedImages = useRetryFailedImages();
-  const imageGenStatus = useImageGenerationStatus(id);
+  const [imageGenActive, setImageGenActive] = useState(false);
+  const imageGenStatus = useImageGenerationStatus(id, imageGenActive);
+  
+  // Auto-deactivate forced polling once queue has settled (no pending/processing work)
+  useEffect(() => {
+    if (!imageGenActive) return;
+    const hasActiveWork = (imageGenStatus.data?.queued || 0) > 0 || (imageGenStatus.data?.processing || 0) > 0;
+    if (imageGenStatus.data?.success && !hasActiveWork && (imageGenStatus.data?.total || 0) > 0) {
+      const timer = setTimeout(() => setImageGenActive(false), 5_000);
+      return () => clearTimeout(timer);
+    }
+  }, [imageGenActive, imageGenStatus.data]);
 
   // Batch audio generation
   const batchAudio = useBatchGenerateAudio(id);
@@ -627,15 +638,20 @@ export default function InstructorCourseDetailPage() {
                         <Button
                           variant="outline"
                           className={`gap-2 h-9 flex-1 sm:flex-none ${(imageGenStatus.data?.failed || 0) > 0 ? 'border-orange-300 text-orange-700 hover:bg-orange-50' : ''}`}
-                          onClick={() => id && triggerImageGen.mutate({ instructorCourseId: id })}
-                          disabled={triggerImageGen.isPending || (imageGenStatus.data?.processing || 0) > 0}
+                          onClick={() => {
+                            if (id) {
+                              setImageGenActive(true);
+                              triggerImageGen.mutate({ instructorCourseId: id });
+                            }
+                          }}
+                          disabled={triggerImageGen.isPending || imageGenActive || (imageGenStatus.data?.processing || 0) > 0 || (imageGenStatus.data?.queued || 0) > 0}
                           title={imageGenStatus.data?.failedReason || undefined}
                         >
-                          {triggerImageGen.isPending ? (
+                          {triggerImageGen.isPending || (imageGenActive && !(imageGenStatus.data?.queued || 0) && !(imageGenStatus.data?.processing || 0)) ? (
                             <>
                               <Loader2 className="h-4 w-4 animate-spin" />
-                              <span className="hidden sm:inline">Starting...</span>
-                              <span className="sm:hidden">...</span>
+                              <span className="hidden sm:inline">Preparing images...</span>
+                              <span className="sm:hidden">Preparing...</span>
                             </>
                           ) : (imageGenStatus.data?.processing || 0) > 0 ? (
                             <>

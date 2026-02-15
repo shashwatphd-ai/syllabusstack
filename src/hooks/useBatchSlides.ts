@@ -591,7 +591,7 @@ export function useTriggerImageGeneration() {
 
       toast({
         title: '🖼️ Image Generation Started',
-        description: data.message || `Processing images for ${data.queued || 0} slides.`,
+        description: data.message || 'Scanning slides and queuing images. Progress will appear on the button.',
       });
     },
 
@@ -623,7 +623,7 @@ export function useTriggerImageGeneration() {
 // Fetches the current status of image generation queue for a course.
 //
 
-export function useImageGenerationStatus(instructorCourseId?: string) {
+export function useImageGenerationStatus(instructorCourseId?: string, forcePolling = false) {
   return useQuery({
     queryKey: ['image-generation-status', instructorCourseId],
 
@@ -688,18 +688,21 @@ export function useImageGenerationStatus(instructorCourseId?: string) {
 
     enabled: !!instructorCourseId,
     refetchInterval: (query) => {
+      // Force polling when generation was just triggered (populate may still be running)
+      if (forcePolling) return 5_000;
+      
       const data = query.state.data;
-      // Poll every 10 seconds only while there's genuinely active work
+      // Poll every 5 seconds while there's genuinely active work
       if (data?.processing && data.processing > 0) {
-        return 10_000;
+        return 5_000;
       }
       if (data?.queued && data.queued > 0) {
-        return 10_000;
+        return 5_000;
       }
       // Stop polling when idle — no active processing or queued items
       return false;
     },
-    staleTime: 10_000,
+    staleTime: 5_000,
   });
 }
 
