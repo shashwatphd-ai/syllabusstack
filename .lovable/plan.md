@@ -1,72 +1,64 @@
 
 
-## Fix: Image Generation "Failed to Fetch" Toast
+# Enable Image Generation for All Slides with Visual Directives
 
-### Problem
+## Problem
+The `slideNeedsImage()` function in `image-prompt-builder.ts` has a hardcoded `skipTypes` list that blocks image generation for `conclusion`, `recap`, `further_reading`, `title`, `title_slide`, `summary`, and `preview` slides -- even when Professor AI has written a `visual_directive` for them.
 
-When you click "Generate Images", the browser calls `process-batch-images` with `{ continue: true }`. This mode processes 3 images synchronously (~60 seconds) before sending a response. The browser's fetch times out before the function finishes, causing a `Failed to fetch` error and a scary toast message. Meanwhile, the images ARE generating successfully in the background via self-continuation -- the toast is misleading.
+## Solution
+Change the logic so that the `skipTypes` filter only applies when a slide has **no** `visual_directive`. If Professor AI explicitly wrote a visual directive, the slide should always get an image regardless of type.
 
-### Root Cause
+### File: `supabase/functions/_shared/image-prompt-builder.ts`
 
-The "fast path" (`continue: true` mode) is not actually fast. It fetches 3 pending items, generates images for all of them (~20s each), THEN responds. By the time it responds, the browser has already given up.
+**Current logic (line 158-173):**
+```typescript
+export function slideNeedsImage(slide: StoredSlide): boolean {
+  if (slide.visual?.url) return false;
 
-### Solution (2 parts)
+  const skipTypes = ['conclusion', 'recap', 'further_reading', 'title', 'title_slide', 'summary', 'preview'];
+  if (skipTypes.includes(slide.type?.toLowerCase() || '')) return false;
 
----
+  if (slide.visual_directive?.type && slide.visual_directive.type !== 'none') return true;
+  if (slide.visual?.type && slide.visual.type !== 'none') return true;
 
-### Part 1: Make the Frontend Trigger Fire-and-Forget
-
-Instead of waiting for `process-batch-images` to finish processing, the frontend should:
-
-1. Call `process-batch-images` but NOT await the full response (fire-and-forget with a catch)
-2. Immediately show a success toast: "Image generation started in background"
-3. Let the polling hook (`useImageGenerationStatus`) handle progress updates
-
-**File**: `src/hooks/useBatchSlides.ts` (useTriggerImageGeneration)
-
-Changes to `mutationFn`:
-- Fire the edge function call without awaiting it (fire-and-forget)
-- Return immediately with a success status
-- The edge function continues processing and self-continues in the background
-- This eliminates the browser timeout entirely
-
-### Part 2: Add Resilient Error Handling in the Toast
-
-**File**: `src/hooks/useBatchSlides.ts` (useTriggerImageGeneration)
-
-Changes to `onError`:
-- Detect `FunctionsFetchError` / `Failed to fetch` errors specifically
-- Instead of showing "Image Generation Failed", show an amber info toast: "Image generation is running in the background. Check progress below."
-- This accounts for cases where the fire-and-forget still fails (e.g., network issues)
-
----
-
-### Technical Details
-
-**useTriggerImageGeneration mutationFn** (useBatchSlides.ts ~line 537):
-
-Current flow:
-```
-1. Check for failed items -> reset them (awaited)
-2. Call process-batch-images { continue: true } (AWAITED - THIS IS THE PROBLEM)
-3. If empty, fire background populate
-4. Return response
+  const c = slide.content || {};
+  return !!(c.main_text || c.key_points?.length || c.steps?.length || c.definition);
+}
 ```
 
-New flow:
+**New logic:**
+```typescript
+export function slideNeedsImage(slide: StoredSlide): boolean {
+  // Skip if already has image
+  if (slide.visual?.url) return false;
+
+  // If Professor AI wrote an explicit visual directive, ALWAYS generate
+  if (slide.visual_directive?.type && slide.visual_directive.type !== 'none') return true;
+  if (slide.visual_directive?.description) return true;
+
+  // For slides WITHOUT a visual directive, skip non-content types
+  const skipTypes = ['conclusion', 'recap', 'further_reading', 'title', 'title_slide', 'summary', 'preview'];
+  if (skipTypes.includes(slide.type?.toLowerCase() || '')) return false;
+
+  // Has visual with a type
+  if (slide.visual?.type && slide.visual.type !== 'none') return true;
+
+  // Has enough content to generate a meaningful visual
+  const c = slide.content || {};
+  return !!(c.main_text || c.key_points?.length || c.steps?.length || c.definition);
+}
 ```
-1. Check for failed items -> reset them (awaited, this is fast)
-2. Fire process-batch-images { continue: true } (FIRE AND FORGET)
-3. Return immediately with { success: true, message: "started" }
-```
 
-**Error handler** (useBatchSlides.ts ~line 605):
-- Check if `error.message` includes "Failed to fetch" or "Failed to send"
-- If so, show a non-destructive toast since the backend is likely still processing
-- Otherwise show the existing destructive toast
+The key change: move the `visual_directive` checks **above** the `skipTypes` filter. This way, any slide where Professor AI explicitly requested a visual will get one, while slides with no directive and a non-content type are still skipped (avoiding blank/meaningless image generation).
 
-### Files Changed
+## Post-Deploy: Re-populate Queue
 
-| File | Change |
-|------|--------|
-| `src/hooks/useBatchSlides.ts` | Make image generation trigger fire-and-forget; improve error toast for network timeouts |
+After deploying, you will need to trigger "Generate Images" on each affected course to populate the queue with the newly-eligible slides. The existing slides already have `visual_directive` data persisted in the database, so the new filter will pick them up immediately.
+
+## Impact
+
+- **1 file changed**: `supabase/functions/_shared/image-prompt-builder.ts` (6 lines reordered)
+- **No database changes**
+- **No frontend changes**
+- All three callers (`poll-active-batches`, `process-batch-images`, `buildImagePrompt`) use the same function, so the fix propagates everywhere automatically
+
