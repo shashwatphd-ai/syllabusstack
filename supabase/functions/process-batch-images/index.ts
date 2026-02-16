@@ -547,6 +547,24 @@ const handler = async (req: Request): Promise<Response> => {
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, serviceRoleKey);
 
+    // Authenticate: allow service-role (self-continuation) or verified user JWT
+    const authHeader = req.headers.get('Authorization');
+    const token = authHeader?.replace('Bearer ', '') || '';
+    const isServiceRole = token === serviceRoleKey;
+
+    if (!isServiceRole) {
+      if (!authHeader?.startsWith('Bearer ')) {
+        return createErrorResponse('UNAUTHORIZED', corsHeaders, 'Missing authorization');
+      }
+      const anonClient = createClient(supabaseUrl, Deno.env.get('SUPABASE_ANON_KEY')!, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: { user }, error: authError } = await anonClient.auth.getUser();
+      if (authError || !user) {
+        return createErrorResponse('UNAUTHORIZED', corsHeaders, 'Invalid token');
+      }
+    }
+
     // ========================================================================
     // MODE 0: Sync Only - Sync completed images to lecture_slides
     // ========================================================================

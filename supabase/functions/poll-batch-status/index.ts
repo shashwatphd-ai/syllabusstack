@@ -61,6 +61,20 @@ const handler = async (req: Request): Promise<Response> => {
   const body = await req.json();
   const { batch_job_id, instructor_course_id } = body;
 
+  // Verify ownership: ensure the user owns the course they're polling
+  const courseIdToCheck = instructor_course_id
+    || (batch_job_id ? undefined : null); // will resolve via batch job lookup below
+  if (courseIdToCheck) {
+    const { data: course } = await supabase
+      .from("instructor_courses")
+      .select("instructor_id")
+      .eq("id", courseIdToCheck)
+      .single();
+    if (course?.instructor_id !== user.id) {
+      return createErrorResponse("FORBIDDEN", corsHeaders, "Not authorized for this course");
+    }
+  }
+
   // ========================================================================
   // MODE 1: Single batch job
   // ========================================================================
@@ -75,6 +89,16 @@ const handler = async (req: Request): Promise<Response> => {
 
     if (jobError || !batchJob) {
       return createErrorResponse("NOT_FOUND", corsHeaders, "Batch job not found");
+    }
+
+    // Verify ownership via batch job's course
+    const { data: batchCourse } = await supabase
+      .from("instructor_courses")
+      .select("instructor_id")
+      .eq("id", batchJob.instructor_course_id)
+      .single();
+    if (batchCourse?.instructor_id !== user.id) {
+      return createErrorResponse("FORBIDDEN", corsHeaders, "Not authorized for this course");
     }
 
     // Get slide counts for this batch's course
