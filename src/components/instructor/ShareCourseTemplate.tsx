@@ -18,7 +18,8 @@ export function ShareCourseTemplate({ title, accessCode, appUrl = 'https://www.s
 1. Go to: ${appUrl}/learn
 2. You'll be taken to the sign-in page — click the "Sign Up" tab to create a free account, or "Login" if you already have one
 3. Fill in your details and click "Create Account" (or "Log In")
-4. You'll land on "My Learning" — click "+ Enroll with Code"
+4. Click "My Learning" in the sidebar (on mobile, tap the ☰ menu first)
+5. Click "+ Enroll with Code"
 5. Enter access code: ${accessCode}
 6. Click "Enroll Now"
 
