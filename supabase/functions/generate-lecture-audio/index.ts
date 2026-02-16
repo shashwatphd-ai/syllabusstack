@@ -180,9 +180,18 @@ const handler = async (req: Request): Promise<Response> => {
     let previousNarrationTail = '';
     const auditEntries: Array<Record<string, unknown>> = [];
 
-    // Process each slide
+    // Process each slide — with resumption: skip slides that already have all voices
     for (let i = 0; i < slides.length; i++) {
       const slide = slides[i];
+
+      // RESUMPTION CHECK: If slide already has audio for all voices, skip it
+      if (slide.audio_urls && Object.keys(slide.audio_urls).length >= ALL_VOICE_IDS.length && slide.audio_duration_seconds) {
+        console.log(`Slide ${i + 1}: Already has audio for ${Object.keys(slide.audio_urls).length} voices — skipping`);
+        updatedSlides.push(slide);
+        totalDurationSeconds += slide.audio_duration_seconds;
+        continue;
+      }
+
       let narrationText = slide.speaker_notes || '';
 
       // PHASE 1: Generate AI narration if needed
@@ -312,17 +321,26 @@ const handler = async (req: Request): Promise<Response> => {
           console.warn(`⚠️ Slide ${i + 1}: Duration deviation ${durationDeviationPercent}% (actual: ${durationSeconds}s, heuristic: ${heuristicDuration}s)`);
         }
 
-        updatedSlides.push({
+        const updatedSlide: SlideWithAudio = {
           ...slide,
           speaker_notes: narrationText,
           audio_url: audioUrls['Charon'], // backward compat default
           audio_urls: audioUrls,
           audio_duration_seconds: durationSeconds,
           audio_segment_map: audioSegmentMap,
-        });
+        };
+        updatedSlides.push(updatedSlide);
 
         totalDurationSeconds += durationSeconds;
         console.log(`Slide ${i + 1}: Audio generated for ${ALL_VOICE_IDS.length} voices (${durationSeconds}s, ${audioSegmentMap?.length || 0} segments)`);
+
+        // INCREMENTAL SAVE: Persist progress after each slide so retries resume here
+        const partialSlides = [...updatedSlides, ...slides.slice(i + 1)];
+        await supabase
+          .from('lecture_slides')
+          .update({ slides: partialSlides })
+          .eq('id', slideId);
+        console.log(`Slide ${i + 1}: Progress saved (${updatedSlides.length}/${totalSlides} done)`);
 
         // Small delay between slides to avoid rate limiting
         if (i < slides.length - 1) {
