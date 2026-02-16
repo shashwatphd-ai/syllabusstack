@@ -43,12 +43,12 @@ export function useCourseStudents(courseId?: string) {
       if (studentIds.length > 0) {
         const { data: profileData } = await supabase
           .from('profiles')
-          .select('id, full_name, email')
-          .in('id', studentIds);
+          .select('user_id, full_name, email')
+          .in('user_id', studentIds);
 
         if (profileData) {
           profiles = profileData.reduce((acc, p) => {
-            acc[p.id] = { full_name: p.full_name, email: p.email };
+            acc[p.user_id] = { full_name: p.full_name, email: p.email };
             return acc;
           }, {} as Record<string, { full_name: string | null; email: string | null }>);
         }
