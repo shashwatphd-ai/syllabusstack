@@ -34,6 +34,7 @@ export function AuthGuard({ children, requireOnboarding = false }: AuthGuardProp
 // Redirect authenticated users away from auth pages
 export function GuestGuard({ children }: { children: ReactNode }) {
   const { user, isLoading } = useAuth();
+  const location = useLocation();
 
   if (isLoading) {
     return (
@@ -44,7 +45,9 @@ export function GuestGuard({ children }: { children: ReactNode }) {
   }
 
   if (user) {
-    return <Navigate to="/dashboard" replace />;
+    // Redirect back to the page the user originally wanted (passed via state.from)
+    const from = (location.state as any)?.from?.pathname || '/dashboard';
+    return <Navigate to={from} replace />;
   }
 
   return <>{children}</>;
