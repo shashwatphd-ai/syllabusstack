@@ -16,10 +16,11 @@ export function ShareCourseTemplate({ title, accessCode, appUrl = 'https://www.s
   const template = `Join my course "${title}" on SyllabusStack!
 
 1. Go to: ${appUrl}/learn
-2. Click "Get Started" or "Log In" to create your free account
-3. You'll land on "My Learning" — click "+ Enroll with Code"
-4. Enter access code: ${accessCode}
-5. Click "Enroll Now"
+2. You'll be taken to the sign-in page — click the "Sign Up" tab to create a free account, or "Login" if you already have one
+3. Fill in your details and click "Create Account" (or "Log In")
+4. You'll land on "My Learning" — click "+ Enroll with Code"
+5. Enter access code: ${accessCode}
+6. Click "Enroll Now"
 
 See you in class!`;
 
