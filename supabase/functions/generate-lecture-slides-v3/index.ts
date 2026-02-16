@@ -416,7 +416,7 @@ const handler = async (req: Request): Promise<Response> => {
 
       if (slidesNeedingVisuals.length > 0) {
         // Build queue items using the shared AI-powered image prompt builder
-        // This generates optimized Imagen 4 Ultra prompts from the full slide context
+        // This generates optimized image prompts from the full slide context
         const queueItems: Array<{
           lecture_slides_id: string;
           slide_index: number;

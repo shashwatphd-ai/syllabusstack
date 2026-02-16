@@ -476,7 +476,7 @@ IF LLM call fails:
   → buildFallbackPrompt(slide, lectureTitle, domain) — static template
 ```
 
-The `IMAGE_PROMPT_WRITER_SYSTEM` (line 191-245) encodes Imagen 4 Ultra rendering rules:
+The `IMAGE_PROMPT_WRITER_SYSTEM` encodes image rendering rules for gemini-3-pro-image-preview:
 - Max 5 text labels, each max 2 words
 - Spatial descriptions required
 - Clean flat design, white background
@@ -489,7 +489,7 @@ IMAGE_PROVIDER = Deno.env.get('IMAGE_PROVIDER') || 'openrouter'
 
 IF IMAGE_PROVIDER === 'google':
   → generateImageGoogle() — native Google Generative Language API
-  → Model: imagen-4.0-ultra-generate-001
+  → Model: gemini-3-pro-image-preview
 ELSE:
   → generateImageOpenRouter() — via OpenRouter
   → Primary: MODELS.IMAGE ('google/gemini-3-pro-image-preview')
@@ -757,7 +757,7 @@ This is the complete decision tree across all pathways:
   │   │   ├── IF 5xx error → try fallback: gemini-2.5-flash-image
   │   │   ├── IF still fails → return ImageResultError
   │   └── 'google' → native Google Generative Language API
-  │       → Model: imagen-4.0-ultra-generate-001
+  │       → Model: gemini-3-pro-image-preview
 ```
 
 ### Image Prompt Generation Branch
