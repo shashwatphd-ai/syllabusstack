@@ -1,64 +1,43 @@
 
 
-# Enable Image Generation for All Slides with Visual Directives
+## Fix: Students Can't See Enrolled Courses
 
-## Problem
-The `slideNeedsImage()` function in `image-prompt-builder.ts` has a hardcoded `skipTypes` list that blocks image generation for `conclusion`, `recap`, `further_reading`, `title`, `title_slide`, `summary`, and `preview` slides -- even when Professor AI has written a `visual_directive` for them.
+### Root Cause
+The RLS policy **"Students can view courses they are enrolled in"** on the `instructor_courses` table has a bug:
 
-## Solution
-Change the logic so that the `skipTypes` filter only applies when a slide has **no** `visual_directive`. If Professor AI explicitly wrote a visual directive, the slide should always get an image regardless of type.
+```sql
+-- BUGGY (current):
+WHERE ce.instructor_course_id = ce.id  -- compares two columns in course_enrollments (always false)
 
-### File: `supabase/functions/_shared/image-prompt-builder.ts`
-
-**Current logic (line 158-173):**
-```typescript
-export function slideNeedsImage(slide: StoredSlide): boolean {
-  if (slide.visual?.url) return false;
-
-  const skipTypes = ['conclusion', 'recap', 'further_reading', 'title', 'title_slide', 'summary', 'preview'];
-  if (skipTypes.includes(slide.type?.toLowerCase() || '')) return false;
-
-  if (slide.visual_directive?.type && slide.visual_directive.type !== 'none') return true;
-  if (slide.visual?.type && slide.visual.type !== 'none') return true;
-
-  const c = slide.content || {};
-  return !!(c.main_text || c.key_points?.length || c.steps?.length || c.definition);
-}
+-- CORRECT:
+WHERE ce.instructor_course_id = instructor_courses.id  -- joins against the target table
 ```
 
-**New logic:**
-```typescript
-export function slideNeedsImage(slide: StoredSlide): boolean {
-  // Skip if already has image
-  if (slide.visual?.url) return false;
+This means when a student's browser fetches their enrolled course details, the `instructor_course` join returns `null`, so the course card appears empty or missing -- even though the enrollment itself was created successfully.
 
-  // If Professor AI wrote an explicit visual directive, ALWAYS generate
-  if (slide.visual_directive?.type && slide.visual_directive.type !== 'none') return true;
-  if (slide.visual_directive?.description) return true;
+### Fix (single migration)
 
-  // For slides WITHOUT a visual directive, skip non-content types
-  const skipTypes = ['conclusion', 'recap', 'further_reading', 'title', 'title_slide', 'summary', 'preview'];
-  if (skipTypes.includes(slide.type?.toLowerCase() || '')) return false;
+1. **Drop** the broken policy
+2. **Re-create** it with the correct join condition (`ce.instructor_course_id = instructor_courses.id`)
 
-  // Has visual with a type
-  if (slide.visual?.type && slide.visual.type !== 'none') return true;
+No code changes needed. No other tables are affected -- `modules`, `learning_objectives`, `lecture_slides`, and `consumption_records` already have correct student-facing policies.
 
-  // Has enough content to generate a meaningful visual
-  const c = slide.content || {};
-  return !!(c.main_text || c.key_points?.length || c.steps?.length || c.definition);
-}
+### Technical Detail
+
+```sql
+DROP POLICY "Students can view courses they are enrolled in" ON public.instructor_courses;
+
+CREATE POLICY "Students can view courses they are enrolled in"
+ON public.instructor_courses
+FOR SELECT
+USING (
+  EXISTS (
+    SELECT 1 FROM public.course_enrollments ce
+    WHERE ce.instructor_course_id = instructor_courses.id
+      AND ce.student_id = auth.uid()
+  )
+);
 ```
 
-The key change: move the `visual_directive` checks **above** the `skipTypes` filter. This way, any slide where Professor AI explicitly requested a visual will get one, while slides with no directive and a non-content type are still skipped (avoiding blank/meaningless image generation).
-
-## Post-Deploy: Re-populate Queue
-
-After deploying, you will need to trigger "Generate Images" on each affected course to populate the queue with the newly-eligible slides. The existing slides already have `visual_directive` data persisted in the database, so the new filter will pick them up immediately.
-
-## Impact
-
-- **1 file changed**: `supabase/functions/_shared/image-prompt-builder.ts` (6 lines reordered)
-- **No database changes**
-- **No frontend changes**
-- All three callers (`poll-active-batches`, `process-batch-images`, `buildImagePrompt`) use the same function, so the fix propagates everywhere automatically
+Once applied, this will be live immediately -- the student can refresh and see their course without re-enrolling.
 
