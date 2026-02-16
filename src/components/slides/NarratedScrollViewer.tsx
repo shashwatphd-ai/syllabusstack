@@ -142,7 +142,6 @@ export function NarratedScrollViewer({
   // SINGLE unified scroll effect: handles both slide transitions and block changes
   useEffect(() => {
     if (!isAudioPlaying) return;
-    if (isManualScrollRecent()) return;
     if (programmaticScrollRef.current) return;
 
     // Determine scroll target: prefer block-level, fallback to slide-level
@@ -152,6 +151,10 @@ export function NarratedScrollViewer({
     // Skip if already scrolled to this exact target
     if (targetKey === lastScrolledBlockRef.current && currentAudioSlideIndex === lastScrolledSlideRef.current) return;
 
+    // Allow scroll override for NEW block/slide transitions even after manual scroll,
+    // so the active (highlighted) content is always brought into view.
+    // Manual scroll suppression only prevents re-scrolling to the SAME target.
+
     lastScrolledBlockRef.current = targetKey;
     lastScrolledSlideRef.current = currentAudioSlideIndex;
     suppressObserver();
@@ -160,8 +163,8 @@ export function NarratedScrollViewer({
       ? scrollContainerRef.current?.querySelector(`[data-block-id="${compositeId}"]`)
       : scrollContainerRef.current?.querySelector(`[data-slide-index="${currentAudioSlideIndex}"]`);
 
-    el?.scrollIntoView({ behavior: 'smooth', block: compositeId ? 'center' : 'start' });
-  }, [activeBlockId, currentAudioSlideIndex, isAudioPlaying, programmaticScrollRef, suppressObserver, isManualScrollRecent]);
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [activeBlockId, currentAudioSlideIndex, isAudioPlaying, programmaticScrollRef, suppressObserver]);
 
   const renderWithCitations = useCallback((text: string, className?: string) => {
     if (citations.length > 0) {
