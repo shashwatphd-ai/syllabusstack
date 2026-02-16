@@ -44,6 +44,7 @@ import { LoadingState } from '@/components/common/LoadingState';
 import { EmptyState } from '@/components/common/EmptyState';
 import { UnifiedModuleCard } from '@/components/instructor/UnifiedModuleCard';
 import { EditableCourseHeader } from '@/components/instructor/EditableCourseHeader';
+import { ShareCourseTemplate } from '@/components/instructor/ShareCourseTemplate';
 import { UnifiedLOCard } from '@/components/instructor/UnifiedLOCard';
 import { SyllabusUploader } from '@/components/instructor/SyllabusUploader';
 import { OnboardingProgress } from '@/components/instructor/OnboardingProgress';
@@ -372,20 +373,23 @@ export default function InstructorCourseDetailPage() {
 
           {/* Access Code Banner - Using custom layout instead of Alert for interactive content */}
           {course.is_published && course.access_code && (
-            <div className="flex items-center justify-between gap-4 p-4 rounded-lg border border-primary/50 bg-primary/5">
-              <div className="flex items-center gap-3">
-                <Share2 className="h-5 w-5 text-primary shrink-0" />
-                <div>
-                  <p className="font-medium text-sm">Course Published!</p>
-                  <p className="text-sm text-muted-foreground">
-                    Share this access code with your students: <strong className="font-mono text-base text-foreground">{course.access_code}</strong>
-                  </p>
+            <div className="p-4 rounded-lg border border-primary/50 bg-primary/5 space-y-4">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <Share2 className="h-5 w-5 text-primary shrink-0" />
+                  <div>
+                    <p className="font-medium text-sm">Course Published!</p>
+                    <p className="text-sm text-muted-foreground">
+                      Access code: <strong className="font-mono text-base text-foreground">{course.access_code}</strong>
+                    </p>
+                  </div>
                 </div>
+                <Button variant="outline" size="sm" onClick={copyAccessCode} className="shrink-0">
+                  <Copy className="h-4 w-4 mr-2" />
+                  Copy Code
+                </Button>
               </div>
-              <Button variant="outline" size="sm" onClick={copyAccessCode} className="shrink-0">
-                <Copy className="h-4 w-4 mr-2" />
-                Copy
-              </Button>
+              <ShareCourseTemplate title={course.title} accessCode={course.access_code} />
             </div>
           )}
 
