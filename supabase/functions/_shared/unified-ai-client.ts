@@ -823,7 +823,7 @@ async function generateImageEvoLink(request: {
       model: EVOLINK_MODEL,
       prompt: request.prompt,
       size: request.aspectRatio || '16:9',
-      quality: '2K',
+      quality: '1K',
     };
 
     const response = await fetch('https://api.evolink.ai/v1/images/generations', {
