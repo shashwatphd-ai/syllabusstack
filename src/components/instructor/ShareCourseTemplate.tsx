@@ -10,7 +10,7 @@ interface ShareCourseTemplateProps {
   appUrl?: string;
 }
 
-export function ShareCourseTemplate({ title, accessCode, appUrl = 'https://syllabusstack.lovable.app' }: ShareCourseTemplateProps) {
+export function ShareCourseTemplate({ title, accessCode, appUrl = 'https://www.syllabusstack.com' }: ShareCourseTemplateProps) {
   const [copied, setCopied] = useState(false);
 
   const template = `Join my course "${title}" on SyllabusStack!
