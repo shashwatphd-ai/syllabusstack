@@ -43,6 +43,7 @@ import { useSubmitBatchSlides, useCourseSlideStatus, useTriggerImageGeneration, 
 import { LoadingState } from '@/components/common/LoadingState';
 import { EmptyState } from '@/components/common/EmptyState';
 import { UnifiedModuleCard } from '@/components/instructor/UnifiedModuleCard';
+import { EditableCourseHeader } from '@/components/instructor/EditableCourseHeader';
 import { UnifiedLOCard } from '@/components/instructor/UnifiedLOCard';
 import { SyllabusUploader } from '@/components/instructor/SyllabusUploader';
 import { OnboardingProgress } from '@/components/instructor/OnboardingProgress';
@@ -334,18 +335,16 @@ export default function InstructorCourseDetailPage() {
             >
               <ArrowLeft className="h-5 w-5" />
             </Button>
-            <div className="flex-1 min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                {course.code && <Badge variant="secondary">{course.code}</Badge>}
-                <h1 className="text-xl sm:text-2xl font-bold text-foreground">{course.title}</h1>
-                <Badge variant={course.is_published ? 'default' : 'outline'}>
-                  {course.is_published ? 'Published' : 'Draft'}
-                </Badge>
-              </div>
-              {course.description && (
-                <p className="text-sm text-muted-foreground mt-1">{course.description}</p>
-              )}
-            </div>
+            <EditableCourseHeader
+              title={course.title}
+              code={course.code}
+              description={course.description}
+              isPublished={course.is_published}
+              onSave={async (updates) => {
+                await updateCourse.mutateAsync({ courseId: id!, updates });
+              }}
+              isSaving={updateCourse.isPending}
+            />
             <div className="flex items-center gap-2 self-start sm:self-auto">
               <Button 
                 variant={course.is_published ? "outline" : "default"}
