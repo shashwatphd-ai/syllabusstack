@@ -158,7 +158,12 @@ export function StudentSlideViewer({
       setAudioRef(null); // Disconnect sync
       // Auto-advance to next slide when audio ends
       if (currentSlideIndex < slides.length - 1) {
-        setCurrentSlideIndex(prev => prev + 1);
+        // Suppress observer so scroll-sync doesn't fight the advance
+        programmaticScrollRef.current = true;
+        setTimeout(() => { programmaticScrollRef.current = false; }, 2000);
+        const nextIndex = currentSlideIndex + 1;
+        setCurrentSlideIndex(nextIndex);
+        setVisibleScrollSlideIndex(nextIndex);
       } else {
         handleComplete();
       }
