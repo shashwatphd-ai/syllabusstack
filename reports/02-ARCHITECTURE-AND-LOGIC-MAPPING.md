@@ -30,7 +30,7 @@
 │                                                                      │
 │  ┌─────────────┐  ┌────────────────┐  ┌──────────────────────────┐ │
 │  │   Auth      │  │  Edge Functions│  │   PostgreSQL Database    │ │
-│  │ (Supabase)  │  │  (85 Deno fns) │  │   + Row Level Security  │ │
+│  │ (Supabase)  │  │  (82 Deno fns) │  │   + Row Level Security  │ │
 │  └─────────────┘  └───────┬────────┘  └──────────────────────────┘ │
 │                           │                                          │
 │  ┌─────────────┐  ┌──────┴────────┐  ┌──────────────────────────┐ │
@@ -139,41 +139,55 @@ Page Component
 Query Key Structure (from query-keys.ts):
 
 ['user', 'profile']
-['user', 'roles']
+['user-roles']
 ['courses', 'list']
 ['courses', 'detail', courseId]
-['capabilities', 'list']
-['dream_jobs', 'list']
-['dream_jobs', 'detail', jobId]
+['courses', 'capabilities', courseId]
+['capabilities']
+['dreamJobs', 'list']
+['dreamJobs', 'detail', jobId]
+['dreamJobs', 'requirements', jobId]
 ['analysis', 'gap', dreamJobId]
 ['analysis', 'capability-profile']
-['recommendations', 'list']
-['recommendations', 'with-links', dreamJobId]
-['recommendations', 'anti', dreamJobId]
+['analysis', 'all-gap-analyses']
+['recommendations', 'list', dreamJobId?]
+['recommendations', 'with-links', dreamJobId?]
+['anti-recommendations', dreamJobId?]
 ['dashboard', 'overview']
 ['dashboard', 'stats']
-['instructor_courses', 'list']
-['instructor_courses', 'detail', courseId]
-['assessments', 'questions', loId]
-['assessments', 'active-session', loId]
-['assessments', 'session-history', loId]
-['skills_assessment', 'active-session']
-['skills_assessment', 'profile']
-['career_matches', 'list']
-['career_matches', 'saved']
-['career_matches', 'onet', socCode]
-['certificates', 'list']
-['certificates', 'stats']
-['subscriptions', 'current']
-['organization', 'details']
+['instructor-courses', 'list']
+['instructor-courses', 'detail', courseId]
+['modules', 'list', courseId]
+['teaching-units', 'list', loId?]
+['content-matches', 'list', unitId?]
+['learning-objectives', 'list', courseId?]
+['assessment-questions', loId]
+['active-session', loId?]
+['session-history', loId?]
+['micro-checks', contentId]
+['skills-assessment-session', 'active']
 ['skill-profile']
+['career-matches', filters?]
+['career-matches', 'saved']
+['onet-occupation', socCode]
+['certificates', userId?]
+['student-enrollments']
+['subscription', userId?]
+['organization']
+['employer-account']
+['achievements', 'user', userId?]
+['generated-curricula']
+['lecture-slides', unitId]
+['batch-status', batchId]
+['global-search', query]
+['usage-stats', days]
 ```
 
 ---
 
 ## 3. Backend Architecture
 
-### 3.1 Edge Functions by Domain (85 total)
+### 3.1 Edge Functions by Domain (82 total)
 
 #### Content Generation & AI (15 functions)
 ```
@@ -194,10 +208,11 @@ process-batch-images          ← Batch image generation queue
 process-batch-research        ← Batch research processing
 ```
 
-#### Content Discovery (6 functions)
+#### Content Discovery (7 functions)
 ```
 search-educational-content    ← General educational content search
 search-youtube-content        ← YouTube API video search + relevance scoring
+search-youtube-manual         ← Manual YouTube search fallback
 search-khan-academy           ← Khan Academy content integration
 firecrawl-search-courses      ← Web scraping for real courses
 global-search                 ← Cross-platform search
@@ -214,13 +229,14 @@ search-jobs                   ← Active Jobs DB API integration
 scrape-job-posting            ← Extract data from job posting URLs
 ```
 
-#### Assessment & Learning (7 functions)
+#### Assessment & Learning (8 functions)
 ```
 start-assessment              ← Create assessment session, generate/fetch questions
 submit-assessment-answer      ← Validate answer server-side, track timing
 complete-assessment           ← Calculate final score, pass/fail determination
 start-skills-assessment       ← Initialize Holland RIASEC assessment
 complete-skills-assessment    ← Compute skill profile from responses
+submit-skills-response        ← Submit individual skills assessment response
 gap-analysis                  ← Core gap analysis with Weibull decay
 analyze-syllabus              ← Extract capabilities from syllabus text
 ```
@@ -299,6 +315,8 @@ record-proctor-event          ← Proctoring event recording
 trigger-pending-evaluations   ← Trigger queued evaluations
 send-digest-email             ← Email digest notifications
 generate-lecture-audio        ← TTS audio generation
+get-usage-stats               ← AI usage statistics retrieval
+use-invite-code               ← Redeem organization invite codes
 ```
 
 ### 3.2 Shared Backend Utilities (`_shared/`)
@@ -343,7 +361,7 @@ profiles ←──────── user_roles
    │        │                                    │
    │        └──→ course_enrollments              ├──→ assessment_questions
    │                                             ├──→ assessment_sessions → assessment_answers
-   │                                             ├──→ content (videos)
+   │                                             ├──→ content_matches → content (videos)
    │                                             ├──→ teaching_units → lecture_slides
    │                                             └──→ micro_checks → micro_check_results
    │
@@ -382,15 +400,15 @@ profiles ←──────── user_roles
 | `dream_jobs` | user_id, title, company_type, location, salary_range, match_score, is_primary, requirements_keywords, day_one_capabilities, differentiators, realistic_bar | Target positions |
 | `job_requirements` | dream_job_id, skill_name, importance (critical/important/nice_to_have), category | Individual job requirements |
 | `gap_analyses` | user_id, dream_job_id, match_score, strong_overlaps, partial_overlaps, critical_gaps, priority_gaps, readiness_level, honest_assessment, interview_readiness, job_success_prediction | Gap analysis results |
-| `recommendations` | user_id, dream_job_id, title, type, description, steps, evidence_created, how_to_demonstrate, gap_addressed, priority, status, price, url | Action items |
+| `recommendations` | user_id, dream_job_id, title, type, description, steps, evidence_created, how_to_demonstrate, gap_addressed, priority, status, cost_usd, url | Action items |
 | `anti_recommendations` | dream_job_id, action, reason | Things NOT to do |
-| `recommendation_course_links` | recommendation_id, course_enrollment_id, instructor_course_id | Link recs to enrolled courses |
+| `recommendation_course_links` | recommendation_id, instructor_course_id, link_type, link_status, external_course_url, progress_percentage | Link recs to courses |
 
 #### Skills Assessment & Career Matching
 | Table | Key Columns | Purpose |
 |-------|-------------|---------|
 | `skills_assessment_sessions` | user_id, session_type, status, total_questions, questions_answered, current_section | Assessment sessions |
-| `skill_profiles` | user_id, holland_code, holland_scores (JSON), technical_skills (JSON), work_values (JSON), strong_skills, development_areas | Psychometric profile |
+| `skill_profiles` | user_id, holland_code, holland_scores (JSON), technical_skills (JSON), work_values (JSON), assessment_version, completed_at | Psychometric profile |
 | `career_matches` | user_id, onet_soc_code, occupation_title, overall_match_score, skill_match_score, interest_match_score, values_match_score, skill_gaps, match_breakdown | O*NET matches |
 | `onet_occupations` | soc_code, title, description, riasec_code, required_skills, required_knowledge, median_wage, job_outlook, education_level | Occupation reference |
 
@@ -400,9 +418,10 @@ profiles ←──────── user_roles
 | `instructor_courses` | instructor_id, title, code, description, curation_mode, verification_threshold, is_published, access_code, domain_config, syllabus_text | Courses taught |
 | `modules` | instructor_course_id, title, description, sequence_order | Course modules |
 | `learning_objectives` | module_id, text, bloom_level, action_verb, expected_duration_minutes | Bloom's taxonomy LOs |
-| `teaching_units` | learning_objective_id, content | Teaching unit content |
+| `teaching_units` | learning_objective_id, title, what_to_teach, how_to_teach, search_queries, sequence_order, target_duration_minutes | Teaching unit content |
 | `lecture_slides` | teaching_unit_id, slides (JSON), generation_model, quality_score, generation_phases, is_research_grounded, citation_count | Generated slides |
-| `content` | learning_objective_id, title, url, match_score, is_approved | Matched video content |
+| `content` | title, source_type, source_url, source_id, description, duration_seconds, channel_name, quality_score, view_count | Video/media content |
+| `content_matches` | learning_objective_id, content_id, teaching_unit_id, match_score, status, approved_by, ai_relevance_score, ai_quality_score | LO-to-content mapping |
 | `course_enrollments` | student_id, instructor_course_id, enrolled_at, overall_progress, completed_at | Student enrollments |
 
 #### Assessment & Verification
@@ -418,8 +437,8 @@ profiles ←──────── user_roles
 |-------|-------------|---------|
 | `ai_cache` | cache_key, cache_type, expires_at, data | AI response cache |
 | `job_requirements_cache` | job_query_normalized, requirements_text, keywords, day_one_capabilities, query_count, last_queried_at | Job analysis cache |
-| `generated_curricula` | user_id, curriculum_structure (JSON), source_type | Generated curricula |
-| `image_generation_queue` | slide_id, prompt, status | Async image processing |
+| `generated_curricula` | user_id, target_occupation, curriculum_structure (JSON), career_match_id, estimated_weeks, generation_model, status | Generated curricula |
+| `image_generation_queue` | lecture_slides_id, slide_index, prompt, status, image_url, generation_model | Async image processing |
 
 ---
 

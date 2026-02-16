@@ -229,7 +229,7 @@ Students upload their course transcripts and identify dream jobs. The platform u
 | Frontend Components | 200+ files across 31 directories |
 | Custom React Hooks | 80+ files |
 | Pages | 36+ route components |
-| Supabase Edge Functions | 85 serverless functions |
+| Supabase Edge Functions | 82 serverless functions |
 | Database Migrations | 116 SQL migration files |
 | UI Components (shadcn/ui) | 60+ base components |
 | Frontend TypeScript LOC | ~33,880 lines |
