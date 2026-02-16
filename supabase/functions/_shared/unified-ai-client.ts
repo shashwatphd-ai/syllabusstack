@@ -925,9 +925,13 @@ async function generateImageEvoLink(request: {
     let base64: string | null = null;
     let mimeType = 'image/png';
 
-    // Try task results formats: results[].url, output.url, data[].url
+    // Try task results formats:
+    // EvoLink returns results as flat string array: ["https://..."]
+    // Other APIs may return results[].url, output.url, data[].url
+    const firstResult = taskData?.results?.[0];
     const imageUrl =
-      taskData?.results?.[0]?.url ||
+      (typeof firstResult === 'string' && firstResult.startsWith('http') ? firstResult : null) ||
+      firstResult?.url ||
       taskData?.output?.url ||
       taskData?.data?.[0]?.url ||
       taskData?.url;
