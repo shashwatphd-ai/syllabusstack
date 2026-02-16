@@ -88,6 +88,13 @@ export interface CourseSlideStatusResponse {
   // Vertex AI fields for enterprise status display
   vertex_state?: string;    // "JOB_STATE_RUNNING", "JOB_STATE_SUCCEEDED", etc.
   progress_percent?: number; // 0-100 completion percentage
+  // Image generation queue counts (from service role, bypasses RLS)
+  image_queue?: {
+    pending: number;
+    processing: number;
+    completed: number;
+    failed: number;
+  };
 }
 
 // ============================================================================
