@@ -161,9 +161,12 @@ export function useSubmitBatchSlides() {
       queryClient.invalidateQueries({ queryKey: ['lecture-queue-status', variables.instructorCourseId] });
 
       // Show progress toast - research is running in background
+      const slideCount = data.total ?? data.skipped ?? 0;
       toast({
         title: '🔬 Research Started',
-        description: `Processing ${data.total} slides. This may take a few minutes.`,
+        description: slideCount > 0
+          ? `Processing ${slideCount} slides. This may take a few minutes.`
+          : 'Processing slides. This may take a few minutes.',
       });
     },
 
