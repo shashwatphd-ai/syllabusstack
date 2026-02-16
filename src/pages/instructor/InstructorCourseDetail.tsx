@@ -116,12 +116,18 @@ export default function InstructorCourseDetailPage() {
   // Calculate slide stats.
   // Prefer backend-computed counts (poll-batch-status) because Realtime can be flaky on some networks.
   // Fallback to local lectureSlides-derived counts when status API isn't available yet.
-  // Derive missing-image count from the image generation queue (avoids fetching heavy slides JSONB)
+  // Image queue stats come from poll-batch-status (service role) since image_generation_queue has RLS USING(false)
   const publishedMissingImages = useMemo(() => {
+    // Primary: use poll-batch-status image_queue (service role, bypasses RLS)
+    const iq = slideStatus?.image_queue;
+    if (iq) {
+      return (iq.pending ?? 0) + (iq.failed ?? 0);
+    }
+    // Fallback: imageGenStatus (will be 0 if RLS blocks)
     const status = imageGenStatus.data;
     if (!status?.success) return 0;
     return (status.queued ?? 0) + (status.failed ?? 0);
-  }, [imageGenStatus.data]);
+  }, [slideStatus, imageGenStatus.data]);
 
   const slidesStats = useMemo(() => {
     if (slideStatus?.success) {

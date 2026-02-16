@@ -213,6 +213,18 @@ const handler = async (req: Request): Promise<Response> => {
     const progressPercent =
       totalSlides > 0 ? Math.round((slideCounts.ready / totalSlides) * 100) : 0;
 
+    // Image generation queue stats (service role bypasses RLS)
+    const { data: imageQueueItems } = await supabase
+      .from("image_generation_queue")
+      .select("status, lecture_slides_id!inner(instructor_course_id)")
+      .eq("lecture_slides_id.instructor_course_id", instructor_course_id);
+
+    const imageQueue = { pending: 0, processing: 0, completed: 0, failed: 0 };
+    for (const item of imageQueueItems || []) {
+      const key = item.status as keyof typeof imageQueue;
+      if (key in imageQueue) imageQueue[key]++;
+    }
+
     return createSuccessResponse(
       {
         success: true,
@@ -234,6 +246,7 @@ const handler = async (req: Request): Promise<Response> => {
           created_at: b.created_at,
         })),
         progress_percent: progressPercent,
+        image_queue: imageQueue,
       },
       corsHeaders
     );
