@@ -540,19 +540,17 @@ export function useTriggerImageGeneration() {
     mutationFn: async ({ instructorCourseId }: { instructorCourseId: string }) => {
       // SMART TRIGGER: First check if there are failed items that need resetting.
       // This merges the old "Generate Images" and "Retry Failed Images" into one flow.
-      const { data: failedCheck } = await supabase
+      const { count: failedCount } = await supabase
         .from('image_generation_queue')
         .select('id', { count: 'exact', head: true })
         .eq('status', 'failed')
-        .in('lecture_slides_id', 
+        .in('lecture_slides_id',
           (await supabase
             .from('lecture_slides')
             .select('id')
             .eq('instructor_course_id', instructorCourseId)
           ).data?.map(l => l.id) || []
         );
-
-      const failedCount = failedCheck ?? 0;
 
       // If there are failed items but no pending, reset them first
       if (typeof failedCount === 'number' && failedCount > 0) {

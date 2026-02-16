@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Plus, FileText, Video, CheckCircle2, Clock, AlertCircle, Settings2, Copy, Share2, Loader2, Sparkles, Users, Presentation, RotateCcw, Image, Volume2, AlertTriangle } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
@@ -93,16 +93,21 @@ export default function InstructorCourseDetailPage() {
   const triggerImageGen = useTriggerImageGeneration();
   const retryFailedImages = useRetryFailedImages();
   const [imageGenActive, setImageGenActive] = useState(false);
+  const imageGenStartRef = useRef<number>(0);
   const imageGenStatus = useImageGenerationStatus(id, imageGenActive);
-  
-  // Auto-deactivate forced polling once queue has settled (no pending/processing work)
+
+  // Auto-deactivate forced polling after minimum duration AND no active work remaining.
+  // The 30s minimum covers the fire-and-forget populate edge function latency (10-30s).
   useEffect(() => {
     if (!imageGenActive) return;
     const hasActiveWork = (imageGenStatus.data?.queued || 0) > 0 || (imageGenStatus.data?.processing || 0) > 0;
-    if (imageGenStatus.data?.success && !hasActiveWork && (imageGenStatus.data?.total || 0) > 0) {
-      const timer = setTimeout(() => setImageGenActive(false), 5_000);
-      return () => clearTimeout(timer);
-    }
+    if (hasActiveWork) return; // Keep polling while work is active
+
+    const elapsed = Date.now() - imageGenStartRef.current;
+    const delay = Math.max(5_000, 30_000 - elapsed);
+
+    const timer = setTimeout(() => setImageGenActive(false), delay);
+    return () => clearTimeout(timer);
   }, [imageGenActive, imageGenStatus.data]);
 
   // Batch audio generation
@@ -640,6 +645,7 @@ export default function InstructorCourseDetailPage() {
                           className={`gap-2 h-9 flex-1 sm:flex-none ${(imageGenStatus.data?.failed || 0) > 0 ? 'border-orange-300 text-orange-700 hover:bg-orange-50' : ''}`}
                           onClick={() => {
                             if (id) {
+                              imageGenStartRef.current = Date.now();
                               setImageGenActive(true);
                               triggerImageGen.mutate({ instructorCourseId: id });
                             }
