@@ -30,7 +30,7 @@
 //   | Operation     | Provider         | Model                           |
 //   |---------------|------------------|----------------------------------|
 //   | Slide Content | OpenRouter/Vertex| google/gemini-3-flash-preview    |
-//   | Images        | OpenRouter/Google/EvoLink | nano-banana-pro      |
+//   | Images        | OpenRouter/Google/EvoLink | gemini-3-pro-image-preview |
 //   | Research      | OpenRouter       | perplexity/sonar-pro             |
 //   | Parsing       | OpenRouter       | google/gemini-2.5-flash          |
 //   | Reasoning     | OpenRouter       | deepseek/deepseek-r1             |
@@ -761,26 +761,33 @@ async function generateImageGoogle(request: {
 // EVOLINK.AI IMAGE GENERATION - Cost-optimized provider (~$0.05/image)
 // ============================================================================
 //
-// EvoLink.ai is an OpenAI-compatible API gateway offering Nano Banana Pro
-// at ~63% cheaper than Google direct pricing.
+// EvoLink.ai provides Nano Banana Pro (gemini-3-pro-image-preview) at ~63%
+// cheaper than Google direct pricing.
+//
+// IMPORTANT: EvoLink uses an ASYNC task-based API:
+//   1. POST /v1/images/generations → returns { id: "task-...", status: "pending" }
+//   2. GET  /v1/tasks/{task_id}    → poll until status: "completed"
+//   3. Extract image URL from completed task results (valid 24h)
 //
 // Endpoint: POST https://api.evolink.ai/v1/images/generations
-// Auth: Authorization: Bearer <EVOLINK_API_KEY>
-// Docs: https://docs.evolink.ai/en/quickstart
+// Poll:     GET  https://api.evolink.ai/v1/tasks/{task_id}
+// Auth:     Authorization: Bearer <EVOLINK_API_KEY>
+// Docs:     https://docs.evolink.ai/en/api-manual/image-series/nanobanana/nanobanana-pro-image-generate
 //
 // ============================================================================
 
-// EvoLink image model identifiers
-const EVOLINK_IMAGE_MODELS = {
-  PRIMARY: 'google/nano-banana-pro',     // Gemini 3 Pro Image (~$0.05/image)
-  FALLBACK: 'google/gemini-2.5-flash-image',  // Nano Banana GA (cheaper fallback)
-} as const;
+// EvoLink model — only one model in the spec enum
+const EVOLINK_MODEL = 'gemini-3-pro-image-preview' as const;
+
+// Polling configuration
+const EVOLINK_POLL_INTERVAL_MS = 5_000;  // 5 seconds between polls
+const EVOLINK_POLL_TIMEOUT_MS = 120_000; // 2 minutes max (edge fn has ~150s)
 
 /**
- * Generate an image using EvoLink.ai's image generation API
+ * Generate an image using EvoLink.ai's async image generation API.
  *
- * EvoLink provides Nano Banana Pro at ~$0.05/image (63% cheaper than Google direct).
- * Uses a dedicated /images/generations endpoint (not chat completions).
+ * Flow: submit task → poll for completion → fetch image URL → convert to base64.
+ * EvoLink estimated_time is ~45s per image.
  *
  * @internal
  */
@@ -803,185 +810,219 @@ async function generateImageEvoLink(request: {
       error: {
         code: 'CONFIG_ERROR',
         message: 'EVOLINK_API_KEY environment variable is not configured. Set IMAGE_PROVIDER=openrouter to use OpenRouter instead.',
-        provider: 'openrouter', // Report as openrouter for compatibility
+        provider: 'openrouter',
         model: 'none',
       },
     };
   }
 
-  const primaryModel = request.useFreeModel
-    ? EVOLINK_IMAGE_MODELS.FALLBACK
-    : EVOLINK_IMAGE_MODELS.PRIMARY;
-  const fallbackModel = EVOLINK_IMAGE_MODELS.FALLBACK;
+  console.log(`${logPrefix} Generating image via EvoLink (${EVOLINK_MODEL})`);
+  console.log(`${logPrefix} Prompt: ${request.prompt.substring(0, 100)}...`);
 
-  for (const model of [primaryModel, fallbackModel]) {
-    const isRetry = model === fallbackModel && model !== primaryModel;
+  try {
+    // ── Step 1: Submit image generation task ──
+    const body: Record<string, unknown> = {
+      model: EVOLINK_MODEL,
+      prompt: request.prompt,
+      size: request.aspectRatio || '16:9',
+      quality: '2K',
+    };
 
-    if (isRetry) {
-      console.log(`${logPrefix} Retrying with fallback model: ${model}`);
-    } else {
-      console.log(`${logPrefix} Generating image via EvoLink (${model})`);
-    }
-    console.log(`${logPrefix} Prompt: ${request.prompt.substring(0, 100)}...`);
+    const response = await fetch('https://api.evolink.ai/v1/images/generations', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
 
-    try {
-      const body: Record<string, unknown> = {
-        model,
-        prompt: request.prompt,
-        aspect_ratio: request.aspectRatio || '16:9',
-        resolution: '1K',
-      };
-
-      const response = await fetch('https://api.evolink.ai/v1/images/generations', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`${logPrefix} EvoLink submit error ${response.status}:`, errorText.substring(0, 300));
+      return {
+        success: false,
+        error: {
+          code: 'OPENROUTER_ERROR',
+          message: `EvoLink returned HTTP ${response.status}: ${response.statusText}`,
+          provider: 'openrouter',
+          model: EVOLINK_MODEL,
+          httpStatus: response.status,
+          rawError: errorText.substring(0, 500),
         },
-        body: JSON.stringify(body),
+      };
+    }
+
+    const submitData = await response.json();
+    const taskId: string | undefined = submitData?.id;
+
+    if (!taskId) {
+      console.error(`${logPrefix} No task ID in EvoLink response:`, JSON.stringify(submitData).substring(0, 300));
+      return {
+        success: false,
+        error: {
+          code: 'INVALID_RESPONSE',
+          message: 'EvoLink did not return a task ID.',
+          provider: 'openrouter',
+          model: EVOLINK_MODEL,
+          rawError: JSON.stringify(submitData).substring(0, 500),
+        },
+      };
+    }
+
+    const estTime = submitData?.task_info?.estimated_time;
+    console.log(`${logPrefix} Task submitted: ${taskId} (est ${estTime ?? '?'}s)`);
+
+    // ── Step 2: Poll for task completion ──
+    const pollStart = Date.now();
+    // deno-lint-ignore no-explicit-any
+    let taskData: any = null;
+
+    while (Date.now() - pollStart < EVOLINK_POLL_TIMEOUT_MS) {
+      await new Promise(r => setTimeout(r, EVOLINK_POLL_INTERVAL_MS));
+
+      const pollResp = await fetch(`https://api.evolink.ai/v1/tasks/${taskId}`, {
+        headers: { 'Authorization': `Bearer ${apiKey}` },
       });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`${logPrefix} EvoLink error ${response.status}:`, errorText.substring(0, 300));
-
-        // On retriable errors, try fallback model before giving up
-        const isRetriableError = response.status >= 500 || response.status === 400 || response.status === 402 || response.status === 403 || response.status === 404 || response.status === 429;
-        if (isRetriableError && model === primaryModel) {
-          console.warn(`${logPrefix} HTTP ${response.status} error, trying fallback model (${fallbackModel})...`);
-          continue;
-        }
-
-        return {
-          success: false,
-          error: {
-            code: 'OPENROUTER_ERROR', // Reuse code for compatibility
-            message: `EvoLink returned HTTP ${response.status}: ${response.statusText}`,
-            provider: 'openrouter',
-            model,
-            httpStatus: response.status,
-            rawError: errorText.substring(0, 500),
-          },
-        };
-      }
-
-      const data = await response.json();
-
-      // EvoLink returns image data — could be URL or base64 depending on model
-      // Try multiple response formats
-      let base64: string | null = null;
-      let mimeType = 'image/png';
-
-      // Format 1: data[].url (image URL — need to fetch and convert)
-      const imageUrl = data?.data?.[0]?.url || data?.url || data?.image_url;
-      if (typeof imageUrl === 'string' && imageUrl.startsWith('http')) {
-        console.log(`${logPrefix} Fetching image from URL: ${imageUrl.substring(0, 80)}...`);
-        const imgResp = await fetch(imageUrl);
-        if (imgResp.ok) {
-          const arrayBuf = await imgResp.arrayBuffer();
-          const bytes = new Uint8Array(arrayBuf);
-          // Convert to base64
-          let binary = '';
-          for (let i = 0; i < bytes.length; i++) {
-            binary += String.fromCharCode(bytes[i]);
-          }
-          base64 = btoa(binary);
-          const contentType = imgResp.headers.get('content-type');
-          if (contentType && contentType.startsWith('image/')) {
-            mimeType = contentType.split(';')[0];
-          }
-        } else {
-          console.error(`${logPrefix} Failed to fetch image from URL: ${imgResp.status}`);
-        }
-      }
-
-      // Format 2: data[].b64_json (base64 directly)
-      if (!base64) {
-        const b64 = data?.data?.[0]?.b64_json || data?.b64_json;
-        if (typeof b64 === 'string' && b64.length > 100) {
-          base64 = b64;
-        }
-      }
-
-      // Format 3: data URL string
-      if (!base64) {
-        const dataUrl = data?.data?.[0]?.url || data?.url;
-        if (typeof dataUrl === 'string' && dataUrl.startsWith('data:image/')) {
-          const match = dataUrl.match(/^data:image\/(\w+);base64,(.+)$/);
-          if (match) {
-            base64 = match[2];
-            mimeType = `image/${match[1]}`;
-          }
-        }
-      }
-
-      if (!base64) {
-        console.error(`${logPrefix} Could not extract image from EvoLink response`);
-        console.error(`${logPrefix} Response keys:`, JSON.stringify(data).substring(0, 300));
-
-        if (model === primaryModel) {
-          console.warn(`${logPrefix} Failed extraction from ${model}, trying fallback...`);
-          continue;
-        }
-
-        return {
-          success: false,
-          error: {
-            code: 'INVALID_RESPONSE',
-            message: 'Could not extract image data from EvoLink response.',
-            provider: 'openrouter',
-            model,
-            rawError: JSON.stringify(data).substring(0, 500),
-          },
-        };
-      }
-
-      const latency_ms = Date.now() - startTime;
-      const imageKB = Math.round(base64.length / 1024);
-      console.log(`${logPrefix} ✓ Image generated successfully in ${latency_ms}ms (${imageKB}KB) model=${model}${isRetry ? ' [FALLBACK]' : ''}`);
-
-      return {
-        success: true,
-        base64,
-        mimeType,
-        provider: 'openrouter', // Report as openrouter for queue compatibility
-        model,
-        cost_usd: 0.05, // EvoLink Nano Banana Pro pricing
-        latency_ms,
-        usedFallback: isRetry,
-      };
-
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error(`${logPrefix} Exception during image generation with ${model}:`, errorMessage);
-
-      if (model === primaryModel) {
-        console.warn(`${logPrefix} Exception with ${model}, trying fallback...`);
+      if (!pollResp.ok) {
+        console.warn(`${logPrefix} Poll HTTP ${pollResp.status} for ${taskId}, retrying...`);
         continue;
       }
 
+      taskData = await pollResp.json();
+      console.log(`${logPrefix} Task ${taskId}: ${taskData.status} (${taskData.progress ?? 0}%)`);
+
+      if (taskData.status === 'completed') break;
+      if (taskData.status === 'failed') {
+        const failMsg = JSON.stringify(taskData.error || taskData).substring(0, 300);
+        console.error(`${logPrefix} Task ${taskId} failed:`, failMsg);
+        return {
+          success: false,
+          error: {
+            code: 'IMAGE_GENERATION_FAILED',
+            message: `EvoLink task failed: ${failMsg}`,
+            provider: 'openrouter',
+            model: EVOLINK_MODEL,
+            rawError: failMsg,
+          },
+        };
+      }
+    }
+
+    if (!taskData || taskData.status !== 'completed') {
+      console.error(`${logPrefix} Task ${taskId} timed out after ${EVOLINK_POLL_TIMEOUT_MS}ms`);
       return {
         success: false,
         error: {
           code: 'IMAGE_GENERATION_FAILED',
-          message: `Image generation failed with exception: ${errorMessage}`,
+          message: `EvoLink task timed out after ${EVOLINK_POLL_TIMEOUT_MS / 1000}s`,
           provider: 'openrouter',
-          model,
-          rawError: errorMessage,
+          model: EVOLINK_MODEL,
         },
       };
     }
-  }
 
-  return {
-    success: false,
-    error: {
-      code: 'IMAGE_GENERATION_FAILED',
-      message: 'All EvoLink image generation models failed',
-      provider: 'openrouter',
-      model: primaryModel,
-    },
-  };
+    // ── Step 3: Extract image from completed task ──
+    let base64: string | null = null;
+    let mimeType = 'image/png';
+
+    // Try task results formats: results[].url, output.url, data[].url
+    const imageUrl =
+      taskData?.results?.[0]?.url ||
+      taskData?.output?.url ||
+      taskData?.data?.[0]?.url ||
+      taskData?.url;
+
+    if (typeof imageUrl === 'string' && imageUrl.startsWith('http')) {
+      console.log(`${logPrefix} Fetching image from URL: ${imageUrl.substring(0, 80)}...`);
+      const imgResp = await fetch(imageUrl);
+      if (imgResp.ok) {
+        const arrayBuf = await imgResp.arrayBuffer();
+        const bytes = new Uint8Array(arrayBuf);
+        let binary = '';
+        for (let i = 0; i < bytes.length; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        base64 = btoa(binary);
+        const contentType = imgResp.headers.get('content-type');
+        if (contentType && contentType.startsWith('image/')) {
+          mimeType = contentType.split(';')[0];
+        }
+      } else {
+        console.error(`${logPrefix} Failed to fetch image from URL: ${imgResp.status}`);
+      }
+    }
+
+    // Fallback: base64 directly in response
+    if (!base64) {
+      const b64 =
+        taskData?.results?.[0]?.b64_json ||
+        taskData?.data?.[0]?.b64_json ||
+        taskData?.b64_json;
+      if (typeof b64 === 'string' && b64.length > 100) {
+        base64 = b64;
+      }
+    }
+
+    // Fallback: data URL string
+    if (!base64) {
+      const dataUrl = taskData?.results?.[0]?.url || taskData?.data?.[0]?.url;
+      if (typeof dataUrl === 'string' && dataUrl.startsWith('data:image/')) {
+        const match = dataUrl.match(/^data:image\/(\w+);base64,(.+)$/);
+        if (match) {
+          base64 = match[2];
+          mimeType = `image/${match[1]}`;
+        }
+      }
+    }
+
+    if (!base64) {
+      console.error(`${logPrefix} Could not extract image from completed task`);
+      console.error(`${logPrefix} Task data keys:`, JSON.stringify(taskData).substring(0, 300));
+      return {
+        success: false,
+        error: {
+          code: 'INVALID_RESPONSE',
+          message: 'Could not extract image data from completed EvoLink task.',
+          provider: 'openrouter',
+          model: EVOLINK_MODEL,
+          rawError: JSON.stringify(taskData).substring(0, 500),
+        },
+      };
+    }
+
+    // ── Step 4: Return success ──
+    const latency_ms = Date.now() - startTime;
+    const imageKB = Math.round(base64.length / 1024);
+    const cost = taskData?.usage?.credits_reserved ? taskData.usage.credits_reserved * 0.03 : 0.05;
+    console.log(`${logPrefix} Image generated successfully in ${latency_ms}ms (${imageKB}KB) model=${EVOLINK_MODEL}`);
+
+    return {
+      success: true,
+      base64,
+      mimeType,
+      provider: 'openrouter', // Report as openrouter for queue compatibility
+      model: EVOLINK_MODEL,
+      cost_usd: cost,
+      latency_ms,
+    };
+
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`${logPrefix} Exception during EvoLink image generation:`, errorMessage);
+
+    return {
+      success: false,
+      error: {
+        code: 'IMAGE_GENERATION_FAILED',
+        message: `EvoLink image generation failed: ${errorMessage}`,
+        provider: 'openrouter',
+        model: EVOLINK_MODEL,
+        rawError: errorMessage,
+      },
+    };
+  }
 }
 
 // NOTE: extractImageFromImagenResponse removed — no longer needed since GCP path
