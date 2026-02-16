@@ -4690,7 +4690,15 @@ export type Database = {
         Args: { p_instructor_course_id: string }
         Returns: number
       }
+      is_course_instructor: {
+        Args: { _course_id: string; _user_id: string }
+        Returns: boolean
+      }
       is_edu_domain: { Args: { email_address: string }; Returns: boolean }
+      is_enrolled_student: {
+        Args: { _course_id: string; _user_id: string }
+        Returns: boolean
+      }
       keyword_similarity: {
         Args: { arr1: string[]; arr2: string[] }
         Returns: number
