@@ -142,7 +142,8 @@ export function NarratedScrollViewer({
   // SINGLE unified scroll effect: handles both slide transitions and block changes
   useEffect(() => {
     if (!isAudioPlaying) return;
-    if (programmaticScrollRef.current) return;
+    // NOTE: Do NOT check programmaticScrollRef here — it self-suppresses via suppressObserver().
+    // The dedup guard below (lastScrolledBlockRef) is sufficient to prevent redundant scrolls.
 
     // Determine scroll target: prefer block-level, fallback to slide-level
     const compositeId = activeBlockId ? `${currentAudioSlideIndex}_${activeBlockId}` : null;
