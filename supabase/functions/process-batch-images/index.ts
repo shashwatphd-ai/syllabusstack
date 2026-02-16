@@ -467,12 +467,26 @@ async function populateQueueFromLecture(
     return 0;
   }
 
-  // Insert items (upsert to handle re-runs)
-  const { error: insertError } = await supabase
+  // Clear previously failed items so upsert can re-insert with fresh prompts.
+  // Without this, ignoreDuplicates silently skips failed rows and the continue
+  // phase finds 0 pending items.
+  const { count: deletedCount } = await supabase
+    .from('image_generation_queue')
+    .delete({ count: 'exact' })
+    .eq('lecture_slides_id', lecture.id)
+    .eq('status', 'failed');
+
+  if (deletedCount && deletedCount > 0) {
+    console.log(`[Populate] Reset ${deletedCount} previously failed items for ${lectureSlideId}`);
+  }
+
+  // Insert items (upsert to handle re-runs — completed items are preserved)
+  const { error: insertError, count: insertedCount } = await supabase
     .from('image_generation_queue')
     .upsert(queueItems, {
       onConflict: 'lecture_slides_id,slide_index',
       ignoreDuplicates: true,
+      count: 'exact',
     });
 
   if (insertError) {
@@ -480,8 +494,8 @@ async function populateQueueFromLecture(
     return 0;
   }
 
-  console.log(`[Populate] Added ${queueItems.length} items to queue for ${lectureSlideId}`);
-  return queueItems.length;
+  console.log(`[Populate] Queued ${insertedCount ?? queueItems.length} items (${deletedCount ?? 0} reset) for ${lectureSlideId}`);
+  return insertedCount ?? queueItems.length;
 }
 
 // ============================================================================

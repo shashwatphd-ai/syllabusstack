@@ -187,8 +187,6 @@ const COST_PER_MILLION: Record<string, { input: number; output: number }> = {
   // Google Gemini image models
   'google/gemini-3-pro-image-preview': { input: 0.50, output: 2.00 },
   'google/gemini-2.5-flash-image': { input: 0.0003, output: 0.0025 },
-  // Google Imagen 4 (per image pricing: ~$0.04 for Ultra)
-  'imagen-4.0-ultra-generate-001': { input: 0.04, output: 0.00 },
   // Perplexity research models (per request pricing approximation)
   'perplexity/sonar-pro': { input: 3.00, output: 15.00 },
   'perplexity/sonar': { input: 1.00, output: 5.00 },
@@ -199,7 +197,7 @@ const COST_PER_MILLION: Record<string, { input: number; output: number }> = {
   'anthropic/claude-3.5-haiku': { input: 0.80, output: 4.00 },
 };
 
-// Fixed cost per image for Imagen 4 Ultra (~$0.04 per image)
+// Fixed cost per image for OpenRouter/Google image generation (~$0.04 per image)
 const IMAGE_COST_USD = 0.04;
 
 // ============================================================================
@@ -1025,9 +1023,6 @@ async function generateImageEvoLink(request: {
   }
 }
 
-// NOTE: extractImageFromImagenResponse removed — no longer needed since GCP path
-// now uses Gemini (:generateContent) instead of Imagen (:predict).
-// The extractImageFromGoogleResponse function handles Gemini's response format.
 /**
  * Extract base64 image from Google Generative Language API response
  * 

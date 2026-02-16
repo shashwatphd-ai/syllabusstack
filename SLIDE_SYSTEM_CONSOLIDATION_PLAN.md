@@ -139,7 +139,7 @@ INSTRUCTOR CLICKS                     ENROLLMENT THRESHOLD
 │  Mode A: Images                                          │
 │    1. Fetch queue items                                  │
 │    2. LLM prompt generation (Gemini Flash Lite)          │
-│    3. Image generation (Imagen 4 Ultra)                  │
+│    3. Image generation (gemini-3-pro-image-preview)      │
 │    4. Upload to storage                                  │
 │    5. Self-continue if more pending                      │
 │                                                          │
@@ -531,7 +531,7 @@ The single most impactful change in this entire plan:
 
 | Component | Provider | Model | Cost | % |
 |-----------|----------|-------|------|---|
-| Images (4x) | OpenRouter or Google | Imagen 4 Ultra | $0.160 | 53% |
+| Images (4x) | OpenRouter/Google/EvoLink | gemini-3-pro-image-preview | $0.160 | 53% |
 | Audio (6 slides) | Google Cloud | Neural2 TTS | $0.120 | 40% |
 | Research | OpenRouter | Perplexity Sonar-Pro | $0.020 | 6% |
 | Professor AI | OpenRouter | Gemini 3 Flash | $0.004 | 1.4% |
@@ -544,7 +544,7 @@ The single most impactful change in this entire plan:
 OPENROUTER (primary, all operations):
   ├── Professor AI:    google/gemini-3-flash-preview
   ├── Research:        perplexity/sonar-pro
-  ├── Image Gen:       google/gemini-3-pro-image-preview (or Imagen 4 Ultra)
+  ├── Image Gen:       gemini-3-pro-image-preview (via EvoLink/Google/OpenRouter)
   ├── Image Prompts:   google/gemini-2.5-flash-lite
   ├── AI Narration:    google/gemini-2.5-flash
   └── SSML Transform:  google/gemini-2.5-flash
