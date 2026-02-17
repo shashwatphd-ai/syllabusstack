@@ -443,16 +443,18 @@ export default function LearningObjectivePage() {
           )}
 
           {/* Content Sections */}
-          <div className="space-y-6">
+          <div className="space-y-4">
             {hasTeachingUnits ? (
               <>
-                {/* Learning Path Header */}
+                {/* Learning Path Header with total time */}
                 <div className="flex items-center gap-2">
                   <BookOpen className="h-4 w-4 text-primary" />
                   <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
                     Learning Path
                   </h2>
-                  <span className="text-xs text-muted-foreground ml-auto">Follow the sequence below</span>
+                  <span className="text-xs text-muted-foreground ml-auto">
+                    {teachingUnits!.length} units · ~{teachingUnits!.reduce((sum, u) => sum + (u.target_duration_minutes || 0), 0)} min total
+                  </span>
                 </div>
 
                 {/* Teaching Unit Cards */}
@@ -460,170 +462,175 @@ export default function LearningObjectivePage() {
                   const unitContent = contentByUnit.get(unit.id);
                   const unitVideos = unitContent?.videos || [];
                   const unitSlides = unitContent?.slides || [];
+                  const totalItems = unitVideos.length + unitSlides.length;
+
+                  // Per-unit progress
+                  const watchedCount = unitVideos.filter(v => {
+                    const s = v.content ? getContentStatus(v.content.id) : null;
+                    return s?.status === 'verified';
+                  }).length;
+                  const isUnitComplete = totalItems > 0 && watchedCount === unitVideos.length && unitVideos.length > 0;
 
                   return (
-                    <div
-                      key={unit.id}
-                      className="border border-border rounded-lg overflow-hidden"
-                    >
-                      {/* Unit Header */}
-                      <div className="border-l-4 border-l-primary p-4 bg-card">
-                        <div className="flex items-start gap-3">
-                          <div className="flex items-center justify-center w-7 h-7 rounded-full bg-primary/10 text-primary text-sm font-bold shrink-0 mt-0.5">
-                            {unit.sequence_order}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <h3 className="text-sm font-semibold leading-tight">{unit.title}</h3>
-                              <Badge variant="outline" className="text-[10px] capitalize">
-                                {VIDEO_TYPE_LABELS[unit.target_video_type] || unit.target_video_type}
-                              </Badge>
-                              <span className="text-[10px] text-muted-foreground">~{unit.target_duration_minutes} min</span>
+                    <Collapsible key={unit.id} defaultOpen={!isUnitComplete}>
+                      <div className={`border rounded-lg overflow-hidden transition-colors ${isUnitComplete ? 'border-success/40' : 'border-border'}`}>
+                        {/* Unit Header — clickable to expand/collapse */}
+                        <CollapsibleTrigger asChild>
+                          <div className={`border-l-4 ${isUnitComplete ? 'border-l-success' : 'border-l-primary'} p-3 sm:p-4 bg-card cursor-pointer hover:bg-accent/5 transition-colors group`}>
+                            <div className="flex items-start gap-3">
+                              <div className={`flex items-center justify-center w-7 h-7 rounded-full text-sm font-bold shrink-0 mt-0.5 ${
+                                isUnitComplete ? 'bg-success/15 text-success' : 'bg-primary/10 text-primary'
+                              }`}>
+                                {isUnitComplete ? <CheckCircle2 className="h-4 w-4" /> : unit.sequence_order}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <h3 className="text-sm font-semibold leading-tight">{unit.title}</h3>
+                                  <Badge variant="outline" className="text-[10px] capitalize">
+                                    {VIDEO_TYPE_LABELS[unit.target_video_type] || unit.target_video_type}
+                                  </Badge>
+                                </div>
+                                <div className="flex items-center gap-2 mt-1">
+                                  <span className="text-[10px] text-muted-foreground">~{unit.target_duration_minutes} min</span>
+                                  {totalItems > 0 && (
+                                    <>
+                                      <span className="text-[10px] text-muted-foreground">·</span>
+                                      <span className={`text-[10px] font-medium ${isUnitComplete ? 'text-success' : 'text-muted-foreground'}`}>
+                                        {watchedCount}/{unitVideos.length} watched
+                                      </span>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                              <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0 mt-1 transition-transform group-data-[state=open]:rotate-180" />
                             </div>
+                          </div>
+                        </CollapsibleTrigger>
 
-                            {/* What to Teach - always visible */}
+                        <CollapsibleContent>
+                          {/* Pedagogical context */}
+                          <div className="px-4 pt-2 pb-3 bg-card border-t border-border/50">
                             {unit.what_to_teach && (
-                              <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
+                              <p className="text-xs text-muted-foreground leading-relaxed pl-10">
                                 {unit.what_to_teach}
                               </p>
                             )}
 
-                            {/* Collapsible: Why This Matters */}
-                            {unit.why_this_matters && (
-                              <Collapsible>
-                                <CollapsibleTrigger className="flex items-center gap-1.5 mt-3 text-xs font-medium text-primary hover:underline">
-                                  <Lightbulb className="h-3 w-3" />
-                                  Why This Matters
-                                  <ChevronDown className="h-3 w-3 transition-transform [[data-state=open]>&]:rotate-180" />
-                                </CollapsibleTrigger>
-                                <CollapsibleContent>
-                                  <p className="text-xs text-muted-foreground mt-1.5 pl-5 leading-relaxed">
-                                    {unit.why_this_matters}
-                                  </p>
-                                </CollapsibleContent>
-                              </Collapsible>
-                            )}
+                            <div className="pl-10 flex flex-wrap gap-x-4">
+                              {unit.why_this_matters && (
+                                <Collapsible>
+                                  <CollapsibleTrigger className="flex items-center gap-1.5 mt-2 text-xs font-medium text-primary hover:underline">
+                                    <Lightbulb className="h-3 w-3" />
+                                    Why This Matters
+                                    <ChevronDown className="h-3 w-3 transition-transform [[data-state=open]>&]:rotate-180" />
+                                  </CollapsibleTrigger>
+                                  <CollapsibleContent>
+                                    <p className="text-xs text-muted-foreground mt-1.5 pl-4 leading-relaxed">
+                                      {unit.why_this_matters}
+                                    </p>
+                                  </CollapsibleContent>
+                                </Collapsible>
+                              )}
 
-                            {/* Collapsible: Common Misconceptions */}
-                            {unit.common_misconceptions && unit.common_misconceptions.length > 0 && (
-                              <Collapsible>
-                                <CollapsibleTrigger className="flex items-center gap-1.5 mt-2 text-xs font-medium text-warning hover:underline">
-                                  <AlertTriangle className="h-3 w-3" />
-                                  Common Misconceptions
-                                  <ChevronDown className="h-3 w-3 transition-transform [[data-state=open]>&]:rotate-180" />
-                                </CollapsibleTrigger>
-                                <CollapsibleContent>
-                                  <ul className="text-xs text-muted-foreground mt-1.5 pl-5 space-y-1 list-disc list-inside">
-                                    {unit.common_misconceptions.map((m, i) => (
-                                      <li key={i}>{m}</li>
-                                    ))}
-                                  </ul>
-                                </CollapsibleContent>
-                              </Collapsible>
-                            )}
+                              {unit.common_misconceptions && unit.common_misconceptions.length > 0 && (
+                                <Collapsible>
+                                  <CollapsibleTrigger className="flex items-center gap-1.5 mt-2 text-xs font-medium text-warning hover:underline">
+                                    <AlertTriangle className="h-3 w-3" />
+                                    Misconceptions ({unit.common_misconceptions.length})
+                                    <ChevronDown className="h-3 w-3 transition-transform [[data-state=open]>&]:rotate-180" />
+                                  </CollapsibleTrigger>
+                                  <CollapsibleContent>
+                                    <ul className="text-xs text-muted-foreground mt-1.5 pl-4 space-y-1 list-disc list-inside">
+                                      {unit.common_misconceptions.map((m, i) => (
+                                        <li key={i}>{m}</li>
+                                      ))}
+                                    </ul>
+                                  </CollapsibleContent>
+                                </Collapsible>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      </div>
 
-                      {/* Unit Content: Videos + Slides */}
-                      {(unitVideos.length > 0 || unitSlides.length > 0) && (
-                        <div className="px-4 pb-4 pt-2 space-y-3 bg-muted/10">
-                          {/* Videos in this unit */}
-                          {unitVideos.length > 0 && (
-                            <div>
-                              <div className="flex items-center gap-1.5 mb-2">
-                                <PlayCircle className="h-3 w-3 text-muted-foreground" />
-                                <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                                  Videos ({unitVideos.length})
-                                </span>
-                              </div>
-                              <div className="grid gap-2 sm:grid-cols-2">
-                                {unitVideos.map((match, rank) => {
-                                  const content = match.content;
-                                  if (!content) return null;
-                                  const status = getContentStatus(content.id);
-                                  const StatusIcon = status.icon;
-                                  const isSelected = selectedContentId === content.id;
-                                  return (
-                                    <div
-                                      key={content.id}
-                                      className={`flex items-start gap-3 p-3 rounded-lg cursor-pointer transition-colors border ${
-                                        isSelected ? 'bg-primary/10 border-primary' : 'border-border/50 hover:bg-accent/10'
-                                      }`}
-                                      onClick={() => setSelectedContentId(content.id)}
-                                    >
-                                      <div className="flex items-center justify-center w-6 h-6 rounded-full bg-primary/10 text-primary text-xs font-bold shrink-0 mt-0.5">
-                                        {rank + 1}
-                                      </div>
-                                      {content.thumbnail_url && (
-                                        <img src={content.thumbnail_url} alt="" className="w-20 h-12 object-cover rounded shrink-0" />
-                                      )}
-                                      <div className="flex-1 min-w-0">
-                                        <p className="text-sm font-medium line-clamp-2 leading-tight">{content.title}</p>
-                                        <div className="flex items-center gap-2 mt-1.5">
-                                          <StatusIcon className={`h-3.5 w-3.5 ${status.color}`} />
-                                          <span className="text-xs text-muted-foreground">
-                                            {content.duration_seconds ? `${Math.round(content.duration_seconds / 60)} min` : '?'}
-                                          </span>
-                                          <MatchBadge score={match.match_score || 0} />
-                                        </div>
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Slides in this unit */}
-                          {unitSlides.length > 0 && (
-                            <div>
-                              <div className="flex items-center gap-1.5 mb-2">
-                                <Presentation className="h-3 w-3 text-muted-foreground" />
-                                <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                                  Slides ({unitSlides.length})
-                                </span>
-                              </div>
-                              <div className="grid gap-2 sm:grid-cols-2">
-                                {unitSlides.map((slide, index) => (
+                          {/* Unified content list: Videos + Slides interleaved */}
+                          {totalItems > 0 && (
+                            <div className="px-4 pb-3 space-y-1.5 bg-muted/10">
+                              {unitVideos.map((match, rank) => {
+                                const content = match.content;
+                                if (!content) return null;
+                                const status = getContentStatus(content.id);
+                                const StatusIcon = status.icon;
+                                const isSelected = selectedContentId === content.id;
+                                return (
                                   <div
-                                    key={slide.id}
-                                    className="flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors hover:bg-accent/10 border border-border/50"
-                                    onClick={() => setViewingSlide(slide)}
+                                    key={content.id}
+                                    className={`flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-all border ${
+                                      isSelected
+                                        ? 'bg-primary/10 border-primary shadow-sm'
+                                        : status.status === 'verified'
+                                          ? 'border-success/30 bg-success/5 hover:bg-success/10'
+                                          : 'border-transparent hover:bg-accent/10 hover:border-border/50'
+                                    }`}
+                                    onClick={() => setSelectedContentId(content.id)}
                                   >
-                                    <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/10 text-primary text-xs font-bold shrink-0">
-                                      {moduleNum ? `${moduleNum}.${index + 1}` : index + 1}
-                                    </div>
+                                    <StatusIcon className={`h-4 w-4 ${status.color} shrink-0`} />
+                                    {content.thumbnail_url && (
+                                      <img src={content.thumbnail_url} alt="" className="w-16 h-10 object-cover rounded shrink-0" />
+                                    )}
                                     <div className="flex-1 min-w-0">
-                                      <p className="text-sm font-medium line-clamp-1">{slide.title}</p>
+                                      <p className="text-sm font-medium line-clamp-1 leading-tight">{content.title}</p>
                                       <div className="flex items-center gap-2 mt-0.5">
-                                        <span className="text-xs text-muted-foreground">{slide.total_slides} slides</span>
-                                        <span className="text-xs text-muted-foreground">·</span>
-                                        <span className="text-xs text-muted-foreground">~{slide.estimated_duration_minutes || 10} min</span>
+                                        <span className="text-[11px] text-muted-foreground">
+                                          {content.duration_seconds ? `${Math.round(content.duration_seconds / 60)} min` : ''}
+                                        </span>
+                                        {content.channel_name && (
+                                          <span className="text-[11px] text-muted-foreground truncate max-w-[120px]">{content.channel_name}</span>
+                                        )}
                                       </div>
                                     </div>
+                                    <MatchBadge score={match.match_score || 0} />
                                   </div>
-                                ))}
-                              </div>
+                                );
+                              })}
+
+                              {unitSlides.length > 0 && unitVideos.length > 0 && (
+                                <div className="border-t border-border/30 my-1" />
+                              )}
+
+                              {unitSlides.map((slide, index) => (
+                                <div
+                                  key={slide.id}
+                                  className="flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-all hover:bg-accent/10 hover:border-border/50 border border-transparent"
+                                  onClick={() => setViewingSlide(slide)}
+                                >
+                                  <Presentation className="h-4 w-4 text-muted-foreground shrink-0" />
+                                  <div className="flex items-center justify-center w-7 h-5 rounded bg-primary/10 text-primary text-[10px] font-bold shrink-0">
+                                    {moduleNum ? `${moduleNum}.${index + 1}` : index + 1}
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-medium line-clamp-1">{slide.title}</p>
+                                    <span className="text-[11px] text-muted-foreground">{slide.total_slides} slides · ~{slide.estimated_duration_minutes || 10} min</span>
+                                  </div>
+                                </div>
+                              ))}
                             </div>
                           )}
-                        </div>
-                      )}
-                    </div>
+                        </CollapsibleContent>
+                      </div>
+                    </Collapsible>
                   );
                 })}
 
                 {/* General Resources (unlinked content) */}
                 {unlinkedContent && (unlinkedContent.videos.length > 0 || (unlinkedContent.slides && unlinkedContent.slides.length > 0)) && (
-                  <div>
-                    <div className="flex items-center gap-2 mb-3">
-                      <PlayCircle className="h-4 w-4 text-muted-foreground" />
-                      <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-                        General Resources
-                      </h2>
+                  <div className="border border-border/50 rounded-lg overflow-hidden">
+                    <div className="flex items-center gap-2 px-4 py-2.5 bg-muted/20 border-b border-border/30">
+                      <PlayCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                        Additional Resources
+                      </span>
                     </div>
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      {unlinkedContent.videos.map((match, rank) => {
+                    <div className="p-3 space-y-1.5">
+                      {unlinkedContent.videos.map((match) => {
                         const content = match.content;
                         if (!content) return null;
                         const status = getContentStatus(content.id);
@@ -632,46 +639,40 @@ export default function LearningObjectivePage() {
                         return (
                           <div
                             key={content.id}
-                            className={`flex items-start gap-3 p-3 rounded-lg cursor-pointer transition-colors border ${
-                              isSelected ? 'bg-primary/10 border-primary' : 'border-border/50 hover:bg-accent/10'
+                            className={`flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-all border ${
+                              isSelected
+                                ? 'bg-primary/10 border-primary shadow-sm'
+                                : 'border-transparent hover:bg-accent/10 hover:border-border/50'
                             }`}
                             onClick={() => setSelectedContentId(content.id)}
                           >
-                            <div className="flex items-center justify-center w-6 h-6 rounded-full bg-primary/10 text-primary text-xs font-bold shrink-0 mt-0.5">
-                              {rank + 1}
-                            </div>
+                            <StatusIcon className={`h-4 w-4 ${status.color} shrink-0`} />
                             {content.thumbnail_url && (
-                              <img src={content.thumbnail_url} alt="" className="w-20 h-12 object-cover rounded shrink-0" />
+                              <img src={content.thumbnail_url} alt="" className="w-16 h-10 object-cover rounded shrink-0" />
                             )}
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium line-clamp-2 leading-tight">{content.title}</p>
-                              <div className="flex items-center gap-2 mt-1.5">
-                                <StatusIcon className={`h-3.5 w-3.5 ${status.color}`} />
-                                <span className="text-xs text-muted-foreground">
-                                  {content.duration_seconds ? `${Math.round(content.duration_seconds / 60)} min` : '?'}
-                                </span>
-                                <MatchBadge score={match.match_score || 0} />
-                              </div>
+                              <p className="text-sm font-medium line-clamp-1 leading-tight">{content.title}</p>
+                              <span className="text-[11px] text-muted-foreground">
+                                {content.duration_seconds ? `${Math.round(content.duration_seconds / 60)} min` : ''}
+                              </span>
                             </div>
+                            <MatchBadge score={match.match_score || 0} />
                           </div>
                         );
                       })}
                       {unlinkedContent.slides?.map((slide, index) => (
                         <div
                           key={slide.id}
-                          className="flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors hover:bg-accent/10 border border-border/50"
+                          className="flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-all hover:bg-accent/10 hover:border-border/50 border border-transparent"
                           onClick={() => setViewingSlide(slide)}
                         >
-                          <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/10 text-primary text-xs font-bold shrink-0">
+                          <Presentation className="h-4 w-4 text-muted-foreground shrink-0" />
+                          <div className="flex items-center justify-center w-7 h-5 rounded bg-primary/10 text-primary text-[10px] font-bold shrink-0">
                             {moduleNum ? `${moduleNum}.${index + 1}` : index + 1}
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium line-clamp-1">{slide.title}</p>
-                            <div className="flex items-center gap-2 mt-0.5">
-                              <span className="text-xs text-muted-foreground">{slide.total_slides} slides</span>
-                              <span className="text-xs text-muted-foreground">·</span>
-                              <span className="text-xs text-muted-foreground">~{slide.estimated_duration_minutes || 10} min</span>
-                            </div>
+                            <span className="text-[11px] text-muted-foreground">{slide.total_slides} slides · ~{slide.estimated_duration_minutes || 10} min</span>
                           </div>
                         </div>
                       ))}
