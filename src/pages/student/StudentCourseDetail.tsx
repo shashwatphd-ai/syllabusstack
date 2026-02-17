@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, BookOpen, CheckCircle2, Clock, Play, Lock, AlertCircle, FileQuestion } from 'lucide-react';
+import { ArrowLeft, BookOpen, CheckCircle2, Clock, Play, AlertCircle, FileQuestion, Bookmark, LayoutList } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { AppShell } from '@/components/layout/AppShell';
 import { PageContainer } from '@/components/layout/PageContainer';
@@ -7,7 +7,7 @@ import { useEnrolledCourseDetail } from '@/hooks/useStudentCourses';
 import { supabase } from '@/integrations/supabase/client';
 import { LoadingState } from '@/components/common/LoadingState';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import {
@@ -31,6 +31,12 @@ const stateIcons = {
   passed: CheckCircle2,
   remediation_required: AlertCircle,
 };
+
+/** Extract a module number from title like "Module 1: Strategy..." → 1, else null */
+function extractModuleNumber(title: string): number | null {
+  const match = title.match(/^Module\s+(\d+)/i);
+  return match ? parseInt(match[1], 10) : null;
+}
 
 export default function StudentCourseDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -94,24 +100,22 @@ export default function StudentCourseDetailPage() {
   return (
     <AppShell>
       <PageContainer>
-        <div className="space-y-6">
+        <div className="space-y-8">
           {/* Header */}
-          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-            <div className="space-y-1">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => navigate('/learn/courses')}
-                className="mb-2"
-              >
-                <ArrowLeft className="mr-2 h-4 w-4" />
-                Back to Courses
-              </Button>
-              <h1 className="text-xl sm:text-2xl font-bold">{course.title}</h1>
-              {course.code && (
-                <p className="text-muted-foreground font-mono text-sm">{course.code}</p>
-              )}
-            </div>
+          <div className="space-y-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => navigate('/learn/courses')}
+              className="mb-2 -ml-2"
+            >
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Back to Courses
+            </Button>
+            <h1 className="text-2xl font-bold tracking-tight">{course.title}</h1>
+            {course.code && (
+              <p className="text-muted-foreground font-mono text-sm">{course.code}</p>
+            )}
           </div>
 
           {/* Progress Overview */}
@@ -128,7 +132,9 @@ export default function StudentCourseDetailPage() {
                   {Math.round(progressPercent)}%
                 </span>
               </div>
-              <Progress value={progressPercent} className="h-3" />
+              <div className="relative">
+                <Progress value={progressPercent} className="h-3 [&>div]:bg-primary bg-muted/40" />
+              </div>
             </CardContent>
           </Card>
 
@@ -163,96 +169,111 @@ export default function StudentCourseDetailPage() {
               </CardContent>
             </Card>
           ) : (
-            <Accordion type="multiple" className="space-y-4">
-              {course.modules.map((module, index) => {
-                const moduleLOs = module.learning_objectives;
-                const moduleCompleted = moduleLOs.filter(lo =>
-                  isComplete(lo.verification_state as VerificationState)
-                ).length;
-                const moduleProgress = moduleLOs.length > 0
-                  ? (moduleCompleted / moduleLOs.length) * 100
-                  : 0;
+            <div className="space-y-4">
+              {/* Section header */}
+              <div className="flex items-center gap-2">
+                <LayoutList className="h-4 w-4 text-muted-foreground" />
+                <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                  Modules
+                </h2>
+              </div>
 
-                return (
-                  <AccordionItem 
-                    key={module.id} 
-                    value={module.id}
-                    className="border rounded-lg px-4"
-                  >
-                    <AccordionTrigger className="hover:no-underline">
-                      <div className="flex items-center gap-4 flex-1 text-left">
-                        <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/10 text-primary font-semibold">
-                          {index + 1}
-                        </div>
-                        <div className="flex-1">
-                          <h3 className="font-semibold">{module.title}</h3>
-                          <p className="text-sm text-muted-foreground">
-                            {moduleLOs.length} objectives • {moduleCompleted} completed
-                          </p>
-                        </div>
-                        <div className="w-24">
-                          <Progress value={moduleProgress} className="h-2" />
-                        </div>
-                      </div>
-                    </AccordionTrigger>
-                    <AccordionContent>
-                      <div className="space-y-3 pt-4 pb-2">
-                        {moduleLOs.length === 0 ? (
-                          <p className="text-sm text-muted-foreground text-center py-4">
-                            No learning objectives in this module yet
-                          </p>
-                        ) : (
-                          moduleLOs.map((lo) => {
-                            const stateConfig = getStateConfig(lo.verification_state as VerificationState);
-                            const StateIcon = stateIcons[lo.verification_state as keyof typeof stateIcons] || Clock;
+              <Accordion type="multiple" className="space-y-3">
+                {course.modules.map((module) => {
+                  const moduleLOs = module.learning_objectives;
+                  const moduleCompleted = moduleLOs.filter(lo =>
+                    isComplete(lo.verification_state as VerificationState)
+                  ).length;
+                  const moduleProgress = moduleLOs.length > 0
+                    ? (moduleCompleted / moduleLOs.length) * 100
+                    : 0;
 
-                            return (
-                              <Card
-                                key={lo.id}
-                                className="cursor-pointer hover:bg-accent/50 transition-colors"
-                                onClick={() => navigate(`/learn/objective/${lo.id}`)}
-                              >
-                                <CardContent className="p-4">
-                                  <div className="flex items-start gap-3">
-                                    <div className={`p-2 rounded-full ${stateConfig.bgColor} ${stateConfig.color}`}>
-                                      <StateIcon className="h-4 w-4" />
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                      <p className="text-sm font-medium">{lo.text}</p>
-                                      <div className="flex items-center gap-2 mt-2">
-                                        <Badge variant="outline" className="text-xs">
-                                          {stateConfig.label}
+                  // Smart numbering: extract from title or show icon
+                  const titleModuleNum = extractModuleNumber(module.title);
+                  const isGenericModule = !titleModuleNum; // e.g. "Course Objectives"
+
+                  return (
+                    <AccordionItem 
+                      key={module.id} 
+                      value={module.id}
+                      className="border rounded-lg px-4"
+                    >
+                      <AccordionTrigger className="hover:no-underline">
+                        <div className="flex items-center gap-4 flex-1 text-left">
+                          {/* Module icon/number */}
+                          <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-primary/10 text-primary shrink-0">
+                            {isGenericModule ? (
+                              <Bookmark className="h-4 w-4" />
+                            ) : (
+                              <span className="text-sm font-bold">{titleModuleNum}</span>
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h3 className="font-semibold text-sm">{module.title}</h3>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {moduleLOs.length} objective{moduleLOs.length !== 1 ? 's' : ''} · {moduleCompleted} completed
+                            </p>
+                          </div>
+                          <div className="w-20 shrink-0">
+                            <Progress value={moduleProgress} className="h-1.5 [&>div]:bg-primary bg-muted/40" />
+                          </div>
+                        </div>
+                      </AccordionTrigger>
+                      <AccordionContent>
+                        <div className="space-y-2 pt-3 pb-2">
+                          {moduleLOs.length === 0 ? (
+                            <p className="text-sm text-muted-foreground text-center py-4">
+                              No learning objectives in this module yet
+                            </p>
+                          ) : (
+                            moduleLOs.map((lo) => {
+                              const stateConfig = getStateConfig(lo.verification_state as VerificationState);
+                              const StateIcon = stateIcons[lo.verification_state as keyof typeof stateIcons] || Clock;
+
+                              return (
+                                <div
+                                  key={lo.id}
+                                  className="flex items-start gap-3 p-3 rounded-lg cursor-pointer hover:bg-accent/10 transition-colors border border-border/50"
+                                  onClick={() => navigate(`/learn/objective/${lo.id}`)}
+                                >
+                                  <div className={`p-1.5 rounded-full ${stateConfig.bgColor} ${stateConfig.color} shrink-0 mt-0.5`}>
+                                    <StateIcon className="h-3.5 w-3.5" />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-medium leading-snug">{lo.text}</p>
+                                    <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">
+                                        {stateConfig.label}
+                                      </Badge>
+                                      {lo.bloom_level && (
+                                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 capitalize">
+                                          {lo.bloom_level}
                                         </Badge>
-                                        {lo.bloom_level && (
-                                          <Badge variant="secondary" className="text-xs capitalize">
-                                            {lo.bloom_level}
-                                          </Badge>
-                                        )}
-                                        {lo.expected_duration_minutes && (
-                                          <span className="text-xs text-muted-foreground">
-                                            ~{lo.expected_duration_minutes} min
-                                          </span>
-                                        )}
-                                        {losWithQuestions?.has(lo.id) && (
-                                          <Badge variant="outline" className="text-xs text-primary border-primary/30">
-                                            <FileQuestion className="h-2.5 w-2.5 mr-0.5" />
-                                            Quiz
-                                          </Badge>
-                                        )}
-                                      </div>
+                                      )}
+                                      {lo.expected_duration_minutes && (
+                                        <span className="text-[10px] text-muted-foreground">
+                                          ~{lo.expected_duration_minutes} min
+                                        </span>
+                                      )}
+                                      {losWithQuestions?.has(lo.id) && (
+                                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 text-primary border-primary/30">
+                                          <FileQuestion className="h-2.5 w-2.5 mr-0.5" />
+                                          Quiz
+                                        </Badge>
+                                      )}
                                     </div>
                                   </div>
-                                </CardContent>
-                              </Card>
-                            );
-                          })
-                        )}
-                      </div>
-                    </AccordionContent>
-                  </AccordionItem>
-                );
-              })}
-            </Accordion>
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  );
+                })}
+              </Accordion>
+            </div>
           )}
         </div>
       </PageContainer>

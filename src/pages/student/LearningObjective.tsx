@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, PlayCircle, CheckCircle2, Clock, ChevronDown, ClipboardCheck, XCircle, Presentation, Award, AlertTriangle } from 'lucide-react';
+import { PlayCircle, CheckCircle2, Clock, ChevronDown, ChevronRight, ClipboardCheck, XCircle, Presentation, Award, AlertTriangle, Eye, BookOpen, GraduationCap } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { useLearningObjectiveProgress } from '@/hooks/useStudentCourses';
@@ -16,7 +16,58 @@ import { StudentSlideViewer } from '@/components/slides/StudentSlideViewer';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/contexts/AuthContext';
+import {
+  Breadcrumb,
+  BreadcrumbList,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from '@/components/ui/breadcrumb';
 import type { LectureSlide, Slide } from '@/hooks/useLectureSlides';
+import type { VerificationState } from '@/lib/verification-state-machine';
+
+// Step indicator configuration
+const PIPELINE_STEPS = [
+  { key: 'watch', label: 'Watch', icon: Eye },
+  { key: 'verify', label: 'Verify', icon: CheckCircle2 },
+  { key: 'assess', label: 'Assess', icon: BookOpen },
+  { key: 'mastered', label: 'Mastered', icon: GraduationCap },
+] as const;
+
+function getActiveStep(state: string | null | undefined): number {
+  switch (state) {
+    case 'unstarted': return 0;
+    case 'in_progress': return 0;
+    case 'verified': return 2;
+    case 'assessment_unlocked': return 2;
+    case 'passed': return 3;
+    case 'remediation_required': return 1;
+    default: return 0;
+  }
+}
+
+function getCompletedSteps(state: string | null | undefined): Set<number> {
+  const s = new Set<number>();
+  switch (state) {
+    case 'passed': s.add(0); s.add(1); s.add(2); s.add(3); break;
+    case 'assessment_unlocked': s.add(0); s.add(1); break;
+    case 'verified': s.add(0); s.add(1); break;
+    case 'in_progress': break;
+    case 'remediation_required': s.add(0); break;
+  }
+  return s;
+}
+
+/** Match score badge with color coding */
+function MatchBadge({ score }: { score: number }) {
+  const pct = Math.round(score * 100);
+  let classes = 'text-[11px] px-1.5 py-0.5 font-semibold rounded-md ';
+  if (pct >= 70) classes += 'bg-success/15 text-success border border-success/30';
+  else if (pct >= 50) classes += 'bg-warning/15 text-warning border border-warning/30';
+  else classes += 'bg-muted/30 text-muted-foreground border border-border';
+  return <span className={classes}>{pct}% match</span>;
+}
 
 export default function LearningObjectivePage() {
   const { loId } = useParams<{ loId: string }>();
@@ -54,13 +105,34 @@ export default function LearningObjectivePage() {
     checkAndRecover();
   }, [data, user, loId, queryClient]);
 
+  // Fetch course + module context for breadcrumb
+  const { data: breadcrumbContext } = useQuery({
+    queryKey: ['lo-breadcrumb', data?.learningObjective?.instructor_course_id, data?.learningObjective?.module_id],
+    queryFn: async () => {
+      const lo = data!.learningObjective;
+      const courseId = lo.instructor_course_id;
+      const moduleId = lo.module_id;
+      let courseName = '';
+      let moduleName = '';
+      if (courseId) {
+        const { data: c } = await supabase.from('instructor_courses').select('title').eq('id', courseId).single();
+        courseName = c?.title || '';
+      }
+      if (moduleId) {
+        const { data: m } = await supabase.from('modules').select('title').eq('id', moduleId).single();
+        moduleName = m?.title || '';
+      }
+      return { courseName, moduleName, courseId };
+    },
+    enabled: !!data?.learningObjective?.instructor_course_id,
+  });
+
   // Fetch published slides for this learning objective, ordered by teaching unit sequence
   const { data: lectureSlides } = useQuery({
     queryKey: ['lo-published-slides', loId],
     queryFn: async () => {
       if (!loId) return [];
       
-      // Join with teaching_units to get sequence_order for proper ordering
       const { data, error } = await supabase
         .from('lecture_slides')
         .select(`
@@ -74,7 +146,6 @@ export default function LearningObjectivePage() {
       
       if (error) throw error;
       
-      // Sort by teaching unit sequence order
       const sortedData = (data || []).sort((a, b) => {
         const aOrder = (a.teaching_unit as any)?.sequence_order ?? 999;
         const bOrder = (b.teaching_unit as any)?.sequence_order ?? 999;
@@ -88,6 +159,7 @@ export default function LearningObjectivePage() {
     },
     enabled: !!loId,
   });
+
   // Get micro-checks for selected content
   const { data: microChecks } = useMicroChecks(selectedContentId || undefined);
   
@@ -118,7 +190,6 @@ export default function LearningObjectivePage() {
               {error instanceof Error ? error.message : 'Learning objective not found'}
             </p>
             <Button variant="outline" onClick={() => navigate('/learn')}>
-              <ArrowLeft className="mr-2 h-4 w-4" />
               Go Back
             </Button>
           </div>
@@ -129,6 +200,9 @@ export default function LearningObjectivePage() {
 
   const { learningObjective, matchedContent, consumptionRecords } = data;
   const selectedContent = matchedContent.find(m => m.content?.id === selectedContentId)?.content;
+
+  // Sort matched content by match_score descending for ranked display
+  const rankedContent = [...matchedContent].sort((a, b) => (b.match_score || 0) - (a.match_score || 0));
 
   // Get consumption status for each content
   const getContentStatus = (contentId: string) => {
@@ -142,29 +216,15 @@ export default function LearningObjectivePage() {
   };
 
   const handleVideoComplete = async (engagementScore: number, isVerified: boolean) => {
-    // Refresh data after video completion
     if (isVerified) {
-      // Invalidate learning objective progress to update UI
-      await queryClient.invalidateQueries({
-        queryKey: ['lo-progress', loId]
-      });
-
-      // Invalidate micro-check results if we have a consumption record
+      await queryClient.invalidateQueries({ queryKey: ['lo-progress', loId] });
       if (selectedConsumptionRecord?.id) {
-        await queryClient.invalidateQueries({
-          queryKey: ['micro-check-results', selectedConsumptionRecord.id]
-        });
+        await queryClient.invalidateQueries({ queryKey: ['micro-check-results', selectedConsumptionRecord.id] });
       }
-
-      // Invalidate skill profile to reflect newly verified skills
-      await queryClient.invalidateQueries({
-        queryKey: ['skill-profile']
-      });
+      await queryClient.invalidateQueries({ queryKey: ['skill-profile'] });
     }
   };
 
-  // Transform micro-checks to the format expected by VerifiedVideoPlayer
-  // Note: correct_answer is no longer exposed from the secure view
   const playerMicroChecks = microChecks?.map(mc => ({
     id: mc.id,
     trigger_time_seconds: mc.trigger_time_seconds,
@@ -175,32 +235,107 @@ export default function LearningObjectivePage() {
     time_limit_seconds: mc.time_limit_seconds || undefined,
   })) || [];
 
+  // Step indicator state
+  const activeStep = getActiveStep(learningObjective.verification_state);
+  const completedSteps = getCompletedSteps(learningObjective.verification_state);
+
+  // Module number for hierarchical slide numbering
+  const moduleNumMatch = breadcrumbContext?.moduleName?.match(/Module\s+(\d+)/i);
+  const moduleNum = moduleNumMatch ? parseInt(moduleNumMatch[1], 10) : null;
+
   return (
     <AppShell>
       <PageContainer>
         <div className="space-y-6">
-          {/* Header */}
+          {/* Breadcrumb */}
+          <Breadcrumb>
+            <BreadcrumbList>
+              {breadcrumbContext?.courseName && (
+                <>
+                  <BreadcrumbItem>
+                    <BreadcrumbLink
+                      asChild
+                      className="cursor-pointer text-xs"
+                    >
+                      <span onClick={() => navigate(`/learn/course/${breadcrumbContext.courseId}`)}>
+                        {breadcrumbContext.courseName}
+                      </span>
+                    </BreadcrumbLink>
+                  </BreadcrumbItem>
+                  <BreadcrumbSeparator>
+                    <ChevronRight className="h-3 w-3" />
+                  </BreadcrumbSeparator>
+                </>
+              )}
+              {breadcrumbContext?.moduleName && (
+                <>
+                  <BreadcrumbItem>
+                    <BreadcrumbLink className="text-xs">
+                      {breadcrumbContext.moduleName}
+                    </BreadcrumbLink>
+                  </BreadcrumbItem>
+                  <BreadcrumbSeparator>
+                    <ChevronRight className="h-3 w-3" />
+                  </BreadcrumbSeparator>
+                </>
+              )}
+              <BreadcrumbItem>
+                <BreadcrumbPage className="text-xs font-medium truncate max-w-[200px]">
+                  Current Objective
+                </BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
+
+          {/* Title + badges */}
           <div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => navigate(`/learn/course/${learningObjective.instructor_course_id}`)}
-              className="mb-4"
-            >
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Back to Course
-            </Button>
-            <h1 className="text-xl font-bold">{learningObjective.text}</h1>
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight leading-snug">{learningObjective.text}</h1>
             <div className="flex items-center gap-2 mt-2">
               {learningObjective.bloom_level && (
-                <Badge variant="secondary" className="capitalize">
+                <Badge variant="secondary" className="capitalize text-xs">
                   {learningObjective.bloom_level}
                 </Badge>
               )}
-              <Badge variant="outline">
+              <Badge variant="outline" className="text-xs">
                 {learningObjective.verification_state?.replace('_', ' ') || 'Not Started'}
               </Badge>
             </div>
+          </div>
+
+          {/* Progress Flow Indicator */}
+          <div className="flex items-center gap-0 w-full overflow-x-auto pb-1">
+            {PIPELINE_STEPS.map((step, i) => {
+              const StepIcon = step.icon;
+              const isCompleted = completedSteps.has(i);
+              const isActive = activeStep === i && !isCompleted;
+              return (
+                <div key={step.key} className="flex items-center flex-1 min-w-0">
+                  <div className="flex flex-col items-center gap-1 flex-shrink-0">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 transition-colors ${
+                      isCompleted
+                        ? 'bg-success border-success text-success-foreground'
+                        : isActive
+                          ? 'bg-primary border-primary text-primary-foreground'
+                          : 'bg-muted/30 border-border text-muted-foreground'
+                    }`}>
+                      <StepIcon className="h-3.5 w-3.5" />
+                    </div>
+                    <span className={`text-[10px] font-medium whitespace-nowrap ${
+                      isCompleted ? 'text-success' : isActive ? 'text-primary' : 'text-muted-foreground'
+                    }`}>
+                      {step.label}
+                    </span>
+                  </div>
+                  {i < PIPELINE_STEPS.length - 1 && (
+                    <div className={`flex-1 h-0.5 mx-1 mt-[-14px] ${
+                      completedSteps.has(i) && (completedSteps.has(i + 1) || activeStep > i)
+                        ? 'bg-success'
+                        : 'bg-border'
+                    }`} />
+                  )}
+                </div>
+              );
+            })}
           </div>
 
           {/* Video Player (full width, only when selected) */}
@@ -272,116 +407,110 @@ export default function LearningObjectivePage() {
             </div>
           )}
 
-          {/* Content Sections - single column */}
-          <div className="space-y-4">
-            {/* Videos */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                  <PlayCircle className="h-4 w-4 text-primary" />
+          {/* Content Sections */}
+          <div className="space-y-6">
+            {/* Videos section header */}
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <PlayCircle className="h-4 w-4 text-primary" />
+                <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
                   Videos
-                </CardTitle>
-                <CardDescription className="text-xs">
-                  Watch to unlock assessment
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {matchedContent.length === 0 ? (
-                  <p className="text-xs text-muted-foreground py-2">No videos available yet.</p>
-                ) : (
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {matchedContent.map((match) => {
-                      const content = match.content;
-                      if (!content) return null;
+                </h2>
+                <span className="text-xs text-muted-foreground ml-auto">Watch to unlock assessment</span>
+              </div>
+              {rankedContent.length === 0 ? (
+                <p className="text-xs text-muted-foreground py-4 text-center">No videos available yet.</p>
+              ) : (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {rankedContent.map((match, rank) => {
+                    const content = match.content;
+                    if (!content) return null;
 
-                      const status = getContentStatus(content.id);
-                      const StatusIcon = status.icon;
-                      const isSelected = selectedContentId === content.id;
+                    const status = getContentStatus(content.id);
+                    const StatusIcon = status.icon;
+                    const isSelected = selectedContentId === content.id;
 
-                      return (
-                        <div
-                          key={content.id}
-                          className={`flex items-start gap-3 p-3 rounded-lg cursor-pointer transition-colors border ${
-                            isSelected 
-                              ? 'bg-primary/10 border-primary' 
-                              : 'border-border/50 hover:bg-accent/50'
-                          }`}
-                          onClick={() => setSelectedContentId(content.id)}
-                        >
-                          {content.thumbnail_url && (
-                            <img
-                              src={content.thumbnail_url}
-                              alt=""
-                              className="w-20 h-12 object-cover rounded shrink-0"
-                            />
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium line-clamp-2 leading-tight">
-                              {content.title}
-                            </p>
-                            <div className="flex items-center gap-2 mt-1">
-                              <StatusIcon className={`h-3.5 w-3.5 ${status.color}`} />
-                              <span className="text-xs text-muted-foreground">
-                                {content.duration_seconds 
-                                  ? `${Math.round(content.duration_seconds / 60)} min`
-                                  : '?'
-                                }
-                              </span>
-                              <Badge variant="outline" className="text-[10px] px-1 py-0 h-4">
-                                {Math.round((match.match_score || 0) * 100)}% match
-                              </Badge>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Lecture Slides */}
-            {lectureSlides && lectureSlides.length > 0 && (
-              <Card className="border-primary/30">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                    <Presentation className="h-4 w-4 text-primary" />
-                    Lecture Slides
-                  </CardTitle>
-                  <CardDescription className="text-xs">
-                    Self-paced learning materials
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {lectureSlides.map((slide, index) => (
+                    return (
                       <div
-                        key={slide.id}
-                        className="flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors hover:bg-accent/50 border border-border/50"
-                        onClick={() => setViewingSlide(slide)}
+                        key={content.id}
+                        className={`flex items-start gap-3 p-3 rounded-lg cursor-pointer transition-colors border ${
+                          isSelected 
+                            ? 'bg-primary/10 border-primary' 
+                            : 'border-border/50 hover:bg-accent/10'
+                        }`}
+                        onClick={() => setSelectedContentId(content.id)}
                       >
-                        <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/10 text-primary text-xs font-semibold shrink-0">
-                          {index + 1}
+                        {/* Rank number */}
+                        <div className="flex items-center justify-center w-6 h-6 rounded-full bg-primary/10 text-primary text-xs font-bold shrink-0 mt-0.5">
+                          {rank + 1}
                         </div>
+                        {content.thumbnail_url && (
+                          <img
+                            src={content.thumbnail_url}
+                            alt=""
+                            className="w-20 h-12 object-cover rounded shrink-0"
+                          />
+                        )}
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium line-clamp-1">
-                            {slide.title}
+                          <p className="text-sm font-medium line-clamp-2 leading-tight">
+                            {content.title}
                           </p>
-                          <div className="flex items-center gap-2 mt-0.5">
+                          <div className="flex items-center gap-2 mt-1.5">
+                            <StatusIcon className={`h-3.5 w-3.5 ${status.color}`} />
                             <span className="text-xs text-muted-foreground">
-                              {slide.total_slides} slides
+                              {content.duration_seconds 
+                                ? `${Math.round(content.duration_seconds / 60)} min`
+                                : '?'
+                              }
                             </span>
-                            <span className="text-xs text-muted-foreground">•</span>
-                            <span className="text-xs text-muted-foreground">
-                              ~{slide.estimated_duration_minutes || 10} min
-                            </span>
+                            <MatchBadge score={match.match_score || 0} />
                           </div>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Lecture Slides */}
+            {lectureSlides && lectureSlides.length > 0 && (
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <Presentation className="h-4 w-4 text-primary" />
+                  <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                    Lecture Slides
+                  </h2>
+                  <span className="text-xs text-muted-foreground ml-auto">Self-paced materials</span>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {lectureSlides.map((slide, index) => (
+                    <div
+                      key={slide.id}
+                      className="flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors hover:bg-accent/10 border border-border/50"
+                      onClick={() => setViewingSlide(slide)}
+                    >
+                      <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/10 text-primary text-xs font-bold shrink-0">
+                        {moduleNum ? `${moduleNum}.${index + 1}` : index + 1}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium line-clamp-1">
+                          {slide.title}
+                        </p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-xs text-muted-foreground">
+                            {slide.total_slides} slides
+                          </span>
+                          <span className="text-xs text-muted-foreground">·</span>
+                          <span className="text-xs text-muted-foreground">
+                            ~{slide.estimated_duration_minutes || 10} min
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
 
             {/* Assessment CTA */}
@@ -471,7 +600,6 @@ export default function LearningObjectivePage() {
             onComplete={async (watchPercentage) => {
               if (user && viewingSlide) {
                 try {
-                  // 1. Upsert slide completion
                   await supabase
                     .from('slide_completions')
                     .upsert({
@@ -485,7 +613,6 @@ export default function LearningObjectivePage() {
                       updated_at: new Date().toISOString(),
                     }, { onConflict: 'user_id,lecture_slides_id' });
 
-                  // 2. Update verification_state based on progress
                   const currentState = learningObjective.verification_state || 'unstarted';
                   let newState: string | null = null;
 
@@ -502,7 +629,6 @@ export default function LearningObjectivePage() {
                       .eq('id', loId);
                   }
 
-                  // 3. Invalidate queries to refresh UI
                   await queryClient.invalidateQueries({ queryKey: ['lo-progress', loId] });
                   await queryClient.invalidateQueries({ queryKey: ['skill-profile'] });
                 } catch (err) {
