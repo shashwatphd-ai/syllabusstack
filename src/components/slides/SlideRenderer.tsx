@@ -23,6 +23,8 @@ import { CitationText } from './CitationText';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import type { Citation } from '@/lib/citationParser';
 
+export type SlideLayout = 'portrait' | 'landscape';
+
 interface SlideRendererProps {
   slide: Slide | EnhancedSlide | ProfessorSlide;
   slideNumber: number;
@@ -32,6 +34,7 @@ interface SlideRendererProps {
   className?: string;
   activeBlockId?: string | null; // For audio-visual sync highlighting
   citations?: Citation[]; // Research context citations for [Source N] rendering
+  layout?: SlideLayout; // Portrait = side-by-side, Landscape = stacked 16:9 image
 }
 
 // Helper to normalize key_points to always have text and optional layout_hint
@@ -195,7 +198,8 @@ export function SlideRenderer({
   showPedagogy = false,
   className,
   activeBlockId = null,
-  citations = []
+  citations = [],
+  layout = 'portrait'
 }: SlideRendererProps) {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [signedImageUrl, setSignedImageUrl] = useState('');
@@ -347,18 +351,48 @@ export function SlideRenderer({
         {enhanced && slide.type !== 'title' && (
           <div className={cn(
             'flex-1 min-h-0',
-            hasVisualUrl ? 'flex flex-col sm:flex-row gap-3' : 'overflow-y-auto'
+            hasVisualUrl
+              ? layout === 'landscape'
+                ? 'flex flex-col gap-3 overflow-y-auto'
+                : 'flex flex-col sm:flex-row gap-3'
+              : 'overflow-y-auto'
           )}>
+            {/* Visual - shown FIRST in landscape mode (full-width 16:9) */}
+            {hasVisualUrl && layout === 'landscape' && (
+              <div className="w-full flex-shrink-0">
+                <div 
+                  className="w-full rounded-lg overflow-hidden bg-muted/30 shadow-md cursor-pointer group relative aspect-video"
+                  onClick={openLightbox}
+                >
+                  <AuthenticatedImage 
+                    src={slide.visual!.url} 
+                    alt={slide.visual!.alt_text}
+                    className="w-full h-full object-contain group-hover:scale-[1.01] transition-transform"
+                    fallbackText={slide.visual!.fallback_description || slide.visual!.alt_text}
+                    bucket="lecture-visuals"
+                    onSignedUrlReady={setSignedImageUrl}
+                  />
+                  <div className="absolute top-2 right-2 p-1.5 rounded-md bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                    <Maximize2 className="h-3.5 w-3.5" />
+                    <span className="text-xs">Click to expand</span>
+                  </div>
+                  {(slide.visual as any).source && (
+                    <p className="text-[10px] text-muted-foreground text-center py-1 bg-muted/50">Source: {(slide.visual as any).source}</p>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Text content - with scroll indicator */}
             <div className={cn(
               'relative',
-              hasVisualUrl ? 'sm:w-2/5 sm:flex-shrink-0' : ''
+              hasVisualUrl && layout === 'portrait' ? 'sm:w-2/5 sm:flex-shrink-0' : ''
             )}>
               {/* Scrollable content area */}
               <div
                 ref={textContentRef}
                 className="space-y-2 overflow-y-auto max-h-full pr-2 scroll-smooth"
-                style={{ maxHeight: hasVisualUrl ? '340px' : 'auto' }}
+                style={{ maxHeight: hasVisualUrl && layout === 'portrait' ? '340px' : 'auto' }}
                 onScroll={(e) => {
                   const el = e.currentTarget;
                   const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 20;
@@ -495,8 +529,8 @@ export function SlideRenderer({
               </div>
             </div>
 
-            {/* Visual - LARGE clickable for lightbox */}
-            {hasVisualUrl && (
+            {/* Visual - LARGE clickable for lightbox (portrait mode only; landscape renders above) */}
+            {hasVisualUrl && layout === 'portrait' && (
               <div className="flex-1 min-w-0 flex items-start justify-center">
                 <div 
                   className="w-full rounded-lg overflow-hidden bg-muted/30 shadow-md cursor-pointer group relative"

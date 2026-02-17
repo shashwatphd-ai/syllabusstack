@@ -16,9 +16,11 @@ import {
   Volume2,
   VolumeX,
   ScrollText,
-  LayoutGrid
+  LayoutGrid,
+  RectangleHorizontal,
+  RectangleVertical
 } from 'lucide-react';
-import { SlideRenderer } from './SlideRenderer';
+import { SlideRenderer, type SlideLayout } from './SlideRenderer';
 import { NarratedScrollViewer } from './NarratedScrollViewer';
 import { VoicePicker } from './VoicePicker';
 import type { LectureSlide, Slide, ProfessorSlide, EnhancedSlide } from '@/hooks/useLectureSlides';
@@ -62,6 +64,9 @@ export function StudentSlideViewer({
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const [highestSlideViewed, setHighestSlideViewed] = useState(0);
   const [visibleScrollSlideIndex, setVisibleScrollSlideIndex] = useState(0);
+  const [slideLayout, setSlideLayout] = useState<SlideLayout>(() => {
+    try { return (localStorage.getItem('slide-layout-pref') as SlideLayout) || 'portrait'; } catch { return 'portrait'; }
+  });
   
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const programmaticScrollRef = useRef(false);
@@ -509,6 +514,33 @@ export function StudentSlideViewer({
               )}
             </Button>
 
+            {/* Layout toggle (portrait/landscape) - only in slides mode */}
+            {viewMode === 'slides' && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  const next = slideLayout === 'portrait' ? 'landscape' : 'portrait';
+                  setSlideLayout(next);
+                  try { localStorage.setItem('slide-layout-pref', next); } catch {}
+                }}
+                className="gap-1 px-2 sm:px-3"
+                title={slideLayout === 'portrait' ? 'Switch to landscape layout (larger images)' : 'Switch to portrait layout (side-by-side)'}
+              >
+                {slideLayout === 'portrait' ? (
+                  <>
+                    <RectangleHorizontal className="h-4 w-4" />
+                    <span className="hidden sm:inline">Landscape</span>
+                  </>
+                ) : (
+                  <>
+                    <RectangleVertical className="h-4 w-4" />
+                    <span className="hidden sm:inline">Portrait</span>
+                  </>
+                )}
+              </Button>
+            )}
+
             {/* Transcript toggle - available in both modes, hidden on mobile */}
             <div className="hidden sm:flex items-center gap-2 pl-2 border-l">
                 <Switch
@@ -559,6 +591,7 @@ export function StudentSlideViewer({
                 showSpeakerNotes={showSpeakerNotes}
                 activeBlockId={activeBlockId}
                 citations={citations}
+                layout={slideLayout}
                 className="h-full"
               />
             )}
