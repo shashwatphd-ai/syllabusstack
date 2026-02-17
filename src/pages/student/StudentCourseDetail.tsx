@@ -18,7 +18,6 @@ import {
 } from '@/components/ui/accordion';
 import {
   getStateConfig,
-  isComplete,
   getProgressWeight,
   type VerificationState,
 } from '@/lib/verification-state-machine';
@@ -91,9 +90,6 @@ export default function StudentCourseDetailPage() {
   }
 
   // Calculate overall progress using weighted state model
-  const masteredLOs = allLOs.filter(lo =>
-    isComplete(lo.verification_state as VerificationState)
-  );
   const weightedSum = allLOs.reduce((sum, lo) =>
     sum + getProgressWeight(lo.verification_state as VerificationState), 0
   );
@@ -129,7 +125,7 @@ export default function StudentCourseDetailPage() {
                 <div>
                   <h3 className="font-semibold">Course Progress</h3>
                   <p className="text-sm text-muted-foreground">
-                    {masteredLOs.length} of {allLOs.length} learning objectives mastered
+                    {allLOs.length} learning objective{allLOs.length !== 1 ? 's' : ''} · {Math.round(progressPercent)}% complete
                   </p>
                 </div>
                 <span className="text-2xl font-bold text-primary">
@@ -185,9 +181,6 @@ export default function StudentCourseDetailPage() {
               <Accordion type="multiple" className="space-y-3">
                 {course.modules.map((module) => {
                   const moduleLOs = module.learning_objectives;
-                  const moduleMastered = moduleLOs.filter(lo =>
-                    isComplete(lo.verification_state as VerificationState)
-                  ).length;
                   const moduleWeightedSum = moduleLOs.reduce((sum, lo) =>
                     sum + getProgressWeight(lo.verification_state as VerificationState), 0
                   );
@@ -218,7 +211,7 @@ export default function StudentCourseDetailPage() {
                           <div className="flex-1 min-w-0">
                             <h3 className="font-semibold text-sm">{module.title}</h3>
                             <p className="text-xs text-muted-foreground mt-0.5">
-                              {moduleLOs.length} objective{moduleLOs.length !== 1 ? 's' : ''} · {moduleMastered} mastered
+                              {moduleLOs.length} objective{moduleLOs.length !== 1 ? 's' : ''} · {Math.round(moduleProgress)}% complete
                             </p>
                           </div>
                           <div className="w-20 shrink-0">
