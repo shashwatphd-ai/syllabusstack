@@ -21,9 +21,11 @@ import {
   CheckCircle2,
   AlertTriangle,
   Play,
-  Pause
+  Pause,
+  RectangleHorizontal,
+  RectangleVertical
 } from 'lucide-react';
-import { SlideRenderer } from './SlideRenderer';
+import { SlideRenderer, type SlideLayout } from './SlideRenderer';
 import { VoicePicker } from './VoicePicker';
 import { 
   LectureSlide, 
@@ -59,6 +61,9 @@ export function LectureSlideViewer({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [selectedVoice, setSelectedVoice] = useState('Charon');
   const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
+  const [slideLayout, setSlideLayout] = useState<SlideLayout>(() => {
+    try { return (localStorage.getItem('slide-layout-pref') as SlideLayout) || 'portrait'; } catch { return 'portrait'; }
+  });
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // Fetch full slide data on-demand (the course-level query omits the slides JSONB)
@@ -339,6 +344,24 @@ export function LectureSlideViewer({
               <span className="ml-1">{isPublished ? 'Unpublish' : 'Publish'}</span>
             </Button>
 
+            {/* Layout toggle */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                const next = slideLayout === 'portrait' ? 'landscape' : 'portrait';
+                setSlideLayout(next);
+                try { localStorage.setItem('slide-layout-pref', next); } catch {}
+              }}
+              title={slideLayout === 'portrait' ? 'Switch to landscape layout' : 'Switch to portrait layout'}
+            >
+              {slideLayout === 'portrait' ? (
+                <RectangleHorizontal className="h-4 w-4" />
+              ) : (
+                <RectangleVertical className="h-4 w-4" />
+              )}
+            </Button>
+
             <Button
               variant="ghost"
               size="icon"
@@ -413,6 +436,7 @@ export function LectureSlideViewer({
                   totalSlides={slides.length}
                   showSpeakerNotes={showSpeakerNotes}
                   citations={citations}
+                  layout={slideLayout}
                   className="h-full"
                 />
               )}
