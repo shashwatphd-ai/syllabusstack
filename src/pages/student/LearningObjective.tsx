@@ -163,6 +163,23 @@ export default function LearningObjectivePage() {
     enabled: !!loId,
   });
 
+  // Fetch slide completions for progress indicators
+  const { data: slideCompletions } = useQuery({
+    queryKey: ['lo-slide-completions', loId, user?.id],
+    queryFn: async () => {
+      if (!loId || !user) return new Map<string, number>();
+      const { data } = await supabase
+        .from('slide_completions')
+        .select('lecture_slides_id, watch_percentage')
+        .eq('user_id', user.id)
+        .eq('learning_objective_id', loId);
+      const map = new Map<string, number>();
+      (data || []).forEach(d => map.set(d.lecture_slides_id, d.watch_percentage ?? 0));
+      return map;
+    },
+    enabled: !!loId && !!user,
+  });
+
   // Get micro-checks for selected content
   const { data: microChecks } = useMicroChecks(selectedContentId || undefined);
   
@@ -248,6 +265,14 @@ export default function LearningObjectivePage() {
       return { status: 'in_progress', icon: Clock, color: 'text-warning' };
     }
     return { status: 'not_started', icon: PlayCircle, color: 'text-muted-foreground' };
+  };
+
+  // Get completion status for slides
+  const getSlideStatus = (slideId: string) => {
+    const pct = slideCompletions?.get(slideId) ?? 0;
+    if (pct >= 80) return { status: 'verified', icon: CheckCircle2, color: 'text-success' };
+    if (pct > 0) return { status: 'in_progress', icon: Clock, color: 'text-warning' };
+    return { status: 'not_started', icon: Presentation, color: 'text-muted-foreground' };
   };
 
   const handleVideoComplete = async (engagementScore: number, isVerified: boolean) => {
@@ -464,12 +489,14 @@ export default function LearningObjectivePage() {
                   const unitSlides = unitContent?.slides || [];
                   const totalItems = unitVideos.length + unitSlides.length;
 
-                  // Per-unit progress
-                  const watchedCount = unitVideos.filter(v => {
+                  // Per-unit progress (videos + slides)
+                  const watchedVideoCount = unitVideos.filter(v => {
                     const s = v.content ? getContentStatus(v.content.id) : null;
                     return s?.status === 'verified';
                   }).length;
-                  const isUnitComplete = totalItems > 0 && watchedCount === unitVideos.length && unitVideos.length > 0;
+                  const completedSlideCount = unitSlides.filter(s => getSlideStatus(s.id).status === 'verified').length;
+                  const completedCount = watchedVideoCount + completedSlideCount;
+                  const isUnitComplete = totalItems > 0 && completedCount === totalItems;
 
                   return (
                     <Collapsible key={unit.id} defaultOpen={!isUnitComplete}>
@@ -492,11 +519,11 @@ export default function LearningObjectivePage() {
                                 </div>
                                 <div className="flex items-center gap-2 mt-1">
                                   <span className="text-[10px] text-muted-foreground">~{unit.target_duration_minutes} min</span>
-                                  {totalItems > 0 && (
+                                    {totalItems > 0 && (
                                     <>
                                       <span className="text-[10px] text-muted-foreground">·</span>
                                       <span className={`text-[10px] font-medium ${isUnitComplete ? 'text-success' : 'text-muted-foreground'}`}>
-                                        {watchedCount}/{unitVideos.length} watched
+                                        {completedCount}/{totalItems} done
                                       </span>
                                     </>
                                   )}
@@ -596,13 +623,20 @@ export default function LearningObjectivePage() {
                                 <div className="border-t border-border/30 my-1" />
                               )}
 
-                              {unitSlides.map((slide, index) => (
+                              {unitSlides.map((slide, index) => {
+                                const slideStatus = getSlideStatus(slide.id);
+                                const SlideIcon = slideStatus.icon;
+                                return (
                                 <div
                                   key={slide.id}
-                                  className="flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-all hover:bg-accent/10 hover:border-border/50 border border-transparent"
+                                  className={`flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-all border ${
+                                    slideStatus.status === 'verified'
+                                      ? 'border-success/30 bg-success/5 hover:bg-success/10'
+                                      : 'border-transparent hover:bg-accent/10 hover:border-border/50'
+                                  }`}
                                   onClick={() => setViewingSlide(slide)}
                                 >
-                                  <Presentation className="h-4 w-4 text-muted-foreground shrink-0" />
+                                  <SlideIcon className={`h-4 w-4 ${slideStatus.color} shrink-0`} />
                                   <div className="flex items-center justify-center w-7 h-5 rounded bg-primary/10 text-primary text-[10px] font-bold shrink-0">
                                     {moduleNum ? `${moduleNum}.${index + 1}` : index + 1}
                                   </div>
@@ -611,7 +645,8 @@ export default function LearningObjectivePage() {
                                     <span className="text-[11px] text-muted-foreground">{slide.total_slides} slides · ~{slide.estimated_duration_minutes || 10} min</span>
                                   </div>
                                 </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           )}
                         </CollapsibleContent>
@@ -660,13 +695,20 @@ export default function LearningObjectivePage() {
                           </div>
                         );
                       })}
-                      {unlinkedContent.slides?.map((slide, index) => (
+                      {unlinkedContent.slides?.map((slide, index) => {
+                        const slideStatus = getSlideStatus(slide.id);
+                        const SlideIcon = slideStatus.icon;
+                        return (
                         <div
                           key={slide.id}
-                          className="flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-all hover:bg-accent/10 hover:border-border/50 border border-transparent"
+                          className={`flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-all border ${
+                            slideStatus.status === 'verified'
+                              ? 'border-success/30 bg-success/5 hover:bg-success/10'
+                              : 'border-transparent hover:bg-accent/10 hover:border-border/50'
+                          }`}
                           onClick={() => setViewingSlide(slide)}
                         >
-                          <Presentation className="h-4 w-4 text-muted-foreground shrink-0" />
+                          <SlideIcon className={`h-4 w-4 ${slideStatus.color} shrink-0`} />
                           <div className="flex items-center justify-center w-7 h-5 rounded bg-primary/10 text-primary text-[10px] font-bold shrink-0">
                             {moduleNum ? `${moduleNum}.${index + 1}` : index + 1}
                           </div>
@@ -675,7 +717,8 @@ export default function LearningObjectivePage() {
                             <span className="text-[11px] text-muted-foreground">{slide.total_slides} slides · ~{slide.estimated_duration_minutes || 10} min</span>
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -742,12 +785,20 @@ export default function LearningObjectivePage() {
                       <span className="text-xs text-muted-foreground ml-auto">Self-paced materials</span>
                     </div>
                     <div className="grid gap-2 sm:grid-cols-2">
-                      {lectureSlides.map((slide, index) => (
+                      {lectureSlides.map((slide, index) => {
+                        const slideStatus = getSlideStatus(slide.id);
+                        const SlideIcon = slideStatus.icon;
+                        return (
                         <div
                           key={slide.id}
-                          className="flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors hover:bg-accent/10 border border-border/50"
+                          className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors border ${
+                            slideStatus.status === 'verified'
+                              ? 'border-success/30 bg-success/5'
+                              : 'border-border/50 hover:bg-accent/10'
+                          }`}
                           onClick={() => setViewingSlide(slide)}
                         >
+                          <SlideIcon className={`h-5 w-5 ${slideStatus.color} shrink-0`} />
                           <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/10 text-primary text-xs font-bold shrink-0">
                             {moduleNum ? `${moduleNum}.${index + 1}` : index + 1}
                           </div>
@@ -760,7 +811,8 @@ export default function LearningObjectivePage() {
                             </div>
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -883,6 +935,7 @@ export default function LearningObjectivePage() {
                       .eq('id', loId);
                   }
 
+                  await queryClient.invalidateQueries({ queryKey: ['lo-slide-completions', loId, user?.id] });
                   await queryClient.invalidateQueries({ queryKey: ['lo-progress', loId] });
                   await queryClient.invalidateQueries({ queryKey: ['skill-profile'] });
                 } catch (err) {
