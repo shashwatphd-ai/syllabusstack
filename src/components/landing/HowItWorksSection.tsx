@@ -164,7 +164,7 @@ const instructorSteps = [
             </div>
             <div className="flex-1">
               <div className="text-sm font-semibold text-foreground">Variables Explained (12:34)</div>
-              <div className="text-sm text-muted-foreground">freeCodeCamp • 98% match</div>
+              <div className="text-sm text-muted-foreground">Coding Tutorial Channel • High match</div>
             </div>
           </div>
           <div className="flex items-center gap-3 p-3 bg-background rounded-lg border border-border">
@@ -173,7 +173,7 @@ const instructorSteps = [
             </div>
             <div className="flex-1">
               <div className="text-sm font-semibold text-foreground">Data Types Deep Dive (8:22)</div>
-              <div className="text-sm text-muted-foreground">CS Dojo • 94% match</div>
+              <div className="text-sm text-muted-foreground">Programming Basics • Good match</div>
             </div>
           </div>
         </div>

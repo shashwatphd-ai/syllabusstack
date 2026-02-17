@@ -45,15 +45,15 @@ export const CTASection = forwardRef<HTMLElement>(function CTASection(_props, re
           <div className="mt-10 flex flex-wrap items-center justify-center gap-6 text-primary-foreground/50 text-sm">
             <span className="flex items-center gap-2">
               <CheckCircle className="w-4 h-4 text-coral-400" />
-              Start exploring free
+              Free to get started
             </span>
             <span className="flex items-center gap-2">
               <CheckCircle className="w-4 h-4 text-coral-400" />
-              Pro unlocks everything
+              Pro removes all limits
             </span>
             <span className="flex items-center gap-2">
               <CheckCircle className="w-4 h-4 text-coral-400" />
-              Set up in minutes
+              No credit card required
             </span>
           </div>
         </div>

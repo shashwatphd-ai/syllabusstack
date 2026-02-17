@@ -15,7 +15,7 @@ const plans = [
       "Up to 3 courses",
       "1 dream job analysis",
       "20 AI calls/month",
-      "$1 per course/enrollment",
+      "$1 per course created",
     ],
     cta: "Get Started",
     href: "/auth",
@@ -225,7 +225,7 @@ export const PricingSection = forwardRef<HTMLElement>(function PricingSection(_p
 
         {/* Pricing footnote */}
         <p className="text-center text-sm text-muted-foreground mt-12">
-          * Free tier includes $1 fee per course creation or enrollment.{" "}
+          * Free tier charges $1 per course you create. Enrollment is free.{" "}
           <Link to="/billing#pricing" className="text-primary hover:text-primary/80 underline underline-offset-4 transition-colors">
             See full pricing details
           </Link>
