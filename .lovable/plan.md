@@ -1,94 +1,84 @@
 
 
-## Bring the Teaching Unit Cascade to the Student View
+## Landing Page Copy Cleanup -- Simple, Smart, Honest
 
-### What Changes
+### Problem Summary
 
-The student Learning Objective page will group videos and lecture slides under their parent teaching units, surfacing student-appropriate context (What to Teach, Why This Matters, Common Misconceptions). All existing functionality -- video playback, micro-checks, slide viewer, assessment CTA, progress pipeline -- remains exactly the same.
+The landing page has 14 specific copy issues ranging from factually wrong pricing claims to vague buzzwords and mocking-potential taglines. These undermine the simplicity and smartness SyllabusStack stands for.
 
-### Data Flow Confirmation
+### All Changes (by file)
 
-The current data flow is:
+---
 
-1. `useLearningObjectiveProgress` fetches the LO, `content_matches` (with `teaching_unit_id` column), and `consumption_records`
-2. Lecture slides are fetched separately and already JOIN on `teaching_units` for `sequence_order`
-3. The new addition: `useTeachingUnits(loId)` fetches teaching unit metadata (title, what_to_teach, why_this_matters, common_misconceptions)
+### 1. HeroSection.tsx (Student side)
 
-**Nothing changes** about how data enters or moves through the system. We are only adding one extra read query and reorganizing the JSX layout.
+| Line | Current | Fix | Reason |
+|------|---------|-----|--------|
+| 143-152 | "Know Your **Real** Job Readiness" | "See How Your Coursework Maps to Jobs" | "Real" implies other tools lie. The new version is specific about what the product does. |
+| 157 | "honest AI analysis" | "AI-powered skill mapping" | "Honest" is defensive -- implies others are dishonest, invites skepticism. |
+| 178 | "First analysis free" | "Free to start" | Aligns with pricing (first dream job analysis is included in free tier). Simpler. |
+| 186 | "Results in minutes" | "No resume needed" | "Minutes" is vague and unverifiable. "No resume needed" is a concrete differentiator. |
 
-### RLS Fix Required
+### 2. HeroSection.tsx (Instructor side)
 
-Currently, `teaching_units` only has a SELECT policy for the **instructor who owns the LO**. Students cannot read teaching units. We need to add an RLS policy:
+| Line | Current | Fix | Reason |
+|------|---------|-----|--------|
+| 231 | "$1 per course or go Pro" | "$1 per course, or unlimited with Pro" | Clearer value prop. "Go Pro" sounds like a gaming upsell. |
+| 239 | "Know who's paying attention" | "Track who's actually watching" | "Paying attention" sounds surveillance-y. "Actually watching" matches the micro-check feature. |
 
-```sql
-CREATE POLICY "Enrolled students can view teaching units"
-ON public.teaching_units FOR SELECT
-USING (
-  EXISTS (
-    SELECT 1 FROM public.learning_objectives lo
-    JOIN public.course_enrollments ce ON ce.instructor_course_id = lo.instructor_course_id
-    WHERE lo.id = teaching_units.learning_objective_id
-      AND ce.student_id = auth.uid()
-  )
-);
-```
+### 3. PricingSection.tsx
 
-### Implementation Steps
+| Line | Current | Fix | Reason |
+|------|---------|-----|--------|
+| 18 | "$1 per course/enrollment" | "$1 per course created" | Enrollment is currently free (`ENROLLMENT_FREE = true`). This is factually wrong. |
+| 228 | "* Free tier includes $1 fee per course creation or enrollment." | "* Free tier charges $1 per course you create. Enrollment is free." | Same -- enrollment is free, footnote says otherwise. |
 
-#### Step 1: Database Migration -- Student RLS on teaching_units
+### 4. HowItWorksSection.tsx (Instructor mockups)
 
-Add the SELECT policy above so enrolled students can read teaching unit data for their courses.
+| Line | Current | Fix | Reason |
+|------|---------|-----|--------|
+| 167 | "freeCodeCamp" | "Coding Tutorial Channel" | Using a real brand name without permission creates IP risk. |
+| 168 | "98% match" | "High match" | 98% sets unrealistic expectations. Real match scores vary. |
+| 176 | "CS Dojo" | "Programming Basics" | Same IP risk as above. |
+| 177 | "94% match" | "Good match" | Same unrealistic precision issue. |
 
-#### Step 2: Modify LearningObjective.tsx
+### 5. CTASection.tsx
 
-**Add `useTeachingUnits` import and call:**
-```typescript
-import { useTeachingUnits } from '@/hooks/useTeachingUnits';
-// ...
-const { data: teachingUnits } = useTeachingUnits(loId);
-```
+| Line | Current | Fix | Reason |
+|------|---------|-----|--------|
+| 48 | "Start exploring free" | "Free to get started" | "Exploring" is vague -- what are they exploring? |
+| 52 | "Pro unlocks everything" | "Pro removes all limits" | "Everything" overpromises. "Removes limits" is specific and true. |
+| 56 | "Set up in minutes" | "No credit card required" | "Minutes" is the same vague claim repeated 3 times across the page. A concrete trust signal is better. |
 
-**Group content by teaching unit:**
-- Build a map: `teaching_unit_id -> { videos[], slides[] }`
-- Videos come from `matchedContent` (which already has `teaching_unit_id`)
-- Slides come from `lectureSlides` (which already has `teaching_unit_id`)
-- Items with `null` teaching_unit_id go into a "General Resources" fallback section
+### 6. Footer.tsx
 
-**Replace flat Videos/Slides sections with teaching-unit cards:**
+| Line | Current | Fix | Reason |
+|------|---------|-----|--------|
+| 87 | "Made with AI that tells the truth." | "Built for learners and educators." | HIGH PRIORITY. The current line is the single highest mocking risk on the entire page. It invites "does it though?" responses and reads as naive or arrogant. The replacement is simple and on-brand. |
 
-Each card shows:
-- Sequence number + title (e.g., "1. Creativity is a Style, Not Just a Skill")
-- Type badge (Explainer, Tutorial, etc.) and estimated duration
-- "What to Teach" summary -- always visible
-- Collapsible "Why This Matters" section
-- Collapsible "Common Misconceptions" section
-- Videos grouped under this unit (same card layout, click-to-play behavior)
-- Slides grouped under this unit (same click-to-view behavior)
+### 7. FeaturesSection.tsx -- No changes needed
 
-**Not shown to students:**
-- Search Queries, Prerequisites/Enables (instructor planning data)
-- Status badges (Pending/Searching/Found)
-- Any instructor action buttons
+The feature descriptions are specific, honest, and well-written. No issues found.
 
-**Fallback:** If `teachingUnits` is empty or loading, the page falls back to the current flat layout (videos then slides), so nothing breaks for LOs that haven't been decomposed yet.
+### 8. Header.tsx -- No changes needed
 
-#### Step 3: No other files change
+Clean and functional.
 
-- No hook changes
-- No backend/edge function changes
-- No changes to `StudentCourseDetail.tsx`
-- Video player, micro-checks, assessment CTA, slide viewer all work identically
+---
 
-### Files Modified
+### What stays the same
 
-| File | Change |
-|------|--------|
-| `supabase/migrations/` | New RLS policy for student SELECT on `teaching_units` |
-| `src/pages/student/LearningObjective.tsx` | Import `useTeachingUnits`, group content by TU, render TU cards with collapsible context sections, fallback to flat layout |
+- All layout, styling, and visual design -- untouched
+- Instructor hero headline ("Turn Your Syllabus Into a Video Course") -- clear and accurate
+- All feature descriptions -- already well-written
+- Testimonials section -- already returns null (honest, no fake reviews)
+- Pricing structure and tiers -- only the copy within them changes
+- All navigation, links, and routing
 
-### Risk Assessment
+### Technical Notes
 
-- **Zero backend risk** -- no mutations, no edge function changes
-- **Low frontend risk** -- fallback to existing layout when no teaching units exist
-- **RLS addition is purely additive** -- new SELECT policy, existing instructor policies untouched
+- All changes are string-only edits in 5 files
+- No logic, layout, or component structure changes
+- No database or backend changes
+- Total: ~14 string replacements across `HeroSection.tsx`, `PricingSection.tsx`, `HowItWorksSection.tsx`, `CTASection.tsx`, and `Footer.tsx`
 
