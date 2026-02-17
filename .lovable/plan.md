@@ -1,96 +1,94 @@
 
 
-## UX and Visual Audit: Student Course Detail + Learning Objective Pages
+## Bring the Teaching Unit Cascade to the Student View
 
-### Problems Identified
+### What Changes
 
-**Page 1: Course Detail (StudentCourseDetail.tsx)**
+The student Learning Objective page will group videos and lecture slides under their parent teaching units, surfacing student-appropriate context (What to Teach, Why This Matters, Common Misconceptions). All existing functionality -- video playback, micro-checks, slide viewer, assessment CTA, progress pipeline -- remains exactly the same.
 
-1. **Flat numbering with no hierarchy** -- Modules are numbered 1, 2, 3... but visually there is no distinction between the "Course Objectives" module (which is a top-level container) and regular modules like "Module 1: Strategy...". They all look the same.
-2. **Redundant numbering vs. title numbering** -- The circle shows "2" but the title says "Module 1: Strategy...". This is confusing -- the circle number and the module's own label disagree.
-3. **No font hierarchy** -- The course title, module titles, and LO text all use very similar font sizes and weights. Everything looks the same priority.
-4. **Progress bar is a black slab** -- The 0% progress bar is solid dark, making it feel heavy and unfinished rather than encouraging.
-5. **LO cards inside accordions lack visual rhythm** -- The amber highlight on verified LOs is good, but non-verified LOs have no visual differentiation from the card border. Status badges are small and uniform.
-6. **No section labels or dividers** -- The page jumps from progress card to modules with no visual grouping or section header.
+### Data Flow Confirmation
 
-**Page 2: Learning Objective Detail (LearningObjective.tsx)**
+The current data flow is:
 
-7. **No numbered hierarchy for videos** -- Videos are shown as a flat 2-column grid with no sequence numbers, making it unclear which to watch first.
-8. **Lecture slides use independent numbering (1, 2, 3)** -- These numbers restart at 1 and have no relationship to the module or course hierarchy.
-9. **Typography is uniform** -- Section headers ("Videos", "Lecture Slides") use the same small semibold style as card content. There is no clear visual weight difference between the page title, section headers, and item labels.
-10. **The "Back to Course" breadcrumb is a plain ghost button** -- No breadcrumb trail showing Course > Module > Objective context.
-11. **Badge styling inconsistency** -- "Understand" uses a filled purple badge while "verified" uses an outline badge. The match percentage badges are tiny and hard to read.
-12. **No visual step/progress indicator** -- The page doesn't communicate where the student is in the flow (Watch -> Verify -> Assess -> Pass).
+1. `useLearningObjectiveProgress` fetches the LO, `content_matches` (with `teaching_unit_id` column), and `consumption_records`
+2. Lecture slides are fetched separately and already JOIN on `teaching_units` for `sequence_order`
+3. The new addition: `useTeachingUnits(loId)` fetches teaching unit metadata (title, what_to_teach, why_this_matters, common_misconceptions)
 
-### Plan
+**Nothing changes** about how data enters or moves through the system. We are only adding one extra read query and reorganizing the JSX layout.
 
-All changes are **frontend-only** -- no backend, no hooks, no data model changes.
+### RLS Fix Required
 
----
+Currently, `teaching_units` only has a SELECT policy for the **instructor who owns the LO**. Students cannot read teaching units. We need to add an RLS policy:
 
-#### 1. Consistent Hierarchical Numbering (both pages)
-
-On the Course Detail page, change module circle numbers to match the module's own numbering. If the module title already says "Module 1:", suppress the circle number and show a module icon instead. For the generic "Course Objectives" module, show a bookmark icon.
-
-On the LO Detail page, add numbered badges (1, 2, 3...) to each video card sorted by match score descending. Add hierarchical numbering to lecture slides using the format matching the parent module (e.g., "1.1", "1.2").
-
-#### 2. Typographic Hierarchy
-
-Apply a professional font scale across both pages:
-- **Page title**: `text-2xl font-bold tracking-tight` (course name / LO text)
-- **Section headers**: `text-base font-semibold uppercase tracking-wide text-muted-foreground` (e.g., "VIDEOS", "LECTURE SLIDES", "MODULES")
-- **Card titles**: `text-sm font-medium` (unchanged)
-- **Meta text**: `text-xs text-muted-foreground` (unchanged)
-
-This creates clear visual layers: Title > Section > Item > Meta.
-
-#### 3. Progress Flow Indicator (LO Detail page)
-
-Add a horizontal step indicator below the LO title showing the student's position in the pipeline:
-
-```
-Watch Content -> Verify -> Assessment -> Mastered
+```sql
+CREATE POLICY "Enrolled students can view teaching units"
+ON public.teaching_units FOR SELECT
+USING (
+  EXISTS (
+    SELECT 1 FROM public.learning_objectives lo
+    JOIN public.course_enrollments ce ON ce.instructor_course_id = lo.instructor_course_id
+    WHERE lo.id = teaching_units.learning_objective_id
+      AND ce.student_id = auth.uid()
+  )
+);
 ```
 
-Use the verification state machine to highlight the current step. Steps use small circles with connecting lines, colored per the brand palette (muted for future, primary for current, success for completed).
+### Implementation Steps
 
-#### 4. Improved Progress Bar Styling (Course Detail page)
+#### Step 1: Database Migration -- Student RLS on teaching_units
 
-Replace the heavy black progress bar with the brand primary color. Add a subtle gradient or use `bg-primary` for the filled portion and `bg-muted` for the track. Show the percentage inside the bar when > 10%.
+Add the SELECT policy above so enrolled students can read teaching unit data for their courses.
 
-#### 5. Section Grouping with Labels
+#### Step 2: Modify LearningObjective.tsx
 
-On the Course Detail page, add a subtle "Modules" section header above the accordion list.
+**Add `useTeachingUnits` import and call:**
+```typescript
+import { useTeachingUnits } from '@/hooks/useTeachingUnits';
+// ...
+const { data: teachingUnits } = useTeachingUnits(loId);
+```
 
-On the LO Detail page, upgrade section headers from small card titles to standalone section labels with an icon and description on a single line, outside the cards. This removes one level of visual nesting.
+**Group content by teaching unit:**
+- Build a map: `teaching_unit_id -> { videos[], slides[] }`
+- Videos come from `matchedContent` (which already has `teaching_unit_id`)
+- Slides come from `lectureSlides` (which already has `teaching_unit_id`)
+- Items with `null` teaching_unit_id go into a "General Resources" fallback section
 
-#### 6. Video Cards -- Numbered and Ranked
+**Replace flat Videos/Slides sections with teaching-unit cards:**
 
-Add a rank number to each video card (top-left corner or as a leading element). Sort by match score descending. Style the match badge more prominently with color coding:
-- 70%+ match: green-tinted badge
-- 50-69%: amber-tinted badge  
-- Below 50%: muted badge
+Each card shows:
+- Sequence number + title (e.g., "1. Creativity is a Style, Not Just a Skill")
+- Type badge (Explainer, Tutorial, etc.) and estimated duration
+- "What to Teach" summary -- always visible
+- Collapsible "Why This Matters" section
+- Collapsible "Common Misconceptions" section
+- Videos grouped under this unit (same card layout, click-to-play behavior)
+- Slides grouped under this unit (same click-to-view behavior)
 
-#### 7. Breadcrumb Context (LO Detail page)
+**Not shown to students:**
+- Search Queries, Prerequisites/Enables (instructor planning data)
+- Status badges (Pending/Searching/Found)
+- Any instructor action buttons
 
-Replace the "Back to Course" ghost button with a compact breadcrumb: `Course Name > Module Name > [current LO]`. The first two segments are clickable links. This provides context without taking much space.
+**Fallback:** If `teachingUnits` is empty or loading, the page falls back to the current flat layout (videos then slides), so nothing breaks for LOs that haven't been decomposed yet.
 
----
+#### Step 3: No other files change
 
-### Technical Details
+- No hook changes
+- No backend/edge function changes
+- No changes to `StudentCourseDetail.tsx`
+- Video player, micro-checks, assessment CTA, slide viewer all work identically
 
-**Files to modify:**
+### Files Modified
 
-| File | Changes |
-|------|---------|
-| `src/pages/student/StudentCourseDetail.tsx` | Typographic hierarchy, module numbering logic, progress bar color, section labels |
-| `src/pages/student/LearningObjective.tsx` | Breadcrumb, step indicator, video numbering, lecture slide hierarchical numbering, section headers outside cards, match badge color coding |
-| `src/lib/verification-state-machine.ts` | No changes needed (read-only reference for step indicator) |
+| File | Change |
+|------|--------|
+| `supabase/migrations/` | New RLS policy for student SELECT on `teaching_units` |
+| `src/pages/student/LearningObjective.tsx` | Import `useTeachingUnits`, group content by TU, render TU cards with collapsible context sections, fallback to flat layout |
 
-**No changes to:**
-- Any hooks or data fetching
-- Any backend or database logic
-- Any other pages or components
+### Risk Assessment
 
-**Risk:** Zero -- all changes are CSS classes and JSX layout within the two page components. No props, hooks, or data contracts change.
+- **Zero backend risk** -- no mutations, no edge function changes
+- **Low frontend risk** -- fallback to existing layout when no teaching units exist
+- **RLS addition is purely additive** -- new SELECT policy, existing instructor policies untouched
 
