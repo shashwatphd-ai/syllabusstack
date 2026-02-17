@@ -1,84 +1,107 @@
 
 
-## Landing Page Copy Cleanup -- Simple, Smart, Honest
+## Fix Progress Tracking Disconnect
 
-### Problem Summary
+### Problem
 
-The landing page has 14 specific copy issues ranging from factually wrong pricing claims to vague buzzwords and mocking-potential taglines. These undermine the simplicity and smartness SyllabusStack stands for.
+The student completed content and passed micro-checks (state = `verified`, badge = "Content Verified"), but the course detail page shows "0 completed" because the `isComplete()` function only counts the `passed` state (assessment passed). This creates a confusing experience where the student sees a green checkmark but 0% progress.
 
-### All Changes (by file)
+### Root Cause
 
----
+Two disconnected definitions of "done" exist in the system:
 
-### 1. HeroSection.tsx (Student side)
+```text
+State Machine (frontend):
+  unstarted -> in_progress -> verified -> assessment_unlocked -> passed
+                                                                  ^
+                                                          only this = "complete"
 
-| Line | Current | Fix | Reason |
-|------|---------|-----|--------|
-| 143-152 | "Know Your **Real** Job Readiness" | "See How Your Coursework Maps to Jobs" | "Real" implies other tools lie. The new version is specific about what the product does. |
-| 157 | "honest AI analysis" | "AI-powered skill mapping" | "Honest" is defensive -- implies others are dishonest, invites skepticism. |
-| 178 | "First analysis free" | "Free to start" | Aligns with pricing (first dream job analysis is included in free tier). Simpler. |
-| 186 | "Results in minutes" | "No resume needed" | "Minutes" is vague and unverifiable. "No resume needed" is a concrete differentiator. |
+DB Trigger (backend):
+  consumption_records.is_verified = true  ->  updates course_enrollments.overall_progress
+  (tracks content consumption, not assessment)
+```
 
-### 2. HeroSection.tsx (Instructor side)
+The course detail page uses `isComplete()` from the state machine, which only returns `true` for `passed`. Meanwhile, the enrollment progress trigger looks at `consumption_records.is_verified`, which is yet another metric. Neither recognizes `verified` as meaningful progress.
 
-| Line | Current | Fix | Reason |
-|------|---------|-----|--------|
-| 231 | "$1 per course or go Pro" | "$1 per course, or unlimited with Pro" | Clearer value prop. "Go Pro" sounds like a gaming upsell. |
-| 239 | "Know who's paying attention" | "Track who's actually watching" | "Paying attention" sounds surveillance-y. "Actually watching" matches the micro-check feature. |
+### Impact Chain
 
-### 3. PricingSection.tsx
+| Where | What Shows | Source | Current Behavior |
+|-------|-----------|--------|-----------------|
+| Course Detail page (student) | "X completed" per module | `isComplete(verification_state)` | Only counts `passed` |
+| Course Progress bar (student) | "X of Y completed" | Same `isComplete()` | Only counts `passed` |
+| Enrollment record (DB) | `overall_progress` | `update_enrollment_progress()` trigger using `is_verified` | Counts verified consumption records |
+| Instructor dashboard | Student progress % | `course_enrollments.overall_progress` | Shows trigger-based % |
 
-| Line | Current | Fix | Reason |
-|------|---------|-----|--------|
-| 18 | "$1 per course/enrollment" | "$1 per course created" | Enrollment is currently free (`ENROLLMENT_FREE = true`). This is factually wrong. |
-| 228 | "* Free tier includes $1 fee per course creation or enrollment." | "* Free tier charges $1 per course you create. Enrollment is free." | Same -- enrollment is free, footnote says otherwise. |
+### Solution: Weighted Progress Model
 
-### 4. HowItWorksSection.tsx (Instructor mockups)
+Instead of binary "complete or not", show progress that reflects the student's actual advancement through the pipeline. This keeps the state machine intact while giving credit for intermediate steps.
 
-| Line | Current | Fix | Reason |
-|------|---------|-----|--------|
-| 167 | "freeCodeCamp" | "Coding Tutorial Channel" | Using a real brand name without permission creates IP risk. |
-| 168 | "98% match" | "High match" | 98% sets unrealistic expectations. Real match scores vary. |
-| 176 | "CS Dojo" | "Programming Basics" | Same IP risk as above. |
-| 177 | "94% match" | "Good match" | Same unrealistic precision issue. |
+#### Step 1: Add `getProgressWeight()` to verification-state-machine.ts
 
-### 5. CTASection.tsx
+Assign fractional credit to each state:
 
-| Line | Current | Fix | Reason |
-|------|---------|-----|--------|
-| 48 | "Start exploring free" | "Free to get started" | "Exploring" is vague -- what are they exploring? |
-| 52 | "Pro unlocks everything" | "Pro removes all limits" | "Everything" overpromises. "Removes limits" is specific and true. |
-| 56 | "Set up in minutes" | "No credit card required" | "Minutes" is the same vague claim repeated 3 times across the page. A concrete trust signal is better. |
+| State | Weight | Rationale |
+|-------|--------|-----------|
+| unstarted | 0 | No engagement |
+| in_progress | 0.25 | Started watching |
+| verified | 0.5 | Content completed, micro-checks passed |
+| assessment_unlocked | 0.5 | Same as verified (ready for quiz) |
+| passed | 1.0 | Full mastery demonstrated |
+| remediation_required | 0.25 | Needs review, back to partial |
 
-### 6. Footer.tsx
+#### Step 2: Update StudentCourseDetail.tsx progress calculation
 
-| Line | Current | Fix | Reason |
-|------|---------|-----|--------|
-| 87 | "Made with AI that tells the truth." | "Built for learners and educators." | HIGH PRIORITY. The current line is the single highest mocking risk on the entire page. It invites "does it though?" responses and reads as naive or arrogant. The replacement is simple and on-brand. |
+Replace the binary `isComplete()` filter with weighted progress:
 
-### 7. FeaturesSection.tsx -- No changes needed
+- Module subtitle changes from "X completed" to a more accurate label like "X of Y mastered" for `passed` count, but the progress bar fills proportionally based on weights
+- Overall progress bar uses weighted average across all LOs
+- Module-level progress bars use weighted average for that module's LOs
 
-The feature descriptions are specific, honest, and well-written. No issues found.
+#### Step 3: Update the module completion label
 
-### 8. Header.tsx -- No changes needed
+Show two signals:
+- Progress bar fills based on weighted state (so `verified` shows 50% filled)
+- Text shows "X mastered" (only `passed` count) to maintain clarity about what "done" means
 
-Clean and functional.
+This way the student sees visual progress for watching content and verifying, but the text is honest that mastery requires passing the assessment.
 
----
+#### Step 4: Align the DB trigger with the state machine
 
-### What stays the same
+Update `update_enrollment_progress()` to also use weighted progress based on `verification_state` instead of just `is_verified`. This ensures the instructor dashboard shows the same progress the student sees.
 
-- All layout, styling, and visual design -- untouched
-- Instructor hero headline ("Turn Your Syllabus Into a Video Course") -- clear and accurate
-- All feature descriptions -- already well-written
-- Testimonials section -- already returns null (honest, no fake reviews)
-- Pricing structure and tiers -- only the copy within them changes
-- All navigation, links, and routing
+```sql
+-- New logic: weight by verification_state
+SELECT SUM(
+  CASE lo.verification_state
+    WHEN 'passed' THEN 1.0
+    WHEN 'verified' THEN 0.5
+    WHEN 'assessment_unlocked' THEN 0.5
+    WHEN 'in_progress' THEN 0.25
+    WHEN 'remediation_required' THEN 0.25
+    ELSE 0
+  END
+) / COUNT(*)::NUMERIC * 100
+INTO v_progress
+FROM learning_objectives lo
+WHERE lo.instructor_course_id = v_course_id;
+```
 
-### Technical Notes
+### Files Modified
 
-- All changes are string-only edits in 5 files
-- No logic, layout, or component structure changes
-- No database or backend changes
-- Total: ~14 string replacements across `HeroSection.tsx`, `PricingSection.tsx`, `HowItWorksSection.tsx`, `CTASection.tsx`, and `Footer.tsx`
+| File | Change |
+|------|--------|
+| `src/lib/verification-state-machine.ts` | Add `getProgressWeight(state)` function |
+| `src/pages/student/StudentCourseDetail.tsx` | Use weighted progress for bars, show "X mastered" in text |
+| `supabase/migrations/` | Update `update_enrollment_progress()` trigger to use weighted states |
+
+### What Stays The Same
+
+- The state machine transitions (unstarted -> in_progress -> verified -> passed) are unchanged
+- The `isComplete()` function still returns true only for `passed` (used elsewhere for assessment gating)
+- Video player, micro-checks, assessment flow -- all untouched
+- The LearningObjective.tsx page pipeline display -- untouched
+
+### Instructor Impact
+
+After this change, the instructor dashboard will show proportional progress (e.g., a student at `verified` for 1 of 17 LOs would show ~3% instead of 0%), which is more accurate and actionable for the instructor.
 
