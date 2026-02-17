@@ -19,6 +19,7 @@ import {
 import {
   getStateConfig,
   isComplete,
+  getProgressWeight,
   type VerificationState,
 } from '@/lib/verification-state-machine';
 
@@ -89,12 +90,15 @@ export default function StudentCourseDetailPage() {
     );
   }
 
-  // Calculate overall progress using state machine
-  const completedLOs = allLOs.filter(lo =>
+  // Calculate overall progress using weighted state model
+  const masteredLOs = allLOs.filter(lo =>
     isComplete(lo.verification_state as VerificationState)
   );
+  const weightedSum = allLOs.reduce((sum, lo) =>
+    sum + getProgressWeight(lo.verification_state as VerificationState), 0
+  );
   const progressPercent = allLOs.length > 0
-    ? (completedLOs.length / allLOs.length) * 100
+    ? (weightedSum / allLOs.length) * 100
     : 0;
 
   return (
@@ -125,7 +129,7 @@ export default function StudentCourseDetailPage() {
                 <div>
                   <h3 className="font-semibold">Course Progress</h3>
                   <p className="text-sm text-muted-foreground">
-                    {completedLOs.length} of {allLOs.length} learning objectives completed
+                    {masteredLOs.length} of {allLOs.length} learning objectives mastered
                   </p>
                 </div>
                 <span className="text-2xl font-bold text-primary">
@@ -181,11 +185,14 @@ export default function StudentCourseDetailPage() {
               <Accordion type="multiple" className="space-y-3">
                 {course.modules.map((module) => {
                   const moduleLOs = module.learning_objectives;
-                  const moduleCompleted = moduleLOs.filter(lo =>
+                  const moduleMastered = moduleLOs.filter(lo =>
                     isComplete(lo.verification_state as VerificationState)
                   ).length;
+                  const moduleWeightedSum = moduleLOs.reduce((sum, lo) =>
+                    sum + getProgressWeight(lo.verification_state as VerificationState), 0
+                  );
                   const moduleProgress = moduleLOs.length > 0
-                    ? (moduleCompleted / moduleLOs.length) * 100
+                    ? (moduleWeightedSum / moduleLOs.length) * 100
                     : 0;
 
                   // Smart numbering: extract from title or show icon
@@ -211,7 +218,7 @@ export default function StudentCourseDetailPage() {
                           <div className="flex-1 min-w-0">
                             <h3 className="font-semibold text-sm">{module.title}</h3>
                             <p className="text-xs text-muted-foreground mt-0.5">
-                              {moduleLOs.length} objective{moduleLOs.length !== 1 ? 's' : ''} · {moduleCompleted} completed
+                              {moduleLOs.length} objective{moduleLOs.length !== 1 ? 's' : ''} · {moduleMastered} mastered
                             </p>
                           </div>
                           <div className="w-20 shrink-0">

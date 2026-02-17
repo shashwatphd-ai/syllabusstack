@@ -158,6 +158,27 @@ export function getStateConfig(state: VerificationState | string | null): StateC
 /**
  * Determine the next state based on an action
  */
+/**
+ * Progress weight for each state (0 to 1)
+ * Used for proportional progress bars instead of binary complete/not-complete
+ */
+const PROGRESS_WEIGHTS: Record<VerificationState, number> = {
+  unstarted: 0,
+  in_progress: 0.25,
+  verified: 0.5,
+  assessment_unlocked: 0.5,
+  passed: 1.0,
+  remediation_required: 0.25,
+};
+
+/**
+ * Get the progress weight for a verification state (0 to 1)
+ */
+export function getProgressWeight(state: VerificationState | string | null): number {
+  if (!state || !(state in PROGRESS_WEIGHTS)) return 0;
+  return PROGRESS_WEIGHTS[state as VerificationState];
+}
+
 export function getNextState(
   currentState: VerificationState | string | null,
   action: 'start_content' | 'complete_content' | 'unlock_assessment' | 'pass_assessment' | 'fail_assessment' | 'retry_content'
