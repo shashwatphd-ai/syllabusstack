@@ -84,7 +84,7 @@ export const Footer = forwardRef<HTMLElement>(function Footer(_props, ref) {
             © {new Date().getFullYear()} SyllabusStack. All rights reserved.
           </p>
           <p className="text-primary-foreground/40 text-sm">
-            Made with AI that tells the truth.
+            Built for learners and educators.
           </p>
         </div>
       </div>

@@ -141,20 +141,20 @@ function StudentHero() {
     <>
       {/* Main headline */}
       <h1 className="text-4xl sm:text-5xl lg:text-7xl font-extrabold text-primary-foreground leading-tight mb-6 animate-fade-up" style={{ animationDelay: '0.1s' }}>
-        Know Your{" "}
+        See How Your Coursework{" "}
         <span className="relative">
-          <span className="text-gradient bg-gradient-to-r from-coral-300 to-coral-500">Real</span>
+          <span className="text-gradient bg-gradient-to-r from-coral-300 to-coral-500">Maps</span>
           <svg className="absolute -bottom-2 left-0 w-full h-3 text-coral-500/30" viewBox="0 0 200 12" preserveAspectRatio="none">
             <path d="M0,8 Q50,0 100,8 T200,8" fill="none" stroke="currentColor" strokeWidth="4"/>
           </svg>
         </span>{" "}
-        Job Readiness
+        to Jobs
       </h1>
 
       {/* Subheadline */}
       <p className="text-lg sm:text-xl text-primary-foreground/70 max-w-2xl mx-auto mb-10 animate-fade-up" style={{ animationDelay: '0.2s' }}>
         Upload your coursework, add your dream jobs, and get 
-        <span className="text-coral-300 font-semibold"> honest AI analysis</span> of exactly 
+        <span className="text-coral-300 font-semibold"> AI-powered skill mapping</span> showing exactly 
         where you stand—and what to do next.
       </p>
 
@@ -175,7 +175,7 @@ function StudentHero() {
       <div className="flex flex-wrap items-center justify-center gap-6 text-primary-foreground/50 text-sm animate-fade-up" style={{ animationDelay: '0.4s' }}>
         <span className="flex items-center gap-2">
           <CheckCircle className="w-4 h-4 text-coral-400" />
-          First analysis free
+          Free to start
         </span>
         <span className="flex items-center gap-2">
           <CheckCircle className="w-4 h-4 text-coral-400" />
@@ -183,7 +183,7 @@ function StudentHero() {
         </span>
         <span className="flex items-center gap-2">
           <CheckCircle className="w-4 h-4 text-coral-400" />
-          Results in minutes
+          No resume needed
         </span>
       </div>
     </>
@@ -228,7 +228,7 @@ function InstructorHero() {
       <div className="flex flex-wrap items-center justify-center gap-6 text-primary-foreground/50 text-sm animate-fade-up" style={{ animationDelay: '0.4s' }}>
         <span className="flex items-center gap-2">
           <CheckCircle className="w-4 h-4 text-coral-400" />
-          $1 per course or go Pro
+          $1 per course, or unlimited with Pro
         </span>
         <span className="flex items-center gap-2">
           <CheckCircle className="w-4 h-4 text-coral-400" />
@@ -236,7 +236,7 @@ function InstructorHero() {
         </span>
         <span className="flex items-center gap-2">
           <CheckCircle className="w-4 h-4 text-coral-400" />
-          Know who's paying attention
+          Track who's actually watching
         </span>
       </div>
     </>
