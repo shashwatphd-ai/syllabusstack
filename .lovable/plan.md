@@ -1,75 +1,64 @@
 
+## Fix: Re-queue Missing Images for Two Published Lectures
 
-## Add Portrait/Landscape Layout Toggle for Slide Viewer
+### What the Logs Confirmed
 
-### Design Thinking: The Problem
+The database and logs establish exactly what happened:
 
-When a slide has a diagram or image, the current layout splits the screen 40% text / 60% image side-by-side. This works for some images, but many educational diagrams (flowcharts, architecture charts, process maps) are designed for 16:9 widescreen and lose detail when squeezed into 60% of the viewport width. Students cannot see these images clearly without opening the lightbox, which breaks their reading flow.
+**The two broken lectures:**
+- "Strategy C: The AI Sandwich" (id: `2fcf99ab`)
+- "The Prediction Engine: Tokens & Probabilities" (id: `91ed5a59`)
 
-### User Need
+Both have `queue_entries: 0`, `slides_with_image_url: 0`, `visual.type` populated on all 6 slides, `visual_directive: null` on all slides, and `status: published`.
 
-"I want to see the image large enough to read its details while still having access to the explanatory text -- without leaving the slide."
+**The timeline:**
+- `2026-02-15 05:54:16` — Both lectures got their slides generated (`slides_updated_at`)
+- `2026-02-15 06:04:18` — Image queue was populated for all OTHER lectures
+- `2026-02-16 06:40` — Audio was generated for both (confirming they were published by then)
 
-### Solution: A Layout Toggle
+**Why they were skipped:** During the original populate scan, `buildImagePrompt()` called `slideNeedsImage()`. At that time, these slides had `visual_directive: null` — so only line 167 (`slide.visual?.type !== 'none'`) could save them. The `visual` object was being constructed inline during generation and may not have been persisted in the same shape at population time, or the populate call simply errored silently for these two specific lectures.
 
-Add a simple toggle button in the slide viewer header that lets the student switch between two layouts:
+**Why no queue entries were ever created:** `populateQueueFromLecture` logged "No slides need images" for these two and returned 0. Since 0 items were inserted, `triggerContinuation` was never called for them. They've been invisible to the image pipeline ever since.
 
-**Portrait (default, current behavior):**
-Text sits beside the image (40/60 split). Good for text-heavy slides where the image is supplementary.
+**Why the "Generate Images" button shows no count:** `poll-batch-status` reports `pending: 0, failed: 0` because the queue has 243 completed entries and 0 for these lectures. So `publishedMissingImages = 0 + 0 = 0`. The dashboard has no way to know there are 12 slides (6 per lecture) missing images that were never queued.
 
-**Landscape:**
-The image stretches full-width in a 16:9 container at the top, and the text content scrolls below it. Good for diagram-heavy slides where the visual is the primary content.
+**Why clicking "Generate Images" today also won't fix them:** The current course-mode trigger sends `{ instructor_course_id }` → MODE 4. This calls `populateQueueFromLecture` for each lecture including the two broken ones. Since `visual_directive` is still null, it relies on line 167 (`slide.visual?.type !== 'none'`). This SHOULD work — but only if the populate call actually runs for those specific lectures this time without timing out.
 
-The preference is saved to localStorage so it persists across sessions.
+### Two-Part Fix
 
-### User Flow
+**Part 1 — Frontend: Add a per-lecture "Re-queue Images" button**
 
-```text
-Student opens lecture slides
-  |
-  v
-Default: Portrait layout (side-by-side)
-  |
-  +--> Sees small diagram, wants more detail
-  |
-  v
-Clicks landscape toggle in header (next to Slides/Scroll toggle)
-  |
-  v
-Image expands to full width at 16:9
-Text content moves below, scrollable
-  |
-  +--> Toggle persists via localStorage
-  +--> Only visible on slides that have images (no toggle on text-only slides)
-  +--> Works in both "Slides" mode and instructor preview
+Add a targeted "Re-queue Images" button directly on the lecture row in the slide management panel for any published lecture that has slides with `visual.type` but `visual.url = null`. This calls `process-batch-images` with `{ lecture_slides_ids: [id] }` (MODE 2), which runs `populateQueueFromLecture` directly for just those two lectures and then triggers continuation.
+
+This also gives instructors a general self-service recovery tool for any future similar situations.
+
+**Part 2 — Backend: Fix the "Generate Images" button to also catch published lectures with unqueued missing images**
+
+The current `publishedMissingImages` count only reads from the `image_generation_queue`. It completely misses lectures that were never queued at all. Update `poll-batch-status` to also count slides that have `visual.type` set but `visual.url` null AND have 0 queue entries — surfacing these as a true missing count.
+
+### Files to Change
+
+1. **`supabase/functions/poll-batch-status/index.ts`** — Add a query that counts slides with `visual` objects but `url: null` and no corresponding queue entry, and include this in the response as `unqueued_missing`. This gives the frontend an accurate true count.
+
+2. **`src/pages/instructor/InstructorCourseDetail.tsx`** — Update `publishedMissingImages` to also include `unqueued_missing` from the poll-batch-status response so the "Generate Images" button shows the correct count and stays visible.
+
+3. **`src/hooks/lectureSlides/mutations.ts` or the lecture row component** — Add a per-lecture "Re-queue Images" action button that appears when `slides_with_image_url < slide_count`. This calls `process-batch-images` with `{ lecture_slides_ids: [lectureId] }`.
+
+4. **`src/pages/instructor/InstructorCourseDetail.tsx`** (lecture row render) — Show a small warning icon + "Re-queue" button on the lecture card row when slides have visual types but missing URLs, making the broken state visible rather than silent.
+
+### Technical Detail: Why MODE 2 Will Work Now
+
+When `populateQueueFromLecture` is called for `2fcf99ab` and `91ed5a59` today:
+
+```
+slide.visual?.url → null → pass (don't skip)
+slide.visual_directive?.type → null → skip override
+slide.visual_directive?.description → null → skip override  
+slide.visual?.type = "infographic" → !== 'none' → return true ✓
 ```
 
-### What Changes
+Line 167 catches them. All 6 slides per lecture will be queued (12 total). Then `triggerContinuation` fires and they get generated. The `updateLectureSlides` write-back will populate `visual.url` on each slide as images complete.
 
-| File | Change |
-|------|--------|
-| `src/components/slides/StudentSlideViewer.tsx` | Add `slideLayout` state (persisted to localStorage), add toggle button next to the Slides/Scroll toggle, pass `layout` prop to `SlideRenderer` |
-| `src/components/slides/SlideRenderer.tsx` | Accept optional `layout` prop. When `landscape`: switch from `sm:flex-row` to `flex-col`, image container uses `aspect-video` with `object-contain`, text area below gets `overflow-y-auto` |
-| `src/components/slides/LectureSlideViewer.tsx` | Same toggle + prop for instructor preview consistency |
+### Immediate Recovery (No Code Change Needed Today)
 
-### Technical Detail: SlideRenderer Layout Logic
-
-Currently (line 348-355 of SlideRenderer.tsx):
-```
-hasVisualUrl ? 'flex flex-col sm:flex-row gap-3' : 'overflow-y-auto'
-```
-
-With the landscape prop:
-- `portrait` (default): keeps `flex-col sm:flex-row` -- no change
-- `landscape`: uses `flex-col` always, image container gets `aspect-video w-full` with `object-contain`, text section below gets `overflow-y-auto` with a constrained max-height
-
-The toggle button uses `RectangleHorizontal` / `RectangleVertical` icons from lucide-react and is only rendered when the current slide has a visual URL (text-only slides show no toggle).
-
-### What Stays the Same
-
-- Scroll (narrated) mode layout is unaffected
-- Audio playback, navigation, progress tracking untouched
-- Speaker notes panel unchanged
-- Lightbox still available for full-zoom on images
-- Mobile stacked layout unchanged (already full-width on small screens)
-
+The quickest path to fix the two broken lectures right now is to call the edge function directly with their IDs. The plan will implement the UI button so this is self-service in future. After the code change is applied, clicking the new per-lecture button will trigger the same call.
