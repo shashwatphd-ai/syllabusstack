@@ -95,6 +95,10 @@ export interface CourseSlideStatusResponse {
     completed: number;
     failed: number;
   };
+  // Slides with visual type set but no url AND no queue entry at all (never queued)
+  unqueued_missing?: number;
+  // IDs of lecture_slides records that are unqueued but need images
+  unqueued_lecture_slides_ids?: string[];
 }
 
 // ============================================================================
@@ -514,6 +518,78 @@ export function useQueueStatus(instructorCourseId?: string) {
       failed: status.data.failed,
     } : undefined,
   };
+}
+
+// ============================================================================
+// useRequeueLectureImages
+// ============================================================================
+//
+// Triggers image generation for a specific lecture_slides record.
+// Used when a lecture was silently skipped during the original populate scan
+// (queue_entries: 0 but slides have visual.type set).
+//
+// Calls process-batch-images with the specific lecture_slides_id so only
+// those slides get populated and processed — no full course rescan needed.
+//
+// USAGE:
+//   const requeueImages = useRequeueLectureImages();
+//   requeueImages.mutate({ instructorCourseId, lectureSlidesId });
+//
+
+export function useRequeueLectureImages() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async ({
+      instructorCourseId,
+      lectureSlidesId,
+    }: {
+      instructorCourseId: string;
+      lectureSlidesId: string;
+    }) => {
+      // Fire populate for just this one lecture, then trigger continuation
+      const { data, error } = await supabase.functions.invoke('process-batch-images', {
+        body: { lecture_slides_ids: [lectureSlidesId] },
+      });
+
+      if (error) {
+        // Timeouts are expected (fire-and-forget pattern) — treat as success
+        const msg = error.message?.toLowerCase() || '';
+        if (msg.includes('failed to fetch') || msg.includes('networkerror') || msg.includes('timeout')) {
+          return { success: true, message: 'Re-queue started in background.' };
+        }
+        throw error;
+      }
+
+      // Trigger continuation worker to pick up newly queued items
+      supabase.functions.invoke('process-batch-images', {
+        body: { continue: true },
+      }).catch(err => console.warn('[RequeueImages] Continuation call timed out (normal):', err));
+
+      return data as { success: boolean; message?: string; queued?: number };
+    },
+
+    onSuccess: (data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['course-slide-status', variables.instructorCourseId] });
+      queryClient.invalidateQueries({ queryKey: ['course-lecture-slides', variables.instructorCourseId] });
+      queryClient.invalidateQueries({ queryKey: ['image-generation-status', variables.instructorCourseId] });
+
+      toast({
+        title: '🖼️ Images Re-queued',
+        description: data?.message || "Images queued for generation. They'll appear shortly.",
+      });
+    },
+
+    onError: (error: Error) => {
+      console.error('[RequeueImages] Failed:', error);
+      toast({
+        title: 'Re-queue Failed',
+        description: error.message || 'Failed to re-queue images for this lecture.',
+        variant: 'destructive',
+      });
+    },
+  });
 }
 
 // ============================================================================

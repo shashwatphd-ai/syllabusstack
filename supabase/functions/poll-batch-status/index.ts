@@ -220,9 +220,38 @@ const handler = async (req: Request): Promise<Response> => {
       .eq("lecture_slides_id.instructor_course_id", instructor_course_id);
 
     const imageQueue = { pending: 0, processing: 0, completed: 0, failed: 0 };
+    const queuedSlideIds = new Set<string>();
     for (const item of imageQueueItems || []) {
       const key = item.status as keyof typeof imageQueue;
       if (key in imageQueue) imageQueue[key]++;
+      // Track which lecture_slides_ids have queue entries (any status)
+      if (item.lecture_slides_id && typeof item.lecture_slides_id === "string") {
+        queuedSlideIds.add(item.lecture_slides_id);
+      }
+    }
+
+    // Count slides that have a visual type but no image URL and NO queue entry at all.
+    // These are "orphaned" slides that were silently skipped during the original populate scan.
+    // We surface them as `unqueued_missing` so the frontend can show the correct total count
+    // and keep the "Generate Images" button visible.
+    const { data: publishedSlides } = await supabase
+      .from("lecture_slides")
+      .select("id, slides")
+      .eq("instructor_course_id", instructor_course_id)
+      .in("status", ["published", "ready"]);
+
+    let unqueuedMissing = 0;
+    const unqueuedLectureSlidesIds: string[] = [];
+    for (const lectureSlide of publishedSlides || []) {
+      const slidesArray = Array.isArray(lectureSlide.slides) ? lectureSlide.slides : [];
+      // Check if any slide in this lecture_slides record has a visual with type but no url
+      const hasMissingVisual = slidesArray.some((slide: { visual?: { type?: string; url?: string | null } }) =>
+        slide.visual?.type && slide.visual.type !== "none" && !slide.visual?.url
+      );
+      if (hasMissingVisual && !queuedSlideIds.has(lectureSlide.id)) {
+        unqueuedMissing++;
+        unqueuedLectureSlidesIds.push(lectureSlide.id);
+      }
     }
 
     return createSuccessResponse(
@@ -247,6 +276,8 @@ const handler = async (req: Request): Promise<Response> => {
         })),
         progress_percent: progressPercent,
         image_queue: imageQueue,
+        unqueued_missing: unqueuedMissing,
+        unqueued_lecture_slides_ids: unqueuedLectureSlidesIds,
       },
       corsHeaders
     );
