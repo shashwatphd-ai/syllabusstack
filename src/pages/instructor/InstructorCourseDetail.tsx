@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, FileText, Video, CheckCircle2, Clock, AlertCircle, Settings2, Copy, Share2, Loader2, Sparkles, Users, Presentation, RotateCcw, Image, Volume2, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Plus, FileText, Video, CheckCircle2, Clock, AlertCircle, Settings2, Copy, Share2, Loader2, Sparkles, Users, Presentation, RotateCcw, Image, Volume2, AlertTriangle, ImageOff } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { VerificationBanner, useVerificationStatus } from '@/components/instructor/VerificationBanner';
 import { AppShell } from '@/components/layout/AppShell';
@@ -39,7 +39,7 @@ import { useContentStats } from '@/hooks/useContentStats';
 import { useLOContentStatus } from '@/hooks/useContentStats';
 import { useCourseLectureSlides, useBulkPublishSlides, useCleanupStuckSlides, useRetryFailedSlides, useBatchGenerateAudio } from '@/hooks/useLectureSlides';
 // NEW: Use batch API hooks for "Generate All" functionality (50% cost savings)
-import { useSubmitBatchSlides, useCourseSlideStatus, useTriggerImageGeneration, useImageGenerationStatus, useRetryFailedImages } from '@/hooks/useBatchSlides';
+import { useSubmitBatchSlides, useCourseSlideStatus, useTriggerImageGeneration, useImageGenerationStatus, useRetryFailedImages, useRequeueLectureImages } from '@/hooks/useBatchSlides';
 import { LoadingState } from '@/components/common/LoadingState';
 import { EmptyState } from '@/components/common/EmptyState';
 import { UnifiedModuleCard } from '@/components/instructor/UnifiedModuleCard';
@@ -94,6 +94,7 @@ export default function InstructorCourseDetailPage() {
   // Image generation hooks with local active state for progress tracking
   const triggerImageGen = useTriggerImageGeneration();
   const retryFailedImages = useRetryFailedImages();
+  const requeueLectureImages = useRequeueLectureImages();
   const [imageGenActive, setImageGenActive] = useState(false);
   const imageGenStartRef = useRef<number>(0);
   const imageGenStatus = useImageGenerationStatus(id, imageGenActive);
@@ -123,7 +124,8 @@ export default function InstructorCourseDetailPage() {
     // Primary: use poll-batch-status image_queue (service role, bypasses RLS)
     const iq = slideStatus?.image_queue;
     if (iq) {
-      return (iq.pending ?? 0) + (iq.failed ?? 0);
+      // Also include unqueued_missing: slides that have visual.type but were never queued at all
+      return (iq.pending ?? 0) + (iq.failed ?? 0) + (slideStatus?.unqueued_missing ?? 0);
     }
     // Fallback: imageGenStatus (will be 0 if RLS blocks)
     const status = imageGenStatus.data;
@@ -823,6 +825,43 @@ export default function InstructorCourseDetailPage() {
                       </ResponsiveDialog>
                     </div>
                   </div>
+
+                  {/* Per-lecture re-queue warning: lectures with visual slides but never queued for images */}
+                  {slideStatus?.unqueued_lecture_slides_ids && slideStatus.unqueued_lecture_slides_ids.length > 0 && (() => {
+                    const unqueuedIds = new Set(slideStatus.unqueued_lecture_slides_ids);
+                    const unqueuedLectures = (lectureSlides || []).filter(ls => unqueuedIds.has(ls.id));
+                    if (unqueuedLectures.length === 0) return null;
+                    return (
+                      <div className="rounded-lg border border-warning/50 bg-warning/5 p-3 space-y-2">
+                        <div className="flex items-center gap-2 text-sm font-medium text-warning-foreground">
+                          <ImageOff className="h-4 w-4 text-warning shrink-0" />
+                          <span>{unqueuedLectures.length} lecture{unqueuedLectures.length > 1 ? 's' : ''} missing images — never queued</span>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {unqueuedLectures.map((ls) => (
+                            <Button
+                              key={ls.id}
+                              variant="outline"
+                              size="sm"
+                              className="h-7 gap-1.5 text-xs border-warning/50 hover:bg-warning/10"
+                              onClick={() => id && requeueLectureImages.mutate({ instructorCourseId: id, lectureSlidesId: ls.id })}
+                              disabled={requeueLectureImages.isPending}
+                            >
+                              {requeueLectureImages.isPending ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <RotateCcw className="h-3 w-3" />
+                              )}
+                              {ls.title || `Lecture ${ls.id.slice(0, 8)}`}
+                            </Button>
+                          ))}
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Click a lecture to re-queue its images for generation.
+                        </p>
+                      </div>
+                    );
+                  })()}
 
                   {/* Unassigned Learning Objectives - Using Unified Cards */}
                   {unassignedLOs.length > 0 && (
