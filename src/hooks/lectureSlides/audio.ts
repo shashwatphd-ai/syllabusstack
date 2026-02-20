@@ -214,7 +214,7 @@ export function useBatchGenerateAudio(instructorCourseId?: string) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('lecture_slides')
-        .select('has_audio, audio_status')
+        .select('has_audio, audio_status, updated_at')
         .eq('instructor_course_id', instructorCourseId!)
         .in('status', ['ready', 'published']);
 
@@ -222,19 +222,30 @@ export function useBatchGenerateAudio(instructorCourseId?: string) {
 
       const slides = data || [];
       const completed = slides.filter(s => s.has_audio === true).length;
-      const generating = slides.filter(s => s.audio_status === 'generating').length;
+      // Treat slides stuck in 'generating' for >10 min as stale (not truly generating)
+      const STALE_MS = 10 * 60 * 1000;
+      const now = Date.now();
+      const activelyGenerating = slides.filter(s => 
+        s.audio_status === 'generating' && 
+        s.updated_at && (now - new Date(s.updated_at).getTime()) < STALE_MS
+      ).length;
+      const staleGenerating = slides.filter(s => 
+        s.audio_status === 'generating' && 
+        (!s.updated_at || (now - new Date(s.updated_at).getTime()) >= STALE_MS)
+      ).length;
       const failed = slides.filter(s => s.audio_status === 'failed').length;
       const pending = slides.filter(s => !s.has_audio && s.audio_status !== 'generating' && s.audio_status !== 'failed').length;
-      const actionable = pending + failed;
+      // Stale generating slides count as actionable (need retry), not as actively running
+      const actionable = pending + failed + staleGenerating;
 
       return {
         total: slides.length,
         completed,
-        pending,
-        generating,
+        pending: pending + staleGenerating,
+        generating: activelyGenerating,
         failed,
         actionable,
-        isRunning: generating > 0 || (batchActive && actionable > 0),
+        isRunning: activelyGenerating > 0 || (batchActive && actionable > 0),
         isStalled: false, // calculated in effect below
       };
     },
