@@ -183,8 +183,8 @@ const instructorSteps = [
   {
     number: "03",
     icon: Users,
-    title: "Students Learn Verifiably",
-    description: "Students watch with micro-checks that prevent skipping. You know they actually engaged.",
+    title: "Students Learn Actively",
+    description: "Short questions during videos keep students engaged and reinforce key concepts.",
     visual: (
       <div className="bg-card/80 backdrop-blur-sm rounded-xl p-5 border border-primary/10 shadow-lg">
         <div className="flex items-center justify-between mb-4">
@@ -205,8 +205,8 @@ const instructorSteps = [
   {
     number: "04",
     icon: BarChart3,
-    title: "Track Mastery",
-    description: "See which students are struggling, what content works, and who's ready for final assessments.",
+    title: "Measure Outcomes",
+    description: "Understand which topics are landing, where to adjust, and when students are ready to move on.",
     visual: (
       <div className="bg-card/80 backdrop-blur-sm rounded-xl p-5 border border-primary/10 shadow-lg">
         <div className="text-sm font-semibold text-foreground mb-4">Class Progress</div>
@@ -261,7 +261,7 @@ export const HowItWorksSection = forwardRef<HTMLElement>(function HowItWorksSect
           <p className="text-muted-foreground text-lg">
             {audience === "students" 
               ? "Four simple steps to understand exactly where you stand and what to do next."
-              : "Four simple steps to turn your syllabus into an engaging, trackable video course."
+              : "Four simple steps to turn your syllabus into an engaging, structured video course."
             }
           </p>
         </div>

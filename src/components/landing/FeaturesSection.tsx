@@ -44,13 +44,13 @@ const instructorFeatures = [
   },
   {
     icon: CheckCircle2,
-    title: "Know They Actually Watched",
-    description: "Quick checks during videos confirm students are paying attention. No more skipping ahead.",
+    title: "Built-In Comprehension Checks",
+    description: "Short questions during videos reinforce key concepts and confirm understanding.",
   },
   {
     icon: Users,
-    title: "See Who Needs Help",
-    description: "Know which students are struggling and where. Step in before they fall behind.",
+    title: "Measure Learning Outcomes",
+    description: "See which topics are clicking and where your course can improve.",
   },
 ];
 

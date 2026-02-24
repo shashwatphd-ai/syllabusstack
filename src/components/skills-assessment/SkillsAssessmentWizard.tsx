@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, ArrowRight, Brain, Clock, Target, Sparkles } from 'lucide-react';
+import { Loader2, ArrowRight, Brain, Clock, Sparkles } from 'lucide-react';
 import { useSkillsAssessmentWizard } from '@/hooks/useSkillsAssessment';
 import { useMatchCareers } from '@/hooks/useCareerMatches';
 import { QuestionRenderer } from './QuestionRenderer';
@@ -80,30 +80,10 @@ export function SkillsAssessmentWizard({ onComplete, onCancel }: SkillsAssessmen
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            {/* Benefits */}
-            <div className="grid gap-4 md:grid-cols-3">
-              <div className="text-center p-4 rounded-lg bg-muted/50">
-                <Target className="h-6 w-6 mx-auto mb-2 text-blue-500" />
-                <h4 className="font-medium">Holland RIASEC</h4>
-                <p className="text-xs text-muted-foreground">
-                  Proven interest assessment used by career counselors worldwide
-                </p>
-              </div>
-              <div className="text-center p-4 rounded-lg bg-muted/50">
-                <Brain className="h-6 w-6 mx-auto mb-2 text-purple-500" />
-                <h4 className="font-medium">35 O*NET Skills</h4>
-                <p className="text-xs text-muted-foreground">
-                  Self-rate your proficiency across industry-standard skills
-                </p>
-              </div>
-              <div className="text-center p-4 rounded-lg bg-muted/50">
-                <Sparkles className="h-6 w-6 mx-auto mb-2 text-amber-500" />
-                <h4 className="font-medium">Work Values</h4>
-                <p className="text-xs text-muted-foreground">
-                  Identify what matters most to you in a career
-                </p>
-              </div>
-            </div>
+            {/* Description */}
+            <p className="text-sm text-muted-foreground text-center max-w-md mx-auto">
+              Answer questions about your interests, skills, and what matters to you at work. We'll match you with careers that fit.
+            </p>
 
             {/* Session type options */}
             <div className="grid gap-4 md:grid-cols-2">
