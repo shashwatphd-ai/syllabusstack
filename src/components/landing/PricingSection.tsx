@@ -134,7 +134,7 @@ export const PricingSection = forwardRef<HTMLElement>(function PricingSection(_p
                         plan.highlight
                           ? "bg-gradient-to-br from-primary to-primary/80 shadow-lg shadow-primary/25"
                           : plan.tier === "enterprise"
-                          ? "bg-gradient-to-br from-purple-500/20 to-purple-600/20 border border-purple-500/20"
+                          ? "bg-gradient-to-br from-primary/20 to-primary/10 border border-primary/20"
                           : "bg-muted border border-border"
                       )}
                     >
@@ -144,7 +144,7 @@ export const PricingSection = forwardRef<HTMLElement>(function PricingSection(_p
                           plan.highlight
                             ? "text-primary-foreground"
                             : plan.tier === "enterprise"
-                            ? "text-purple-600"
+                            ? "text-primary"
                             : "text-muted-foreground"
                         )}
                       />
