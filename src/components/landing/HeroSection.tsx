@@ -176,10 +176,6 @@ function StudentHero() {
           <CheckCircle className="w-4 h-4 text-amber-400" />
           No credit card required
         </span>
-        <span className="flex items-center gap-2">
-          <CheckCircle className="w-4 h-4 text-amber-400" />
-          No resume needed
-        </span>
       </div>
     </>
   );
@@ -224,10 +220,6 @@ function InstructorHero() {
         <span className="flex items-center gap-2">
           <CheckCircle className="w-4 h-4 text-amber-400" />
           Ready in minutes
-        </span>
-        <span className="flex items-center gap-2">
-          <CheckCircle className="w-4 h-4 text-amber-400" />
-          No slides needed
         </span>
       </div>
     </>
