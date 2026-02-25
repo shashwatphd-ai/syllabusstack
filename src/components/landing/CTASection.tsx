@@ -1,7 +1,7 @@
 import { forwardRef } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, Sparkles, CheckCircle } from "lucide-react";
+import { ArrowRight, Sparkles } from "lucide-react";
 
 export const CTASection = forwardRef<HTMLElement>(function CTASection(_props, ref) {
   return (
@@ -21,14 +21,12 @@ export const CTASection = forwardRef<HTMLElement>(function CTASection(_props, re
 
           {/* Headline */}
           <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-primary-foreground mb-6">
-            Stop Guessing.
-            <br />
-            <span className="text-gradient bg-gradient-to-r from-amber-300 to-amber-500">Start Knowing.</span>
+            See where you{" "}
+            <span className="text-gradient bg-gradient-to-r from-amber-300 to-amber-500">stand.</span>
           </h2>
 
           <p className="text-lg text-primary-foreground/70 mb-10 max-w-xl mx-auto">
-            Whether you're a student finding your career path or an educator building 
-            engaging courses—SyllabusStack has you covered.
+            Free to start. No credit card required.
           </p>
 
           {/* CTA */}
@@ -42,20 +40,7 @@ export const CTASection = forwardRef<HTMLElement>(function CTASection(_props, re
           </div>
 
           {/* Trust indicators */}
-          <div className="mt-10 flex flex-wrap items-center justify-center gap-6 text-primary-foreground/50 text-sm">
-            <span className="flex items-center gap-2">
-              <CheckCircle className="w-4 h-4 text-amber-400" />
-              Free to get started
-            </span>
-            <span className="flex items-center gap-2">
-              <CheckCircle className="w-4 h-4 text-amber-400" />
-              Pro removes all limits
-            </span>
-            <span className="flex items-center gap-2">
-              <CheckCircle className="w-4 h-4 text-amber-400" />
-              No credit card required
-            </span>
-          </div>
+          
         </div>
       </div>
     </section>

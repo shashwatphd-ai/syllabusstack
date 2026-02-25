@@ -257,14 +257,11 @@ export const HowItWorksSection = forwardRef<HTMLElement, HowItWorksSectionProps>
             How It Works
           </div>
           <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-foreground mb-4">
-            From Confusion to{" "}
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-500 to-amber-400">Clarity</span>
+            How It{" "}
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-500 to-amber-400">Works</span>
           </h2>
           <p className="text-muted-foreground text-lg">
-            {audience === "students" 
-              ? "Four simple steps to understand exactly where you stand and what to do next."
-              : "Four simple steps to turn your syllabus into an engaging, structured video course."
-            }
+            Here's what happens after you sign up.
           </p>
         </div>
 
