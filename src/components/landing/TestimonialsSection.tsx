@@ -15,12 +15,12 @@ const trustSignals = [
   {
     icon: BarChart3,
     title: "Actionable, Not Decorative",
-    description: "Every insight comes with a next step. We don't just diagnose gaps—we tell you how to close them.",
+    description: "Every report includes specific next steps with time estimates and costs.",
   },
   {
     icon: Heart,
     title: "Built for Learners",
-    description: "Created by people who believe education should connect to careers, not just credentials.",
+    description: "Designed around how students actually learn and job-hunt.",
   },
 ];
 
@@ -39,7 +39,7 @@ export const TestimonialsSection = forwardRef<HTMLElement>(function Testimonials
             Simple, Smart, Honest
           </h2>
           <p className="text-muted-foreground text-lg">
-            We built SyllabusStack because career readiness shouldn't be a guessing game.
+            Here's what makes us different.
           </p>
         </div>
 

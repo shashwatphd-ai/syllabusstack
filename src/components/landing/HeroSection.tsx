@@ -152,9 +152,7 @@ function StudentHero() {
       </h1>
 
       <p className="text-lg sm:text-xl text-primary-foreground/70 max-w-2xl mx-auto mb-10 animate-fade-up" style={{ animationDelay: '0.2s' }}>
-        Upload your coursework, add your dream jobs, and get 
-        <span className="text-amber-300 font-semibold"> AI-powered skill mapping</span> showing exactly 
-        where you stand—and what to do next.
+        Upload your courses. Add your dream jobs. See exactly where the gaps are.
       </p>
 
       <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16 animate-fade-up" style={{ animationDelay: '0.3s' }}>
@@ -176,7 +174,7 @@ function StudentHero() {
         </span>
         <span className="flex items-center gap-2">
           <CheckCircle className="w-4 h-4 text-amber-400" />
-          Pay per action or subscribe
+          No credit card required
         </span>
         <span className="flex items-center gap-2">
           <CheckCircle className="w-4 h-4 text-amber-400" />
@@ -229,7 +227,7 @@ function InstructorHero() {
         </span>
         <span className="flex items-center gap-2">
           <CheckCircle className="w-4 h-4 text-amber-400" />
-          Built-in comprehension checks
+          No slides needed
         </span>
       </div>
     </>

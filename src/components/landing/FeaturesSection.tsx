@@ -78,7 +78,7 @@ export const FeaturesSection = forwardRef<HTMLElement, FeaturesSectionProps>(fun
             <span className="text-gradient bg-gradient-to-r from-amber-400 to-amber-500">Get</span>
           </h2>
           <p className="text-muted-foreground text-lg">
-            Simple tools that show you where you are and what to do next.
+            Everything you need, nothing you don't.
           </p>
         </div>
 

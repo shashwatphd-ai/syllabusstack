@@ -14,7 +14,7 @@ export const Footer = forwardRef<HTMLElement>(function Footer(_props, ref) {
               <Logo size="md" variant="light" />
             </Link>
             <p className="text-primary-foreground/50 text-sm mb-4">
-              The platform that bridges what you've learned to where you're going.
+              Connect your courses to your career.
             </p>
             <div className="flex gap-3">
               <a
@@ -84,7 +84,7 @@ export const Footer = forwardRef<HTMLElement>(function Footer(_props, ref) {
             © {new Date().getFullYear()} SyllabusStack. All rights reserved.
           </p>
           <p className="text-primary-foreground/40 text-sm">
-            Built for learners and educators.
+            Made with care in the US.
           </p>
         </div>
       </div>

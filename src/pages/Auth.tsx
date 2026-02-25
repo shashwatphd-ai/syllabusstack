@@ -40,22 +40,22 @@ type LoginFormValues = z.infer<typeof loginSchema>;
 type SignupFormValues = z.infer<typeof signupSchema>;
 
 const studentCopy = {
-  headline: "Transform Your Education Into Career Readiness",
-  description: "SyllabusStack helps you connect your coursework to your dream job through AI-powered analysis and personalized recommendations.",
+  headline: "Your courses. Your dream jobs. Your gap analysis.",
+  description: "Sign in to get started.",
   features: [
-    "✓ AI-powered syllabus analysis",
-    "✓ Personalized skill gap identification",
-    "✓ Smart course recommendations",
+    "✓ Upload courses in seconds",
+    "✓ See skill gaps instantly",
+    "✓ Get a concrete action plan",
   ],
 };
 
 const instructorCopy = {
-  headline: "Turn Your Syllabus Into an Engaging Video Course",
-  description: "Upload your syllabus and we'll match each topic with quality video content, complete with built-in comprehension checks.",
+  headline: "Syllabus in. Video course out.",
+  description: "Sign in to create your first course.",
   features: [
-    "✓ AI-powered content matching",
-    "✓ Built-in comprehension checks",
-    "✓ Learning outcome analytics",
+    "✓ Paste or upload any syllabus",
+    "✓ Videos matched automatically",
+    "✓ Measure what students learn",
   ],
 };
 
