@@ -12,6 +12,7 @@ import {
   Gift,
   Lightbulb
 } from 'lucide-react';
+import { Logo } from '@/components/common/Logo';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -295,12 +296,7 @@ export function OnboardingWizard() {
       {/* Header */}
       <header className="border-b border-border bg-background/95 backdrop-blur sticky top-0 z-40">
         <div className="max-w-3xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-              <Sparkles className="h-4 w-4 text-primary-foreground" />
-            </div>
-            <span className="font-bold">SyllabusStack</span>
-          </div>
+          <Logo size="sm" variant="dark" />
           <div className="text-sm text-muted-foreground">
             Step {stepIndex + 1} of {steps.length}
           </div>
