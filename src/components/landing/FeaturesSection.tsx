@@ -1,12 +1,14 @@
-import { forwardRef, useState } from "react";
+import { forwardRef } from "react";
 import { 
   FileText, Target, Lightbulb, TrendingUp, 
-  Video, Users, CheckCircle2, Brain,
-  GraduationCap, BookOpen
+  Video, Users, CheckCircle2, Brain
 } from "lucide-react";
-import { cn } from "@/lib/utils";
 
 type Audience = "students" | "instructors";
+
+interface FeaturesSectionProps {
+  audience: Audience;
+}
 
 const studentFeatures = [
   {
@@ -54,8 +56,7 @@ const instructorFeatures = [
   },
 ];
 
-export const FeaturesSection = forwardRef<HTMLElement>(function FeaturesSection(_props, ref) {
-  const [audience, setAudience] = useState<Audience>("students");
+export const FeaturesSection = forwardRef<HTMLElement, FeaturesSectionProps>(function FeaturesSection({ audience }, ref) {
   const features = audience === "students" ? studentFeatures : instructorFeatures;
 
   return (
@@ -81,37 +82,7 @@ export const FeaturesSection = forwardRef<HTMLElement>(function FeaturesSection(
           </p>
         </div>
 
-        {/* Audience toggle */}
-        <div className="flex justify-center mb-12">
-          <div className="inline-flex items-center gap-1 p-1 rounded-full bg-muted/50 border border-border">
-            <button
-              onClick={() => setAudience("students")}
-              className={cn(
-                "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all",
-                audience === "students"
-                  ? "bg-amber-500 text-amber-950 shadow-lg"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <GraduationCap className="w-4 h-4" />
-              For Students
-            </button>
-            <button
-              onClick={() => setAudience("instructors")}
-              className={cn(
-                "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all",
-                audience === "instructors"
-                  ? "bg-amber-500 text-amber-950 shadow-lg"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <BookOpen className="w-4 h-4" />
-              For Educators
-            </button>
-          </div>
-        </div>
-
-        {/* Features grid */}
+        {/* Features grid — no toggle, controlled by parent */}
         <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
           {features.map((feature, index) => (
             <div
@@ -119,12 +90,10 @@ export const FeaturesSection = forwardRef<HTMLElement>(function FeaturesSection(
               className="group relative bg-card rounded-2xl border border-border p-6 hover:border-amber-500/30 hover:shadow-lg transition-all duration-300"
               style={{ animationDelay: `${index * 0.1}s` }}
             >
-              {/* Icon */}
               <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-amber-400 to-amber-500 flex items-center justify-center mb-4 shadow-lg group-hover:scale-110 transition-transform duration-300">
                 <feature.icon className="w-6 h-6 text-white" />
               </div>
 
-              {/* Content */}
               <h3 className="text-lg font-semibold text-card-foreground mb-2">
                 {feature.title}
               </h3>
@@ -132,7 +101,6 @@ export const FeaturesSection = forwardRef<HTMLElement>(function FeaturesSection(
                 {feature.description}
               </p>
 
-              {/* Hover indicator */}
               <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-amber-500 to-transparent opacity-0 group-hover:opacity-100 transition-opacity rounded-b-2xl" />
             </div>
           ))}

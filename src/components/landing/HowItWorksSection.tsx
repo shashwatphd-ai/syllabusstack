@@ -1,8 +1,11 @@
-import { forwardRef, useState } from "react";
-import { Upload, Search, CheckCircle, Rocket, FileText, Video, Users, BarChart3, GraduationCap, BookOpen } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { forwardRef } from "react";
+import { Upload, Search, CheckCircle, Rocket, FileText, Video, Users, BarChart3 } from "lucide-react";
 
 type Audience = "students" | "instructors";
+
+interface HowItWorksSectionProps {
+  audience: Audience;
+}
 
 const studentSteps = [
   {
@@ -235,8 +238,7 @@ const instructorSteps = [
   },
 ];
 
-export const HowItWorksSection = forwardRef<HTMLElement>(function HowItWorksSection(_props, ref) {
-  const [audience, setAudience] = useState<Audience>("students");
+export const HowItWorksSection = forwardRef<HTMLElement, HowItWorksSectionProps>(function HowItWorksSection({ audience }, ref) {
   const steps = audience === "students" ? studentSteps : instructorSteps;
 
   return (
@@ -250,7 +252,7 @@ export const HowItWorksSection = forwardRef<HTMLElement>(function HowItWorksSect
 
       <div className="container mx-auto px-6 relative">
         {/* Section header */}
-        <div className="text-center max-w-2xl mx-auto mb-12">
+        <div className="text-center max-w-2xl mx-auto mb-16">
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary/10 text-primary text-sm font-medium mb-6 border border-primary/20">
             How It Works
           </div>
@@ -266,52 +268,20 @@ export const HowItWorksSection = forwardRef<HTMLElement>(function HowItWorksSect
           </p>
         </div>
 
-        {/* Audience toggle */}
-        <div className="flex justify-center mb-16">
-          <div className="inline-flex items-center gap-1 p-1.5 rounded-full bg-card/80 backdrop-blur-sm border border-border shadow-lg">
-            <button
-              onClick={() => setAudience("students")}
-              className={cn(
-                "flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold transition-all",
-                audience === "students"
-                  ? "bg-gradient-to-r from-amber-500 to-amber-400 text-amber-950 shadow-lg shadow-amber-500/25"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-              )}
-            >
-              <GraduationCap className="w-4 h-4" />
-              For Students
-            </button>
-            <button
-              onClick={() => setAudience("instructors")}
-              className={cn(
-                "flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold transition-all",
-                audience === "instructors"
-                  ? "bg-gradient-to-r from-amber-500 to-amber-400 text-amber-950 shadow-lg shadow-amber-500/25"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-              )}
-            >
-              <BookOpen className="w-4 h-4" />
-              For Educators
-            </button>
-          </div>
-        </div>
-
-        {/* Steps with sequential flow */}
+        {/* Steps — no toggle, controlled by parent */}
         <div id="how-it-works-instructor" className="relative max-w-5xl mx-auto">
           <div className="grid lg:grid-cols-2 gap-x-16 gap-y-12">
-            {steps.map((step, index) => (
+            {steps.map((step) => (
               <div
                 key={step.number}
                 className="group relative flex gap-6 items-start"
               >
-                {/* Number badge */}
                 <div className="relative z-10 flex flex-col items-center">
                   <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center shadow-lg shadow-primary/25 group-hover:scale-110 transition-transform">
                     <span className="text-xl font-bold text-primary-foreground">{step.number}</span>
                   </div>
                 </div>
 
-                {/* Content */}
                 <div className="flex-1 pb-4">
                   <div className="flex items-center gap-3 mb-3">
                     <h3 className="text-xl font-bold text-foreground flex items-center gap-3">
