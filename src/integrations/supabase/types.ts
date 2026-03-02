@@ -2297,6 +2297,105 @@ export type Database = {
         }
         Relationships: []
       }
+      instructor_invitations: {
+        Row: {
+          accepted_at: string | null
+          accepted_by: string | null
+          created_at: string
+          depth_level: number
+          expires_at: string | null
+          id: string
+          invitee_email: string
+          inviter_id: string
+          max_invites_granted: number
+          status: string
+          token: string
+        }
+        Insert: {
+          accepted_at?: string | null
+          accepted_by?: string | null
+          created_at?: string
+          depth_level?: number
+          expires_at?: string | null
+          id?: string
+          invitee_email: string
+          inviter_id: string
+          max_invites_granted?: number
+          status?: string
+          token: string
+        }
+        Update: {
+          accepted_at?: string | null
+          accepted_by?: string | null
+          created_at?: string
+          depth_level?: number
+          expires_at?: string | null
+          id?: string
+          invitee_email?: string
+          inviter_id?: string
+          max_invites_granted?: number
+          status?: string
+          token?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "instructor_invitations_accepted_by_fkey"
+            columns: ["accepted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "instructor_invitations_accepted_by_fkey"
+            columns: ["accepted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles_minimal"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "instructor_invitations_accepted_by_fkey"
+            columns: ["accepted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles_public"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "instructor_invitations_accepted_by_fkey"
+            columns: ["accepted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles_safe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "instructor_invitations_inviter_id_fkey"
+            columns: ["inviter_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "instructor_invitations_inviter_id_fkey"
+            columns: ["inviter_id"]
+            isOneToOne: false
+            referencedRelation: "profiles_minimal"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "instructor_invitations_inviter_id_fkey"
+            columns: ["inviter_id"]
+            isOneToOne: false
+            referencedRelation: "profiles_public"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "instructor_invitations_inviter_id_fkey"
+            columns: ["inviter_id"]
+            isOneToOne: false
+            referencedRelation: "profiles_safe"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
       instructor_invite_codes: {
         Row: {
           auto_approve: boolean | null
@@ -3228,6 +3327,7 @@ export type Database = {
           identity_verification_id: string | null
           instructor_trust_score: number | null
           instructor_verification_id: string | null
+          invited_by: string | null
           is_identity_verified: boolean | null
           is_instructor_verified: boolean | null
           last_active_at: string | null
@@ -3260,6 +3360,7 @@ export type Database = {
           identity_verification_id?: string | null
           instructor_trust_score?: number | null
           instructor_verification_id?: string | null
+          invited_by?: string | null
           is_identity_verified?: boolean | null
           is_instructor_verified?: boolean | null
           last_active_at?: string | null
@@ -3292,6 +3393,7 @@ export type Database = {
           identity_verification_id?: string | null
           instructor_trust_score?: number | null
           instructor_verification_id?: string | null
+          invited_by?: string | null
           is_identity_verified?: boolean | null
           is_instructor_verified?: boolean | null
           last_active_at?: string | null
@@ -3325,6 +3427,34 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "instructor_verifications"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profiles_invited_by_fkey"
+            columns: ["invited_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "profiles_invited_by_fkey"
+            columns: ["invited_by"]
+            isOneToOne: false
+            referencedRelation: "profiles_minimal"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "profiles_invited_by_fkey"
+            columns: ["invited_by"]
+            isOneToOne: false
+            referencedRelation: "profiles_public"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "profiles_invited_by_fkey"
+            columns: ["invited_by"]
+            isOneToOne: false
+            referencedRelation: "profiles_safe"
+            referencedColumns: ["user_id"]
           },
           {
             foreignKeyName: "profiles_organization_id_fkey"
@@ -4619,6 +4749,14 @@ export type Database = {
       get_dynamic_synonyms: {
         Args: { p_course_id?: string; p_term: string }
         Returns: string[]
+      }
+      get_invite_quota: {
+        Args: { p_user_id: string }
+        Returns: {
+          remaining: number
+          total_allowed: number
+          total_used: number
+        }[]
       }
       get_remaining_quota: {
         Args: { p_api_name: string; p_daily_limit?: number }
