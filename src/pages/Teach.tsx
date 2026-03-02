@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom';
+import { InviteColleagues } from '@/components/instructor/InviteColleagues';
 import {
   School,
   BookOpen,
@@ -202,6 +203,9 @@ export default function TeachPage() {
               </Card>
             </div>
 
+            {/* Invite Colleagues */}
+            <InviteColleagues />
+
             {/* Recent Courses */}
             {courses && courses.length > 0 && (
               <div className="space-y-3">
@@ -331,17 +335,18 @@ export default function TeachPage() {
           <Card className="border-2 border-primary/20 bg-gradient-to-br from-primary/5 to-primary/10">
             <CardContent className="pt-6 pb-6">
               <div className="text-center space-y-4">
-                <h2 className="text-2xl font-bold">Ready to Start Teaching?</h2>
+                <h2 className="text-2xl font-bold">Instructor Access is Invite-Only</h2>
                 <p className="text-muted-foreground max-w-md mx-auto">
-                  Become a verified instructor and create your first course today.
-                  .edu emails are automatically verified.
+                  To teach on SyllabusStack, you need an invitation from an existing instructor.
+                  Ask a colleague who already teaches on the platform.
                 </p>
                 <Button
                   size="lg"
+                  variant="outline"
                   className="gap-2"
                   onClick={() => navigate('/become-instructor')}
                 >
-                  Become an Instructor
+                  Learn More
                   <ArrowRight className="h-4 w-4" />
                 </Button>
               </div>
@@ -363,11 +368,11 @@ export default function TeachPage() {
               </Card>
               <Card>
                 <CardHeader className="py-4">
-                  <CardTitle className="text-base font-medium">Do I need a .edu email?</CardTitle>
+                  <CardTitle className="text-base font-medium">How do I get access?</CardTitle>
                 </CardHeader>
                 <CardContent className="pt-0 text-sm text-muted-foreground">
-                  No, but .edu emails are automatically verified. Other emails
-                  require a brief manual review (1-2 business days).
+                  Instructor access is invite-only. Ask a colleague who already teaches
+                  on SyllabusStack to send you an invitation from their dashboard.
                 </CardContent>
               </Card>
               <Card>

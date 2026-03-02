@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Navigate, useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Eye, EyeOff, Loader2 } from 'lucide-react';
+import { Eye, EyeOff, Loader2, ShieldCheck, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,7 +12,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { Logo } from '@/components/common/Logo';
+import { useInviteToken } from '@/hooks/useInviteToken';
+import { supabase } from '@/integrations/supabase/client';
 
+// -- Schemas --
 const loginSchema = z.object({
   email: z.string().email('Please enter a valid email'),
   password: z.string().min(6, 'Password must be at least 6 characters'),
@@ -39,6 +42,7 @@ const signupSchema = z.object({
 type LoginFormValues = z.infer<typeof loginSchema>;
 type SignupFormValues = z.infer<typeof signupSchema>;
 
+// -- Copy variants --
 const studentCopy = {
   headline: "Your courses. Your dream jobs. Your gap analysis.",
   description: "Sign in to get started.",
@@ -59,16 +63,126 @@ const instructorCopy = {
   ],
 };
 
+const inviteCopy = {
+  headline: "You've been invited to teach on SyllabusStack.",
+  description: "Create your instructor account to get started.",
+  features: [
+    "✓ Invite-only instructor community",
+    "✓ AI-powered course creation",
+    "✓ Built-in student assessments",
+  ],
+};
+
+// -- Sub-components --
+function InviteSignupForm({
+  validation,
+  onSignup,
+  isLoading,
+  showPassword,
+  setShowPassword,
+}: {
+  validation: { email: string; token: string };
+  onSignup: (data: SignupFormValues) => void;
+  isLoading: boolean;
+  showPassword: boolean;
+  setShowPassword: (v: boolean) => void;
+}) {
+  const form = useForm<SignupFormValues>({
+    resolver: zodResolver(signupSchema),
+    defaultValues: { fullName: '', email: validation.email, password: '', confirmPassword: '' },
+  });
+
+  return (
+    <form onSubmit={form.handleSubmit(onSignup)}>
+      <CardContent className="space-y-4">
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-primary/10 text-primary text-sm">
+          <ShieldCheck className="h-4 w-4 shrink-0" />
+          Invite-only instructor signup
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="invite-name">Full Name</Label>
+          <Input id="invite-name" type="text" placeholder="Jane Doe" {...form.register('fullName')} />
+          {form.formState.errors.fullName && (
+            <p className="text-sm text-destructive">{form.formState.errors.fullName.message}</p>
+          )}
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="invite-email">Email</Label>
+          <Input id="invite-email" type="email" value={validation.email} disabled className="bg-muted" {...form.register('email')} />
+          <p className="text-xs text-muted-foreground">Email is set by your invitation</p>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="invite-password">Password</Label>
+          <div className="relative">
+            <Input id="invite-password" type={showPassword ? 'text' : 'password'} placeholder="••••••••" {...form.register('password')} />
+            <Button type="button" variant="ghost" size="icon" className="absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7" onClick={() => setShowPassword(!showPassword)}>
+              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </Button>
+          </div>
+          {form.formState.errors.password && (
+            <p className="text-sm text-destructive">{form.formState.errors.password.message}</p>
+          )}
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="invite-confirm">Confirm Password</Label>
+          <Input id="invite-confirm" type={showPassword ? 'text' : 'password'} placeholder="••••••••" {...form.register('confirmPassword')} />
+          {form.formState.errors.confirmPassword && (
+            <p className="text-sm text-destructive">{form.formState.errors.confirmPassword.message}</p>
+          )}
+        </div>
+      </CardContent>
+
+      <CardFooter className="flex-col gap-4">
+        <Button type="submit" className="w-full" disabled={isLoading}>
+          {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+          Create Instructor Account
+        </Button>
+        <p className="text-xs text-muted-foreground text-center">
+          By signing up, you agree to our Terms of Service and Privacy Policy.
+        </p>
+      </CardFooter>
+    </form>
+  );
+}
+
+function InstructorGatedMessage() {
+  return (
+    <CardContent className="space-y-4 py-8">
+      <div className="text-center space-y-3">
+        <div className="mx-auto w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
+          <ShieldCheck className="h-6 w-6 text-primary" />
+        </div>
+        <h3 className="text-lg font-semibold">Instructor Access is Invite-Only</h3>
+        <p className="text-sm text-muted-foreground max-w-sm mx-auto">
+          To become an instructor on SyllabusStack, you need an invitation from an existing instructor.
+          Ask a colleague who already teaches on the platform to send you an invite.
+        </p>
+      </div>
+    </CardContent>
+  );
+}
+
+// -- Main Component --
 export default function Auth() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [searchParams] = useSearchParams();
   const role = searchParams.get('role');
+  const inviteToken = searchParams.get('invite');
   const isInstructor = role === 'instructor';
-  const copy = isInstructor ? instructorCopy : studentCopy;
   const navigate = useNavigate();
   const { toast } = useToast();
   const { user, isLoading: authLoading, signIn, signUp } = useAuth();
+
+  // Invite token validation
+  const { validation: inviteValidation, isLoading: inviteLoading, error: inviteError } = useInviteToken(inviteToken);
+
+  // Determine copy
+  const copy = inviteToken ? inviteCopy : isInstructor ? instructorCopy : studentCopy;
 
   const loginForm = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -80,14 +194,13 @@ export default function Auth() {
     defaultValues: { fullName: '', email: '', password: '', confirmPassword: '' },
   });
 
-  if (!authLoading && user) {
+  if (!authLoading && user && !inviteToken) {
     return <Navigate to="/dashboard" replace />;
   }
 
   const onLogin = async (data: LoginFormValues) => {
     setIsLoading(true);
     const { error } = await signIn(data.email, data.password);
-    
     if (error) {
       toast({ title: 'Login Failed', description: error.message, variant: 'destructive' });
     } else {
@@ -100,7 +213,6 @@ export default function Auth() {
   const onSignup = async (data: SignupFormValues) => {
     setIsLoading(true);
     const { error } = await signUp(data.email, data.password, { full_name: data.fullName });
-    
     if (error) {
       toast({ title: 'Signup Failed', description: error.message, variant: 'destructive' });
     } else {
@@ -110,7 +222,41 @@ export default function Auth() {
     setIsLoading(false);
   };
 
-  if (authLoading) {
+  const onInviteSignup = async (data: SignupFormValues) => {
+    if (!inviteValidation) return;
+    setIsLoading(true);
+
+    const { error } = await signUp(data.email, data.password, { full_name: data.fullName });
+    if (error) {
+      toast({ title: 'Signup Failed', description: error.message, variant: 'destructive' });
+      setIsLoading(false);
+      return;
+    }
+
+    // Accept the invitation to assign instructor role
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      if (session?.session?.access_token) {
+        const { data: acceptData, error: acceptError } = await supabase.functions.invoke(
+          'accept-instructor-invite',
+          {
+            body: { token: inviteValidation.token },
+          }
+        );
+        if (acceptError) {
+          console.error('Accept invite error:', acceptError);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to accept invitation:', err);
+    }
+
+    toast({ title: 'Welcome, Instructor!', description: 'Your account has been created with instructor access.' });
+    navigate('/onboarding');
+    setIsLoading(false);
+  };
+
+  if (authLoading || inviteLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -125,7 +271,7 @@ export default function Auth() {
         <Link to="/" className="flex items-center gap-3">
           <Logo size="md" variant="light" />
         </Link>
-        
+
         <div className="space-y-6">
           <h1 className="text-4xl font-bold text-primary-foreground leading-tight">
             {copy.headline}
@@ -150,104 +296,168 @@ export default function Auth() {
               <Logo size="sm" variant="dark" />
             </Link>
           </CardHeader>
-          
-          <Tabs defaultValue="login" className="w-full">
-            <TabsList className="grid w-full grid-cols-2 mb-6">
-              <TabsTrigger value="login">Login</TabsTrigger>
-              <TabsTrigger value="signup">Sign Up</TabsTrigger>
-            </TabsList>
 
-            <TabsContent value="login">
-              <form onSubmit={loginForm.handleSubmit(onLogin)}>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="login-email">Email</Label>
-                    <Input id="login-email" type="email" placeholder="you@university.edu" {...loginForm.register('email')} />
-                    {loginForm.formState.errors.email && (
-                      <p className="text-sm text-destructive">{loginForm.formState.errors.email.message}</p>
-                    )}
+          {/* Invite flow */}
+          {inviteToken ? (
+            inviteError ? (
+              <CardContent className="space-y-4 py-8">
+                <div className="text-center space-y-3">
+                  <div className="mx-auto w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center">
+                    <AlertCircle className="h-6 w-6 text-destructive" />
                   </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="login-password">Password</Label>
-                    <div className="relative">
-                      <Input id="login-password" type={showPassword ? 'text' : 'password'} placeholder="••••••••" {...loginForm.register('password')} />
-                      <Button type="button" variant="ghost" size="icon" className="absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? "Hide password" : "Show password"}>
-                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </Button>
-                    </div>
-                    {loginForm.formState.errors.password && (
-                      <p className="text-sm text-destructive">{loginForm.formState.errors.password.message}</p>
-                    )}
-                  </div>
-
-                  <div className="flex justify-end">
-                    <Link to="/forgot-password" className="text-sm text-primary hover:underline">Forgot password?</Link>
-                  </div>
-                </CardContent>
-                
-                <CardFooter className="flex-col gap-4">
-                  <Button type="submit" className="w-full" disabled={isLoading}>
-                    {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                    Log In
+                  <h3 className="text-lg font-semibold">Invalid Invitation</h3>
+                  <p className="text-sm text-muted-foreground">{inviteError}</p>
+                  <Button variant="outline" onClick={() => navigate('/auth')}>
+                    Go to Login
                   </Button>
-                </CardFooter>
-              </form>
-            </TabsContent>
+                </div>
+              </CardContent>
+            ) : inviteValidation ? (
+              <InviteSignupForm
+                validation={inviteValidation}
+                onSignup={onInviteSignup}
+                isLoading={isLoading}
+                showPassword={showPassword}
+                setShowPassword={setShowPassword}
+              />
+            ) : null
+          ) : isInstructor ? (
+            /* Instructor role without invite — show gated message + login */
+            <Tabs defaultValue="login" className="w-full">
+              <TabsList className="grid w-full grid-cols-1 mb-6">
+                <TabsTrigger value="login">Login</TabsTrigger>
+              </TabsList>
 
-            <TabsContent value="signup">
-              <form onSubmit={signupForm.handleSubmit(onSignup)}>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="signup-name">Full Name</Label>
-                    <Input id="signup-name" type="text" placeholder="Jane Doe" {...signupForm.register('fullName')} />
-                    {signupForm.formState.errors.fullName && (
-                      <p className="text-sm text-destructive">{signupForm.formState.errors.fullName.message}</p>
-                    )}
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="signup-email">Email</Label>
-                    <Input id="signup-email" type="email" placeholder="you@university.edu" {...signupForm.register('email')} />
-                    {signupForm.formState.errors.email && (
-                      <p className="text-sm text-destructive">{signupForm.formState.errors.email.message}</p>
-                    )}
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="signup-password">Password</Label>
-                    <div className="relative">
-                      <Input id="signup-password" type={showPassword ? 'text' : 'password'} placeholder="••••••••" {...signupForm.register('password')} />
-                      <Button type="button" variant="ghost" size="icon" className="absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? "Hide password" : "Show password"}>
-                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </Button>
+              <TabsContent value="login">
+                <InstructorGatedMessage />
+                <form onSubmit={loginForm.handleSubmit(onLogin)}>
+                  <CardContent className="space-y-4 pt-0">
+                    <p className="text-sm font-medium">Already an instructor? Log in below.</p>
+                    <div className="space-y-2">
+                      <Label htmlFor="login-email">Email</Label>
+                      <Input id="login-email" type="email" placeholder="you@university.edu" {...loginForm.register('email')} />
+                      {loginForm.formState.errors.email && (
+                        <p className="text-sm text-destructive">{loginForm.formState.errors.email.message}</p>
+                      )}
                     </div>
-                    {signupForm.formState.errors.password && (
-                      <p className="text-sm text-destructive">{signupForm.formState.errors.password.message}</p>
-                    )}
-                  </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="login-password">Password</Label>
+                      <div className="relative">
+                        <Input id="login-password" type={showPassword ? 'text' : 'password'} placeholder="••••••••" {...loginForm.register('password')} />
+                        <Button type="button" variant="ghost" size="icon" className="absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7" onClick={() => setShowPassword(!showPassword)}>
+                          {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </Button>
+                      </div>
+                      {loginForm.formState.errors.password && (
+                        <p className="text-sm text-destructive">{loginForm.formState.errors.password.message}</p>
+                      )}
+                    </div>
+                    <div className="flex justify-end">
+                      <Link to="/forgot-password" className="text-sm text-primary hover:underline">Forgot password?</Link>
+                    </div>
+                  </CardContent>
+                  <CardFooter>
+                    <Button type="submit" className="w-full" disabled={isLoading}>
+                      {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                      Log In
+                    </Button>
+                  </CardFooter>
+                </form>
+              </TabsContent>
+            </Tabs>
+          ) : (
+            /* Normal student login/signup */
+            <Tabs defaultValue="login" className="w-full">
+              <TabsList className="grid w-full grid-cols-2 mb-6">
+                <TabsTrigger value="login">Login</TabsTrigger>
+                <TabsTrigger value="signup">Sign Up</TabsTrigger>
+              </TabsList>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="signup-confirm">Confirm Password</Label>
-                    <Input id="signup-confirm" type={showPassword ? 'text' : 'password'} placeholder="••••••••" {...signupForm.register('confirmPassword')} />
-                    {signupForm.formState.errors.confirmPassword && (
-                      <p className="text-sm text-destructive">{signupForm.formState.errors.confirmPassword.message}</p>
-                    )}
-                  </div>
-                </CardContent>
-                
-                <CardFooter className="flex-col gap-4">
-                  <Button type="submit" className="w-full" disabled={isLoading}>
-                    {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                    Create Account
-                  </Button>
-                  <p className="text-xs text-muted-foreground text-center">
-                    By signing up, you agree to our Terms of Service and Privacy Policy.
-                  </p>
-                </CardFooter>
-              </form>
-            </TabsContent>
-          </Tabs>
+              <TabsContent value="login">
+                <form onSubmit={loginForm.handleSubmit(onLogin)}>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="login-email">Email</Label>
+                      <Input id="login-email" type="email" placeholder="you@university.edu" {...loginForm.register('email')} />
+                      {loginForm.formState.errors.email && (
+                        <p className="text-sm text-destructive">{loginForm.formState.errors.email.message}</p>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="login-password">Password</Label>
+                      <div className="relative">
+                        <Input id="login-password" type={showPassword ? 'text' : 'password'} placeholder="••••••••" {...loginForm.register('password')} />
+                        <Button type="button" variant="ghost" size="icon" className="absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7" onClick={() => setShowPassword(!showPassword)}>
+                          {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </Button>
+                      </div>
+                      {loginForm.formState.errors.password && (
+                        <p className="text-sm text-destructive">{loginForm.formState.errors.password.message}</p>
+                      )}
+                    </div>
+                    <div className="flex justify-end">
+                      <Link to="/forgot-password" className="text-sm text-primary hover:underline">Forgot password?</Link>
+                    </div>
+                  </CardContent>
+                  <CardFooter className="flex-col gap-4">
+                    <Button type="submit" className="w-full" disabled={isLoading}>
+                      {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                      Log In
+                    </Button>
+                  </CardFooter>
+                </form>
+              </TabsContent>
+
+              <TabsContent value="signup">
+                <form onSubmit={signupForm.handleSubmit(onSignup)}>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="signup-name">Full Name</Label>
+                      <Input id="signup-name" type="text" placeholder="Jane Doe" {...signupForm.register('fullName')} />
+                      {signupForm.formState.errors.fullName && (
+                        <p className="text-sm text-destructive">{signupForm.formState.errors.fullName.message}</p>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="signup-email">Email</Label>
+                      <Input id="signup-email" type="email" placeholder="you@university.edu" {...signupForm.register('email')} />
+                      {signupForm.formState.errors.email && (
+                        <p className="text-sm text-destructive">{signupForm.formState.errors.email.message}</p>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="signup-password">Password</Label>
+                      <div className="relative">
+                        <Input id="signup-password" type={showPassword ? 'text' : 'password'} placeholder="••••••••" {...signupForm.register('password')} />
+                        <Button type="button" variant="ghost" size="icon" className="absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7" onClick={() => setShowPassword(!showPassword)}>
+                          {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </Button>
+                      </div>
+                      {signupForm.formState.errors.password && (
+                        <p className="text-sm text-destructive">{signupForm.formState.errors.password.message}</p>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="signup-confirm">Confirm Password</Label>
+                      <Input id="signup-confirm" type={showPassword ? 'text' : 'password'} placeholder="••••••••" {...signupForm.register('confirmPassword')} />
+                      {signupForm.formState.errors.confirmPassword && (
+                        <p className="text-sm text-destructive">{signupForm.formState.errors.confirmPassword.message}</p>
+                      )}
+                    </div>
+                  </CardContent>
+                  <CardFooter className="flex-col gap-4">
+                    <Button type="submit" className="w-full" disabled={isLoading}>
+                      {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                      Create Account
+                    </Button>
+                    <p className="text-xs text-muted-foreground text-center">
+                      By signing up, you agree to our Terms of Service and Privacy Policy.
+                    </p>
+                  </CardFooter>
+                </form>
+              </TabsContent>
+            </Tabs>
+          )}
         </Card>
       </div>
     </div>
