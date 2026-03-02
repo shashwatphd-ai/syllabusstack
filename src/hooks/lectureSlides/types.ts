@@ -121,6 +121,13 @@ export interface ProfessorSlide {
   audio_url?: string;
   audio_urls?: Record<string, string>;
   audio_duration_seconds?: number;
+  visual_directive?: {
+    type: 'diagram' | 'screenshot' | 'comparison' | 'flowchart' | 'illustration' | 'none';
+    description: string;
+    elements?: string[];
+    style?: string;
+    educational_purpose?: string;
+  };
   visual: {
     type: 'diagram' | 'screenshot' | 'comparison' | 'flowchart' | 'illustration' | 'none';
     url?: string | null;
@@ -129,6 +136,7 @@ export interface ProfessorSlide {
     elements?: string[];
     style?: string;
     educational_purpose?: string;
+    source?: string;
   };
   speaker_notes: string;
   speaker_notes_duration_seconds?: number;

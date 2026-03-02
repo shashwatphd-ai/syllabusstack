@@ -8,7 +8,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { Slide, GenerationProgress } from './types';
+import type { Slide, ProfessorSlide, GenerationProgress } from './types';
 
 /** Max time (ms) to poll before giving up */
 const GENERATION_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
@@ -301,7 +301,7 @@ export function useUpdateLectureSlide() {
       slides,
     }: {
       slideId: string;
-      slides: Slide[];
+      slides: (Slide | ProfessorSlide)[];
     }) => {
       const { data, error } = await supabase
         .from('lecture_slides')
