@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { InviteColleagues } from '@/components/instructor/InviteColleagues';
 import { Plus, BookOpen, Users, ChevronRight, MoreVertical, Copy, Trash2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { VerificationBanner, useVerificationStatus } from '@/components/instructor/VerificationBanner';
@@ -298,6 +299,11 @@ export default function InstructorCoursesPage() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        {/* Invite Colleagues */}
+        <div className="mt-8">
+          <InviteColleagues />
+        </div>
       </PageContainer>
     </AppShell>
   );
