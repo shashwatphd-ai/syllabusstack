@@ -35,6 +35,7 @@ interface SlideRendererProps {
   activeBlockId?: string | null; // For audio-visual sync highlighting
   citations?: Citation[]; // Research context citations for [Source N] rendering
   layout?: SlideLayout; // Portrait = side-by-side, Landscape = stacked 16:9 image
+  interactiveVisuals?: boolean; // Disable image lightbox/zoom controls in presentation mode
 }
 
 // Helper to normalize key_points to always have text and optional layout_hint
@@ -199,7 +200,8 @@ export function SlideRenderer({
   className,
   activeBlockId = null,
   citations = [],
-  layout = 'portrait'
+  layout = 'portrait',
+  interactiveVisuals = true,
 }: SlideRendererProps) {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [signedImageUrl, setSignedImageUrl] = useState('');
@@ -273,6 +275,7 @@ export function SlideRenderer({
 
   // Open lightbox with signed image URL
   const openLightbox = () => {
+    if (!interactiveVisuals) return;
     if (signedImageUrl) {
       setLightboxOpen(true);
     }
@@ -372,10 +375,12 @@ export function SlideRenderer({
                     bucket="lecture-visuals"
                     onSignedUrlReady={setSignedImageUrl}
                   />
-                  <div className="absolute top-2 right-2 p-1.5 rounded-md bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
-                    <Maximize2 className="h-3.5 w-3.5" />
-                    <span className="text-xs">Click to expand</span>
-                  </div>
+                  {interactiveVisuals && (
+                    <div className="absolute top-2 right-2 p-1.5 rounded-md bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                      <Maximize2 className="h-3.5 w-3.5" />
+                      <span className="text-xs">Click to expand</span>
+                    </div>
+                  )}
                   {(slide.visual as any).source && (
                     <p className="text-[10px] text-muted-foreground text-center py-1 bg-muted/50">Source: {(slide.visual as any).source}</p>
                   )}
@@ -544,11 +549,12 @@ export function SlideRenderer({
                     bucket="lecture-visuals"
                     onSignedUrlReady={setSignedImageUrl}
                   />
-                  {/* Click to expand hint */}
-                  <div className="absolute top-2 right-2 p-1.5 rounded-md bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
-                    <Maximize2 className="h-3.5 w-3.5" />
-                    <span className="text-xs">Click to expand</span>
-                  </div>
+                  {interactiveVisuals && (
+                    <div className="absolute top-2 right-2 p-1.5 rounded-md bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                      <Maximize2 className="h-3.5 w-3.5" />
+                      <span className="text-xs">Click to expand</span>
+                    </div>
+                  )}
                   {(slide.visual as any).source && (
                     <p className="text-[10px] text-muted-foreground text-center py-1 bg-muted/50">Source: {(slide.visual as any).source}</p>
                   )}
@@ -622,12 +628,14 @@ export function SlideRenderer({
       )}
 
       {/* Image Lightbox */}
-      <ImageLightbox
-        src={signedImageUrl}
-        alt={enhanced && slide.visual?.alt_text || 'Slide visual'}
-        isOpen={lightboxOpen}
-        onClose={() => setLightboxOpen(false)}
-      />
+      {interactiveVisuals && (
+        <ImageLightbox
+          src={signedImageUrl}
+          alt={enhanced && slide.visual?.alt_text || 'Slide visual'}
+          isOpen={lightboxOpen}
+          onClose={() => setLightboxOpen(false)}
+        />
+      )}
     </div>
     </TooltipProvider>
   );

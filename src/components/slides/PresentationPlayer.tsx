@@ -203,12 +203,12 @@ export function PresentationPlayer({
   return (
     <div
       ref={containerRef}
-      className="flex-1 flex flex-col bg-black relative select-none"
+      className="flex-1 flex flex-col bg-black relative isolate select-none"
       onMouseMove={resetControlsTimer}
       onClick={resetControlsTimer}
     >
       {/* Slide content — centered in dark background, with bottom padding for controls */}
-      <div className="flex-1 flex items-center justify-center p-4 sm:p-8 pb-32 overflow-hidden">
+      <div className="flex-1 relative z-0 flex items-center justify-center p-4 sm:p-8 pb-32 overflow-hidden">
         {currentSlide && (
           <div className="w-full max-w-4xl">
             <SlideRenderer
@@ -219,7 +219,8 @@ export function PresentationPlayer({
               activeBlockId={activeBlockId}
               citations={citations}
               layout="landscape"
-              className="rounded-lg shadow-2xl"
+              className="rounded-lg shadow-2xl" 
+              interactiveVisuals={false}
             />
           </div>
         )}
@@ -229,7 +230,7 @@ export function PresentationPlayer({
       <Button
         variant="ghost"
         size="icon"
-        className="absolute top-3 right-3 z-50 text-white/80 hover:text-white hover:bg-white/20 h-9 w-9"
+        className="absolute top-3 right-3 z-[120] text-white/80 hover:text-white hover:bg-white/20 h-9 w-9"
         onClick={onClose}
         aria-label="Close presentation"
       >
@@ -238,13 +239,13 @@ export function PresentationPlayer({
 
       {/* Title overlay — top left */}
       {title && (
-        <div className="absolute top-3 left-4 z-50">
+        <div className="absolute top-3 left-4 z-[120]">
           <span className="text-white/70 text-sm font-medium truncate max-w-[60vw] block">{title}</span>
         </div>
       )}
 
       {/* Video-style bottom controls — always visible */}
-      <div className="absolute bottom-0 left-0 right-0 z-50">
+      <div className="absolute bottom-0 left-0 right-0 z-[120]">
         {/* Gradient fade */}
         <div className="h-24 bg-gradient-to-t from-black/80 to-transparent" />
 
