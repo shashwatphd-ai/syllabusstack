@@ -24,6 +24,7 @@ import {
   VolumeX,
   Maximize2,
   Minimize2,
+  X,
 } from 'lucide-react';
 
 interface PresentationPlayerProps {
@@ -41,6 +42,8 @@ interface PresentationPlayerProps {
   citations: Citation[];
   activeBlockId: string | null;
   onComplete: () => void;
+  onClose: () => void;
+  title?: string;
 }
 
 export function PresentationPlayer({
@@ -58,8 +61,9 @@ export function PresentationPlayer({
   citations,
   activeBlockId,
   onComplete,
+  onClose,
+  title,
 }: PresentationPlayerProps) {
-  const [showControls, setShowControls] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const controlsTimerRef = useRef<NodeJS.Timeout | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -113,7 +117,7 @@ export function PresentationPlayer({
 
   // Keep controls always visible (no auto-hide)
   const resetControlsTimer = useCallback(() => {
-    setShowControls(true);
+    // Controls are always visible — no-op kept for onMouseMove handler
   }, []);
 
   useEffect(() => {
@@ -203,8 +207,8 @@ export function PresentationPlayer({
       onMouseMove={resetControlsTimer}
       onClick={resetControlsTimer}
     >
-      {/* Slide content — centered in dark background */}
-      <div className="flex-1 flex items-center justify-center p-4 sm:p-8 overflow-hidden">
+      {/* Slide content — centered in dark background, with bottom padding for controls */}
+      <div className="flex-1 flex items-center justify-center p-4 sm:p-8 pb-32 overflow-hidden">
         {currentSlide && (
           <div className="w-full max-w-4xl">
             <SlideRenderer
@@ -221,14 +225,26 @@ export function PresentationPlayer({
         )}
       </div>
 
-      {/* Chapter markers overlay on progress bar */}
-      {/* Video-style bottom controls */}
-      <div
-        className={cn(
-          "absolute bottom-0 left-0 right-0 z-50 transition-opacity duration-300",
-          showControls ? "opacity-100" : "opacity-0 pointer-events-none"
-        )}
+      {/* Close button — top right */}
+      <Button
+        variant="ghost"
+        size="icon"
+        className="absolute top-3 right-3 z-50 text-white/80 hover:text-white hover:bg-white/20 h-9 w-9"
+        onClick={onClose}
+        aria-label="Close presentation"
       >
+        <X className="h-5 w-5" />
+      </Button>
+
+      {/* Title overlay — top left */}
+      {title && (
+        <div className="absolute top-3 left-4 z-50">
+          <span className="text-white/70 text-sm font-medium truncate max-w-[60vw] block">{title}</span>
+        </div>
+      )}
+
+      {/* Video-style bottom controls — always visible */}
+      <div className="absolute bottom-0 left-0 right-0 z-50">
         {/* Gradient fade */}
         <div className="h-24 bg-gradient-to-t from-black/80 to-transparent" />
 
