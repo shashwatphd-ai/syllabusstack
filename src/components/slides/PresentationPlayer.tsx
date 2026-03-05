@@ -111,14 +111,10 @@ export function PresentationPlayer({
     return (elapsed / totalDuration) * 100;
   }, [currentSlideIndex, slideAudioProgress, slideStartTimes, slideDurations, totalDuration]);
 
-  // Auto-hide controls after 3s of no mouse movement
+  // Keep controls always visible (no auto-hide)
   const resetControlsTimer = useCallback(() => {
     setShowControls(true);
-    if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current);
-    controlsTimerRef.current = setTimeout(() => {
-      if (isAudioPlaying) setShowControls(false);
-    }, 3000);
-  }, [isAudioPlaying]);
+  }, []);
 
   useEffect(() => {
     return () => {
