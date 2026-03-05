@@ -12,6 +12,7 @@ import {
   X, 
   Play,
   Pause,
+  Clapperboard,
   MessageSquare,
   Volume2,
   VolumeX,
@@ -22,6 +23,7 @@ import {
 } from 'lucide-react';
 import { SlideRenderer, type SlideLayout } from './SlideRenderer';
 import { NarratedScrollViewer } from './NarratedScrollViewer';
+import { PresentationPlayer } from './PresentationPlayer';
 import { VoicePicker } from './VoicePicker';
 import type { LectureSlide, Slide, ProfessorSlide, EnhancedSlide } from '@/hooks/useLectureSlides';
 import type { Citation } from '@/lib/citationParser';
@@ -54,7 +56,7 @@ export function StudentSlideViewer({
   onComplete
 }: StudentSlideViewerProps) {
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
-  const [viewMode, setViewMode] = useState<'scroll' | 'slides'>('scroll');
+  const [viewMode, setViewMode] = useState<'scroll' | 'slides' | 'presentation'>('scroll');
   const [showSpeakerNotes, setShowSpeakerNotes] = useState(false);
   const [isAutoPlaying, setIsAutoPlaying] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(true);
@@ -494,25 +496,38 @@ export function StudentSlideViewer({
             )}
 
             {/* View mode toggle */}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setViewMode(prev => prev === 'scroll' ? 'slides' : 'scroll')}
-              className="gap-1 px-2 sm:px-3"
-              title={viewMode === 'scroll' ? 'Switch to slide view' : 'Switch to scroll view'}
-            >
-              {viewMode === 'scroll' ? (
-                <>
-                  <LayoutGrid className="h-4 w-4" />
-                  <span className="hidden sm:inline">Slides</span>
-                </>
-              ) : (
-                <>
-                  <ScrollText className="h-4 w-4" />
-                  <span className="hidden sm:inline">Scroll</span>
-                </>
-              )}
-            </Button>
+            <div className="flex items-center border rounded-md">
+              <Button
+                variant={viewMode === 'scroll' ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setViewMode('scroll')}
+                className="gap-1 px-2 sm:px-3 rounded-r-none"
+                title="Scroll view"
+              >
+                <ScrollText className="h-4 w-4" />
+                <span className="hidden sm:inline">Scroll</span>
+              </Button>
+              <Button
+                variant={viewMode === 'slides' ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setViewMode('slides')}
+                className="gap-1 px-2 sm:px-3 rounded-none border-x"
+                title="Slide view"
+              >
+                <LayoutGrid className="h-4 w-4" />
+                <span className="hidden sm:inline">Slides</span>
+              </Button>
+              <Button
+                variant={viewMode === 'presentation' ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setViewMode('presentation')}
+                className="gap-1 px-2 sm:px-3 rounded-l-none"
+                title="Presentation mode (cinema)"
+              >
+                <Clapperboard className="h-4 w-4" />
+                <span className="hidden sm:inline">Presentation</span>
+              </Button>
+            </div>
 
             {/* Layout toggle (portrait/landscape) - only in slides mode */}
             {viewMode === 'slides' && (
@@ -568,7 +583,28 @@ export function StudentSlideViewer({
 
       {/* Main content area */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {viewMode === 'scroll' ? (
+        {viewMode === 'presentation' ? (
+          /* Cinema / Presentation Mode */
+          <PresentationPlayer
+            lectureSlide={lectureSlide}
+            slides={slides}
+            currentSlideIndex={currentSlideIndex}
+            onSlideChange={(index) => {
+              if (audioRef.current) audioRef.current.pause();
+              setCurrentSlideIndex(index);
+            }}
+            isAudioPlaying={isAudioPlaying}
+            audioRef={audioRef}
+            audioEnabled={audioEnabled}
+            onToggleAudio={toggleAudio}
+            selectedVoice={selectedVoice}
+            onVoiceChange={handleVoiceChange}
+            hasAudio={lectureSlide.has_audio || false}
+            citations={citations}
+            activeBlockId={activeBlockId}
+            onComplete={handleComplete}
+          />
+        ) : viewMode === 'scroll' ? (
           /* Narrated Scroll Mode */
           <NarratedScrollViewer
             slides={slides}
@@ -598,16 +634,16 @@ export function StudentSlideViewer({
           </div>
         )}
 
-        {/* Audio playing indicator */}
-        {isAudioPlaying && (
+        {/* Audio playing indicator - hidden in presentation mode (has its own controls) */}
+        {isAudioPlaying && viewMode !== 'presentation' && (
           <div className="flex items-center justify-center gap-2 py-2 bg-primary/10 text-primary text-sm">
             <Volume2 className="h-4 w-4 animate-pulse" />
             <span>Professor narration playing...</span>
           </div>
         )}
 
-        {/* Navigation footer */}
-        {viewMode === 'slides' ? (
+        {/* Navigation footer — hidden in presentation mode (has its own controls) */}
+        {viewMode === 'presentation' ? null : viewMode === 'slides' ? (
           /* Classic slide navigation */
           <div className="flex items-center justify-between px-3 sm:px-6 py-3 sm:py-4 border-t bg-background/95">
             <Button
