@@ -425,8 +425,8 @@ export function StudentSlideViewer({
 
   return (
     <div className="fixed inset-0 z-50 bg-background flex flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between px-2 sm:px-4 py-2 sm:py-3 border-b bg-background/95 backdrop-blur">
+      {/* Header — hidden in presentation mode (PresentationPlayer has its own chrome) */}
+      <div className={cn("flex items-center justify-between px-2 sm:px-4 py-2 sm:py-3 border-b bg-background/95 backdrop-blur", viewMode === 'presentation' && 'hidden')}>
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <h3 className="font-semibold truncate max-w-[35vw] sm:max-w-md text-sm sm:text-base">{unitTitle}</h3>
           <span className="hidden sm:inline text-sm text-muted-foreground">
@@ -603,6 +603,8 @@ export function StudentSlideViewer({
             citations={citations}
             activeBlockId={activeBlockId}
             onComplete={handleComplete}
+            onClose={handleClose}
+            title={unitTitle}
           />
         ) : viewMode === 'scroll' ? (
           /* Narrated Scroll Mode */
