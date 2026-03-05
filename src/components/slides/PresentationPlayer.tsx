@@ -230,7 +230,7 @@ export function PresentationPlayer({
       <Button
         variant="ghost"
         size="icon"
-        className="absolute top-3 right-3 z-[120] text-white/80 hover:text-white hover:bg-white/20 h-9 w-9"
+        className="absolute top-3 right-3 z-[120] text-white/90 hover:text-white bg-black/60 hover:bg-black/75 h-9 w-9 rounded-full"
         onClick={onClose}
         aria-label="Close presentation"
       >
@@ -282,9 +282,9 @@ export function PresentationPlayer({
             />
           </div>
 
-          {/* Controls row */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
+          {/* Controls */}
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-1.5 sm:gap-2">
               {/* Play/Pause */}
               <Button
                 variant="ghost"
@@ -300,7 +300,7 @@ export function PresentationPlayer({
               <Button
                 variant="ghost"
                 size="icon"
-                className="text-white/70 hover:text-white hover:bg-white/20 h-8 w-8"
+                className="text-white/80 hover:text-white hover:bg-white/20 h-8 w-8"
                 onClick={handlePrev}
                 disabled={currentSlideIndex === 0}
               >
@@ -309,31 +309,31 @@ export function PresentationPlayer({
               <Button
                 variant="ghost"
                 size="icon"
-                className="text-white/70 hover:text-white hover:bg-white/20 h-8 w-8"
+                className="text-white/80 hover:text-white hover:bg-white/20 h-8 w-8"
                 onClick={handleNext}
               >
                 <SkipForward className="h-4 w-4" />
               </Button>
 
               {/* Time display */}
-              <span className="text-white/70 text-sm font-mono ml-2">
+              <span className="text-white/70 text-xs sm:text-sm font-mono ml-1 sm:ml-2 whitespace-nowrap">
                 {formatTime(currentTime)} / {formatTime(totalDuration)}
               </span>
 
               {/* Slide counter */}
-              <span className="text-white/50 text-sm ml-3">
-                Slide {currentSlideIndex + 1} of {slides.length}
+              <span className="text-white/50 text-xs sm:text-sm ml-2 whitespace-nowrap">
+                {currentSlideIndex + 1}/{slides.length}
               </span>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2">
               {/* Reader On/Off (Audio toggle) */}
               {hasAudio && (
                 <Button
                   variant="ghost"
                   size="sm"
                   className={cn(
-                    "text-sm gap-1.5 h-8",
+                    "text-xs sm:text-sm gap-1.5 h-8 px-2 sm:px-3",
                     audioEnabled
                       ? "text-white hover:text-white hover:bg-white/20"
                       : "text-white/40 hover:text-white/60 hover:bg-white/20"
@@ -347,16 +347,18 @@ export function PresentationPlayer({
                 </Button>
               )}
 
-              {/* Voice picker */}
+              {/* Voice picker (desktop/tablet only to avoid mobile overflow clipping) */}
               {hasAudio && audioEnabled && (
-                <VoicePicker value={selectedVoice} onValueChange={onVoiceChange} />
+                <div className="hidden sm:block">
+                  <VoicePicker value={selectedVoice} onValueChange={onVoiceChange} />
+                </div>
               )}
 
               {/* Fullscreen */}
               <Button
                 variant="ghost"
                 size="icon"
-                className="text-white/70 hover:text-white hover:bg-white/20 h-8 w-8"
+                className="text-white/80 hover:text-white hover:bg-white/20 h-8 w-8"
                 onClick={toggleFullscreen}
               >
                 {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
