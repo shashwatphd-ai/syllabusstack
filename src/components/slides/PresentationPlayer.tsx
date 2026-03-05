@@ -203,7 +203,7 @@ export function PresentationPlayer({
   return (
     <div
       ref={containerRef}
-      className="flex-1 flex flex-col bg-black relative isolate select-none"
+      className="fixed inset-0 z-[70] flex flex-col bg-black isolate select-none"
       onMouseMove={resetControlsTimer}
       onClick={resetControlsTimer}
     >
