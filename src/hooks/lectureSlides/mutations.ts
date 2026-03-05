@@ -319,6 +319,8 @@ export function useUpdateLectureSlide() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['lecture-slides', data.teaching_unit_id] });
       queryClient.invalidateQueries({ queryKey: ['course-lecture-slides'] });
+      queryClient.invalidateQueries({ queryKey: ['published-lecture-slides'] });
+      queryClient.invalidateQueries({ queryKey: ['lecture-slide', data.id] });
 
       toast({
         title: 'Slides Updated',
