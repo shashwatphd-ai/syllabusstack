@@ -2356,13 +2356,6 @@ export type Database = {
             foreignKeyName: "instructor_invitations_accepted_by_fkey"
             columns: ["accepted_by"]
             isOneToOne: false
-            referencedRelation: "profiles_public"
-            referencedColumns: ["user_id"]
-          },
-          {
-            foreignKeyName: "instructor_invitations_accepted_by_fkey"
-            columns: ["accepted_by"]
-            isOneToOne: false
             referencedRelation: "profiles_safe"
             referencedColumns: ["user_id"]
           },
@@ -2378,13 +2371,6 @@ export type Database = {
             columns: ["inviter_id"]
             isOneToOne: false
             referencedRelation: "profiles_minimal"
-            referencedColumns: ["user_id"]
-          },
-          {
-            foreignKeyName: "instructor_invitations_inviter_id_fkey"
-            columns: ["inviter_id"]
-            isOneToOne: false
-            referencedRelation: "profiles_public"
             referencedColumns: ["user_id"]
           },
           {
@@ -3446,13 +3432,6 @@ export type Database = {
             foreignKeyName: "profiles_invited_by_fkey"
             columns: ["invited_by"]
             isOneToOne: false
-            referencedRelation: "profiles_public"
-            referencedColumns: ["user_id"]
-          },
-          {
-            foreignKeyName: "profiles_invited_by_fkey"
-            columns: ["invited_by"]
-            isOneToOne: false
             referencedRelation: "profiles_safe"
             referencedColumns: ["user_id"]
           },
@@ -4371,78 +4350,6 @@ export type Database = {
           avatar_url?: string | null
           full_name?: string | null
           id?: string | null
-          user_id?: string | null
-        }
-        Relationships: []
-      }
-      profiles_public: {
-        Row: {
-          ai_calls_reset_at: string | null
-          ai_calls_this_month: number | null
-          avatar_url: string | null
-          created_at: string | null
-          email: string | null
-          full_name: string | null
-          graduation_year: number | null
-          id: string | null
-          last_active_at: string | null
-          major: string | null
-          onboarding_completed: boolean | null
-          onboarding_step: number | null
-          preferences: Json | null
-          student_level: string | null
-          subscription_ends_at: string | null
-          subscription_started_at: string | null
-          subscription_status: string | null
-          subscription_tier: string | null
-          university: string | null
-          updated_at: string | null
-          user_id: string | null
-        }
-        Insert: {
-          ai_calls_reset_at?: string | null
-          ai_calls_this_month?: number | null
-          avatar_url?: string | null
-          created_at?: string | null
-          email?: string | null
-          full_name?: string | null
-          graduation_year?: number | null
-          id?: string | null
-          last_active_at?: string | null
-          major?: string | null
-          onboarding_completed?: boolean | null
-          onboarding_step?: number | null
-          preferences?: Json | null
-          student_level?: string | null
-          subscription_ends_at?: string | null
-          subscription_started_at?: string | null
-          subscription_status?: string | null
-          subscription_tier?: string | null
-          university?: string | null
-          updated_at?: string | null
-          user_id?: string | null
-        }
-        Update: {
-          ai_calls_reset_at?: string | null
-          ai_calls_this_month?: number | null
-          avatar_url?: string | null
-          created_at?: string | null
-          email?: string | null
-          full_name?: string | null
-          graduation_year?: number | null
-          id?: string | null
-          last_active_at?: string | null
-          major?: string | null
-          onboarding_completed?: boolean | null
-          onboarding_step?: number | null
-          preferences?: Json | null
-          student_level?: string | null
-          subscription_ends_at?: string | null
-          subscription_started_at?: string | null
-          subscription_status?: string | null
-          subscription_tier?: string | null
-          university?: string | null
-          updated_at?: string | null
           user_id?: string | null
         }
         Relationships: []
