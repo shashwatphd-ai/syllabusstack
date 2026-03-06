@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
-import { Download, Loader2, Check, Copy } from 'lucide-react';
+import { Download, Loader2, Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   renderLectureVideo,
@@ -11,6 +11,8 @@ import {
   type ExportProgress,
 } from '@/lib/videoExporter';
 import type { Slide, EnhancedSlide, ProfessorSlide } from '@/hooks/useLectureSlides';
+
+const ALL_VOICES = ['Charon', 'Leda', 'Fenrir', 'Kore', 'Puck', 'Aoede'] as const;
 
 interface VideoExportButtonProps {
   slides: (Slide | EnhancedSlide | ProfessorSlide)[];
@@ -29,6 +31,9 @@ export function VideoExportButton({
 }: VideoExportButtonProps) {
   const [exporting, setExporting] = useState(false);
   const [progress, setProgress] = useState<ExportProgress | null>(null);
+  const [currentVoiceLabel, setCurrentVoiceLabel] = useState('');
+  const [voiceIndex, setVoiceIndex] = useState(0);
+  const [totalVoices, setTotalVoices] = useState(0);
   const [chapterMarkers, setChapterMarkers] = useState<string | null>(null);
 
   const handleExport = useCallback(async () => {
@@ -38,46 +43,74 @@ export function VideoExportButton({
     }
 
     setExporting(true);
-    setProgress({ phase: 'preparing', currentSlide: 0, totalSlides: slides.length, percent: 0 });
 
     try {
-      // Map slides to VideoSlide format
-      const videoSlides: VideoSlide[] = slides.map((s: any) => {
-        const audioUrls = s.audio_urls as Record<string, string> | undefined;
-        const audioUrl = audioUrls?.[selectedVoice] || s.audio_url;
-        // Image URL can be nested in visual.url (enhanced slides) or flat
-        const imageUrl = s.visual?.url || s.image_url || s.imageUrl || '';
+      // Detect all voices that have audio across slides
+      const availableVoices = ALL_VOICES.filter((voice) =>
+        slides.some((s: any) => {
+          const audioUrls = s.audio_urls as Record<string, string> | undefined;
+          return audioUrls?.[voice];
+        })
+      );
 
-        return {
-          title: s.title,
-          imageUrl,
-          audioUrl: audioUrl || undefined,
-          durationSeconds: s.audio_duration_seconds || s.estimated_seconds || 30,
-          speakerNotes: s.speaker_notes || s.notes || '',
-          content: s.content || undefined,
-          segmentMap: s.audio_segment_map || undefined,
-        };
-      });
+      // Fallback: if no multi-voice data, use the selected voice only
+      const voicesToExport = availableVoices.length > 0 ? availableVoices : [selectedVoice];
+      setTotalVoices(voicesToExport.length);
 
-      const result = await renderLectureVideo(videoSlides, branding, selectedVoice, setProgress);
+      let lastChapterMarkers = '';
 
-      // Download the video
-      const url = URL.createObjectURL(result.videoBlob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = result.filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      for (let vi = 0; vi < voicesToExport.length; vi++) {
+        const voice = voicesToExport[vi];
+        setVoiceIndex(vi + 1);
+        setCurrentVoiceLabel(voice);
 
-      setChapterMarkers(result.chapterMarkers);
-      toast.success('Video exported! Chapter markers are ready to copy.');
+        const videoSlides: VideoSlide[] = slides.map((s: any) => {
+          const audioUrls = s.audio_urls as Record<string, string> | undefined;
+          const audioUrl = audioUrls?.[voice] || s.audio_url;
+          const imageUrl = s.visual?.url || s.image_url || s.imageUrl || '';
+
+          return {
+            title: s.title,
+            imageUrl,
+            audioUrl: audioUrl || undefined,
+            durationSeconds: s.audio_duration_seconds || s.estimated_seconds || 30,
+            speakerNotes: s.speaker_notes || s.notes || '',
+            content: s.content || undefined,
+            segmentMap: s.audio_segment_map || undefined,
+          };
+        });
+
+        const result = await renderLectureVideo(videoSlides, branding, voice, (p) => {
+          setProgress(p);
+        });
+
+        // Download the video
+        const url = URL.createObjectURL(result.videoBlob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = result.filename.replace('.webm', `_${voice}.webm`);
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        lastChapterMarkers = result.chapterMarkers;
+      }
+
+      setChapterMarkers(lastChapterMarkers);
+      toast.success(
+        voicesToExport.length > 1
+          ? `${voicesToExport.length} voice videos exported!`
+          : 'Video exported! Chapter markers are ready to copy.'
+      );
     } catch (err) {
       console.error('Video export failed:', err);
       toast.error('Video export failed. Please try again.');
     } finally {
       setExporting(false);
+      setCurrentVoiceLabel('');
+      setVoiceIndex(0);
+      setTotalVoices(0);
     }
   }, [slides, branding, selectedVoice, hasAudio]);
 
@@ -94,6 +127,7 @@ export function VideoExportButton({
         <Badge variant="outline" className="gap-1.5 px-3 py-1.5">
           <Loader2 className="h-3 w-3 animate-spin" />
           <span className="text-xs">
+            {totalVoices > 1 && `[${voiceIndex}/${totalVoices} ${currentVoiceLabel}] `}
             {progress.phase === 'preparing' && `Loading ${progress.currentSlide}/${progress.totalSlides}...`}
             {progress.phase === 'rendering' && `Rendering ${progress.currentSlide}/${progress.totalSlides}...`}
             {progress.phase === 'encoding' && 'Encoding...'}
@@ -111,7 +145,7 @@ export function VideoExportButton({
         size="sm"
         onClick={handleExport}
         disabled={disabled || !hasAudio}
-        title={hasAudio ? 'Download branded video for YouTube' : 'Generate audio first'}
+        title={hasAudio ? 'Download branded videos for all voices' : 'Generate audio first'}
       >
         <Download className="h-4 w-4" />
         <span className="hidden sm:inline ml-1">Video</span>
