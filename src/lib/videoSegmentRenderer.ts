@@ -2,8 +2,8 @@
  * Segment-Driven Video Renderer
  *
  * Renders dynamic sub-scenes within each slide based on the audio_segment_map.
- * Each segment gets unique Ken Burns motion, animated text overlays, and
- * cross-fade transitions — producing professional educational video output.
+ * Each segment gets unique Ken Burns motion and a compact bottom overlay
+ * with progressive reveal for key points.
  */
 
 const WIDTH = 1920;
@@ -38,14 +38,13 @@ export interface VideoSegment {
 interface KenBurnsParams {
   startScale: number;
   endScale: number;
-  originX: number; // 0–1 normalized
-  originY: number; // 0–1 normalized
-  panX: number; // pixels to pan
+  originX: number;
+  originY: number;
+  panX: number;
   panY: number;
 }
 
-/** Deterministic variety — each segment index yields a different motion */
-function getSegmentKenBurns(segmentIndex: number, totalSegments: number): KenBurnsParams {
+function getSegmentKenBurns(segmentIndex: number): KenBurnsParams {
   const presets: KenBurnsParams[] = [
     { startScale: 1.0, endScale: 1.06, originX: 0.5, originY: 0.5, panX: 0, panY: 0 },
     { startScale: 1.04, endScale: 1.04, originX: 0.5, originY: 0.5, panX: -30, panY: 0 },
@@ -59,32 +58,25 @@ function getSegmentKenBurns(segmentIndex: number, totalSegments: number): KenBur
   return presets[segmentIndex % presets.length];
 }
 
-/**
- * Draw the slide image with per-segment Ken Burns motion.
- */
 export function drawSegmentKenBurns(
   ctx: CanvasRenderingContext2D,
   img: HTMLImageElement,
   segmentIndex: number,
-  totalSegments: number,
-  progress: number // 0–1 within this segment
+  _totalSegments: number,
+  progress: number
 ) {
-  const kb = getSegmentKenBurns(segmentIndex, totalSegments);
-
+  const kb = getSegmentKenBurns(segmentIndex);
   const scale = kb.startScale + (kb.endScale - kb.startScale) * progress;
   const panX = kb.panX * progress;
   const panY = kb.panY * progress;
 
   ctx.save();
-
-  // Translate to zoom origin, scale, translate back, then apply pan
   const ox = kb.originX * WIDTH;
   const oy = kb.originY * HEIGHT;
   ctx.translate(ox + panX, oy + panY);
   ctx.scale(scale, scale);
   ctx.translate(-ox, -oy);
 
-  // Draw image covering the canvas (same logic as existing drawSlideFrame)
   const imgAspect = img.width / img.height;
   const canvasAspect = WIDTH / HEIGHT;
   let drawW: number, drawH: number, drawX: number, drawY: number;
@@ -105,9 +97,9 @@ export function drawSegmentKenBurns(
   ctx.restore();
 }
 
-// ─── Text overlay cards ─────────────────────────────────────────────────────
+// ─── Compact bottom overlay ─────────────────────────────────────────────────
 
-/** Word-wrap helper returning lines */
+/** Word-wrap helper */
 function wrapText(
   ctx: CanvasRenderingContext2D,
   text: string,
@@ -132,249 +124,240 @@ function wrapText(
   return lines;
 }
 
-/** Draw a rounded-rect card with semi-transparent background */
 function drawCard(
   ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  bgColor: string,
-  borderColor?: string
+  x: number, y: number, w: number, h: number,
+  bgColor: string, borderColor?: string, borderRadius = 12
 ) {
   ctx.fillStyle = bgColor;
   ctx.beginPath();
-  ctx.roundRect(x, y, w, h, 16);
+  ctx.roundRect(x, y, w, h, borderRadius);
   ctx.fill();
-
   if (borderColor) {
     ctx.strokeStyle = borderColor;
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.roundRect(x, y, w, h, 16);
+    ctx.roundRect(x, y, w, h, borderRadius);
     ctx.stroke();
   }
 }
 
 /**
- * Draw the text overlay for the currently active segment.
- * fadeProgress: 0→1 for fade-in
+ * Draw a compact bottom overlay for the active segment.
+ * Key points use progressive reveal (only show up to active index).
+ * All overlays sit at the bottom to avoid covering the slide image.
  */
 export function drawSegmentOverlay(
   ctx: CanvasRenderingContext2D,
   segment: VideoSegment,
   content: SlideContent,
-  slideTitle: string,
+  _slideTitle: string,
   fadeProgress: number
 ) {
   ctx.globalAlpha = Math.min(1, fadeProgress);
 
   const block = segment.target_block;
-  const cardX = WIDTH * 0.55;
-  const cardW = WIDTH * 0.40;
-  const cardY = HEIGHT * 0.12;
 
   if (block === 'main_text' && content.main_text) {
-    drawMainTextOverlay(ctx, slideTitle, content.main_text, fadeProgress);
+    drawCompactMainText(ctx, content.main_text);
   } else if (block.startsWith('key_point_')) {
     const idx = parseInt(block.replace('key_point_', ''), 10);
-    drawKeyPointOverlay(ctx, content.key_points, idx, cardX, cardY, cardW);
+    drawProgressiveKeyPoint(ctx, content.key_points, idx);
   } else if (block === 'definition' && content.definition) {
-    drawDefinitionOverlay(ctx, content.definition, cardX, cardY, cardW);
+    drawCompactDefinition(ctx, content.definition);
   } else if (block === 'example' && content.example) {
-    drawExampleOverlay(ctx, content.example, cardX, cardY, cardW);
+    drawCompactExample(ctx, content.example);
   } else if (block.startsWith('step_') && content.steps) {
     const stepNum = parseInt(block.replace('step_', ''), 10);
-    drawStepOverlay(ctx, content.steps, stepNum, cardX, cardY, cardW);
+    drawCompactStep(ctx, content.steps, stepNum);
   }
 
   ctx.globalAlpha = 1;
 }
 
-function drawMainTextOverlay(
-  ctx: CanvasRenderingContext2D,
-  title: string,
-  mainText: string,
-  _fade: number
-) {
-  // Bottom-center overlay for title + main text
-  const cardW = WIDTH * 0.7;
+// ─── Individual overlay renderers (compact, bottom-positioned) ──────────────
+
+function drawCompactMainText(ctx: CanvasRenderingContext2D, text: string) {
+  const cardW = WIDTH * 0.6;
   const cardX = (WIDTH - cardW) / 2;
-  const maxTextW = cardW - 48;
+  const maxW = cardW - 40;
+  const lines = wrapText(ctx, text, maxW, 20);
+  const visibleLines = lines.slice(0, 3);
+  const cardH = 24 + visibleLines.length * 28;
+  const cardY = HEIGHT - 80 - cardH;
 
-  const lines = wrapText(ctx, mainText, maxTextW, 22);
-  const cardH = Math.min(280, 80 + lines.length * 30);
-  const cardY = HEIGHT - cardH - 80;
+  drawCard(ctx, cardX, cardY, cardW, cardH, 'rgba(0, 0, 0, 0.65)', undefined, 10);
 
-  drawCard(ctx, cardX, cardY, cardW, cardH, 'rgba(0, 0, 0, 0.7)', 'rgba(245, 167, 66, 0.4)');
-
-  // Title
-  ctx.fillStyle = '#F5A742';
-  ctx.font = 'bold 26px "Inter", system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+  ctx.font = '20px "Inter", system-ui, sans-serif';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
-  ctx.fillText(title, cardX + 24, cardY + 20, maxTextW);
-
-  // Main text
-  ctx.fillStyle = '#ffffff';
-  ctx.font = '22px "Inter", system-ui, sans-serif';
-  lines.forEach((line, i) => {
-    if (i < 6) {
-      ctx.fillText(line, cardX + 24, cardY + 56 + i * 30, maxTextW);
-    }
+  visibleLines.forEach((line, i) => {
+    ctx.fillText(line, cardX + 20, cardY + 12 + i * 28, maxW);
   });
 }
 
-function drawKeyPointOverlay(
+/**
+ * Progressive key point: shows only the current active point
+ * as a single compact card at the bottom.
+ */
+function drawProgressiveKeyPoint(
   ctx: CanvasRenderingContext2D,
   keyPoints: SlideContent['key_points'],
-  activeIndex: number,
-  cardX: number,
-  cardY: number,
-  cardW: number
+  activeIndex: number
 ) {
   if (!keyPoints?.length) return;
 
-  const lineHeight = 36;
-  const padding = 24;
-  const cardH = Math.min(400, padding * 2 + keyPoints.length * (lineHeight + 12) + 20);
+  const point = keyPoints[activeIndex];
+  if (!point) return;
+  const text = typeof point === 'string' ? point : point.text;
+  const total = keyPoints.length;
 
-  drawCard(ctx, cardX, cardY, cardW, cardH, 'rgba(0, 0, 0, 0.75)', 'rgba(245, 167, 66, 0.3)');
+  const cardW = WIDTH * 0.55;
+  const cardX = (WIDTH - cardW) / 2;
+  const maxW = cardW - 80;
+  const lines = wrapText(ctx, text, maxW, 20, 'normal');
+  const visibleLines = lines.slice(0, 3);
+  const cardH = 28 + visibleLines.length * 28;
+  const cardY = HEIGHT - 80 - cardH;
 
+  drawCard(ctx, cardX, cardY, cardW, cardH, 'rgba(0, 0, 0, 0.7)', 'rgba(245, 167, 66, 0.4)', 10);
+
+  // Number badge
+  const badgeR = 14;
+  const badgeCx = cardX + 24 + badgeR;
+  const badgeCy = cardY + cardH / 2;
+
+  ctx.fillStyle = '#F5A742';
+  ctx.beginPath();
+  ctx.arc(badgeCx, badgeCy, badgeR, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = '#1a1025';
+  ctx.font = 'bold 15px "Inter", system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(`${activeIndex + 1}`, badgeCx, badgeCy);
+
+  // Text
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
-
-  keyPoints.forEach((point, i) => {
-    const text = typeof point === 'string' ? point : point.text;
-    const yPos = cardY + padding + i * (lineHeight + 12);
-    const isActive = i === activeIndex;
-
-    // Bullet badge
-    const badgeR = 14;
-    const badgeCx = cardX + padding + badgeR;
-    const badgeCy = yPos + lineHeight / 2;
-
-    ctx.fillStyle = isActive ? '#F5A742' : 'rgba(255,255,255,0.2)';
-    ctx.beginPath();
-    ctx.arc(badgeCx, badgeCy, badgeR, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.fillStyle = isActive ? '#1a1025' : '#999999';
-    ctx.font = 'bold 14px "Inter", system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(`${i + 1}`, badgeCx, badgeCy);
-
-    // Text
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';
-    ctx.fillStyle = isActive ? '#ffffff' : 'rgba(255,255,255,0.4)';
-    ctx.font = `${isActive ? 'bold' : 'normal'} 20px "Inter", system-ui, sans-serif`;
-
-    const maxW = cardW - padding * 2 - badgeR * 2 - 16;
-    const truncated = truncateText(ctx, text, maxW);
-    ctx.fillText(truncated, badgeCx + badgeR + 12, yPos + 6, maxW);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '20px "Inter", system-ui, sans-serif';
+  const textX = badgeCx + badgeR + 14;
+  visibleLines.forEach((line, i) => {
+    ctx.fillText(line, textX, cardY + 14 + i * 28, maxW);
   });
+
+  // Progress dots (right side)
+  const dotsStartX = cardX + cardW - 20 - total * 14;
+  const dotsY = cardY + cardH / 2;
+  for (let d = 0; d < total; d++) {
+    ctx.fillStyle = d <= activeIndex ? '#F5A742' : 'rgba(255,255,255,0.25)';
+    ctx.beginPath();
+    ctx.arc(dotsStartX + d * 14, dotsY, 4, 0, Math.PI * 2);
+    ctx.fill();
+  }
 }
 
-function drawDefinitionOverlay(
+function drawCompactDefinition(
   ctx: CanvasRenderingContext2D,
-  def: NonNullable<SlideContent['definition']>,
-  cardX: number,
-  cardY: number,
-  cardW: number
+  def: NonNullable<SlideContent['definition']>
 ) {
   const meaning = def.simple_explanation || def.formal_definition || def.meaning || '';
-  const lines = wrapText(ctx, meaning, cardW - 48, 20);
-  const cardH = Math.min(320, 100 + lines.length * 28);
+  const cardW = WIDTH * 0.55;
+  const cardX = (WIDTH - cardW) / 2;
+  const maxW = cardW - 40;
+  const lines = wrapText(ctx, meaning, maxW, 18);
+  const visibleLines = lines.slice(0, 3);
+  const cardH = 52 + visibleLines.length * 26;
+  const cardY = HEIGHT - 80 - cardH;
 
-  drawCard(ctx, cardX, cardY, cardW, cardH, 'rgba(0, 0, 0, 0.8)', 'rgba(100, 200, 255, 0.5)');
+  drawCard(ctx, cardX, cardY, cardW, cardH, 'rgba(0, 0, 0, 0.7)', 'rgba(100, 200, 255, 0.4)', 10);
 
-  // "DEFINITION" label
-  ctx.fillStyle = 'rgba(100, 200, 255, 0.8)';
-  ctx.font = 'bold 14px "Inter", system-ui, sans-serif';
+  // Label + term on one line
+  ctx.fillStyle = 'rgba(100, 200, 255, 0.9)';
+  ctx.font = 'bold 13px "Inter", system-ui, sans-serif';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
-  ctx.fillText('DEFINITION', cardX + 24, cardY + 16);
+  ctx.fillText('DEFINITION', cardX + 20, cardY + 10);
 
-  // Term
   ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 24px "Inter", system-ui, sans-serif';
-  ctx.fillText(def.term, cardX + 24, cardY + 40, cardW - 48);
+  ctx.font = 'bold 20px "Inter", system-ui, sans-serif';
+  ctx.fillText(def.term, cardX + 20, cardY + 28, maxW);
 
-  // Meaning
-  ctx.fillStyle = '#dddddd';
-  ctx.font = '20px "Inter", system-ui, sans-serif';
-  lines.forEach((line, i) => {
-    if (i < 8) ctx.fillText(line, cardX + 24, cardY + 76 + i * 28, cardW - 48);
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.font = '18px "Inter", system-ui, sans-serif';
+  visibleLines.forEach((line, i) => {
+    ctx.fillText(line, cardX + 20, cardY + 54 + i * 26, maxW);
   });
 }
 
-function drawExampleOverlay(
+function drawCompactExample(
   ctx: CanvasRenderingContext2D,
-  ex: NonNullable<SlideContent['example']>,
-  cardX: number,
-  cardY: number,
-  cardW: number
+  ex: NonNullable<SlideContent['example']>
 ) {
   const text = ex.scenario || ex.explanation || ex.walkthrough || '';
-  const lines = wrapText(ctx, text, cardW - 48, 20);
-  const cardH = Math.min(340, 90 + lines.length * 28);
+  const cardW = WIDTH * 0.55;
+  const cardX = (WIDTH - cardW) / 2;
+  const maxW = cardW - 40;
+  const lines = wrapText(ctx, text, maxW, 18);
+  const visibleLines = lines.slice(0, 3);
+  const cardH = 36 + visibleLines.length * 26;
+  const cardY = HEIGHT - 80 - cardH;
 
-  drawCard(ctx, cardX, cardY, cardW, cardH, 'rgba(0, 0, 0, 0.8)', 'rgba(245, 167, 66, 0.5)');
+  drawCard(ctx, cardX, cardY, cardW, cardH, 'rgba(0, 0, 0, 0.7)', 'rgba(245, 167, 66, 0.4)', 10);
 
-  ctx.fillStyle = 'rgba(245, 167, 66, 0.8)';
-  ctx.font = 'bold 14px "Inter", system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(245, 167, 66, 0.9)';
+  ctx.font = 'bold 13px "Inter", system-ui, sans-serif';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
-  ctx.fillText('EXAMPLE', cardX + 24, cardY + 16);
+  ctx.fillText('EXAMPLE', cardX + 20, cardY + 10);
 
-  ctx.fillStyle = '#ffffff';
-  ctx.font = '20px "Inter", system-ui, sans-serif';
-  lines.forEach((line, i) => {
-    if (i < 9) ctx.fillText(line, cardX + 24, cardY + 48 + i * 28, cardW - 48);
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  ctx.font = '18px "Inter", system-ui, sans-serif';
+  visibleLines.forEach((line, i) => {
+    ctx.fillText(line, cardX + 20, cardY + 32 + i * 26, maxW);
   });
 }
 
-function drawStepOverlay(
+function drawCompactStep(
   ctx: CanvasRenderingContext2D,
   steps: NonNullable<SlideContent['steps']>,
-  activeStepNum: number,
-  cardX: number,
-  cardY: number,
-  cardW: number
+  activeStepNum: number
 ) {
   const activeStep = steps.find((s) => s.step === activeStepNum);
   if (!activeStep) return;
 
-  const lines = wrapText(ctx, activeStep.explanation, cardW - 48, 20);
-  const cardH = Math.min(280, 100 + lines.length * 28);
+  const cardW = WIDTH * 0.55;
+  const cardX = (WIDTH - cardW) / 2;
+  const maxW = cardW - 40;
+  const lines = wrapText(ctx, activeStep.explanation, maxW, 18);
+  const visibleLines = lines.slice(0, 3);
+  const cardH = 52 + visibleLines.length * 26;
+  const cardY = HEIGHT - 80 - cardH;
 
-  drawCard(ctx, cardX, cardY, cardW, cardH, 'rgba(0, 0, 0, 0.8)', 'rgba(130, 230, 130, 0.4)');
+  drawCard(ctx, cardX, cardY, cardW, cardH, 'rgba(0, 0, 0, 0.7)', 'rgba(130, 230, 130, 0.4)', 10);
 
-  // Step badge
   ctx.fillStyle = 'rgba(130, 230, 130, 0.9)';
-  ctx.font = 'bold 14px "Inter", system-ui, sans-serif';
+  ctx.font = 'bold 13px "Inter", system-ui, sans-serif';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
-  ctx.fillText(`STEP ${activeStep.step} OF ${steps.length}`, cardX + 24, cardY + 16);
+  ctx.fillText(`STEP ${activeStep.step} OF ${steps.length}`, cardX + 20, cardY + 10);
 
-  // Title
   ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 22px "Inter", system-ui, sans-serif';
-  ctx.fillText(activeStep.title, cardX + 24, cardY + 42, cardW - 48);
+  ctx.font = 'bold 18px "Inter", system-ui, sans-serif';
+  ctx.fillText(activeStep.title, cardX + 20, cardY + 28, maxW);
 
-  // Explanation
-  ctx.fillStyle = '#dddddd';
-  ctx.font = '20px "Inter", system-ui, sans-serif';
-  lines.forEach((line, i) => {
-    if (i < 7) ctx.fillText(line, cardX + 24, cardY + 76 + i * 28, cardW - 48);
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.font = '18px "Inter", system-ui, sans-serif';
+  visibleLines.forEach((line, i) => {
+    ctx.fillText(line, cardX + 20, cardY + 54 + i * 26, maxW);
   });
 }
 
 // ─── Segment indicator badge ─────────────────────────────────────────────────
 
-/** Draw "2 of 5" indicator in top-right corner */
 export function drawSegmentIndicator(
   ctx: CanvasRenderingContext2D,
   currentSegment: number,
@@ -383,38 +366,21 @@ export function drawSegmentIndicator(
   if (totalSegments <= 1) return;
 
   const text = `${currentSegment + 1} / ${totalSegments}`;
-  const padX = 16;
-  const padY = 8;
-
-  ctx.font = 'bold 16px "Inter", system-ui, sans-serif';
+  const padX = 12;
+  ctx.font = 'bold 14px "Inter", system-ui, sans-serif';
   const tw = ctx.measureText(text).width;
   const bw = tw + padX * 2;
-  const bh = 32;
-  const bx = WIDTH - bw - 20;
-  const by = 20;
+  const bh = 28;
+  const bx = WIDTH - bw - 16;
+  const by = 16;
 
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
   ctx.beginPath();
-  ctx.roundRect(bx, by, bw, bh, 8);
+  ctx.roundRect(bx, by, bw, bh, 6);
   ctx.fill();
 
-  ctx.fillStyle = '#ffffff';
+  ctx.fillStyle = 'rgba(255,255,255,0.7)';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(text, bx + bw / 2, by + bh / 2);
-}
-
-// ─── Utilities ───────────────────────────────────────────────────────────────
-
-function truncateText(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  maxWidth: number
-): string {
-  if (ctx.measureText(text).width <= maxWidth) return text;
-  let t = text;
-  while (t.length > 0 && ctx.measureText(t + '…').width > maxWidth) {
-    t = t.slice(0, -1);
-  }
-  return t + '…';
 }
