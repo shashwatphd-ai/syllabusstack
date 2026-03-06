@@ -1,47 +1,96 @@
 
 
-## Plan: Fix Timing Calculations on Learning Objective Page
+## Plan: Professor Presentation View + Branded Video Download
 
-### Single file change: `src/pages/student/LearningObjective.tsx`
+### Scope
 
-No other files are affected. All changes are display-only — no database queries, API calls, hooks, or component interfaces change.
+Two features:
+1. **Professor Presentation Mode** — Add Cinema mode to the instructor's `LectureSlideViewer` so professors can preview exactly what students see.
+2. **Branded Video Download** — Allow professors to download a YouTube-ready MP4 of their lecture, branded with SyllabusStack and built-in viewer attention mechanisms.
 
 ---
 
-### Dependency Check
+### Part 1: Professor Presentation View
 
-| Concern | Status |
+**File: `src/components/slides/LectureSlideViewer.tsx`**
+
+- Add a `viewMode` state: `'editor' | 'presentation'` (default: `'editor'`, the current view)
+- Add a "Preview" button (Play/Clapperboard icon) in the header toolbar that switches to `viewMode === 'presentation'`
+- When in presentation mode, render `<PresentationPlayer>` (same component students use) instead of the editor layout
+- Wire up the existing audio state (selectedVoice, audioRef, etc.) into PresentationPlayer props
+- Pass `onSwitchMode` callback that returns to `'editor'` mode
+- No changes to `PresentationPlayer.tsx` — it already supports all needed props including `onSwitchMode`
+
+**File: `src/components/instructor/UnifiedLOCard.tsx`** — No changes needed; it already passes the right props to `LectureSlideViewer`.
+
+---
+
+### Part 2: Branded Video Download
+
+This is a server-side video generation feature using an edge function that orchestrates image+audio compositing.
+
+**Architecture:**
+
+```text
+Professor clicks "Download Video"
+  → Edge function `render-lecture-video` triggered
+  → Fetches slide images (signed URLs from lecture-visuals bucket)
+  → Fetches per-slide audio files (signed URLs from lecture-audio bucket)
+  → Composites using FFmpeg (via npm:@ffmpeg/ffmpeg WASM build)
+  → Adds SyllabusStack branding overlays:
+      - Intro slide (3s): Logo + course title + unit title
+      - Persistent watermark: Small logo bottom-right corner
+      - Outro slide (4s): Logo + "Created with SyllabusStack" + course URL
+  → YouTube attention mechanisms baked in:
+      - Slide transition animations (cross-fade 0.3s)
+      - Chapter markers metadata (timestamps per slide for YouTube chapters)
+      - First 5 seconds hook (title card with topic preview)
+      - Visual variety via alternating zoom/pan on static slides
+  → Uploads MP4 to storage, returns signed download URL
+```
+
+**However**, FFmpeg WASM in Deno edge functions has significant memory/time constraints (max 60s execution, ~150MB memory). For a real production pipeline, Cloud Run is the right choice per the existing architecture decision.
+
+**Pragmatic Phase 1 approach** (client-side):
+- Use the browser's `MediaRecorder` API + `OffscreenCanvas` to record the PresentationPlayer as it plays through slides
+- Add a "Download Video" button in the professor's toolbar
+- When clicked, programmatically play through all slides in a hidden canvas, compositing:
+  - Each slide image rendered at 1920x1080
+  - Audio track from the lecture-audio bucket
+  - SyllabusStack branded intro/outro frames
+  - Watermark overlay (logo bottom-right, semi-transparent)
+- Output as WebM (MediaRecorder's native format), with option to use `mp4-muxer` for MP4
+
+**YouTube Attention Mechanisms (universal, topic-agnostic):**
+- **Hook frame** (0-5s): Bold topic title + "What you'll learn" bullet from slide 1 speaker notes
+- **Chapter markers**: Generate YouTube-compatible description with timestamps
+- **Visual motion**: Ken Burns effect (slow zoom/pan) on each slide to avoid static frames
+- **Progress indicator**: Subtle progress bar at bottom of each frame
+- **Branded lower-third**: Semi-transparent bar showing current topic/section name
+- **End screen**: Call-to-action with logo, course name, and QR code placeholder
+
+**New files:**
+- `src/lib/videoExporter.ts` — Client-side video rendering engine
+  - `renderLectureVideo(slides, audioUrls, branding)` → returns Blob
+  - Handles canvas compositing, audio mixing, MediaRecorder capture
+  - Adds intro/outro frames, watermark, Ken Burns motion
+  - Generates YouTube chapter description text
+- `src/components/slides/VideoExportButton.tsx` — UI component
+  - Shows progress during export (slide X of Y)
+  - Downloads the video file + copies chapter markers to clipboard
+  - Integrated into `LectureSlideViewer` header
+
+**File: `src/components/slides/LectureSlideViewer.tsx`** — Add `VideoExportButton` to the header toolbar, passing slides, audio data, title, and branding info.
+
+---
+
+### Files Changed Summary
+
+| File | Change |
 |---|---|
-| Database schema | No changes — reading existing `target_duration_minutes`, `estimated_duration_minutes`, `total_slides` fields |
-| Hooks (`useLearningObjectiveProgress`, `useStudentCourses`) | Not touched — data fetching unchanged |
-| Components (`StudentSlideViewer`, `VerifiedVideoPlayer`, etc.) | Not touched — no prop changes |
-| Other pages consuming same data | None — this is the only consumer of this rendering logic |
-| Content service / edge functions | Not touched |
+| `src/components/slides/LectureSlideViewer.tsx` | Add presentation mode toggle + VideoExportButton |
+| `src/lib/videoExporter.ts` | New — client-side video rendering engine |
+| `src/components/slides/VideoExportButton.tsx` | New — download button with progress UI |
 
-All changes are **local to the rendering logic** inside `LearningObjective.tsx`. Zero risk of breaking anything else.
-
----
-
-### Changes (3 edits in one file)
-
-**A. Add helper function** (new, inserted near top of component before JSX return)
-
-A pure function `getUnitDisplayMinutes(unit, unitVideos, unitSlides)`:
-- Computes `videoDuration` = sum of video `duration_seconds / 60` for all unit videos
-- Computes `slideDuration` = sum of slide `estimated_duration_minutes` (fallback: `ceil(total_slides * 1.5)`) for all unit slides
-- Returns `max(videoDuration, slideDuration)` rounded up, or falls back to `unit.target_duration_minutes` if both are 0
-
-**B. Fix 4 slide duration fallbacks** (lines 647, 719, 812, and the total calc on 483)
-
-Replace `slide.estimated_duration_minutes || 10` with `slide.estimated_duration_minutes || Math.ceil((slide.total_slides || 4) * 1.5)` at three locations (lines 647, 719, 812).
-
-**C. Fix unit and total time displays**
-
-- Line 523: Replace `~{unit.target_duration_minutes} min` with `~{getUnitDisplayMinutes(unit, unitVideos, unitSlides)} min`
-- Line 483: Replace the `reduce` summing `target_duration_minutes` with a sum using `getUnitDisplayMinutes` for each unit (requires mapping over `contentByUnit`)
-
-This ensures:
-1. A slide's displayed time never exceeds its parent unit's time
-2. Unknown slide durations use a reasonable heuristic (~1.5 min/slide) instead of 10 min
-3. The total time reflects actual content, not curriculum targets
+No database changes. No edge function changes. No changes to existing components (PresentationPlayer, SlideRenderer, StudentSlideViewer).
 
