@@ -1,0 +1,435 @@
+/**
+ * Client-side Video Exporter
+ *
+ * Composites lecture slide images + audio into a branded WebM video
+ * using OffscreenCanvas and MediaRecorder. Includes SyllabusStack branding,
+ * Ken Burns motion, and YouTube chapter markers.
+ */
+
+import { supabase } from '@/integrations/supabase/client';
+
+export interface VideoSlide {
+  title: string;
+  imageUrl: string; // relative storage path in lecture-visuals
+  audioUrl?: string; // relative storage path in lecture-audio
+  durationSeconds: number;
+  speakerNotes?: string;
+}
+
+export interface VideoBranding {
+  courseTitle: string;
+  unitTitle: string;
+  instructorName?: string;
+}
+
+export interface ExportProgress {
+  phase: 'preparing' | 'rendering' | 'encoding' | 'done';
+  currentSlide: number;
+  totalSlides: number;
+  percent: number;
+}
+
+export interface ExportResult {
+  videoBlob: Blob;
+  chapterMarkers: string;
+  filename: string;
+}
+
+const WIDTH = 1920;
+const HEIGHT = 1080;
+const FPS = 30;
+const INTRO_DURATION = 3; // seconds
+const OUTRO_DURATION = 4;
+
+/** Fetch a signed URL for a storage path */
+async function getSignedUrl(bucket: string, path: string): Promise<string | null> {
+  const { data } = await supabase.storage.from(bucket).createSignedUrl(path, 3600);
+  return data?.signedUrl ?? null;
+}
+
+/** Load an image from URL into an ImageBitmap */
+async function loadImage(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+
+/** Draw text centered on canvas */
+function drawCenteredText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  y: number,
+  fontSize: number,
+  color: string,
+  maxWidth = WIDTH - 200
+) {
+  ctx.fillStyle = color;
+  ctx.font = `bold ${fontSize}px "Inter", "Segoe UI", system-ui, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  // Word wrap
+  const words = text.split(' ');
+  const lines: string[] = [];
+  let currentLine = '';
+  for (const word of words) {
+    const test = currentLine ? `${currentLine} ${word}` : word;
+    if (ctx.measureText(test).width > maxWidth && currentLine) {
+      lines.push(currentLine);
+      currentLine = word;
+    } else {
+      currentLine = test;
+    }
+  }
+  if (currentLine) lines.push(currentLine);
+
+  const lineHeight = fontSize * 1.3;
+  const startY = y - ((lines.length - 1) * lineHeight) / 2;
+  lines.forEach((line, i) => {
+    ctx.fillText(line, WIDTH / 2, startY + i * lineHeight, maxWidth);
+  });
+}
+
+/** Draw branded intro frame */
+function drawIntroFrame(
+  ctx: CanvasRenderingContext2D,
+  branding: VideoBranding,
+  _frame: number,
+  totalFrames: number
+) {
+  // Dark gradient background
+  const grad = ctx.createLinearGradient(0, 0, WIDTH, HEIGHT);
+  grad.addColorStop(0, '#1a1025');
+  grad.addColorStop(0.5, '#2d1b4e');
+  grad.addColorStop(1, '#1a1025');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+  // Fade in
+  const alpha = Math.min(1, _frame / (totalFrames * 0.3));
+  ctx.globalAlpha = alpha;
+
+  // SyllabusStack logo text
+  drawCenteredText(ctx, 'SyllabusStack', HEIGHT * 0.32, 72, '#F5A742');
+
+  // Course title
+  drawCenteredText(ctx, branding.courseTitle, HEIGHT * 0.48, 48, '#ffffff');
+
+  // Unit title
+  drawCenteredText(ctx, branding.unitTitle, HEIGHT * 0.58, 36, '#cccccc');
+
+  // Instructor
+  if (branding.instructorName) {
+    drawCenteredText(ctx, `by ${branding.instructorName}`, HEIGHT * 0.68, 28, '#999999');
+  }
+
+  ctx.globalAlpha = 1;
+}
+
+/** Draw branded outro frame */
+function drawOutroFrame(ctx: CanvasRenderingContext2D, branding: VideoBranding) {
+  const grad = ctx.createLinearGradient(0, 0, WIDTH, HEIGHT);
+  grad.addColorStop(0, '#1a1025');
+  grad.addColorStop(1, '#0d0a14');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+  drawCenteredText(ctx, 'SyllabusStack', HEIGHT * 0.35, 64, '#F5A742');
+  drawCenteredText(ctx, 'Created with SyllabusStack', HEIGHT * 0.48, 32, '#cccccc');
+  drawCenteredText(ctx, branding.courseTitle, HEIGHT * 0.58, 28, '#999999');
+
+  // Subscribe CTA
+  ctx.fillStyle = '#F5A742';
+  const ctaW = 340;
+  const ctaH = 56;
+  const ctaX = (WIDTH - ctaW) / 2;
+  const ctaY = HEIGHT * 0.72;
+  ctx.beginPath();
+  ctx.roundRect(ctaX, ctaY, ctaW, ctaH, 28);
+  ctx.fill();
+
+  ctx.fillStyle = '#1a1025';
+  ctx.font = 'bold 22px "Inter", system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('Subscribe for more', WIDTH / 2, ctaY + ctaH / 2);
+}
+
+/** Draw a slide frame with Ken Burns effect */
+function drawSlideFrame(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  slideIndex: number,
+  frameInSlide: number,
+  totalFramesInSlide: number,
+  slideTitle: string,
+  slideNumber: number,
+  totalSlides: number,
+  totalElapsedSeconds: number,
+  totalVideoSeconds: number
+) {
+  // Black background
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+  // Ken Burns: alternate between zoom-in and pan
+  const progress = frameInSlide / totalFramesInSlide;
+  const isZoom = slideIndex % 2 === 0;
+
+  ctx.save();
+  if (isZoom) {
+    // Slow zoom from 1.0 to 1.06
+    const scale = 1 + progress * 0.06;
+    ctx.translate(WIDTH / 2, HEIGHT / 2);
+    ctx.scale(scale, scale);
+    ctx.translate(-WIDTH / 2, -HEIGHT / 2);
+  } else {
+    // Slow pan left to right
+    const panX = -20 + progress * 40;
+    ctx.translate(panX, 0);
+    const scale = 1.04;
+    ctx.translate(WIDTH / 2, HEIGHT / 2);
+    ctx.scale(scale, scale);
+    ctx.translate(-WIDTH / 2, -HEIGHT / 2);
+  }
+
+  // Draw image covering the canvas
+  const imgAspect = img.width / img.height;
+  const canvasAspect = WIDTH / HEIGHT;
+  let drawW: number, drawH: number, drawX: number, drawY: number;
+
+  if (imgAspect > canvasAspect) {
+    drawH = HEIGHT;
+    drawW = HEIGHT * imgAspect;
+    drawX = (WIDTH - drawW) / 2;
+    drawY = 0;
+  } else {
+    drawW = WIDTH;
+    drawH = WIDTH / imgAspect;
+    drawX = 0;
+    drawY = (HEIGHT - drawH) / 2;
+  }
+
+  ctx.drawImage(img, drawX, drawY, drawW, drawH);
+  ctx.restore();
+
+  // Watermark - bottom right
+  ctx.globalAlpha = 0.3;
+  ctx.fillStyle = '#F5A742';
+  ctx.font = 'bold 18px "Inter", system-ui, sans-serif';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText('SyllabusStack', WIDTH - 24, HEIGHT - 20);
+  ctx.globalAlpha = 1;
+
+  // Lower-third branded bar with current topic
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+  ctx.fillRect(0, HEIGHT - 60, WIDTH, 60);
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '20px "Inter", system-ui, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(`${slideNumber}/${totalSlides}  •  ${slideTitle}`, 24, HEIGHT - 30);
+
+  // Progress bar at very bottom
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+  ctx.fillRect(0, HEIGHT - 4, WIDTH, 4);
+  ctx.fillStyle = '#F5A742';
+  const progressWidth = (totalElapsedSeconds / totalVideoSeconds) * WIDTH;
+  ctx.fillRect(0, HEIGHT - 4, progressWidth, 4);
+}
+
+/** Generate YouTube chapter markers text */
+function generateChapterMarkers(
+  slides: VideoSlide[],
+  introDuration: number
+): string {
+  let elapsed = 0;
+  const lines: string[] = [];
+
+  // Intro
+  lines.push(`0:00 Introduction`);
+  elapsed += introDuration;
+
+  for (const slide of slides) {
+    const mins = Math.floor(elapsed / 60);
+    const secs = Math.floor(elapsed % 60);
+    const ts = `${mins}:${secs.toString().padStart(2, '0')}`;
+    lines.push(`${ts} ${slide.title}`);
+    elapsed += slide.durationSeconds;
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * Main export function: renders slides + audio into a branded video.
+ */
+export async function renderLectureVideo(
+  slides: VideoSlide[],
+  branding: VideoBranding,
+  selectedVoice: string,
+  onProgress: (progress: ExportProgress) => void
+): Promise<ExportResult> {
+  const totalSlides = slides.length;
+
+  onProgress({ phase: 'preparing', currentSlide: 0, totalSlides, percent: 0 });
+
+  // 1. Pre-load all slide images
+  const slideImages: HTMLImageElement[] = [];
+  for (let i = 0; i < slides.length; i++) {
+    const signedUrl = await getSignedUrl('lecture-visuals', slides[i].imageUrl);
+    if (!signedUrl) throw new Error(`Failed to get signed URL for slide ${i + 1}`);
+    const img = await loadImage(signedUrl);
+    slideImages.push(img);
+    onProgress({ phase: 'preparing', currentSlide: i + 1, totalSlides, percent: ((i + 1) / totalSlides) * 30 });
+  }
+
+  // 2. Pre-load audio files
+  const audioBuffers: ArrayBuffer[] = [];
+  const audioContext = new AudioContext();
+  for (let i = 0; i < slides.length; i++) {
+    const audioPath = slides[i].audioUrl;
+    if (audioPath) {
+      const signedUrl = await getSignedUrl('lecture-audio', audioPath);
+      if (signedUrl) {
+        const resp = await fetch(signedUrl);
+        const buf = await resp.arrayBuffer();
+        audioBuffers.push(buf);
+      } else {
+        audioBuffers.push(new ArrayBuffer(0));
+      }
+    } else {
+      audioBuffers.push(new ArrayBuffer(0));
+    }
+  }
+
+  onProgress({ phase: 'rendering', currentSlide: 0, totalSlides, percent: 30 });
+
+  // 3. Set up canvas + MediaRecorder
+  const canvas = document.createElement('canvas');
+  canvas.width = WIDTH;
+  canvas.height = HEIGHT;
+  const ctx = canvas.getContext('2d')!;
+
+  // Create media stream from canvas
+  const canvasStream = canvas.captureStream(FPS);
+
+  // Mix in audio via AudioContext → MediaStreamDestination
+  const audioDest = audioContext.createMediaStreamDestination();
+  canvasStream.addTrack(audioDest.stream.getAudioTracks()[0]);
+
+  const recorder = new MediaRecorder(canvasStream, {
+    mimeType: MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
+      ? 'video/webm;codecs=vp9,opus'
+      : 'video/webm',
+    videoBitsPerSecond: 5_000_000,
+  });
+
+  const chunks: Blob[] = [];
+  recorder.ondataavailable = (e) => {
+    if (e.data.size > 0) chunks.push(e.data);
+  };
+
+  // 4. Calculate total video duration
+  const totalSlideDuration = slides.reduce((sum, s) => sum + s.durationSeconds, 0);
+  const totalVideoSeconds = INTRO_DURATION + totalSlideDuration + OUTRO_DURATION;
+
+  // 5. Start recording and render frames
+  recorder.start();
+
+  // Helper to render frames for a given duration
+  const renderFrames = (
+    durationSeconds: number,
+    drawFn: (frame: number, totalFrames: number) => void
+  ): Promise<void> => {
+    return new Promise((resolve) => {
+      const totalFrames = Math.ceil(durationSeconds * FPS);
+      let frame = 0;
+      const interval = setInterval(() => {
+        if (frame >= totalFrames) {
+          clearInterval(interval);
+          resolve();
+          return;
+        }
+        drawFn(frame, totalFrames);
+        frame++;
+      }, 1000 / FPS);
+    });
+  };
+
+  // Intro
+  await renderFrames(INTRO_DURATION, (frame, totalFrames) => {
+    drawIntroFrame(ctx, branding, frame, totalFrames);
+  });
+
+  let elapsedSeconds = INTRO_DURATION;
+
+  // Each slide
+  for (let i = 0; i < slides.length; i++) {
+    const slide = slides[i];
+    const img = slideImages[i];
+
+    // Play audio for this slide
+    const audioBuf = audioBuffers[i];
+    if (audioBuf.byteLength > 0) {
+      try {
+        const decoded = await audioContext.decodeAudioData(audioBuf.slice(0));
+        const source = audioContext.createBufferSource();
+        source.buffer = decoded;
+        source.connect(audioDest);
+        source.start();
+      } catch (e) {
+        console.warn(`Audio decode failed for slide ${i}:`, e);
+      }
+    }
+
+    await renderFrames(slide.durationSeconds, (frame, totalFrames) => {
+      const currentElapsed = elapsedSeconds + (frame / totalFrames) * slide.durationSeconds;
+      drawSlideFrame(
+        ctx, img, i, frame, totalFrames,
+        slide.title, i + 1, totalSlides,
+        currentElapsed, totalVideoSeconds
+      );
+    });
+
+    elapsedSeconds += slide.durationSeconds;
+
+    onProgress({
+      phase: 'rendering',
+      currentSlide: i + 1,
+      totalSlides,
+      percent: 30 + ((i + 1) / totalSlides) * 60,
+    });
+  }
+
+  // Outro
+  await renderFrames(OUTRO_DURATION, () => {
+    drawOutroFrame(ctx, branding);
+  });
+
+  onProgress({ phase: 'encoding', currentSlide: totalSlides, totalSlides, percent: 95 });
+
+  // 6. Stop recording and get blob
+  const videoBlob = await new Promise<Blob>((resolve) => {
+    recorder.onstop = () => {
+      resolve(new Blob(chunks, { type: 'video/webm' }));
+    };
+    recorder.stop();
+  });
+
+  await audioContext.close();
+
+  const chapterMarkers = generateChapterMarkers(slides, INTRO_DURATION);
+  const safeName = branding.unitTitle.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 60);
+  const filename = `SyllabusStack_${safeName}.webm`;
+
+  onProgress({ phase: 'done', currentSlide: totalSlides, totalSlides, percent: 100 });
+
+  return { videoBlob, chapterMarkers, filename };
+}
