@@ -7,6 +7,14 @@
  */
 
 import { supabase } from '@/integrations/supabase/client';
+import { parseSegmentMap } from '@/hooks/useSlideSync';
+import {
+  drawSegmentKenBurns,
+  drawSegmentOverlay,
+  drawSegmentIndicator,
+  type SlideContent,
+  type VideoSegment,
+} from '@/lib/videoSegmentRenderer';
 
 export interface VideoSlide {
   title: string;
@@ -14,6 +22,16 @@ export interface VideoSlide {
   audioUrl?: string; // relative storage path in lecture-audio
   durationSeconds: number;
   speakerNotes?: string;
+  /** Optional structured content for segment-driven overlays */
+  content?: {
+    main_text?: string;
+    key_points?: (string | { text: string; hint?: string })[];
+    definition?: { term: string; formal_definition?: string; simple_explanation?: string; meaning?: string };
+    example?: { scenario: string; walkthrough?: string; connection_to_concept?: string; explanation?: string };
+    steps?: { step: number; title: string; explanation: string }[];
+  };
+  /** Optional segment map for visual scene sequencing */
+  segmentMap?: { target_block: string; start_percent: number; end_percent: number }[];
 }
 
 export interface VideoBranding {
@@ -394,14 +412,91 @@ export async function renderLectureVideo(
       }
     }
 
-    await renderFrames(slide.durationSeconds, (frame, totalFrames) => {
-      const currentElapsed = elapsedSeconds + (frame / totalFrames) * slide.durationSeconds;
-      drawSlideFrame(
-        ctx, img, i, frame, totalFrames,
-        slide.title, i + 1, totalSlides,
-        currentElapsed, totalVideoSeconds
-      );
-    });
+    // Determine segment map: explicit, fallback from content, or none
+    const segments: VideoSegment[] | null = (() => {
+      if (slide.segmentMap?.length) return slide.segmentMap as VideoSegment[];
+      if (slide.content) {
+        const parsed = parseSegmentMap({
+          content: slide.content as any,
+        });
+        return parsed.length > 1 ? parsed : null;
+      }
+      return null;
+    })();
+
+    if (segments && segments.length > 1 && slide.content) {
+      // ── Segment-driven rendering ──
+      const FADE_FRAMES = 15; // 0.5s cross-fade
+      const totalFramesForSlide = Math.ceil(slide.durationSeconds * FPS);
+
+      for (let si = 0; si < segments.length; si++) {
+        const seg = segments[si];
+        const segStartFrame = Math.floor((seg.start_percent / 100) * totalFramesForSlide);
+        const segEndFrame = si === segments.length - 1
+          ? totalFramesForSlide
+          : Math.floor((seg.end_percent / 100) * totalFramesForSlide);
+        const segFrameCount = segEndFrame - segStartFrame;
+
+        for (let f = 0; f < segFrameCount; f++) {
+          const globalFrame = segStartFrame + f;
+          const segProgress = segFrameCount > 0 ? f / segFrameCount : 0;
+          const currentElapsed = elapsedSeconds + (globalFrame / totalFramesForSlide) * slide.durationSeconds;
+
+          // Black background
+          ctx.fillStyle = '#000000';
+          ctx.fillRect(0, 0, 1920, 1080);
+
+          // Segment-varied Ken Burns on the base image
+          drawSegmentKenBurns(ctx, img, si, segments.length, segProgress);
+
+          // Fade-in for overlay (first FADE_FRAMES of each segment)
+          const fadeProgress = Math.min(1, f / FADE_FRAMES);
+
+          // Draw text overlay for this segment
+          drawSegmentOverlay(ctx, seg, slide.content as SlideContent, slide.title, fadeProgress);
+
+          // Segment indicator ("2 / 5")
+          drawSegmentIndicator(ctx, si, segments.length);
+
+          // Watermark
+          ctx.globalAlpha = 0.3;
+          ctx.fillStyle = '#F5A742';
+          ctx.font = 'bold 18px "Inter", system-ui, sans-serif';
+          ctx.textAlign = 'right';
+          ctx.textBaseline = 'bottom';
+          ctx.fillText('SyllabusStack', 1920 - 24, 1080 - 20);
+          ctx.globalAlpha = 1;
+
+          // Lower-third bar
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+          ctx.fillRect(0, 1080 - 60, 1920, 60);
+          ctx.fillStyle = '#ffffff';
+          ctx.font = '20px "Inter", system-ui, sans-serif';
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(`${i + 1}/${totalSlides}  •  ${slide.title}`, 24, 1080 - 30);
+
+          // Progress bar
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+          ctx.fillRect(0, 1080 - 4, 1920, 4);
+          ctx.fillStyle = '#F5A742';
+          ctx.fillRect(0, 1080 - 4, (currentElapsed / totalVideoSeconds) * 1920, 4);
+
+          if (videoTrack.requestFrame) videoTrack.requestFrame();
+          await new Promise((resolve) => setTimeout(resolve, FRAME_INTERVAL_MS));
+        }
+      }
+    } else {
+      // ── Fallback: original single-image Ken Burns ──
+      await renderFrames(slide.durationSeconds, (frame, totalFrames) => {
+        const currentElapsed = elapsedSeconds + (frame / totalFrames) * slide.durationSeconds;
+        drawSlideFrame(
+          ctx, img, i, frame, totalFrames,
+          slide.title, i + 1, totalSlides,
+          currentElapsed, totalVideoSeconds
+        );
+      });
+    }
 
     elapsedSeconds += slide.durationSeconds;
 
