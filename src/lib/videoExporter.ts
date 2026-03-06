@@ -343,24 +343,19 @@ export async function renderLectureVideo(
   // 5. Start recording and render frames
   recorder.start();
 
-  // Helper to render frames for a given duration
-  const renderFrames = (
+  // Helper to render frames as fast as possible (not real-time)
+  const renderFrames = async (
     durationSeconds: number,
     drawFn: (frame: number, totalFrames: number) => void
   ): Promise<void> => {
-    return new Promise((resolve) => {
-      const totalFrames = Math.ceil(durationSeconds * FPS);
-      let frame = 0;
-      const interval = setInterval(() => {
-        if (frame >= totalFrames) {
-          clearInterval(interval);
-          resolve();
-          return;
-        }
-        drawFn(frame, totalFrames);
-        frame++;
-      }, 1000 / FPS);
-    });
+    const totalFrames = Math.ceil(durationSeconds * FPS);
+    for (let frame = 0; frame < totalFrames; frame++) {
+      drawFn(frame, totalFrames);
+      // Yield to UI thread every 30 frames to keep progress responsive
+      if (frame % 30 === 0) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+    }
   };
 
   // Intro
