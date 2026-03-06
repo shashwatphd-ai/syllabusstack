@@ -23,10 +23,14 @@ import {
   Play,
   Pause,
   RectangleHorizontal,
-  RectangleVertical
+  RectangleVertical,
+  Presentation
 } from 'lucide-react';
 import { SlideRenderer, type SlideLayout } from './SlideRenderer';
 import { VoicePicker } from './VoicePicker';
+import { PresentationPlayer } from './PresentationPlayer';
+import { VideoExportButton } from './VideoExportButton';
+import type { Citation } from '@/lib/citationParser';
 import { 
   LectureSlide, 
   Slide, 
@@ -61,6 +65,8 @@ export function LectureSlideViewer({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [selectedVoice, setSelectedVoice] = useState('Charon');
   const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
+  const [viewMode, setViewMode] = useState<'editor' | 'presentation'>('editor');
+  const [audioEnabled, setAudioEnabled] = useState(true);
   const [slideLayout, setSlideLayout] = useState<SlideLayout>(() => {
     try { return (localStorage.getItem('slide-layout-pref') as SlideLayout) || 'portrait'; } catch { return 'portrait'; }
   });
@@ -187,6 +193,13 @@ export function LectureSlideViewer({
     return () => stopPreview();
   }, [stopPreview]);
 
+  const toggleAudio = useCallback(() => {
+    if (isPreviewPlaying) {
+      stopPreview();
+    }
+    setAudioEnabled(prev => !prev);
+  }, [isPreviewPlaying, stopPreview]);
+
   const handlePreviewToggle = useCallback(async () => {
     if (isPreviewPlaying) {
       stopPreview();
@@ -226,6 +239,40 @@ export function LectureSlideViewer({
       setIsPreviewPlaying(false);
     }
   }, [isPreviewPlaying, currentSlide, resolvedSlide.audio_generated_at, stopPreview]);
+
+  // If in presentation mode, render PresentationPlayer over the dialog
+  if (viewMode === 'presentation' && open) {
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-full h-full rounded-none p-0 gap-0 border-0">
+          <VisuallyHidden>
+            <DialogTitle>{lectureSlide.title}</DialogTitle>
+          </VisuallyHidden>
+          <PresentationPlayer
+            lectureSlide={resolvedSlide}
+            slides={slides}
+            currentSlideIndex={currentSlideIndex}
+            onSlideChange={(index) => {
+              stopPreview();
+              setCurrentSlideIndex(index);
+            }}
+            isAudioPlaying={isPreviewPlaying}
+            audioRef={audioRef}
+            audioEnabled={audioEnabled}
+            onToggleAudio={toggleAudio}
+            selectedVoice={selectedVoice}
+            onVoiceChange={(v) => { stopPreview(); setSelectedVoice(v); }}
+            hasAudio={hasAudio}
+            citations={citations as Citation[]}
+            activeBlockId={null}
+            onComplete={() => setViewMode('editor')}
+            onClose={() => setViewMode('editor')}
+            title={lectureSlide.title}
+          />
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -281,7 +328,6 @@ export function LectureSlideViewer({
               </Badge>
             ) : (
               <>
-                {/* Out-of-sync warning */}
                 {isAudioOutdated && (
                   <Badge variant="outline" className="gap-1 border-amber-500 text-amber-600 bg-amber-50 dark:bg-amber-950/30 dark:text-amber-400">
                     <AlertTriangle className="h-3 w-3" />
@@ -289,7 +335,6 @@ export function LectureSlideViewer({
                   </Badge>
                 )}
 
-                {/* Audio Ready badge */}
                 {hasAudio && !isAudioOutdated && (
                   <Badge variant="secondary" className="gap-1">
                     <CheckCircle2 className="h-3 w-3" />
@@ -315,6 +360,30 @@ export function LectureSlideViewer({
                 </Button>
               </>
             )}
+
+            {/* Preview (Presentation mode) */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setViewMode('presentation')}
+              disabled={isLoading}
+              title="Preview as student (Cinema mode)"
+            >
+              <Presentation className="h-4 w-4" />
+              <span className="hidden sm:inline ml-1">Preview</span>
+            </Button>
+
+            {/* Video Export */}
+            <VideoExportButton
+              slides={slides}
+              branding={{
+                courseTitle: teachingUnit.title || lectureSlide.title,
+                unitTitle: lectureSlide.title,
+              }}
+              selectedVoice={selectedVoice}
+              hasAudio={hasAudio}
+              disabled={isLoading}
+            />
 
             <Button
               variant="outline"
