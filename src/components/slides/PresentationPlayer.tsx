@@ -38,6 +38,7 @@ interface PresentationPlayerProps {
   audioRef: React.MutableRefObject<HTMLAudioElement | null>;
   audioEnabled: boolean;
   onToggleAudio: () => void;
+  onPlayPause: () => void;
   selectedVoice: string;
   onVoiceChange: (voice: string) => void;
   hasAudio: boolean;
@@ -58,6 +59,7 @@ export function PresentationPlayer({
   audioRef,
   audioEnabled,
   onToggleAudio,
+  onPlayPause,
   selectedVoice,
   onVoiceChange,
   hasAudio,
@@ -171,13 +173,8 @@ export function PresentationPlayer({
   }, [slideStartTimes, totalDuration, onSlideChange]);
 
   const handlePlayPause = useCallback(() => {
-    if (!audioRef.current) return;
-    if (isAudioPlaying) {
-      audioRef.current.pause();
-    } else {
-      audioRef.current.play().catch(() => {});
-    }
-  }, [isAudioPlaying]);
+    onPlayPause();
+  }, [onPlayPause]);
 
   const handlePrev = useCallback(() => {
     if (audioRef.current) audioRef.current.pause();
