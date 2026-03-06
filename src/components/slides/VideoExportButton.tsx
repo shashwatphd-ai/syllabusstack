@@ -45,10 +45,12 @@ export function VideoExportButton({
       const videoSlides: VideoSlide[] = slides.map((s: any) => {
         const audioUrls = s.audio_urls as Record<string, string> | undefined;
         const audioUrl = audioUrls?.[selectedVoice] || s.audio_url;
+        // Image URL can be nested in visual.url (enhanced slides) or flat
+        const imageUrl = s.visual?.url || s.image_url || s.imageUrl || '';
 
         return {
           title: s.title,
-          imageUrl: s.image_url || s.imageUrl || '',
+          imageUrl,
           audioUrl: audioUrl || undefined,
           durationSeconds: s.audio_duration_seconds || s.estimated_seconds || 30,
           speakerNotes: s.speaker_notes || s.notes || '',
