@@ -25,6 +25,8 @@ import {
   Maximize2,
   Minimize2,
   X,
+  BookOpen,
+  LayoutGrid,
 } from 'lucide-react';
 
 interface PresentationPlayerProps {
@@ -43,6 +45,7 @@ interface PresentationPlayerProps {
   activeBlockId: string | null;
   onComplete: () => void;
   onClose: () => void;
+  onSwitchMode?: (mode: 'scroll' | 'slides') => void;
   title?: string;
 }
 
@@ -62,6 +65,7 @@ export function PresentationPlayer({
   activeBlockId,
   onComplete,
   onClose,
+  onSwitchMode,
   title,
 }: PresentationPlayerProps) {
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -226,16 +230,40 @@ export function PresentationPlayer({
         )}
       </div>
 
-      {/* Close button — top right */}
-      <Button
-        variant="ghost"
-        size="icon"
-        className="absolute top-3 right-3 z-[120] text-white/90 hover:text-white bg-black/60 hover:bg-black/75 h-9 w-9 rounded-full"
-        onClick={onClose}
-        aria-label="Close presentation"
-      >
-        <X className="h-5 w-5" />
-      </Button>
+      {/* Top-right controls: mode switch + close */}
+      <div className="absolute top-3 right-3 z-[120] flex items-center gap-2">
+        {onSwitchMode && (
+          <>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-white/90 hover:text-white bg-black/60 hover:bg-black/75 h-9 w-9 rounded-full"
+              onClick={() => onSwitchMode('scroll')}
+              title="Switch to Scroll view"
+            >
+              <BookOpen className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-white/90 hover:text-white bg-black/60 hover:bg-black/75 h-9 w-9 rounded-full"
+              onClick={() => onSwitchMode('slides')}
+              title="Switch to Slides view"
+            >
+              <LayoutGrid className="h-4 w-4" />
+            </Button>
+          </>
+        )}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="text-white/90 hover:text-white bg-black/60 hover:bg-black/75 h-9 w-9 rounded-full"
+          onClick={onClose}
+          aria-label="Close presentation"
+        >
+          <X className="h-5 w-5" />
+        </Button>
+      </div>
 
       {/* Title overlay — top left */}
       {title && (
