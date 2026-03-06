@@ -181,6 +181,8 @@ export function LectureSlideViewer({
     setIsPreviewPlaying(false);
   }, []);
 
+  // Auto-play audio when slide changes in presentation mode
+  const autoPlayTriggeredRef = useRef<number | null>(null);
   useEffect(() => {
     stopPreview();
   }, [currentSlideIndex, stopPreview]);
@@ -231,14 +233,40 @@ export function LectureSlideViewer({
         : '';
 
       audio.src = signedUrlData.signedUrl + cacheBuster;
-      audio.addEventListener('ended', () => setIsPreviewPlaying(false));
+      audio.addEventListener('ended', () => {
+        setIsPreviewPlaying(false);
+        // Auto-advance to next slide when audio ends in presentation mode
+        if (viewMode === 'presentation') {
+          setCurrentSlideIndex(prev => {
+            if (prev < slides.length - 1) return prev + 1;
+            return prev;
+          });
+        }
+      });
       await audio.play();
       setIsPreviewPlaying(true);
     } catch (err) {
       console.error('Audio preview failed:', err);
       setIsPreviewPlaying(false);
     }
-  }, [isPreviewPlaying, currentSlide, resolvedSlide.audio_generated_at, stopPreview]);
+  }, [isPreviewPlaying, currentSlide, resolvedSlide.audio_generated_at, stopPreview, selectedVoice, viewMode, slides.length]);
+
+  // Auto-play audio when slide changes in presentation mode
+  useEffect(() => {
+    if (viewMode !== 'presentation' || !open || !audioEnabled || !hasAudio) return;
+    if (autoPlayTriggeredRef.current === currentSlideIndex) return;
+    
+    const slide = slides[currentSlideIndex];
+    const slideAudioUrls = (slide as any)?.audio_urls as Record<string, string> | undefined;
+    const slideAudioUrl = slideAudioUrls?.[selectedVoice] || (slide as any)?.audio_url;
+    if (!slideAudioUrl) return;
+
+    autoPlayTriggeredRef.current = currentSlideIndex;
+    const timer = setTimeout(() => {
+      handlePreviewToggle();
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [viewMode, open, audioEnabled, hasAudio, currentSlideIndex, selectedVoice, slides, handlePreviewToggle]);
 
   // If in presentation mode, render PresentationPlayer over the dialog
   if (viewMode === 'presentation' && open) {
