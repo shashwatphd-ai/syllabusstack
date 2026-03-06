@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden';
 import { Button } from '@/components/ui/button';
@@ -24,7 +25,8 @@ import {
   Pause,
   RectangleHorizontal,
   RectangleVertical,
-  Presentation
+  Presentation,
+  Pencil
 } from 'lucide-react';
 import { SlideRenderer, type SlideLayout } from './SlideRenderer';
 import { VoicePicker } from './VoicePicker';
@@ -58,6 +60,7 @@ export function LectureSlideViewer({
   open,
   onOpenChange 
 }: LectureSlideViewerProps) {
+  const navigate = useNavigate();
   const isMobile = useIsMobile();
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [showSpeakerNotes, setShowSpeakerNotes] = useState(false);
@@ -389,6 +392,21 @@ export function LectureSlideViewer({
                 </Button>
               </>
             )}
+
+            {/* Edit Content */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                onOpenChange(false);
+                navigate(`/instructor/courses/${lectureSlide.instructor_course_id}/slides/${lectureSlide.id}/edit`);
+              }}
+              disabled={isLoading}
+              title="Edit slide content"
+            >
+              <Pencil className="h-4 w-4" />
+              <span className="hidden sm:inline ml-1">Edit</span>
+            </Button>
 
             {/* Preview (Presentation mode) */}
             <Button
