@@ -360,6 +360,15 @@ export function StudentSlideViewer({
     setAudioEnabled(prev => !prev);
   };
 
+  const handlePlayPause = useCallback(() => {
+    if (!audioRef.current) return;
+    if (isAudioPlaying) {
+      audioRef.current.pause();
+    } else {
+      audioRef.current.play().catch(() => {});
+    }
+  }, [isAudioPlaying]);
+
   const handleVoiceChange = useCallback((voice: string) => {
     if (audioRef.current) {
       audioRef.current.pause();
@@ -599,6 +608,7 @@ export function StudentSlideViewer({
             audioRef={audioRef}
             audioEnabled={audioEnabled}
             onToggleAudio={toggleAudio}
+            onPlayPause={handlePlayPause}
             selectedVoice={selectedVoice}
             onVoiceChange={handleVoiceChange}
             hasAudio={lectureSlide.has_audio || false}

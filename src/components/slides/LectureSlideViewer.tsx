@@ -260,6 +260,7 @@ export function LectureSlideViewer({
             audioRef={audioRef}
             audioEnabled={audioEnabled}
             onToggleAudio={toggleAudio}
+            onPlayPause={handlePreviewToggle}
             selectedVoice={selectedVoice}
             onVoiceChange={(v) => { stopPreview(); setSelectedVoice(v); }}
             hasAudio={hasAudio}
