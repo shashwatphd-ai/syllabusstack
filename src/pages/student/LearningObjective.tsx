@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { PlayCircle, CheckCircle2, Clock, ChevronDown, ChevronRight, ClipboardCheck, XCircle, Presentation, Award, AlertTriangle, Eye, BookOpen, GraduationCap, Lightbulb } from 'lucide-react';
+import { PlayCircle, CheckCircle2, Clock, ChevronDown, ChevronRight, ClipboardCheck, XCircle, Presentation, Award, AlertTriangle, Eye, BookOpen, GraduationCap, Lightbulb, Library } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { useLearningObjectiveProgress } from '@/hooks/useStudentCourses';
@@ -13,6 +13,8 @@ import { Badge } from '@/components/ui/badge';
 import { VerifiedVideoPlayer } from '@/components/player/VerifiedVideoPlayer';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { StudentSlideViewer } from '@/components/slides/StudentSlideViewer';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+import { SuggestedResources } from '@/components/learn/SuggestedResources';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/contexts/AuthContext';
@@ -896,6 +898,35 @@ export default function LearningObjectivePage() {
             )}
           </div>
         </div>
+
+        {/* Community Resources Floating Button + Sheet */}
+        <Sheet>
+          <SheetTrigger asChild>
+            <Button
+              size="sm"
+              variant="outline"
+              className="fixed bottom-6 right-6 z-50 shadow-lg gap-2 rounded-full px-4 py-2 bg-background/95 backdrop-blur-sm border-primary/20 hover:border-primary/40"
+            >
+              <Library className="h-4 w-4" />
+              <span className="hidden sm:inline">Resources</span>
+            </Button>
+          </SheetTrigger>
+          <SheetContent side="right" className="w-full sm:w-[400px] overflow-y-auto">
+            <SheetHeader>
+              <SheetTitle className="flex items-center gap-2">
+                <Library className="h-5 w-5 text-primary" />
+                Community Resources
+              </SheetTitle>
+            </SheetHeader>
+            <div className="mt-6">
+              <SuggestedResources
+                learningObjectiveId={loId!}
+                learningObjectiveText={learningObjective.text}
+                showHeader={false}
+              />
+            </div>
+          </SheetContent>
+        </Sheet>
 
         {/* Slide Viewer Modal */}
         {viewingSlide && (
