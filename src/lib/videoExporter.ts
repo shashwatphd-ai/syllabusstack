@@ -61,8 +61,39 @@ const OUTRO_DURATION = 4;
 
 /** Fetch a signed URL for a storage path */
 async function getSignedUrl(bucket: string, path: string): Promise<string | null> {
-  const { data } = await supabase.storage.from(bucket).createSignedUrl(path, 3600);
-  return data?.signedUrl ?? null;
+  if (!path || path.trim() === '') return null;
+  try {
+    const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, 3600);
+    if (error) {
+      console.warn(`[VideoExport] Signed URL error for ${bucket}/${path}:`, error.message);
+      return null;
+    }
+    return data?.signedUrl ?? null;
+  } catch (err) {
+    console.warn(`[VideoExport] Exception getting signed URL for ${bucket}/${path}:`, err);
+    return null;
+  }
+}
+
+/** Create a placeholder image for slides without visuals */
+function createPlaceholderImage(title: string): HTMLImageElement {
+  const canvas = document.createElement('canvas');
+  canvas.width = WIDTH;
+  canvas.height = HEIGHT;
+  const pCtx = canvas.getContext('2d')!;
+  const grad = pCtx.createLinearGradient(0, 0, WIDTH, HEIGHT);
+  grad.addColorStop(0, '#1a1025');
+  grad.addColorStop(1, '#2d1f3d');
+  pCtx.fillStyle = grad;
+  pCtx.fillRect(0, 0, WIDTH, HEIGHT);
+  pCtx.fillStyle = '#ffffff';
+  pCtx.font = 'bold 48px "Inter", system-ui, sans-serif';
+  pCtx.textAlign = 'center';
+  pCtx.textBaseline = 'middle';
+  pCtx.fillText(title, WIDTH / 2, HEIGHT / 2);
+  const img = new Image();
+  img.src = canvas.toDataURL();
+  return img;
 }
 
 /** Load an image from URL into an ImageBitmap */
@@ -299,12 +330,22 @@ export async function renderLectureVideo(
   onProgress({ phase: 'preparing', currentSlide: 0, totalSlides, percent: 0 });
 
   // 1. Pre-load all slide images
-  const slideImages: HTMLImageElement[] = [];
+  const slideImages: (HTMLImageElement | null)[] = [];
   for (let i = 0; i < slides.length; i++) {
-    const signedUrl = await getSignedUrl('lecture-visuals', slides[i].imageUrl);
-    if (!signedUrl) throw new Error(`Failed to get signed URL for slide ${i + 1}`);
-    const img = await loadImage(signedUrl);
-    slideImages.push(img);
+    const imgPath = slides[i].imageUrl;
+    if (!imgPath) {
+      console.warn(`[VideoExport] Slide ${i + 1} has no image path, using placeholder`);
+      slideImages.push(null);
+    } else {
+      const signedUrl = await getSignedUrl('lecture-visuals', imgPath);
+      if (!signedUrl) {
+        console.warn(`[VideoExport] Failed to get signed URL for slide ${i + 1}, path: "${imgPath}"`);
+        slideImages.push(null);
+      } else {
+        const img = await loadImage(signedUrl);
+        slideImages.push(img);
+      }
+    }
     onProgress({ phase: 'preparing', currentSlide: i + 1, totalSlides, percent: ((i + 1) / totalSlides) * 30 });
   }
 
@@ -396,7 +437,7 @@ export async function renderLectureVideo(
   // Each slide
   for (let i = 0; i < slides.length; i++) {
     const slide = slides[i];
-    const img = slideImages[i];
+    const img = slideImages[i] || createPlaceholderImage(slide.title);
 
     // Play audio for this slide
     const audioBuf = audioBuffers[i];
