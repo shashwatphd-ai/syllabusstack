@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Save, Eye, Loader2, AlertTriangle } from 'lucide-react';
-import { useLectureSlide, useUpdateLectureSlide } from '@/hooks/lectureSlides';
+import { useLectureSlide, useUpdateLectureSlide, useUnpublishLectureSlides } from '@/hooks/lectureSlides';
 import type { ProfessorSlide } from '@/hooks/lectureSlides';
 import { AppShell } from '@/components/layout/AppShell';
 import { PageContainer } from '@/components/layout/PageContainer';
@@ -35,6 +35,7 @@ export default function SlideContentEditor() {
   const navigate = useNavigate();
   const { data: lectureSlide, isLoading } = useLectureSlide(lectureSlideId);
   const updateMutation = useUpdateLectureSlide();
+  const unpublishMutation = useUnpublishLectureSlides();
 
   // Local editable copy of slides
   const [editedSlides, setEditedSlides] = useState<ProfessorSlide[] | null>(null);
@@ -139,13 +140,28 @@ export default function SlideContentEditor() {
         </div>
 
         {!isEditable && (
-          <div className="rounded-md border border-border bg-muted/50 p-3 mb-6 flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 text-muted-foreground shrink-0" />
-            <p className="text-sm text-muted-foreground">
-              {status === 'published'
-                ? 'This lecture is published. Unpublish it to make edits.'
-                : 'Editing is disabled while slides are being generated.'}
-            </p>
+          <div className="rounded-md border border-border bg-muted/50 p-3 mb-6 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-muted-foreground shrink-0" />
+              <p className="text-sm text-muted-foreground">
+                {status === 'published'
+                  ? 'This lecture is published. Unpublish it to make edits.'
+                  : 'Editing is disabled while slides are being generated.'}
+              </p>
+            </div>
+            {status === 'published' && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => unpublishMutation.mutate(lectureSlideId!)}
+                disabled={unpublishMutation.isPending}
+              >
+                {unpublishMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : null}
+                Unpublish & Edit
+              </Button>
+            )}
           </div>
         )}
 
