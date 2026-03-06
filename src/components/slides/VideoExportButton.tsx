@@ -54,6 +54,8 @@ export function VideoExportButton({
           audioUrl: audioUrl || undefined,
           durationSeconds: s.audio_duration_seconds || s.estimated_seconds || 30,
           speakerNotes: s.speaker_notes || s.notes || '',
+          content: s.content || undefined,
+          segmentMap: s.audio_segment_map || undefined,
         };
       });
 
