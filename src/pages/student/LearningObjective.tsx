@@ -63,6 +63,23 @@ function getCompletedSteps(state: string | null | undefined): Set<number> {
   return s;
 }
 
+/** Compute display minutes for a teaching unit based on actual content */
+function getUnitDisplayMinutes(
+  unit: { target_duration_minutes: number | null },
+  unitVideos: Array<{ content?: { duration_seconds?: number | null } | null }>,
+  unitSlides: Array<{ estimated_duration_minutes?: number | null; total_slides?: number | null }>
+): number {
+  const videoDuration = unitVideos.reduce((sum, v) => {
+    return sum + ((v.content?.duration_seconds || 0) / 60);
+  }, 0);
+  const slideDuration = unitSlides.reduce((sum, s) => {
+    return sum + (s.estimated_duration_minutes || Math.ceil((s.total_slides || 4) * 1.5));
+  }, 0);
+  const maxDuration = Math.max(videoDuration, slideDuration);
+  if (maxDuration > 0) return Math.ceil(maxDuration);
+  return unit.target_duration_minutes || 0;
+}
+
 /** Match score badge with color coding */
 function MatchBadge({ score }: { score: number }) {
   const pct = Math.round(score * 100);
@@ -480,7 +497,10 @@ export default function LearningObjectivePage() {
                     Learning Path
                   </h2>
                   <span className="text-xs text-muted-foreground ml-auto">
-                    {teachingUnits!.length} units · ~{teachingUnits!.reduce((sum, u) => sum + (u.target_duration_minutes || 0), 0)} min total
+                    {teachingUnits!.length} units · ~{teachingUnits!.reduce((sum, u) => {
+                      const uc = contentByUnit.get(u.id);
+                      return sum + getUnitDisplayMinutes(u, uc?.videos || [], uc?.slides || []);
+                    }, 0)} min total
                   </span>
                 </div>
 
@@ -520,7 +540,7 @@ export default function LearningObjectivePage() {
                                   </Badge>
                                 </div>
                                 <div className="flex items-center gap-2 mt-1">
-                                  <span className="text-[10px] text-muted-foreground">~{unit.target_duration_minutes} min</span>
+                                  <span className="text-[10px] text-muted-foreground">~{getUnitDisplayMinutes(unit, unitVideos, unitSlides)} min</span>
                                     {totalItems > 0 && (
                                     <>
                                       <span className="text-[10px] text-muted-foreground">·</span>
@@ -644,7 +664,7 @@ export default function LearningObjectivePage() {
                                   </div>
                                   <div className="flex-1 min-w-0">
                                     <p className="text-sm font-medium line-clamp-1">{slide.title}</p>
-                                    <span className="text-[11px] text-muted-foreground">{slide.total_slides} slides · ~{slide.estimated_duration_minutes || 10} min</span>
+                                    <span className="text-[11px] text-muted-foreground">{slide.total_slides} slides · ~{slide.estimated_duration_minutes || Math.ceil((slide.total_slides || 4) * 1.5)} min</span>
                                   </div>
                                 </div>
                                 );
@@ -716,7 +736,7 @@ export default function LearningObjectivePage() {
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium line-clamp-1">{slide.title}</p>
-                            <span className="text-[11px] text-muted-foreground">{slide.total_slides} slides · ~{slide.estimated_duration_minutes || 10} min</span>
+                            <span className="text-[11px] text-muted-foreground">{slide.total_slides} slides · ~{slide.estimated_duration_minutes || Math.ceil((slide.total_slides || 4) * 1.5)} min</span>
                           </div>
                         </div>
                         );
@@ -809,7 +829,7 @@ export default function LearningObjectivePage() {
                             <div className="flex items-center gap-2 mt-0.5">
                               <span className="text-xs text-muted-foreground">{slide.total_slides} slides</span>
                               <span className="text-xs text-muted-foreground">·</span>
-                              <span className="text-xs text-muted-foreground">~{slide.estimated_duration_minutes || 10} min</span>
+                              <span className="text-xs text-muted-foreground">~{slide.estimated_duration_minutes || Math.ceil((slide.total_slides || 4) * 1.5)} min</span>
                             </div>
                           </div>
                         </div>
