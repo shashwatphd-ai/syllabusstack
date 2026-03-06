@@ -606,6 +606,7 @@ export function StudentSlideViewer({
             activeBlockId={activeBlockId}
             onComplete={handleComplete}
             onClose={handleClose}
+            onSwitchMode={(mode) => setViewMode(mode)}
             title={unitTitle}
           />
         ) : viewMode === 'scroll' ? (
