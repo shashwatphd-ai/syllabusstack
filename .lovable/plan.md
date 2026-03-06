@@ -1,36 +1,47 @@
 
 
-## Problem Analysis
+## Plan: Fix Timing Calculations on Learning Objective Page
 
-After deep review, I found **two layered issues** causing controls to be inconsistent in Presentation Mode:
+### Single file change: `src/pages/student/LearningObjective.tsx`
 
-### Issue 1: Parent header conflicts with cinema mode
-The `StudentSlideViewer` always renders its header bar (lines 429-582) with the X button, progress bar, voice picker, and view mode toggle -- even in presentation mode. This creates a non-immersive experience and duplicates controls (audio toggle, voice picker appear in both the header AND the PresentationPlayer bottom bar).
+No other files are affected. All changes are display-only — no database queries, API calls, hooks, or component interfaces change.
 
-### Issue 2: Bottom controls can be clipped
-The PresentationPlayer sits inside a parent `div` with `overflow-hidden` (line 585). While the absolute positioning with `z-50` should work in theory, the controls can get clipped or overlap with slide content because:
-- The slide content area (`flex-1`) and the absolute controls compete for the same bottom space
-- No padding-bottom on the slide content means slides render behind the controls
-- The gradient overlay (`h-24`) doesn't reserve space -- it overlays
+---
 
-### Plan
+### Dependency Check
 
-**1. Hide parent header in presentation mode**
-In `StudentSlideViewer.tsx`, conditionally hide the header bar when `viewMode === 'presentation'`. This gives the cinema mode full viewport height.
+| Concern | Status |
+|---|---|
+| Database schema | No changes — reading existing `target_duration_minutes`, `estimated_duration_minutes`, `total_slides` fields |
+| Hooks (`useLearningObjectiveProgress`, `useStudentCourses`) | Not touched — data fetching unchanged |
+| Components (`StudentSlideViewer`, `VerifiedVideoPlayer`, etc.) | Not touched — no prop changes |
+| Other pages consuming same data | None — this is the only consumer of this rendering logic |
+| Content service / edge functions | Not touched |
 
-**2. Add close button to PresentationPlayer**
-Add an `onClose` prop to `PresentationPlayer` and render a persistent X button in the top-right corner (absolute positioned, always visible, white on semi-transparent background).
+All changes are **local to the rendering logic** inside `LearningObjective.tsx`. Zero risk of breaking anything else.
 
-**3. Add a title overlay**  
-Show the lecture title in the top-left of the PresentationPlayer so the user has context.
+---
 
-**4. Add bottom padding to slide content**
-Add `pb-28` (or similar) to the slide content area inside PresentationPlayer so slides never render behind the controls bar.
+### Changes (3 edits in one file)
 
-**5. Remove opacity toggling entirely**
-Since controls should always be visible, remove the `showControls` state and the conditional opacity class. The controls div becomes a simple `absolute bottom-0` with no opacity transitions.
+**A. Add helper function** (new, inserted near top of component before JSX return)
 
-### Files to modify
-- `src/components/slides/PresentationPlayer.tsx` -- add close button, title, bottom padding, remove opacity logic
-- `src/components/slides/StudentSlideViewer.tsx` -- hide header when `viewMode === 'presentation'`, pass `onClose` to PresentationPlayer
+A pure function `getUnitDisplayMinutes(unit, unitVideos, unitSlides)`:
+- Computes `videoDuration` = sum of video `duration_seconds / 60` for all unit videos
+- Computes `slideDuration` = sum of slide `estimated_duration_minutes` (fallback: `ceil(total_slides * 1.5)`) for all unit slides
+- Returns `max(videoDuration, slideDuration)` rounded up, or falls back to `unit.target_duration_minutes` if both are 0
+
+**B. Fix 4 slide duration fallbacks** (lines 647, 719, 812, and the total calc on 483)
+
+Replace `slide.estimated_duration_minutes || 10` with `slide.estimated_duration_minutes || Math.ceil((slide.total_slides || 4) * 1.5)` at three locations (lines 647, 719, 812).
+
+**C. Fix unit and total time displays**
+
+- Line 523: Replace `~{unit.target_duration_minutes} min` with `~{getUnitDisplayMinutes(unit, unitVideos, unitSlides)} min`
+- Line 483: Replace the `reduce` summing `target_duration_minutes` with a sum using `getUnitDisplayMinutes` for each unit (requires mapping over `contentByUnit`)
+
+This ensures:
+1. A slide's displayed time never exceeds its parent unit's time
+2. Unknown slide durations use a reasonable heuristic (~1.5 min/slide) instead of 10 min
+3. The total time reflects actual content, not curriculum targets
 
