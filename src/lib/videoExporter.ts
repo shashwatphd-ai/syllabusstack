@@ -317,8 +317,9 @@ export async function renderLectureVideo(
   canvas.height = HEIGHT;
   const ctx = canvas.getContext('2d')!;
 
-  // Create media stream from canvas
-  const canvasStream = canvas.captureStream(FPS);
+  // Use captureStream(0) for manual frame control — no automatic sampling
+  const canvasStream = canvas.captureStream(0);
+  const videoTrack = canvasStream.getVideoTracks()[0] as any;
 
   // Mix in audio via AudioContext → MediaStreamDestination
   const audioDest = audioContext.createMediaStreamDestination();
@@ -343,7 +344,14 @@ export async function renderLectureVideo(
   // 5. Start recording and render frames
   recorder.start();
 
-  // Helper to render frames as fast as possible (not real-time)
+  // Frame interval in ms for target FPS timing in the output file
+  const FRAME_INTERVAL_MS = 1000 / FPS;
+
+  /**
+   * Render frames for a segment, explicitly requesting each frame capture.
+   * Uses a controlled delay per frame so the encoder processes every frame
+   * and the output video plays at the correct speed.
+   */
   const renderFrames = async (
     durationSeconds: number,
     drawFn: (frame: number, totalFrames: number) => void
@@ -351,10 +359,12 @@ export async function renderLectureVideo(
     const totalFrames = Math.ceil(durationSeconds * FPS);
     for (let frame = 0; frame < totalFrames; frame++) {
       drawFn(frame, totalFrames);
-      // Yield to UI thread every 30 frames to keep progress responsive
-      if (frame % 30 === 0) {
-        await new Promise((resolve) => setTimeout(resolve, 0));
+      // Explicitly request the encoder to capture this exact frame
+      if (videoTrack.requestFrame) {
+        videoTrack.requestFrame();
       }
+      // Wait one frame interval so encoder timestamps are correct
+      await new Promise((resolve) => setTimeout(resolve, FRAME_INTERVAL_MS));
     }
   };
 
