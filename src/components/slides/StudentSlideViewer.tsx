@@ -36,6 +36,7 @@ interface StudentSlideViewerProps {
   unitTitle: string;
   onClose: () => void;
   onComplete?: (watchPercentage: number) => void;
+  initialViewMode?: 'scroll' | 'slides' | 'presentation';
 }
 
 // Type guard to check if slide has audio (supports multi-voice audio_urls or legacy audio_url)
@@ -53,10 +54,11 @@ export function StudentSlideViewer({
   lectureSlide, 
   unitTitle,
   onClose,
-  onComplete
+  onComplete,
+  initialViewMode = 'presentation'
 }: StudentSlideViewerProps) {
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
-  const [viewMode, setViewMode] = useState<'scroll' | 'slides' | 'presentation'>('scroll');
+  const [viewMode, setViewMode] = useState<'scroll' | 'slides' | 'presentation'>(initialViewMode);
   const [showSpeakerNotes, setShowSpeakerNotes] = useState(false);
   const [isAutoPlaying, setIsAutoPlaying] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(true);
