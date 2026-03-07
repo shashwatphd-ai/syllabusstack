@@ -40,7 +40,7 @@ import InstructorVerificationPage from "./pages/instructor/InstructorVerificatio
 import CourseAnalyticsPage from "./pages/instructor/CourseAnalytics";
 import GradebookPage from "./pages/instructor/Gradebook";
 import SlideContentEditorPage from "./pages/instructor/SlideContentEditor";
-import { StudentCourseDetailPage, LearningObjectivePage, AssessmentPage, StudentSlidePage, IdentityVerificationPage } from "./pages/student";
+import { StudentCourseDetailPage, LearningObjectivePage, AssessmentPage, StudentSlidePage, IdentityVerificationPage, ChallengeSessionPage } from "./pages/student";
 // Admin pages
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import UserManagement from "./pages/admin/UserManagement";
