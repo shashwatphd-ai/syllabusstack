@@ -32,6 +32,7 @@ export function AssessmentResults({
   performance,
   questions,
   incorrectAnswers,
+  courseId,
   onRetry,
   onBack,
 }: AssessmentResultsProps) {
