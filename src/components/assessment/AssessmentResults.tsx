@@ -13,6 +13,7 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import type { PerformanceSummary, AssessmentQuestion } from '@/hooks/useAssessment';
+import { PeerExplanation } from '@/components/community/PeerExplanation';
 
 interface AssessmentResultsProps {
   performance: PerformanceSummary;
