@@ -13,6 +13,7 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import type { PerformanceSummary, AssessmentQuestion } from '@/hooks/useAssessment';
+import { PeerExplanation } from '@/components/community/PeerExplanation';
 
 interface AssessmentResultsProps {
   performance: PerformanceSummary;
@@ -22,6 +23,7 @@ interface AssessmentResultsProps {
     user_answer: string;
     evaluation_details: Record<string, unknown>;
   }>;
+  courseId?: string;
   onRetry?: () => void;
   onBack?: () => void;
 }
@@ -30,6 +32,7 @@ export function AssessmentResults({
   performance,
   questions,
   incorrectAnswers,
+  courseId,
   onRetry,
   onBack,
 }: AssessmentResultsProps) {
@@ -164,7 +167,31 @@ export function AssessmentResults({
         </Card>
       )}
 
-      {/* Actions */}
+      {/* Peer Explanations */}
+      {courseId && questions.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Community Learning</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {questions.map((q) => {
+              const wasIncorrect = incorrectQuestionMap.has(q.id);
+              return (
+                <div key={q.id} className="space-y-2">
+                  <p className="text-sm font-medium">{q.question_text}</p>
+                  <PeerExplanation
+                    questionId={q.id}
+                    courseId={courseId}
+                    questionText={q.question_text}
+                    userGotCorrect={!wasIncorrect}
+                  />
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
+
       <div className="flex gap-4">
         {onBack && (
           <Button variant="outline" onClick={onBack} className="flex-1">

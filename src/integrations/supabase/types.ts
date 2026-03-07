@@ -795,6 +795,102 @@ export type Database = {
           },
         ]
       }
+      challenge_answers: {
+        Row: {
+          answered_at: string
+          challenge_id: string
+          id: string
+          is_correct: boolean
+          question_id: string
+          time_taken_seconds: number | null
+          user_answer: string
+          user_id: string
+        }
+        Insert: {
+          answered_at?: string
+          challenge_id: string
+          id?: string
+          is_correct: boolean
+          question_id: string
+          time_taken_seconds?: number | null
+          user_answer: string
+          user_id: string
+        }
+        Update: {
+          answered_at?: string
+          challenge_id?: string
+          id?: string
+          is_correct?: boolean
+          question_id?: string
+          time_taken_seconds?: number | null
+          user_answer?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "challenge_answers_challenge_id_fkey"
+            columns: ["challenge_id"]
+            isOneToOne: false
+            referencedRelation: "quiz_challenges"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "challenge_answers_question_id_fkey"
+            columns: ["question_id"]
+            isOneToOne: false
+            referencedRelation: "assessment_questions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      community_explanations: {
+        Row: {
+          course_id: string
+          created_at: string
+          explanation_text: string
+          id: string
+          question_id: string
+          updated_at: string
+          user_id: string
+          votes: number
+        }
+        Insert: {
+          course_id: string
+          created_at?: string
+          explanation_text: string
+          id?: string
+          question_id: string
+          updated_at?: string
+          user_id: string
+          votes?: number
+        }
+        Update: {
+          course_id?: string
+          created_at?: string
+          explanation_text?: string
+          id?: string
+          question_id?: string
+          updated_at?: string
+          user_id?: string
+          votes?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "community_explanations_course_id_fkey"
+            columns: ["course_id"]
+            isOneToOne: false
+            referencedRelation: "instructor_courses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "community_explanations_question_id_fkey"
+            columns: ["question_id"]
+            isOneToOne: false
+            referencedRelation: "assessment_questions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       consumption_records: {
         Row: {
           completed_at: string | null
@@ -1856,6 +1952,38 @@ export type Database = {
             columns: ["enrollment_id"]
             isOneToOne: false
             referencedRelation: "course_enrollments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      explanation_votes: {
+        Row: {
+          created_at: string
+          explanation_id: string
+          id: string
+          user_id: string
+          vote: number
+        }
+        Insert: {
+          created_at?: string
+          explanation_id: string
+          id?: string
+          user_id: string
+          vote: number
+        }
+        Update: {
+          created_at?: string
+          explanation_id?: string
+          id?: string
+          user_id?: string
+          vote?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "explanation_votes_explanation_id_fkey"
+            columns: ["explanation_id"]
+            isOneToOne: false
+            referencedRelation: "community_explanations"
             referencedColumns: ["id"]
           },
         ]
@@ -3451,6 +3579,75 @@ export type Database = {
           },
         ]
       }
+      quiz_challenges: {
+        Row: {
+          challenged_completed: boolean
+          challenged_id: string
+          challenged_score: number
+          challenger_completed: boolean
+          challenger_id: string
+          challenger_score: number
+          completed_at: string | null
+          course_id: string
+          created_at: string
+          expires_at: string
+          id: string
+          learning_objective_id: string
+          question_ids: string[]
+          status: Database["public"]["Enums"]["challenge_status"]
+          winner_id: string | null
+        }
+        Insert: {
+          challenged_completed?: boolean
+          challenged_id: string
+          challenged_score?: number
+          challenger_completed?: boolean
+          challenger_id: string
+          challenger_score?: number
+          completed_at?: string | null
+          course_id: string
+          created_at?: string
+          expires_at?: string
+          id?: string
+          learning_objective_id: string
+          question_ids: string[]
+          status?: Database["public"]["Enums"]["challenge_status"]
+          winner_id?: string | null
+        }
+        Update: {
+          challenged_completed?: boolean
+          challenged_id?: string
+          challenged_score?: number
+          challenger_completed?: boolean
+          challenger_id?: string
+          challenger_score?: number
+          completed_at?: string | null
+          course_id?: string
+          created_at?: string
+          expires_at?: string
+          id?: string
+          learning_objective_id?: string
+          question_ids?: string[]
+          status?: Database["public"]["Enums"]["challenge_status"]
+          winner_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quiz_challenges_course_id_fkey"
+            columns: ["course_id"]
+            isOneToOne: false
+            referencedRelation: "instructor_courses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quiz_challenges_learning_objective_id_fkey"
+            columns: ["learning_objective_id"]
+            isOneToOne: false
+            referencedRelation: "learning_objectives"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       recommendation_course_links: {
         Row: {
           completed_at: string | null
@@ -4604,6 +4801,16 @@ export type Database = {
       }
       cleanup_expired_cache: { Args: never; Returns: number }
       cleanup_expired_research_cache: { Args: never; Returns: number }
+      evaluate_challenge_answer: {
+        Args: {
+          p_challenge_id: string
+          p_question_id: string
+          p_selected_option_index?: number
+          p_time_taken_seconds?: number
+          p_user_answer: string
+        }
+        Returns: Json
+      }
       find_similar_cached_search: {
         Args: {
           p_keywords: string[]
@@ -4798,6 +5005,12 @@ export type Database = {
     }
     Enums: {
       app_role: "student" | "instructor" | "admin"
+      challenge_status:
+        | "pending"
+        | "active"
+        | "completed"
+        | "expired"
+        | "declined"
       subscription_tier: "free" | "pro" | "university"
     }
     CompositeTypes: {
@@ -4927,6 +5140,13 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["student", "instructor", "admin"],
+      challenge_status: [
+        "pending",
+        "active",
+        "completed",
+        "expired",
+        "declined",
+      ],
       subscription_tier: ["free", "pro", "university"],
     },
   },

@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, BookOpen, CheckCircle2, Clock, Play, AlertCircle, FileQuestion, Bookmark, LayoutList } from 'lucide-react';
+import { ArrowLeft, BookOpen, CheckCircle2, Clock, Play, AlertCircle, FileQuestion, Bookmark, LayoutList, Users } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { AppShell } from '@/components/layout/AppShell';
 import { PageContainer } from '@/components/layout/PageContainer';
@@ -10,12 +10,14 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
+import { CommunityTab } from '@/components/community/CommunityTab';
 import {
   getStateConfig,
   getProgressWeight,
@@ -138,7 +140,20 @@ export default function StudentCourseDetailPage() {
             </CardContent>
           </Card>
 
-          {/* Modules */}
+          {/* Tabs: Modules + Community */}
+          <Tabs defaultValue="modules">
+            <TabsList>
+              <TabsTrigger value="modules">
+                <LayoutList className="h-3.5 w-3.5 mr-1.5" />
+                Modules
+              </TabsTrigger>
+              <TabsTrigger value="community">
+                <Users className="h-3.5 w-3.5 mr-1.5" />
+                Community
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="modules">
           {course.modules.length === 0 ? (
             <Card className="border-dashed">
               <CardContent className="py-12 text-center">
@@ -170,14 +185,6 @@ export default function StudentCourseDetailPage() {
             </Card>
           ) : (
             <div className="space-y-4">
-              {/* Section header */}
-              <div className="flex items-center gap-2">
-                <LayoutList className="h-4 w-4 text-muted-foreground" />
-                <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-                  Modules
-                </h2>
-              </div>
-
               <Accordion type="multiple" className="space-y-3">
                 {course.modules.map((module) => {
                   const moduleLOs = module.learning_objectives;
@@ -190,7 +197,7 @@ export default function StudentCourseDetailPage() {
 
                   // Smart numbering: extract from title or show icon
                   const titleModuleNum = extractModuleNumber(module.title);
-                  const isGenericModule = !titleModuleNum; // e.g. "Course Objectives"
+                  const isGenericModule = !titleModuleNum;
 
                   return (
                     <AccordionItem 
@@ -200,7 +207,6 @@ export default function StudentCourseDetailPage() {
                     >
                       <AccordionTrigger className="hover:no-underline">
                         <div className="flex items-center gap-4 flex-1 text-left">
-                          {/* Module icon/number */}
                           <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-primary/10 text-primary shrink-0">
                             {isGenericModule ? (
                               <Bookmark className="h-4 w-4" />
@@ -275,6 +281,15 @@ export default function StudentCourseDetailPage() {
               </Accordion>
             </div>
           )}
+            </TabsContent>
+
+            <TabsContent value="community">
+              <CommunityTab
+                courseId={course.id}
+                learningObjectives={allLOs.map(lo => ({ id: lo.id, text: lo.text }))}
+              />
+            </TabsContent>
+          </Tabs>
         </div>
       </PageContainer>
     </AppShell>
