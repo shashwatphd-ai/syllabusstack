@@ -23,6 +23,7 @@ interface AssessmentResultsProps {
     user_answer: string;
     evaluation_details: Record<string, unknown>;
   }>;
+  courseId?: string;
   onRetry?: () => void;
   onBack?: () => void;
 }
