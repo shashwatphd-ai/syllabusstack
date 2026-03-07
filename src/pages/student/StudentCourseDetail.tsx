@@ -290,5 +290,8 @@ export default function StudentCourseDetailPage() {
               />
             </TabsContent>
           </Tabs>
+        </div>
+      </PageContainer>
+    </AppShell>
   );
 }
