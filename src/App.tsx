@@ -40,7 +40,7 @@ import InstructorVerificationPage from "./pages/instructor/InstructorVerificatio
 import CourseAnalyticsPage from "./pages/instructor/CourseAnalytics";
 import GradebookPage from "./pages/instructor/Gradebook";
 import SlideContentEditorPage from "./pages/instructor/SlideContentEditor";
-import { StudentCourseDetailPage, LearningObjectivePage, AssessmentPage, StudentSlidePage, IdentityVerificationPage } from "./pages/student";
+import { StudentCourseDetailPage, LearningObjectivePage, AssessmentPage, StudentSlidePage, IdentityVerificationPage, ChallengeSessionPage } from "./pages/student";
 // Admin pages
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import UserManagement from "./pages/admin/UserManagement";
@@ -141,6 +141,7 @@ const App = () => (
             <Route path="/learn/objective/:loId" element={<AuthGuard><LearningObjectivePage /></AuthGuard>} />
             <Route path="/learn/slides/:slideId" element={<AuthGuard><StudentSlidePage /></AuthGuard>} />
             <Route path="/verify-identity" element={<AuthGuard><IdentityVerificationPage /></AuthGuard>} />
+            <Route path="/learn/challenge/:challengeId" element={<AuthGuard><ChallengeSessionPage /></AuthGuard>} />
 
             {/* Instructor routes */}
             <Route path="/instructor/courses" element={<AuthGuard><InstructorCoursesPage /></AuthGuard>} />
