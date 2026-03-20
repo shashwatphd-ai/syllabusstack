@@ -103,7 +103,7 @@ export function useConsumptionTracking(
   const segmentsRef = useRef<WatchedSegment[]>([]);
   const currentSegmentStartRef = useRef<number | null>(null);
   const lastSyncTimeRef = useRef<number>(0);
-  const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   // Retry pending syncs when queue changes (with proper cleanup)
