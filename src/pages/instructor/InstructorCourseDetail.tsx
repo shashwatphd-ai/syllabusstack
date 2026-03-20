@@ -931,6 +931,10 @@ export default function InstructorCourseDetailPage() {
             <TabsContent value="students">
               <StudentProgressDashboard courseId={id!} />
             </TabsContent>
+
+            <TabsContent value="capstone">
+              <CapstoneProjectsTab courseId={id!} />
+            </TabsContent>
           </Tabs>
 
           {/* Publish Validation Dialog */}

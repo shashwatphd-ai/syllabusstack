@@ -30,7 +30,7 @@ export function LocationSetup({ courseId, initialValues, onSaved }: LocationSetu
     const searchLocation = [city, state, zip].filter(Boolean).join(', ');
     updateCourse.mutate(
       {
-        id: courseId,
+        courseId,
         updates: {
           location_city: city || null,
           location_state: state || null,
