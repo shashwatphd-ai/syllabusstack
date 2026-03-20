@@ -74,7 +74,7 @@ export function StudentSlideViewer({
   
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const programmaticScrollRef = useRef(false);
-  const scrollSyncTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const scrollSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMountedRef = useRef(true);
   const location = useLocation();
 

@@ -71,7 +71,7 @@ export function PresentationPlayer({
   title,
 }: PresentationPlayerProps) {
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const controlsTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const progressBarRef = useRef<HTMLDivElement>(null);
 
