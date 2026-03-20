@@ -585,6 +585,93 @@ export type Database = {
         }
         Relationships: []
       }
+      capstone_projects: {
+        Row: {
+          assigned_student_id: string | null
+          company_profile_id: string | null
+          contact: Json | null
+          created_at: string
+          deliverables: Json | null
+          description: string | null
+          equipment: string | null
+          feasibility_score: number | null
+          final_score: number | null
+          generation_batch_id: string | null
+          id: string
+          instructor_course_id: string
+          lo_alignment: string | null
+          lo_alignment_score: number | null
+          majors: string[] | null
+          skills: string[] | null
+          status: string
+          tasks: Json | null
+          tier: string | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          assigned_student_id?: string | null
+          company_profile_id?: string | null
+          contact?: Json | null
+          created_at?: string
+          deliverables?: Json | null
+          description?: string | null
+          equipment?: string | null
+          feasibility_score?: number | null
+          final_score?: number | null
+          generation_batch_id?: string | null
+          id?: string
+          instructor_course_id: string
+          lo_alignment?: string | null
+          lo_alignment_score?: number | null
+          majors?: string[] | null
+          skills?: string[] | null
+          status?: string
+          tasks?: Json | null
+          tier?: string | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          assigned_student_id?: string | null
+          company_profile_id?: string | null
+          contact?: Json | null
+          created_at?: string
+          deliverables?: Json | null
+          description?: string | null
+          equipment?: string | null
+          feasibility_score?: number | null
+          final_score?: number | null
+          generation_batch_id?: string | null
+          id?: string
+          instructor_course_id?: string
+          lo_alignment?: string | null
+          lo_alignment_score?: number | null
+          majors?: string[] | null
+          skills?: string[] | null
+          status?: string
+          tasks?: Json | null
+          tier?: string | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "capstone_projects_company_profile_id_fkey"
+            columns: ["company_profile_id"]
+            isOneToOne: false
+            referencedRelation: "company_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "capstone_projects_instructor_course_id_fkey"
+            columns: ["instructor_course_id"]
+            isOneToOne: false
+            referencedRelation: "instructor_courses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       career_matches: {
         Row: {
           created_at: string
@@ -890,6 +977,87 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      company_profiles: {
+        Row: {
+          apollo_organization_id: string | null
+          contact_email: string | null
+          contact_person: string | null
+          contact_phone: string | null
+          contact_title: string | null
+          created_at: string
+          data_completeness_score: number | null
+          description: string | null
+          employee_count: string | null
+          full_address: string | null
+          funding_stage: string | null
+          id: string
+          industries: string[] | null
+          job_postings: Json | null
+          keywords: string[] | null
+          linkedin_profile: string | null
+          name: string
+          revenue_range: string | null
+          sector: string | null
+          size: string | null
+          technologies_used: string[] | null
+          total_funding_usd: number | null
+          updated_at: string
+          website: string | null
+        }
+        Insert: {
+          apollo_organization_id?: string | null
+          contact_email?: string | null
+          contact_person?: string | null
+          contact_phone?: string | null
+          contact_title?: string | null
+          created_at?: string
+          data_completeness_score?: number | null
+          description?: string | null
+          employee_count?: string | null
+          full_address?: string | null
+          funding_stage?: string | null
+          id?: string
+          industries?: string[] | null
+          job_postings?: Json | null
+          keywords?: string[] | null
+          linkedin_profile?: string | null
+          name: string
+          revenue_range?: string | null
+          sector?: string | null
+          size?: string | null
+          technologies_used?: string[] | null
+          total_funding_usd?: number | null
+          updated_at?: string
+          website?: string | null
+        }
+        Update: {
+          apollo_organization_id?: string | null
+          contact_email?: string | null
+          contact_person?: string | null
+          contact_phone?: string | null
+          contact_title?: string | null
+          created_at?: string
+          data_completeness_score?: number | null
+          description?: string | null
+          employee_count?: string | null
+          full_address?: string | null
+          funding_stage?: string | null
+          id?: string
+          industries?: string[] | null
+          job_postings?: Json | null
+          keywords?: string[] | null
+          linkedin_profile?: string | null
+          name?: string
+          revenue_range?: string | null
+          sector?: string | null
+          size?: string | null
+          technologies_used?: string[] | null
+          total_funding_usd?: number | null
+          updated_at?: string
+          website?: string | null
+        }
+        Relationships: []
       }
       consumption_records: {
         Row: {
@@ -2373,6 +2541,7 @@ export type Database = {
       }
       instructor_courses: {
         Row: {
+          academic_level: string | null
           access_code: string | null
           code: string | null
           created_at: string | null
@@ -2381,15 +2550,21 @@ export type Database = {
           description: string | null
           detected_domain: string | null
           domain_config: Json | null
+          expected_artifacts: string[] | null
           id: string
           instructor_id: string
           is_published: boolean | null
+          location_city: string | null
+          location_state: string | null
+          location_zip: string | null
+          search_location: string | null
           syllabus_text: string | null
           title: string
           updated_at: string | null
           verification_threshold: number | null
         }
         Insert: {
+          academic_level?: string | null
           access_code?: string | null
           code?: string | null
           created_at?: string | null
@@ -2398,15 +2573,21 @@ export type Database = {
           description?: string | null
           detected_domain?: string | null
           domain_config?: Json | null
+          expected_artifacts?: string[] | null
           id?: string
           instructor_id: string
           is_published?: boolean | null
+          location_city?: string | null
+          location_state?: string | null
+          location_zip?: string | null
+          search_location?: string | null
           syllabus_text?: string | null
           title: string
           updated_at?: string | null
           verification_threshold?: number | null
         }
         Update: {
+          academic_level?: string | null
           access_code?: string | null
           code?: string | null
           created_at?: string | null
@@ -2415,9 +2596,14 @@ export type Database = {
           description?: string | null
           detected_domain?: string | null
           domain_config?: Json | null
+          expected_artifacts?: string[] | null
           id?: string
           instructor_id?: string
           is_published?: boolean | null
+          location_city?: string | null
+          location_state?: string | null
+          location_zip?: string | null
+          search_location?: string | null
           syllabus_text?: string | null
           title?: string
           updated_at?: string | null
@@ -3575,6 +3761,56 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations_safe"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_forms: {
+        Row: {
+          capstone_project_id: string
+          created_at: string
+          form1_project_details: Json | null
+          form2_contact_info: Json | null
+          form3_requirements: Json | null
+          form4_timeline: Json | null
+          form5_logistics: Json | null
+          form6_academic: Json | null
+          id: string
+          milestones: Json | null
+          updated_at: string
+        }
+        Insert: {
+          capstone_project_id: string
+          created_at?: string
+          form1_project_details?: Json | null
+          form2_contact_info?: Json | null
+          form3_requirements?: Json | null
+          form4_timeline?: Json | null
+          form5_logistics?: Json | null
+          form6_academic?: Json | null
+          id?: string
+          milestones?: Json | null
+          updated_at?: string
+        }
+        Update: {
+          capstone_project_id?: string
+          created_at?: string
+          form1_project_details?: Json | null
+          form2_contact_info?: Json | null
+          form3_requirements?: Json | null
+          form4_timeline?: Json | null
+          form5_logistics?: Json | null
+          form6_academic?: Json | null
+          id?: string
+          milestones?: Json | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_forms_capstone_project_id_fkey"
+            columns: ["capstone_project_id"]
+            isOneToOne: true
+            referencedRelation: "capstone_projects"
             referencedColumns: ["id"]
           },
         ]
