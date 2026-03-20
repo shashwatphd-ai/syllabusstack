@@ -152,6 +152,10 @@ export default function StudentCourseDetailPage() {
                 <Users className="h-3.5 w-3.5 mr-1.5" />
                 Community
               </TabsTrigger>
+              <TabsTrigger value="capstone">
+                <Briefcase className="h-3.5 w-3.5 mr-1.5" />
+                Projects
+              </TabsTrigger>
             </TabsList>
 
             <TabsContent value="modules">
