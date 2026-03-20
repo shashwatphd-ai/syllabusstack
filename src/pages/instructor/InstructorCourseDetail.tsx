@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, FileText, Video, CheckCircle2, Clock, AlertCircle, Settings2, Copy, Share2, Loader2, Sparkles, Users, Presentation, RotateCcw, Image, Volume2, AlertTriangle, ImageOff } from 'lucide-react';
+import { ArrowLeft, Plus, FileText, Video, CheckCircle2, Clock, AlertCircle, Settings2, Copy, Share2, Loader2, Sparkles, Users, Presentation, RotateCcw, Image, Volume2, AlertTriangle, ImageOff, Briefcase } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { VerificationBanner, useVerificationStatus } from '@/components/instructor/VerificationBanner';
 import { AppShell } from '@/components/layout/AppShell';
@@ -48,6 +48,7 @@ import { ShareCourseTemplate } from '@/components/instructor/ShareCourseTemplate
 import { UnifiedLOCard } from '@/components/instructor/UnifiedLOCard';
 import { SyllabusUploader } from '@/components/instructor/SyllabusUploader';
 import { OnboardingProgress } from '@/components/instructor/OnboardingProgress';
+import { CapstoneProjectsTab } from '@/components/capstone/CapstoneProjectsTab';
 import { StudentProgressDashboard } from '@/components/instructor/StudentProgressDashboard';
 import { toast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
@@ -479,6 +480,10 @@ export default function InstructorCourseDetailPage() {
               <TabsTrigger value="students" className="gap-2 flex-1 sm:flex-none">
                 <Users className="h-4 w-4" />
                 Students
+              </TabsTrigger>
+              <TabsTrigger value="capstone" className="gap-2 flex-1 sm:flex-none">
+                <Briefcase className="h-4 w-4" />
+                <span className="hidden sm:inline">Capstone </span>Projects
               </TabsTrigger>
             </TabsList>
 
@@ -925,6 +930,10 @@ export default function InstructorCourseDetailPage() {
 
             <TabsContent value="students">
               <StudentProgressDashboard courseId={id!} />
+            </TabsContent>
+
+            <TabsContent value="capstone">
+              <CapstoneProjectsTab courseId={id!} />
             </TabsContent>
           </Tabs>
 

@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, BookOpen, CheckCircle2, Clock, Play, AlertCircle, FileQuestion, Bookmark, LayoutList, Users } from 'lucide-react';
+import { ArrowLeft, BookOpen, CheckCircle2, Clock, Play, AlertCircle, FileQuestion, Bookmark, LayoutList, Users, Briefcase } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { AppShell } from '@/components/layout/AppShell';
 import { PageContainer } from '@/components/layout/PageContainer';
@@ -18,6 +18,7 @@ import {
   AccordionTrigger,
 } from '@/components/ui/accordion';
 import { CommunityTab } from '@/components/community/CommunityTab';
+import { StudentCapstoneView } from '@/components/capstone/StudentCapstoneView';
 import {
   getStateConfig,
   getProgressWeight,
@@ -150,6 +151,10 @@ export default function StudentCourseDetailPage() {
               <TabsTrigger value="community">
                 <Users className="h-3.5 w-3.5 mr-1.5" />
                 Community
+              </TabsTrigger>
+              <TabsTrigger value="capstone">
+                <Briefcase className="h-3.5 w-3.5 mr-1.5" />
+                Projects
               </TabsTrigger>
             </TabsList>
 
@@ -288,6 +293,10 @@ export default function StudentCourseDetailPage() {
                 courseId={course.id}
                 learningObjectives={allLOs.map(lo => ({ id: lo.id, text: lo.text }))}
               />
+            </TabsContent>
+
+            <TabsContent value="capstone">
+              <StudentCapstoneView courseId={course.id} />
             </TabsContent>
           </Tabs>
         </div>
