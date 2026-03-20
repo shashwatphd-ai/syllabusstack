@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, FileText, Video, CheckCircle2, Clock, AlertCircle, Settings2, Copy, Share2, Loader2, Sparkles, Users, Presentation, RotateCcw, Image, Volume2, AlertTriangle, ImageOff } from 'lucide-react';
+import { ArrowLeft, Plus, FileText, Video, CheckCircle2, Clock, AlertCircle, Settings2, Copy, Share2, Loader2, Sparkles, Users, Presentation, RotateCcw, Image, Volume2, AlertTriangle, ImageOff, Briefcase } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { VerificationBanner, useVerificationStatus } from '@/components/instructor/VerificationBanner';
 import { AppShell } from '@/components/layout/AppShell';
