@@ -280,4 +280,12 @@ export const queryKeys = {
   videoOtherMatches: {
     list: (contentId: string, currentLoId: string) => ['video-other-matches', contentId, currentLoId] as const,
   },
+
+  // Capstone Projects
+  capstone: {
+    companies: (courseId: string) => ['capstone-companies', courseId] as const,
+    projects: (courseId: string) => ['capstone-projects', courseId] as const,
+    projectDetail: (projectId: string) => ['capstone-project', projectId] as const,
+    studentProject: (courseId: string) => ['student-capstone', courseId] as const,
+  },
 };
