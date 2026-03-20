@@ -294,6 +294,10 @@ export default function StudentCourseDetailPage() {
                 learningObjectives={allLOs.map(lo => ({ id: lo.id, text: lo.text }))}
               />
             </TabsContent>
+
+            <TabsContent value="capstone">
+              <StudentCapstoneView courseId={course.id} />
+            </TabsContent>
           </Tabs>
         </div>
       </PageContainer>
