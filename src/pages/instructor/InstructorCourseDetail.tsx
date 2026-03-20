@@ -481,6 +481,10 @@ export default function InstructorCourseDetailPage() {
                 <Users className="h-4 w-4" />
                 Students
               </TabsTrigger>
+              <TabsTrigger value="capstone" className="gap-2 flex-1 sm:flex-none">
+                <Briefcase className="h-4 w-4" />
+                <span className="hidden sm:inline">Capstone </span>Projects
+              </TabsTrigger>
             </TabsList>
 
             <TabsContent value="course" className="space-y-4">
