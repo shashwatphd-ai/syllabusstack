@@ -14,6 +14,12 @@ export interface InstructorCourse {
   access_code: string | null;
   created_at: string;
   updated_at: string;
+  location_city?: string | null;
+  location_state?: string | null;
+  location_zip?: string | null;
+  search_location?: string | null;
+  academic_level?: string | null;
+  expected_artifacts?: string[] | null;
 }
 
 export interface Module {
