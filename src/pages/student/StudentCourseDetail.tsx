@@ -18,6 +18,7 @@ import {
   AccordionTrigger,
 } from '@/components/ui/accordion';
 import { CommunityTab } from '@/components/community/CommunityTab';
+import { StudentCapstoneView } from '@/components/capstone/StudentCapstoneView';
 import {
   getStateConfig,
   getProgressWeight,
