@@ -48,6 +48,7 @@ import { ShareCourseTemplate } from '@/components/instructor/ShareCourseTemplate
 import { UnifiedLOCard } from '@/components/instructor/UnifiedLOCard';
 import { SyllabusUploader } from '@/components/instructor/SyllabusUploader';
 import { OnboardingProgress } from '@/components/instructor/OnboardingProgress';
+import { CapstoneProjectsTab } from '@/components/capstone/CapstoneProjectsTab';
 import { StudentProgressDashboard } from '@/components/instructor/StudentProgressDashboard';
 import { toast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
