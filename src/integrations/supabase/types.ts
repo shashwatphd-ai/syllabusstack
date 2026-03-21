@@ -4487,6 +4487,51 @@ export type Database = {
         }
         Relationships: []
       }
+      university_domains: {
+        Row: {
+          city: string | null
+          country: string | null
+          created_at: string | null
+          domain: string
+          formatted_location: string | null
+          id: string
+          latitude: number | null
+          longitude: number | null
+          name: string | null
+          state: string | null
+          updated_at: string | null
+          zip: string | null
+        }
+        Insert: {
+          city?: string | null
+          country?: string | null
+          created_at?: string | null
+          domain: string
+          formatted_location?: string | null
+          id?: string
+          latitude?: number | null
+          longitude?: number | null
+          name?: string | null
+          state?: string | null
+          updated_at?: string | null
+          zip?: string | null
+        }
+        Update: {
+          city?: string | null
+          country?: string | null
+          created_at?: string | null
+          domain?: string
+          formatted_location?: string | null
+          id?: string
+          latitude?: number | null
+          longitude?: number | null
+          name?: string | null
+          state?: string | null
+          updated_at?: string | null
+          zip?: string | null
+        }
+        Relationships: []
+      }
       user_achievements: {
         Row: {
           achievement_id: string
