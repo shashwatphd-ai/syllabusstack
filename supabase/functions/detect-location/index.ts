@@ -104,7 +104,6 @@ Deno.serve(async (req: Request) => {
       console.log(`[detect-location] Phase 3 fallback: geocoding "${fallbackQuery}"`);
       geocodeResult = await geocodeAddress(fallbackQuery, googleApiKey);
     }
-    }
 
     if (!geocodeResult) {
       return new Response(JSON.stringify({
