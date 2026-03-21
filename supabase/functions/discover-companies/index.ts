@@ -90,17 +90,19 @@ const handler = async (req: Request): Promise<Response> => {
   // Apollo API: Search for companies
   const apolloResult = await withApolloCircuit(async () => {
     const searchBody = {
-      api_key: APOLLO_API_KEY,
       q_organization_keyword_tags: skillKeywords.slice(0, 5),
       organization_locations: [searchLocation],
       organization_num_employees_ranges: ["11,50", "51,200", "201,500", "501,1000", "1001,5000"],
       page: 1,
-      per_page: Math.min(count * 2, 25), // Fetch extra for filtering
+      per_page: Math.min(count * 2, 25),
     };
 
     const response = await fetch('https://api.apollo.io/api/v1/mixed_companies/search', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Api-Key': APOLLO_API_KEY,
+      },
       body: JSON.stringify(searchBody),
     });
 
