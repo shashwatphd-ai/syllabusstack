@@ -98,10 +98,12 @@ Deno.serve(async (req: Request) => {
 
     // ── Phase 3: Fallback — geocode domain prefix + "university" ──
     if (!geocodeResult) {
-      const domainPrefix = domain.split(".")[0];
-      const fallbackQuery = `${domainPrefix} university`;
+      // Try domain without TLD as search term + "university"
+      const domainParts = domain.replace(/\.(edu|ac\.\w+|org)$/i, '').split('.');
+      const fallbackQuery = `${domainParts.join(' ')} university`;
       console.log(`[detect-location] Phase 3 fallback: geocoding "${fallbackQuery}"`);
       geocodeResult = await geocodeAddress(fallbackQuery, googleApiKey);
+    }
     }
 
     if (!geocodeResult) {
