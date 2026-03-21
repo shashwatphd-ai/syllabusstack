@@ -3,6 +3,7 @@ import { Building2, Loader2, Search, Sparkles, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useInstructorCourse } from '@/hooks/useInstructorCourses';
+import { useLearningObjectives } from '@/hooks/useLearningObjectives';
 import {
   useCompanyProfiles,
   useCapstoneProjects,
