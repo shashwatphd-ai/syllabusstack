@@ -3,6 +3,7 @@ import { Building2, Loader2, Search, Sparkles, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useInstructorCourse } from '@/hooks/useInstructorCourses';
+import { useLearningObjectives } from '@/hooks/useLearningObjectives';
 import {
   useCompanyProfiles,
   useCapstoneProjects,
@@ -23,6 +24,7 @@ interface CapstoneProjectsTabProps {
 
 export function CapstoneProjectsTab({ courseId }: CapstoneProjectsTabProps) {
   const { data: course } = useInstructorCourse(courseId);
+  const { data: los } = useLearningObjectives(courseId);
   const { data: companies, isLoading: loadingCompanies } = useCompanyProfiles(courseId);
   const { data: projects, isLoading: loadingProjects } = useCapstoneProjects(courseId);
   const discoverCompanies = useDiscoverCompanies();
@@ -32,6 +34,7 @@ export function CapstoneProjectsTab({ courseId }: CapstoneProjectsTabProps) {
   const [assignProjectId, setAssignProjectId] = useState<string | null>(null);
 
   const hasLocation = !!(course?.location_city || course?.location_state || course?.search_location);
+  const hasLOs = (los?.length ?? 0) > 0;
 
   return (
     <div className="space-y-6">
@@ -56,7 +59,8 @@ export function CapstoneProjectsTab({ courseId }: CapstoneProjectsTabProps) {
             variant="outline"
             className="gap-2"
             onClick={() => discoverCompanies.mutate(courseId)}
-            disabled={discoverCompanies.isPending}
+            disabled={discoverCompanies.isPending || !hasLocation || !hasLOs}
+            title={!hasLOs ? 'Add learning objectives to your course first' : !hasLocation ? 'Set course location first' : undefined}
           >
             {discoverCompanies.isPending ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -81,7 +85,11 @@ export function CapstoneProjectsTab({ courseId }: CapstoneProjectsTabProps) {
           <Card className="border-dashed">
             <CardContent className="py-8 text-center text-sm text-muted-foreground">
               <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-40" />
-              No companies discovered yet. Click "Discover Companies" to find industry partners near your course location.
+              {!hasLOs
+                ? 'Add learning objectives to your course first (in the Course Structure tab), then discover companies.'
+                : !hasLocation
+                  ? 'Set your course location above, then click "Discover Companies" to find industry partners.'
+                  : 'No companies discovered yet. Click "Discover Companies" to find industry partners near your course location.'}
             </CardContent>
           </Card>
         )}
