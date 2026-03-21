@@ -1,0 +1,486 @@
+/**
+ * Course-to-SOC Code Mapping Service
+ * 
+ * Maps course disciplines directly to O*NET SOC codes for Apollo-compatible search parameters.
+ * Ported from EduThree1 and extended with strategic management + operations management.
+ */
+
+export interface SOCMapping {
+  socCode: string;
+  title: string;
+  confidence: number;
+  industries: string[];
+  keywords: string[];
+}
+
+/**
+ * Direct discipline mappings to O*NET SOC codes
+ */
+const DISCIPLINE_SOC_MAP: Record<string, SOCMapping[]> = {
+  // Mechanical Engineering
+  'mechanical': [
+    {
+      socCode: '17-2141.00',
+      title: 'Mechanical Engineers',
+      confidence: 0.95,
+      industries: ['aerospace', 'automotive', 'manufacturing', 'HVAC', 'robotics', 'energy'],
+      keywords: ['mechanical', 'fluid', 'thermodynamics', 'dynamics', 'heat transfer', 'mechanics']
+    },
+    {
+      socCode: '17-2011.00',
+      title: 'Aerospace Engineers',
+      confidence: 0.85,
+      industries: ['aerospace', 'defense', 'aviation', 'space'],
+      keywords: ['aerodynamics', 'propulsion', 'flight', 'spacecraft']
+    }
+  ],
+
+  // Systems/Industrial Engineering
+  'systems': [
+    {
+      socCode: '17-2112.00',
+      title: 'Industrial Engineers',
+      confidence: 0.95,
+      industries: ['manufacturing', 'logistics', 'operations', 'industrial engineering', 'supply chain', 'automation', 'production', 'quality assurance'],
+      keywords: ['systems', 'optimization', 'processes', 'efficiency', 'operations']
+    },
+    {
+      socCode: '17-2199.08',
+      title: 'Robotics Engineers',
+      confidence: 0.85,
+      industries: ['robotics', 'automation', 'manufacturing', 'AI'],
+      keywords: ['robotics', 'automation', 'control systems']
+    }
+  ],
+
+  // Computer Science/Software
+  'computer': [
+    {
+      socCode: '15-1252.00',
+      title: 'Software Developers',
+      confidence: 0.95,
+      industries: ['software', 'technology', 'fintech', 'SaaS', 'cloud computing'],
+      keywords: ['software', 'programming', 'development', 'coding', 'algorithms']
+    },
+    {
+      socCode: '15-1299.08',
+      title: 'Computer Systems Engineers/Architects',
+      confidence: 0.90,
+      industries: ['cloud', 'infrastructure', 'enterprise software', 'cybersecurity'],
+      keywords: ['systems', 'architecture', 'infrastructure', 'networks']
+    }
+  ],
+
+  // Electrical Engineering
+  'electrical': [
+    {
+      socCode: '17-2071.00',
+      title: 'Electrical Engineers',
+      confidence: 0.95,
+      industries: ['electronics', 'power systems', 'telecommunications', 'semiconductors', 'IoT'],
+      keywords: ['electrical', 'electronics', 'circuits', 'power', 'signals']
+    },
+    {
+      socCode: '17-2072.00',
+      title: 'Electronics Engineers',
+      confidence: 0.90,
+      industries: ['consumer electronics', 'semiconductors', 'IoT', 'embedded systems'],
+      keywords: ['electronics', 'embedded', 'microcontrollers', 'PCB']
+    }
+  ],
+
+  // Civil Engineering
+  'civil': [
+    {
+      socCode: '17-2051.00',
+      title: 'Civil Engineers',
+      confidence: 0.95,
+      industries: ['construction', 'infrastructure', 'transportation', 'urban planning'],
+      keywords: ['civil', 'structures', 'construction', 'infrastructure', 'transportation']
+    }
+  ],
+
+  // Chemical Engineering
+  'chemical': [
+    {
+      socCode: '17-2041.00',
+      title: 'Chemical Engineers',
+      confidence: 0.95,
+      industries: ['chemical', 'pharmaceutical', 'petrochemical', 'materials', 'biotech'],
+      keywords: ['chemical', 'reactions', 'processes', 'materials', 'catalysis']
+    }
+  ],
+
+  // Data Science/Analytics
+  'data': [
+    {
+      socCode: '15-2051.00',
+      title: 'Data Scientists',
+      confidence: 0.95,
+      industries: ['technology', 'finance', 'healthcare', 'e-commerce', 'consulting'],
+      keywords: ['data', 'analytics', 'machine learning', 'statistics', 'AI']
+    },
+    {
+      socCode: '15-2051.01',
+      title: 'Business Intelligence Analysts',
+      confidence: 0.85,
+      industries: ['business intelligence', 'consulting', 'enterprise software'],
+      keywords: ['business intelligence', 'reporting', 'dashboards', 'KPIs']
+    }
+  ],
+
+  // Business/Management
+  'business': [
+    {
+      socCode: '11-3021.00',
+      title: 'Computer and Information Systems Managers',
+      confidence: 0.85,
+      industries: ['technology', 'consulting', 'finance', 'enterprise'],
+      keywords: ['management', 'leadership', 'IT', 'project management']
+    },
+    {
+      socCode: '13-1111.00',
+      title: 'Management Analysts',
+      confidence: 0.80,
+      industries: ['consulting', 'business services', 'finance'],
+      keywords: ['strategy', 'consulting', 'business analysis', 'operations']
+    }
+  ],
+
+  // Strategic Management (NEW — not in EduThree1)
+  'strategic management': [
+    {
+      socCode: '13-1111.00',
+      title: 'Management Analysts',
+      confidence: 0.95,
+      industries: ['management consulting', 'strategy consulting', 'business advisory', 'professional services', 'corporate strategy'],
+      keywords: ['strategy', 'strategic planning', 'competitive analysis', 'market analysis', 'consulting', 'business strategy']
+    },
+    {
+      socCode: '11-1021.00',
+      title: 'General and Operations Managers',
+      confidence: 0.85,
+      industries: ['professional services', 'corporate management', 'operations', 'general management'],
+      keywords: ['operations', 'management', 'leadership', 'business operations', 'organizational']
+    },
+    {
+      socCode: '11-2021.00',
+      title: 'Marketing Managers',
+      confidence: 0.70,
+      industries: ['marketing and advertising', 'consumer goods', 'technology', 'retail'],
+      keywords: ['marketing', 'brand strategy', 'market positioning', 'competitive advantage']
+    }
+  ],
+
+  // Operations Management (NEW)
+  'operations management': [
+    {
+      socCode: '17-2112.00',
+      title: 'Industrial Engineers',
+      confidence: 0.90,
+      industries: ['manufacturing', 'logistics', 'supply chain', 'operations', 'production'],
+      keywords: ['operations', 'supply chain', 'logistics', 'lean', 'six sigma', 'process improvement']
+    },
+    {
+      socCode: '11-1021.00',
+      title: 'General and Operations Managers',
+      confidence: 0.90,
+      industries: ['operations', 'general management', 'manufacturing', 'logistics'],
+      keywords: ['operations management', 'resource planning', 'capacity', 'scheduling']
+    }
+  ],
+
+  // Finance/Investment
+  'finance': [
+    {
+      socCode: '13-2051.00',
+      title: 'Financial Analysts',
+      confidence: 0.95,
+      industries: ['investment management', 'financial services', 'asset management', 'banking', 'hedge funds', 'private equity', 'wealth management'],
+      keywords: ['finance', 'financial', 'investment', 'portfolio', 'securities', 'equity', 'risk', 'valuation']
+    },
+    {
+      socCode: '13-2052.00',
+      title: 'Personal Financial Advisors',
+      confidence: 0.85,
+      industries: ['wealth management', 'financial planning', 'investment advisory', 'asset management'],
+      keywords: ['wealth', 'advisory', 'financial planning', 'investment', 'retirement']
+    },
+    {
+      socCode: '11-3031.00',
+      title: 'Financial Managers',
+      confidence: 0.90,
+      industries: ['banking', 'corporate finance', 'investment management', 'financial services'],
+      keywords: ['treasury', 'capital', 'budgeting', 'financial management', 'corporate finance']
+    },
+    {
+      socCode: '13-2061.00',
+      title: 'Financial Examiners',
+      confidence: 0.75,
+      industries: ['regulatory', 'banking', 'compliance', 'financial services'],
+      keywords: ['compliance', 'audit', 'regulatory', 'examination', 'banking']
+    }
+  ],
+
+  // Accounting
+  'accounting': [
+    {
+      socCode: '13-2011.00',
+      title: 'Accountants and Auditors',
+      confidence: 0.95,
+      industries: ['accounting', 'professional services', 'audit', 'tax', 'financial services'],
+      keywords: ['accounting', 'audit', 'tax', 'gaap', 'financial reporting', 'bookkeeping', 'cpa']
+    },
+    {
+      socCode: '13-2041.00',
+      title: 'Credit Analysts',
+      confidence: 0.80,
+      industries: ['banking', 'credit', 'lending', 'financial services'],
+      keywords: ['credit', 'loan', 'underwriting', 'risk assessment']
+    }
+  ],
+
+  // Marketing
+  'marketing': [
+    {
+      socCode: '11-2021.00',
+      title: 'Marketing Managers',
+      confidence: 0.95,
+      industries: ['marketing and advertising', 'e-commerce', 'consumer goods', 'retail', 'technology'],
+      keywords: ['marketing', 'advertising', 'branding', 'campaign', 'digital marketing', 'social media']
+    },
+    {
+      socCode: '13-1161.00',
+      title: 'Market Research Analysts',
+      confidence: 0.90,
+      industries: ['market research', 'consulting', 'advertising', 'consumer insights'],
+      keywords: ['market research', 'consumer', 'survey', 'analytics', 'insights']
+    }
+  ],
+
+  // Information Systems (NEW)
+  'information systems': [
+    {
+      socCode: '15-1252.00',
+      title: 'Software Developers',
+      confidence: 0.85,
+      industries: ['software', 'technology', 'enterprise software', 'SaaS'],
+      keywords: ['information systems', 'software', 'database', 'systems analysis', 'ERP']
+    },
+    {
+      socCode: '11-3021.00',
+      title: 'Computer and Information Systems Managers',
+      confidence: 0.90,
+      industries: ['technology', 'IT services', 'consulting', 'enterprise'],
+      keywords: ['IT management', 'systems', 'information technology', 'project management']
+    }
+  ],
+
+  // Supply Chain (NEW)
+  'supply chain': [
+    {
+      socCode: '13-1081.00',
+      title: 'Logisticians',
+      confidence: 0.95,
+      industries: ['logistics', 'supply chain', 'transportation', 'warehousing', 'distribution'],
+      keywords: ['supply chain', 'logistics', 'procurement', 'inventory', 'distribution', 'warehouse']
+    },
+    {
+      socCode: '17-2112.00',
+      title: 'Industrial Engineers',
+      confidence: 0.80,
+      industries: ['manufacturing', 'operations', 'production', 'quality'],
+      keywords: ['operations', 'process improvement', 'lean', 'efficiency']
+    }
+  ]
+};
+
+// Discipline stem variations for fuzzy matching
+const DISCIPLINE_STEMS: Record<string, string[]> = {
+  'mechanical': ['mechanical', 'mechanics', 'mechanic'],
+  'systems': ['systems', 'system', 'industrial'],
+  'computer': ['computer', 'computing', 'computation', 'software'],
+  'electrical': ['electrical', 'electric', 'electronics', 'electronic'],
+  'civil': ['civil'],
+  'chemical': ['chemical', 'chemistry'],
+  'data': ['data'],
+  'business': ['business', 'mba'],
+  'strategic management': ['strategic management', 'strategy', 'strategic'],
+  'operations management': ['operations management', 'operations'],
+  'finance': ['finance', 'financial', 'finn', 'investment', 'portfolio', 'banking', 'securities', 'equity', 'fund', 'asset management', 'wealth'],
+  'accounting': ['accounting', 'acct', 'audit', 'tax', 'cpa', 'bookkeeping'],
+  'marketing': ['marketing', 'mktg', 'advertising', 'branding', 'digital marketing'],
+  'information systems': ['information systems', 'mis', 'information technology'],
+  'supply chain': ['supply chain', 'scm', 'logistics', 'procurement']
+};
+
+/**
+ * Map course title and context to relevant SOC codes
+ */
+export function mapCourseToSOC(
+  courseTitle: string,
+  outcomes: string[] = [],
+  courseLevel: string = ''
+): SOCMapping[] {
+  console.log(`\n🎯 [SOC Mapping] Course: "${courseTitle}"`);
+
+  const titleLower = courseTitle.toLowerCase();
+  const outcomesText = outcomes.join(' ').toLowerCase();
+  const allText = `${titleLower} ${outcomesText}`;
+
+  const matches: Array<SOCMapping & { matchScore: number }> = [];
+
+  // Check each discipline — prioritize longer/more specific stems first
+  const sortedDisciplines = Object.entries(DISCIPLINE_STEMS)
+    .sort(([a], [b]) => b.length - a.length);
+
+  for (const [discipline, stems] of sortedDisciplines) {
+    const socMappings = DISCIPLINE_SOC_MAP[discipline];
+    if (!socMappings) continue;
+
+    const disciplineMatch = stems.some(stem => allText.includes(stem));
+    if (!disciplineMatch) continue;
+
+    console.log(`   ✓ Matched discipline: "${discipline}"`);
+
+    for (const mapping of socMappings) {
+      let matchScore = 0;
+
+      // Title match is strongest
+      if (stems.some(stem => titleLower.includes(stem))) {
+        matchScore += 50;
+      }
+
+      // Keyword matches
+      for (const keyword of mapping.keywords) {
+        if (allText.includes(keyword)) {
+          matchScore += 10;
+        }
+      }
+
+      matches.push({ ...mapping, matchScore });
+    }
+  }
+
+  // Keyword-based fallback if no discipline match
+  if (matches.length === 0) {
+    console.log(`   ⚠️  No discipline match, trying keyword fallback...`);
+
+    for (const [_discipline, socMappings] of Object.entries(DISCIPLINE_SOC_MAP)) {
+      for (const mapping of socMappings) {
+        let matchScore = 0;
+        const keywordMatches: string[] = [];
+
+        for (const keyword of mapping.keywords) {
+          if (allText.includes(keyword)) {
+            const weight = keyword.length > 6 ? 20 : 15;
+            matchScore += weight;
+            keywordMatches.push(keyword);
+          }
+        }
+
+        if (titleLower.split(/\s+/).some(word => mapping.keywords.includes(word))) {
+          matchScore += 25;
+        }
+
+        if (matchScore > 0) {
+          console.log(`   ✓ Keyword match: ${mapping.title} (score: ${matchScore}, keywords: ${keywordMatches.join(', ')})`);
+          matches.push({ ...mapping, matchScore });
+        }
+      }
+    }
+  }
+
+  // Sort by match score * confidence
+  matches.sort((a, b) => (b.matchScore * b.confidence) - (a.matchScore * a.confidence));
+
+  const topMatches = matches.slice(0, 3);
+
+  console.log(`\n   📊 Top SOC Mappings:`);
+  topMatches.forEach((m, i) => {
+    console.log(`     ${i + 1}. ${m.title} (${m.socCode}) — confidence: ${(m.confidence * 100).toFixed(0)}%`);
+    console.log(`        Industries: ${m.industries.slice(0, 4).join(', ')}`);
+  });
+
+  return topMatches;
+}
+
+/**
+ * Get broad industry keywords from SOC mappings (for Apollo search)
+ */
+export function getIndustryKeywordsFromSOC(socMappings: SOCMapping[]): string[] {
+  const allIndustries = socMappings.flatMap(m => m.industries);
+  return [...new Set(allIndustries)].slice(0, 10);
+}
+
+/**
+ * Get job title variations from SOC mappings
+ */
+export function getJobTitlesFromSOC(socMappings: SOCMapping[]): string[] {
+  return socMappings.map(m => m.title);
+}
+
+/**
+ * Generate fallback skills from SOC code when external APIs fail
+ */
+export function generateFallbackSkillsFromSOC(socMapping: SOCMapping): Array<{
+  skill: string;
+  category: 'technical' | 'analytical' | 'domain' | 'tool' | 'framework';
+  confidence: number;
+  source: string;
+  keywords: string[];
+}> {
+  const fallbackSkills = [];
+
+  for (const keyword of socMapping.keywords.slice(0, 8)) {
+    fallbackSkills.push({
+      skill: keyword,
+      category: 'technical' as const,
+      confidence: 0.7,
+      source: `soc-fallback:${socMapping.socCode}`,
+      keywords: [keyword.toLowerCase()]
+    });
+  }
+
+  for (const industry of socMapping.industries.slice(0, 5)) {
+    fallbackSkills.push({
+      skill: `${industry} domain knowledge`,
+      category: 'domain' as const,
+      confidence: 0.6,
+      source: `soc-fallback:${socMapping.socCode}:industry`,
+      keywords: [industry.toLowerCase()]
+    });
+  }
+
+  return fallbackSkills;
+}
+
+/**
+ * Generate fallback technologies from SOC code industries
+ */
+export function generateFallbackTechnologiesFromSOC(socMapping: SOCMapping): string[] {
+  const industryTechMap: Record<string, string[]> = {
+    'aerospace': ['CAD', 'MATLAB', 'ANSYS', 'SolidWorks', 'CFD Software'],
+    'automotive': ['CAD', 'CAE', 'CATIA', 'AutoCAD', 'Simulation Software'],
+    'manufacturing': ['CAD', 'CAM', 'PLC', 'SCADA', 'ERP Systems'],
+    'software': ['JavaScript', 'Python', 'Git', 'AWS', 'Docker'],
+    'technology': ['Python', 'SQL', 'AWS', 'Docker', 'Git'],
+    'data': ['Python', 'SQL', 'Tableau', 'R', 'Machine Learning'],
+    'cloud': ['AWS', 'Azure', 'Kubernetes', 'Docker', 'Terraform'],
+    'finance': ['Excel', 'SQL', 'Python', 'Bloomberg Terminal', 'VBA'],
+    'consulting': ['Excel', 'PowerPoint', 'Tableau', 'SQL', 'Python'],
+    'management consulting': ['Excel', 'PowerPoint', 'Tableau', 'SQL', 'Power BI'],
+    'strategy consulting': ['Excel', 'PowerPoint', 'Market Research Tools', 'Financial Modeling'],
+    'marketing and advertising': ['Google Analytics', 'HubSpot', 'Salesforce', 'Social Media Tools'],
+    'accounting': ['QuickBooks', 'SAP', 'Excel', 'Oracle', 'Tax Software'],
+    'logistics': ['SAP', 'Oracle SCM', 'Excel', 'WMS Software', 'ERP Systems'],
+  };
+
+  const technologies = new Set<string>();
+  for (const industry of socMapping.industries) {
+    const techs = industryTechMap[industry.toLowerCase()];
+    if (techs) techs.forEach(t => technologies.add(t));
+  }
+
+  return Array.from(technologies).slice(0, 10);
+}

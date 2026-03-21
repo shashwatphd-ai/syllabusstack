@@ -1,0 +1,133 @@
+/**
+ * Pipeline Types for Capstone Discovery
+ * Ported from EduThree1 — type definitions for the multi-phase pipeline.
+ */
+
+// ============================================
+// SKILL EXTRACTION TYPES
+// ============================================
+
+export interface IndustrySkill {
+  skill: string;
+  category: 'technical' | 'analytical' | 'domain' | 'tool' | 'framework';
+  confidence: number;
+  source: string;
+  keywords: string[];
+}
+
+export interface SkillExtractionOutput {
+  skills: IndustrySkill[];
+  extractionMethod: 'ai-translation' | 'soc-fallback' | 'pattern-fallback';
+  processingTimeMs: number;
+}
+
+// ============================================
+// COMPANY DISCOVERY TYPES
+// ============================================
+
+export type DiscoveryStrategy =
+  | 'technology_filter'
+  | 'job_title_search'
+  | 'industry_search';
+
+export interface JobPosting {
+  id: string;
+  title: string;
+  description: string;
+  postedDate: string;
+  location?: string;
+}
+
+export interface DiscoveredCompany {
+  apolloId: string;
+  name: string;
+  website?: string;
+  industry: string;
+  industryTags: string[];
+  employeeCount: number;
+  location: {
+    city: string;
+    state: string;
+    country: string;
+  };
+  description: string;
+  jobPostings: JobPosting[];
+  technologies: string[];
+  fundingStage?: string;
+  totalFunding?: number;
+  discoveryStrategy: DiscoveryStrategy;
+}
+
+export interface CompanyDiscoveryInput {
+  industries: string[];
+  jobTitles: string[];
+  skillKeywords: string[];
+  location: string;
+  targetCount: number;
+}
+
+export interface CompanyDiscoveryOutput {
+  companies: DiscoveredCompany[];
+  stats: {
+    totalDiscovered: number;
+    byStrategy: Record<DiscoveryStrategy, number>;
+    processingTimeMs: number;
+  };
+}
+
+// ============================================
+// VALIDATION & RANKING TYPES
+// ============================================
+
+export interface CompanyValidation {
+  isValid: boolean;
+  confidence: number;
+  reason: string;
+  suggestedProjectType?: string;
+  skillsOverlap: string[];
+}
+
+export interface ValidatedCompany extends DiscoveredCompany {
+  validation: CompanyValidation;
+}
+
+export interface CompanyScores {
+  semantic: number;
+  hiring: number;
+  location: number;
+  size: number;
+  diversity: number;
+  composite: number;
+}
+
+export interface RankedCompany {
+  rank: number;
+  company: ValidatedCompany;
+  scores: CompanyScores;
+  selectionReason: string;
+}
+
+// ============================================
+// PIPELINE ORCHESTRATION TYPES
+// ============================================
+
+export interface PipelineInput {
+  courseId: string;
+  courseTitle: string;
+  courseLevel: string;
+  learningObjectives: string[];
+  location: string;
+  targetCount: number;
+}
+
+export interface PipelineOutput {
+  success: boolean;
+  companies: DiscoveredCompany[];
+  companiesSaved: number;
+  phases: {
+    skillExtraction?: SkillExtractionOutput;
+    discovery?: CompanyDiscoveryOutput;
+  };
+  totalProcessingTimeMs: number;
+  error?: string;
+}

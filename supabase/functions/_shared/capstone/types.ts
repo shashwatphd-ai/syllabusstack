@@ -66,7 +66,7 @@ export interface CourseContext {
   expected_artifacts?: string[];
   learning_objectives: Array<{
     id: string;
-    objective_text: string;
+    text: string;
     bloom_level?: string;
   }>;
 }
