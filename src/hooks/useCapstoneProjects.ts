@@ -287,3 +287,47 @@ export function useCompleteProject() {
     },
   });
 }
+
+// ── Location Detection ──
+
+export interface DetectedLocation {
+  success: boolean;
+  city?: string;
+  state?: string;
+  zip?: string;
+  country?: string;
+  universityName?: string;
+  searchLocation?: string;
+  source?: string;
+  error?: string;
+}
+
+export function useDetectLocation() {
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async (email: string): Promise<DetectedLocation> => {
+      const { data, error } = await supabase.functions.invoke('detect-location', {
+        body: { email },
+      });
+      if (error) throw error;
+      return data as DetectedLocation;
+    },
+    onSuccess: (data) => {
+      if (data.success && data.universityName) {
+        toast({
+          title: 'Location Detected',
+          description: `Found: ${data.universityName} — ${data.searchLocation}`,
+        });
+      }
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Detection Failed',
+        description: 'Could not auto-detect location. Please enter manually.',
+        variant: 'destructive',
+      });
+    },
+  });
+}
+}
