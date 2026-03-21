@@ -85,7 +85,11 @@ export function CapstoneProjectsTab({ courseId }: CapstoneProjectsTabProps) {
           <Card className="border-dashed">
             <CardContent className="py-8 text-center text-sm text-muted-foreground">
               <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-40" />
-              No companies discovered yet. Click "Discover Companies" to find industry partners near your course location.
+              {!hasLOs
+                ? 'Add learning objectives to your course first (in the Course Structure tab), then discover companies.'
+                : !hasLocation
+                  ? 'Set your course location above, then click "Discover Companies" to find industry partners.'
+                  : 'No companies discovered yet. Click "Discover Companies" to find industry partners near your course location.'}
             </CardContent>
           </Card>
         )}
