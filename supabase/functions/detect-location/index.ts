@@ -64,7 +64,7 @@ Deno.serve(async (req: Request) => {
     let country: string | null = null;
 
     try {
-      const hipoUrl = `http://universities.hipolabs.com/search?domain=${domain}`;
+      const hipoUrl = `https://universities.hipolabs.com/search?domain=${domain}`;
       const hipoRes = await fetch(hipoUrl, { signal: AbortSignal.timeout(5000) });
       if (hipoRes.ok) {
         const universities = await hipoRes.json();
