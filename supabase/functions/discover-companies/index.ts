@@ -61,9 +61,9 @@ const handler = async (req: Request): Promise<Response> => {
   // Fetch learning objectives
   const { data: los } = await supabase
     .from('learning_objectives')
-    .select('id, objective_text, bloom_level')
+    .select('id, text, bloom_level')
     .eq('instructor_course_id', instructor_course_id);
-  const objectiveTexts = (los || []).map(lo => lo.objective_text);
+  const objectiveTexts = (los || []).map((lo: any) => lo.text);
 
   if (objectiveTexts.length === 0) {
     return createErrorResponse('BAD_REQUEST', corsHeaders, 'Course has no learning objectives for skill extraction');
