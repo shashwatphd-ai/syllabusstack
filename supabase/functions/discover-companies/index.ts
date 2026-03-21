@@ -1,14 +1,15 @@
 /**
- * Discover Companies Edge Function (Rewritten)
+ * Discover Companies Edge Function (Enhanced with Validation + Ranking)
  * 
- * Replaces naive single-keyword Apollo search with EduThree1's multi-phase pipeline:
+ * Full EduThree1-parity pipeline:
  * 1. SOC code mapping from course context
- * 2. Industry keyword + job title extraction from SOC
+ * 2. AI-powered skill extraction
  * 3. Location normalization with variants
- * 4. 3-strategy Apollo discovery (technology → job titles → industry keywords)
+ * 4. 3-strategy Apollo discovery
  * 5. Context-aware industry filtering
- * 6. Company enrichment (job postings, technologies)
- * 7. Upsert into company_profiles
+ * 6. AI company-course validation (NEW)
+ * 7. Multi-factor ranking & selection (NEW)
+ * 8. Upsert into company_profiles
  */
 
 import { createClient } from "@supabase/supabase-js";
@@ -19,6 +20,8 @@ import { normalizeLocationForApollo } from "../_shared/capstone/location-utils.t
 import { classifyCourseDomain, shouldExcludeIndustry } from "../_shared/capstone/context-aware-industry-filter.ts";
 import { extractIndustrySkills } from "../_shared/capstone/skill-extraction.ts";
 import { discoverCompanies } from "../_shared/capstone/apollo-precise-discovery.ts";
+import { filterValidCompanies } from "../_shared/capstone/company-validation-service.ts";
+import { rankAndSelectCompanies } from "../_shared/capstone/company-ranking-service.ts";
 
 const handler = async (req: Request): Promise<Response> => {
   const corsHeaders = getCorsHeaders(req);
@@ -68,7 +71,6 @@ const handler = async (req: Request): Promise<Response> => {
     .single();
   if (courseError || !course) return createErrorResponse('NOT_FOUND', corsHeaders, 'Course not found');
 
-  // Fetch learning objectives
   const { data: los } = await supabase
     .from('learning_objectives')
     .select('id, text, bloom_level')
@@ -118,12 +120,13 @@ const handler = async (req: Request): Promise<Response> => {
   console.log(`   Location (normalized): ${normalizedLocation}`);
 
   // ── Phase 5: Apollo Multi-Strategy Discovery ──
+  // Request 3x target count to allow for validation filtering
   const discoveryResult = await discoverCompanies({
     industries: industryKeywords,
     jobTitles,
     skillKeywords: skillKeywords.slice(0, 10),
     location: normalizedLocation,
-    targetCount: count,
+    targetCount: count * 3,
   });
 
   console.log(`\n📦 PHASE 5 RESULTS: ${discoveryResult.companies.length} companies discovered`);
@@ -166,31 +169,69 @@ const handler = async (req: Request): Promise<Response> => {
 
   console.log(`   Passed filtering: ${filteredCompanies.length}/${discoveryResult.companies.length}`);
 
+  // ── Phase 6b: AI Company-Course Validation ──
+  console.log(`\n🔍 PHASE 6b: AI COMPANY-COURSE VALIDATION`);
+
+  // Convert discovered companies to format expected by validation
+  const companiesForValidation = filteredCompanies.map(c => ({
+    name: c.name,
+    description: c.description,
+    sector: c.industry,
+    industries: c.industryTags,
+    keywords: skillKeywords.slice(0, 10),
+    job_postings: c.jobPostings.map(jp => ({ title: jp.title })),
+    technologies_used: c.technologies,
+    website: c.website,
+    // Preserve original data for upsert
+    _original: c,
+  }));
+
+  const { validCompanies: validated, rejectedCompanies: rejected } = await filterValidCompanies(
+    companiesForValidation,
+    course.title,
+    course.academic_level || 'undergraduate',
+    objectiveTexts
+  );
+
+  console.log(`   Validated: ${validated.length} | Rejected: ${rejected.length}`);
+
+  // ── Phase 6c: Multi-Factor Ranking ──
+  console.log(`\n📊 PHASE 6c: RANKING & SELECTION`);
+  const rankingResult = rankAndSelectCompanies(validated, searchLocation, count);
+  console.log(`   Selected: ${rankingResult.selected.length} | Alternates: ${rankingResult.alternates.length}`);
+
   // ── Phase 7: Upsert into company_profiles ──
   console.log(`\n💾 PHASE 7: SAVING COMPANIES`);
   const insertedCompanies: any[] = [];
 
-  for (const company of filteredCompanies.slice(0, count)) {
+  for (const ranked of rankingResult.selected) {
+    const company = ranked.company;
+    const original = company._original || company;
+
     const companyData = {
-      name: company.name,
-      sector: company.industry,
-      size: company.employeeCount ? `${company.employeeCount} employees` : 'Unknown',
-      description: company.description,
-      website: company.website || null,
-      full_address: [company.location.city, company.location.state, company.location.country].filter(Boolean).join(', ') || null,
-      apollo_organization_id: company.apolloId,
-      technologies_used: company.technologies,
-      funding_stage: company.fundingStage || null,
-      total_funding_usd: company.totalFunding ? Math.round(company.totalFunding) : null,
-      employee_count: company.employeeCount?.toString() || null,
-      industries: company.industryTags.slice(0, 10),
+      name: original.name || company.name,
+      sector: original.industry || company.sector,
+      size: original.employeeCount ? `${original.employeeCount} employees` : 'Unknown',
+      description: original.description || company.description,
+      website: original.website || company.website || null,
+      full_address: original.location
+        ? [original.location.city, original.location.state, original.location.country].filter(Boolean).join(', ')
+        : company.full_address || null,
+      apollo_organization_id: original.apolloId || null,
+      technologies_used: original.technologies || company.technologies_used || [],
+      funding_stage: original.fundingStage || null,
+      total_funding_usd: original.totalFunding ? Math.round(original.totalFunding) : null,
+      employee_count: original.employeeCount?.toString() || null,
+      industries: (original.industryTags || company.industries || []).slice(0, 10),
       keywords: skillKeywords.slice(0, 10),
-      job_postings: company.jobPostings.slice(0, 5).map(jp => ({
+      job_postings: (original.jobPostings || company.job_postings || []).slice(0, 5).map((jp: any) => ({
         title: jp.title,
         location: jp.location,
-        posted_date: jp.postedDate,
+        posted_date: jp.postedDate || jp.posted_date,
       })),
-      data_completeness_score: calculateCompleteness(company),
+      data_completeness_score: calculateCompleteness(original),
+      match_score: ranked.scores.composite,
+      match_reason: ranked.selectionReason,
     };
 
     const { data: savedCompany, error: insertError } = await supabase
@@ -201,11 +242,24 @@ const handler = async (req: Request): Promise<Response> => {
 
     if (insertError) {
       console.warn(`   ⚠️ Failed to upsert ${companyData.name}:`, insertError.message);
+      // Fallback: try insert without upsert constraint
+      const { data: fallbackCompany, error: fallbackError } = await supabase
+        .from('company_profiles')
+        .insert({ ...companyData, apollo_organization_id: null })
+        .select()
+        .single();
+
+      if (fallbackError) {
+        console.error(`   ❌ Fallback insert also failed:`, fallbackError.message);
+        continue;
+      }
+      insertedCompanies.push(fallbackCompany);
+      console.log(`   ✅ Saved (fallback): ${fallbackCompany.name}`);
       continue;
     }
 
     insertedCompanies.push(savedCompany);
-    console.log(`   ✅ Saved: ${savedCompany.name} (${company.discoveryStrategy})`);
+    console.log(`   ✅ Saved: ${savedCompany.name} (rank #${ranked.rank}, score: ${(ranked.scores.composite * 100).toFixed(0)}%)`);
   }
 
   console.log(`\n✅ Discovery complete: ${insertedCompanies.length} companies saved`);
@@ -213,6 +267,9 @@ const handler = async (req: Request): Promise<Response> => {
   return createSuccessResponse({
     success: true,
     companies_discovered: discoveryResult.companies.length,
+    companies_filtered: filteredCompanies.length,
+    companies_validated: validated.length,
+    companies_rejected: rejected.length,
     companies_saved: insertedCompanies.length,
     companies: insertedCompanies.map(c => ({
       id: c.id,
@@ -221,6 +278,8 @@ const handler = async (req: Request): Promise<Response> => {
       size: c.size,
       website: c.website,
       technologies: c.technologies_used?.slice(0, 5),
+      match_score: c.match_score,
+      match_reason: c.match_reason,
     })),
     pipeline: {
       socMappings: socMappings.map(s => ({ title: s.title, socCode: s.socCode, confidence: s.confidence })),
@@ -235,6 +294,12 @@ const handler = async (req: Request): Promise<Response> => {
         inputCount: discoveryResult.companies.length,
         passedCount: filteredCompanies.length,
       },
+      validation: {
+        validated: validated.length,
+        rejected: rejected.length,
+        rejectionReasons: rejected.slice(0, 5).map(r => `${r.company.name}: ${r.reason}`),
+      },
+      ranking: rankingResult.selectionSummary,
       location: normalizedLocation,
     },
   }, corsHeaders);

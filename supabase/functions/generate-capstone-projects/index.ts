@@ -1,14 +1,25 @@
 /**
- * Generate Capstone Projects Edge Function
- * Generates AI-powered industry project proposals for instructor courses
- * Adapted from EduThree1's generate-projects (1,122 lines)
+ * Generate Capstone Projects Edge Function (Enhanced)
+ * Ported from EduThree1's generate-projects (1,122 lines)
+ * 
+ * Full pipeline:
+ * 1. Fetch course data + learning objectives
+ * 2. Fetch discovered companies from DB
+ * 3. AI company-course validation (reject poor fits)
+ * 4. AI project proposal generation with domain-specific prompts
+ * 5. LO alignment scoring (AI)
+ * 6. Market alignment scoring (synonym expansion)
+ * 7. Pricing & ROI calculation
+ * 8. Store projects + 6-form structured data + milestones
  */
 
 import { createClient } from "@supabase/supabase-js";
 import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
 import { withErrorHandling, createErrorResponse, createSuccessResponse } from "../_shared/error-handler.ts";
 import { generateProjectProposal } from "../_shared/capstone/generation-service.ts";
-import { calculateLOAlignment } from "../_shared/capstone/alignment-service.ts";
+import { calculateLOAlignment, calculateMarketAlignmentScore, generateLOAlignmentDetail } from "../_shared/capstone/alignment-service.ts";
+import { validateCompanyCourseMatch } from "../_shared/capstone/company-validation-service.ts";
+import { calculateApolloEnrichedPricing, calculateApolloEnrichedROI } from "../_shared/capstone/pricing-service.ts";
 import type { CompanyInfo } from "../_shared/capstone/types.ts";
 
 const handler = async (req: Request): Promise<Response> => {
@@ -47,7 +58,7 @@ const handler = async (req: Request): Promise<Response> => {
 
   console.log(`🚀 Generating capstone projects for course: ${instructor_course_id}`);
 
-  // Fetch course data
+  // ── Fetch course data ──
   const { data: course, error: courseError } = await supabase
     .from('instructor_courses')
     .select('id, title, academic_level, expected_artifacts')
@@ -60,25 +71,24 @@ const handler = async (req: Request): Promise<Response> => {
     .from('learning_objectives')
     .select('id, text, bloom_level')
     .eq('instructor_course_id', instructor_course_id);
-  const objectives = (los || []).map((lo: any) => lo.text);
+  const objectives = (los || []).map((lo: any) => lo.text).filter(Boolean);
 
   if (objectives.length === 0) {
     return createErrorResponse('BAD_REQUEST', corsHeaders, 'Course has no learning objectives');
   }
 
-  // Fetch companies
+  // ── Fetch companies ──
   let companiesQuery = supabase.from('company_profiles').select('*');
   if (company_ids?.length) {
     companiesQuery = companiesQuery.in('id', company_ids);
   } else {
-    // Get companies already linked to this course via existing capstone_projects
     const { data: existingProjects } = await supabase
       .from('capstone_projects')
       .select('company_profile_id')
       .eq('instructor_course_id', instructor_course_id);
-    
+
     const existingIds = (existingProjects || []).map(p => p.company_profile_id).filter(Boolean);
-    
+
     if (existingIds.length === 0) {
       return createErrorResponse('BAD_REQUEST', corsHeaders, 'No companies found. Run company discovery first.');
     }
@@ -90,35 +100,97 @@ const handler = async (req: Request): Promise<Response> => {
     return createErrorResponse('NOT_FOUND', corsHeaders, 'No companies found');
   }
 
-  console.log(`📊 Generating projects for ${companies.length} companies`);
+  console.log(`📊 Processing ${companies.length} companies for project generation`);
 
-  // Generate projects sequentially (to avoid rate limits)
   const results: any[] = [];
   const errors: string[] = [];
+  const validationResults: { company: string; valid: boolean; reason: string }[] = [];
 
   for (const company of companies) {
     try {
-      console.log(`\n🏢 Generating project for: ${company.name}`);
-      
+      console.log(`\n🏢 Processing: ${company.name}`);
+
+      // ── Step 1: AI Company-Course Validation ──
+      const validation = await validateCompanyCourseMatch({
+        companyName: company.name,
+        companyDescription: company.description || '',
+        companySector: company.sector || 'Unknown',
+        companyIndustries: company.industries || [],
+        companyKeywords: company.keywords || [],
+        companyJobPostings: company.job_postings || [],
+        companyTechnologies: company.technologies_used || [],
+        courseTitle: course.title,
+        courseLevel: course.academic_level || 'undergraduate',
+        courseOutcomes: objectives,
+      });
+
+      validationResults.push({
+        company: company.name,
+        valid: validation.isValid,
+        reason: validation.reason,
+      });
+
+      if (!validation.isValid && validation.confidence >= 0.7) {
+        console.log(`   ❌ Rejected: ${validation.reason}`);
+        continue; // Skip this company
+      }
+
+      // ── Step 2: AI Project Proposal Generation ──
+      console.log(`   🤖 Generating project proposal...`);
       const proposal = await generateProjectProposal(
         company as CompanyInfo,
         objectives,
         course.title,
         course.academic_level || 'undergraduate',
-        course.expected_artifacts || []
+        course.expected_artifacts || [],
+        15, // weeks
+        10  // hours per week
       );
 
-      // Calculate scores
+      // ── Step 3: LO Alignment Scoring ──
       const loScore = await calculateLOAlignment(
         proposal.tasks,
         proposal.deliverables,
         objectives,
         proposal.lo_alignment
       );
-      const feasibilityScore = 0.80;
-      const finalScore = 0.5 * loScore + 0.3 * feasibilityScore + 0.2 * 0.80;
 
-      // Insert capstone project
+      // ── Step 4: Market Alignment Scoring ──
+      const marketScore = calculateMarketAlignmentScore(
+        proposal.tasks,
+        objectives,
+        company.job_postings || [],
+        company.technologies_used || []
+      );
+
+      // ── Step 5: Pricing & ROI ──
+      const teamSize = 4;
+      const { budget, breakdown: pricingBreakdown } = calculateApolloEnrichedPricing(
+        15, 10, teamSize,
+        proposal.tier,
+        company as CompanyInfo
+      );
+
+      const roi = calculateApolloEnrichedROI(
+        budget,
+        proposal.deliverables,
+        company as CompanyInfo,
+        proposal.tasks
+      );
+
+      // ── Step 6: LO Alignment Detail ──
+      const loDetail = await generateLOAlignmentDetail(
+        proposal.tasks,
+        proposal.deliverables,
+        objectives,
+        proposal.lo_alignment
+      );
+
+      // ── Calculate final composite score ──
+      const feasibilityScore = Math.min(1.0, (marketScore / 100) * 0.6 + 0.4);
+      const finalScore = 0.5 * loScore + 0.3 * feasibilityScore + 0.2 * (validation.confidence || 0.7);
+
+      // ── Step 7: Insert capstone project ──
       const { data: project, error: insertError } = await supabase
         .from('capstone_projects')
         .insert({
@@ -143,46 +215,60 @@ const handler = async (req: Request): Promise<Response> => {
         .single();
 
       if (insertError) {
-        console.error(`DB insert failed for ${company.name}:`, insertError);
+        console.error(`   ❌ DB insert failed for ${company.name}:`, insertError);
         errors.push(`${company.name}: ${insertError.message}`);
         continue;
       }
 
-      // Insert project forms
+      // ── Step 8: Insert 6-form structured data ──
       await supabase.from('project_forms').insert({
         capstone_project_id: project.id,
         form1_project_details: {
           title: proposal.title,
           industry: company.sector,
           description: proposal.description,
+          budget: budget,
+          roi_multiplier: roi.roi_multiplier,
         },
         form2_contact_info: {
           company: company.name,
-          contact_name: company.contact_person || 'TBD',
-          contact_email: company.contact_email || '',
-          contact_title: company.contact_title || 'TBD',
+          contact_name: company.contact_person || proposal.contact?.name || 'TBD',
+          contact_email: company.contact_email || proposal.contact?.email || '',
+          contact_title: company.contact_title || proposal.contact?.title || 'TBD',
+          contact_phone: company.contact_phone || proposal.contact?.phone || '',
           website: company.website || '',
+          linkedin: company.linkedin_profile || '',
         },
         form3_requirements: {
           skills: proposal.skills,
           deliverables: proposal.deliverables,
           learning_objectives: proposal.lo_alignment,
+          team_size: teamSize,
+          lo_alignment_detail: loDetail,
         },
-        form4_timeline: { weeks: 15 },
+        form4_timeline: {
+          weeks: 15,
+          hours_per_week: 10,
+          start_date: null,
+          end_date: null,
+        },
         form5_logistics: {
           type: 'Consulting',
+          scope: validation.suggestedProjectType || 'Applied Project',
           location: 'Hybrid',
           equipment: proposal.equipment,
+          ip_agreement: 'Standard university IP policy',
+          past_experience: company.funding_stage ? `${company.funding_stage} company` : 'N/A',
         },
         form6_academic: {
           level: course.academic_level || 'undergraduate',
           difficulty: proposal.tier,
           majors: proposal.majors,
+          faculty_expertise: 'As determined by department',
+          hours_per_week: 10,
+          category: company.sector || 'General',
         },
-        milestones: proposal.deliverables.map((d: string, i: number) => ({
-          week: (i + 1) * Math.floor(15 / proposal.deliverables.length),
-          deliverable: d,
-        })),
+        milestones: generateMilestones(proposal.deliverables, 15),
       });
 
       results.push({
@@ -190,17 +276,26 @@ const handler = async (req: Request): Promise<Response> => {
         title: proposal.title,
         company: company.name,
         lo_score: loScore,
+        market_score: marketScore,
+        feasibility_score: feasibilityScore,
         final_score: finalScore,
+        budget,
+        roi_multiplier: roi.roi_multiplier,
+        validation: {
+          valid: validation.isValid,
+          confidence: validation.confidence,
+          reason: validation.reason,
+        },
       });
 
-      console.log(`✅ ${company.name}: "${proposal.title}" (score: ${(finalScore * 100).toFixed(0)}%)`);
+      console.log(`   ✅ "${proposal.title}" (score: ${(finalScore * 100).toFixed(0)}%, budget: $${budget})`);
 
       // Rate limit pause between companies
       if (companies.indexOf(company) < companies.length - 1) {
-        await new Promise(r => setTimeout(r, 1000));
+        await new Promise(r => setTimeout(r, 1500));
       }
     } catch (err) {
-      console.error(`❌ Failed for ${company.name}:`, err);
+      console.error(`   ❌ Failed for ${company.name}:`, err);
       errors.push(`${company.name}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
@@ -208,9 +303,64 @@ const handler = async (req: Request): Promise<Response> => {
   return createSuccessResponse({
     success: true,
     projects_generated: results.length,
+    companies_processed: companies.length,
+    companies_validated: validationResults.length,
+    companies_rejected: validationResults.filter(v => !v.valid).length,
     projects: results,
+    validation_summary: validationResults,
     errors: errors.length > 0 ? errors : undefined,
   }, corsHeaders);
 };
+
+/**
+ * Generate weekly milestones from deliverables
+ */
+function generateMilestones(deliverables: string[], totalWeeks: number): any[] {
+  if (!deliverables || deliverables.length === 0) return [];
+
+  const milestones: any[] = [];
+
+  // Week 1: Project kickoff
+  milestones.push({
+    week: 1,
+    deliverable: 'Project Kickoff & Scope Definition',
+    type: 'checkpoint',
+  });
+
+  // Distribute deliverables across weeks 3 to (totalWeeks - 2)
+  const availableWeeks = totalWeeks - 4; // Reserve weeks 1-2 for setup, last 2 for final
+  const weekSpacing = Math.max(1, Math.floor(availableWeeks / deliverables.length));
+
+  deliverables.forEach((d, i) => {
+    const week = Math.min(totalWeeks - 2, 3 + (i * weekSpacing));
+    milestones.push({
+      week,
+      deliverable: d,
+      type: 'deliverable',
+    });
+  });
+
+  // Mid-point check-in
+  const midWeek = Math.floor(totalWeeks / 2);
+  if (!milestones.some(m => m.week === midWeek)) {
+    milestones.push({
+      week: midWeek,
+      deliverable: 'Mid-Project Progress Review & Stakeholder Feedback',
+      type: 'checkpoint',
+    });
+  }
+
+  // Final week: presentation
+  milestones.push({
+    week: totalWeeks,
+    deliverable: 'Final Project Presentation & Handoff',
+    type: 'final',
+  });
+
+  // Sort by week
+  milestones.sort((a, b) => a.week - b.week);
+
+  return milestones;
+}
 
 Deno.serve(withErrorHandling(handler, getCorsHeaders));
