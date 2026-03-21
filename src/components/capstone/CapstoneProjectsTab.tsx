@@ -40,6 +40,7 @@ export function CapstoneProjectsTab({ courseId }: CapstoneProjectsTabProps) {
         <LocationSetup
           courseId={courseId}
           initialValues={course}
+          autoDetect
         />
       )}
 
