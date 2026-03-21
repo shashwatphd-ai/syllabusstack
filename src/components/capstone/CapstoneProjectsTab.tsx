@@ -59,7 +59,8 @@ export function CapstoneProjectsTab({ courseId }: CapstoneProjectsTabProps) {
             variant="outline"
             className="gap-2"
             onClick={() => discoverCompanies.mutate(courseId)}
-            disabled={discoverCompanies.isPending}
+            disabled={discoverCompanies.isPending || !hasLocation || !hasLOs}
+            title={!hasLOs ? 'Add learning objectives to your course first' : !hasLocation ? 'Set course location first' : undefined}
           >
             {discoverCompanies.isPending ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
