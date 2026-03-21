@@ -160,63 +160,88 @@ Deno.serve(async (req: Request) => {
   }
 });
 
-// ── Google Geocoding helper ──
-async function geocodeAddress(
-  query: string,
-  apiKey: string
-): Promise<{ city: string; state: string; zip: string; country: string; lat: number; lng: number; formatted: string } | null> {
+// ── Geocoding helpers with Google → Nominatim fallback ──
+
+type GeoResult = { city: string; state: string; zip: string; country: string; lat: number; lng: number; formatted: string };
+
+async function geocodeAddress(query: string, googleApiKey: string): Promise<GeoResult | null> {
+  // Try Google first
+  const googleResult = await geocodeGoogle(query, googleApiKey);
+  if (googleResult) return googleResult;
+
+  // Fallback to Nominatim (free, 1req/sec rate limit)
+  return await geocodeNominatim(query);
+}
+
+async function geocodeGoogle(query: string, apiKey: string): Promise<GeoResult | null> {
   try {
     const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&key=${apiKey}`;
     const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
     const data = await res.json();
 
     if (data.status !== "OK" || !data.results?.length) {
-      console.warn(`[geocode] No results for "${query}": ${data.status}`);
+      console.warn(`[geocode-google] No results for "${query}": ${data.status}`);
       return null;
     }
 
-    const result = data.results[0];
-    const components = result.address_components || [];
+    return parseGoogleResult(data.results[0]);
+  } catch (e) {
+    console.error(`[geocode-google] Error for "${query}":`, e.message);
+    return null;
+  }
+}
 
-    let city = "";
-    let state = "";
-    let zip = "";
-    let countryCode = "";
+function parseGoogleResult(result: any): GeoResult {
+  const components = result.address_components || [];
+  let city = "", state = "", zip = "", countryCode = "";
 
-    for (const comp of components) {
-      const types: string[] = comp.types || [];
-      if (types.includes("locality")) {
-        city = comp.long_name;
-      } else if (types.includes("administrative_area_level_1")) {
-        state = comp.short_name;
-      } else if (types.includes("postal_code")) {
-        zip = comp.long_name;
-      } else if (types.includes("country")) {
-        countryCode = comp.short_name;
-      }
+  for (const comp of components) {
+    const types: string[] = comp.types || [];
+    if (types.includes("locality")) city = comp.long_name;
+    else if (types.includes("administrative_area_level_1")) state = comp.short_name;
+    else if (types.includes("postal_code")) zip = comp.long_name;
+    else if (types.includes("country")) countryCode = comp.short_name;
+  }
+
+  if (!city) {
+    const sub = components.find((c: any) =>
+      c.types?.includes("sublocality") || c.types?.includes("administrative_area_level_2")
+    );
+    if (sub) city = sub.long_name;
+  }
+
+  const loc = result.geometry?.location;
+  return { city, state, zip, country: countryCode, lat: loc?.lat || 0, lng: loc?.lng || 0, formatted: result.formatted_address || "" };
+}
+
+async function geocodeNominatim(query: string): Promise<GeoResult | null> {
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&addressdetails=1&limit=1`;
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(8000),
+      headers: { "User-Agent": "SyllabusStack/1.0 (capstone-location-detection)" },
+    });
+    const data = await res.json();
+
+    if (!data?.length) {
+      console.warn(`[geocode-nominatim] No results for "${query}"`);
+      return null;
     }
 
-    // Fallback for city
-    if (!city) {
-      const sub = components.find((c: any) =>
-        c.types?.includes("sublocality") || c.types?.includes("administrative_area_level_2")
-      );
-      if (sub) city = sub.long_name;
-    }
-
-    const loc = result.geometry?.location;
+    const r = data[0];
+    const addr = r.address || {};
 
     return {
-      city,
-      state,
-      zip,
-      country: countryCode,
-      lat: loc?.lat || 0,
-      lng: loc?.lng || 0,
-      formatted: result.formatted_address || "",
+      city: addr.city || addr.town || addr.village || addr.county || "",
+      state: addr.state || "",
+      zip: addr.postcode || "",
+      country: addr.country_code?.toUpperCase() || "",
+      lat: parseFloat(r.lat) || 0,
+      lng: parseFloat(r.lon) || 0,
+      formatted: r.display_name || "",
     };
   } catch (e) {
-    console.error(`[geocode] Error geocoding "${query}":`, e.message);
+    console.error(`[geocode-nominatim] Error for "${query}":`, e.message);
     return null;
   }
 }
