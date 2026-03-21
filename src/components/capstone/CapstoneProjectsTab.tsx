@@ -24,6 +24,7 @@ interface CapstoneProjectsTabProps {
 
 export function CapstoneProjectsTab({ courseId }: CapstoneProjectsTabProps) {
   const { data: course } = useInstructorCourse(courseId);
+  const { data: los } = useLearningObjectives(courseId);
   const { data: companies, isLoading: loadingCompanies } = useCompanyProfiles(courseId);
   const { data: projects, isLoading: loadingProjects } = useCapstoneProjects(courseId);
   const discoverCompanies = useDiscoverCompanies();
@@ -33,6 +34,7 @@ export function CapstoneProjectsTab({ courseId }: CapstoneProjectsTabProps) {
   const [assignProjectId, setAssignProjectId] = useState<string | null>(null);
 
   const hasLocation = !!(course?.location_city || course?.location_state || course?.search_location);
+  const hasLOs = (los?.length ?? 0) > 0;
 
   return (
     <div className="space-y-6">
