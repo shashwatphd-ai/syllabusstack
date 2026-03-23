@@ -66,38 +66,38 @@ const handler = async (req: Request): Promise<Response> => {
     .single();
   if (courseError || !course) return createErrorResponse('NOT_FOUND', corsHeaders, 'Course not found');
 
-  // Fetch learning objectives
+  // Fetch learning objectives with rich metadata
   const { data: los } = await supabase
     .from('learning_objectives')
-    .select('id, text, bloom_level')
+    .select('id, text, bloom_level, search_keywords, core_concept')
     .eq('instructor_course_id', instructor_course_id);
   const objectives = (los || []).map((lo: any) => lo.text).filter(Boolean);
+  const bloomLevels = (los || []).map((lo: any) => lo.bloom_level).filter(Boolean);
 
   if (objectives.length === 0) {
     return createErrorResponse('BAD_REQUEST', corsHeaders, 'Course has no learning objectives');
   }
 
-  // ── Fetch companies ──
+  // ── Determine project tier from Bloom levels ──
+  const bloomTier = determineBloomTier(bloomLevels);
+  console.log(`   Bloom-level tier: ${bloomTier} (from ${bloomLevels.length} LOs)`);
+
+  // ── Fetch companies — direct linkage via instructor_course_id ──
   let companiesQuery = supabase.from('company_profiles').select('*');
   if (company_ids?.length) {
+    // Explicit company selection overrides
     companiesQuery = companiesQuery.in('id', company_ids);
   } else {
-    const { data: existingProjects } = await supabase
-      .from('capstone_projects')
-      .select('company_profile_id')
-      .eq('instructor_course_id', instructor_course_id);
-
-    const existingIds = (existingProjects || []).map(p => p.company_profile_id).filter(Boolean);
-
-    if (existingIds.length === 0) {
-      return createErrorResponse('BAD_REQUEST', corsHeaders, 'No companies found. Run company discovery first.');
-    }
-    companiesQuery = companiesQuery.in('id', existingIds);
+    // Primary: fetch companies linked to this course via instructor_course_id
+    companiesQuery = companiesQuery
+      .eq('instructor_course_id', instructor_course_id)
+      .order('match_score', { ascending: false, nullsFirst: false });
   }
 
   const { data: companies, error: compError } = await companiesQuery;
   if (compError || !companies?.length) {
-    return createErrorResponse('NOT_FOUND', corsHeaders, 'No companies found');
+    return createErrorResponse('BAD_REQUEST', corsHeaders,
+      'No companies found for this course. Run company discovery first.');
   }
 
   console.log(`📊 Processing ${companies.length} companies for project generation`);
