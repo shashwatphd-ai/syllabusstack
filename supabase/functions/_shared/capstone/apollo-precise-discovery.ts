@@ -16,6 +16,7 @@ import type {
   DiscoveryStrategy
 } from './pipeline-types.ts';
 import { generateLocationVariants } from './location-utils.ts';
+import { enrichOrganization, fetchJobPostingsRobust, calculateBuyingIntent } from './apollo-enrichment-service.ts';
 
 const APOLLO_API_BASE = 'https://api.apollo.io/v1';
 const REQUEST_TIMEOUT_MS = 30000;
