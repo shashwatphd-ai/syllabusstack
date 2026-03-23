@@ -184,47 +184,36 @@ export function ProjectReportView({ projectId, courseId, open, onOpenChange }: P
           {roiMultiplier > 0 && (
             <>
               <Section title="Stakeholder ROI" icon={TrendingUp}>
-                <div className="grid grid-cols-3 gap-3">
-                  <Card>
-                    <CardHeader className="pb-2 pt-3 px-3">
-                      <CardTitle className="text-xs font-medium text-muted-foreground">For Students</CardTitle>
-                    </CardHeader>
-                    <CardContent className="px-3 pb-3 space-y-1.5">
-                      {['Career Readiness', 'Skills Development', 'Portfolio Value', 'Network Growth'].map((label, i) => (
-                        <div key={label} className="flex items-center justify-between text-xs">
-                          <span className="text-muted-foreground">{label}</span>
-                          <span className="font-medium">{Math.round(60 + Math.random() * 30)}</span>
-                        </div>
+                {(() => {
+                  const roiData = form1.roi_breakdown;
+                  if (!roiData) {
+                    return <p className="text-xs text-muted-foreground italic">ROI breakdown not available for this project.</p>;
+                  }
+                  const sections: { title: string; key: string; labels: [string, string][] }[] = [
+                    { title: 'For Students', key: 'students', labels: [['Career Readiness', 'career_readiness'], ['Skills Development', 'skills_development'], ['Portfolio Value', 'portfolio_value'], ['Network Growth', 'network_growth']] },
+                    { title: 'For University', key: 'university', labels: [['Partnership', 'partnership'], ['Placement', 'placement'], ['Research', 'research'], ['Reputation', 'reputation']] },
+                    { title: 'For Industry', key: 'industry', labels: [['MROI', 'mroi'], ['Talent Pipeline', 'talent_pipeline'], ['Innovation', 'innovation'], ['Efficiency', 'efficiency']] },
+                  ];
+                  return (
+                    <div className="grid grid-cols-3 gap-3">
+                      {sections.map(section => (
+                        <Card key={section.key}>
+                          <CardHeader className="pb-2 pt-3 px-3">
+                            <CardTitle className="text-xs font-medium text-muted-foreground">{section.title}</CardTitle>
+                          </CardHeader>
+                          <CardContent className="px-3 pb-3 space-y-1.5">
+                            {section.labels.map(([label, field]) => (
+                              <div key={field} className="flex items-center justify-between text-xs">
+                                <span className="text-muted-foreground">{label}</span>
+                                <span className="font-medium">{roiData[section.key]?.[field] ?? 'N/A'}</span>
+                              </div>
+                            ))}
+                          </CardContent>
+                        </Card>
                       ))}
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardHeader className="pb-2 pt-3 px-3">
-                      <CardTitle className="text-xs font-medium text-muted-foreground">For University</CardTitle>
-                    </CardHeader>
-                    <CardContent className="px-3 pb-3 space-y-1.5">
-                      {['Partnership', 'Placement', 'Research', 'Reputation'].map((label) => (
-                        <div key={label} className="flex items-center justify-between text-xs">
-                          <span className="text-muted-foreground">{label}</span>
-                          <span className="font-medium">{Math.round(60 + Math.random() * 30)}</span>
-                        </div>
-                      ))}
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardHeader className="pb-2 pt-3 px-3">
-                      <CardTitle className="text-xs font-medium text-muted-foreground">For Industry</CardTitle>
-                    </CardHeader>
-                    <CardContent className="px-3 pb-3 space-y-1.5">
-                      {['MROI', 'Talent Pipeline', 'Innovation', 'Efficiency'].map((label) => (
-                        <div key={label} className="flex items-center justify-between text-xs">
-                          <span className="text-muted-foreground">{label}</span>
-                          <span className="font-medium">{Math.round(60 + Math.random() * 30)}</span>
-                        </div>
-                      ))}
-                    </CardContent>
-                  </Card>
-                </div>
+                    </div>
+                  );
+                })()}
               </Section>
               <Separator />
             </>
