@@ -144,7 +144,8 @@ const handler = async (req: Request): Promise<Response> => {
         course.academic_level || 'undergraduate',
         course.expected_artifacts || [],
         15, // weeks
-        10  // hours per week
+        10, // hours per week
+        bloomTier
       );
 
       // ── Step 3: LO Alignment Scoring ──
