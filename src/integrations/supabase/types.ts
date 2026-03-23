@@ -981,24 +981,37 @@ export type Database = {
       company_profiles: {
         Row: {
           apollo_organization_id: string | null
+          buying_intent_signals: Json | null
           contact_email: string | null
+          contact_first_name: string | null
+          contact_last_name: string | null
           contact_person: string | null
           contact_phone: string | null
           contact_title: string | null
           created_at: string
           data_completeness_score: number | null
+          departmental_head_count: Json | null
           description: string | null
+          discovery_source: string | null
           employee_count: string | null
           full_address: string | null
           funding_stage: string | null
           id: string
           industries: string[] | null
+          instructor_course_id: string | null
           job_postings: Json | null
           keywords: string[] | null
+          last_enriched_at: string | null
           linkedin_profile: string | null
+          match_confidence: string | null
+          match_reason: string | null
+          match_score: number | null
           name: string
+          organization_revenue_range: string | null
           revenue_range: string | null
           sector: string | null
+          seo_description: string | null
+          similarity_score: number | null
           size: string | null
           technologies_used: string[] | null
           total_funding_usd: number | null
@@ -1007,24 +1020,37 @@ export type Database = {
         }
         Insert: {
           apollo_organization_id?: string | null
+          buying_intent_signals?: Json | null
           contact_email?: string | null
+          contact_first_name?: string | null
+          contact_last_name?: string | null
           contact_person?: string | null
           contact_phone?: string | null
           contact_title?: string | null
           created_at?: string
           data_completeness_score?: number | null
+          departmental_head_count?: Json | null
           description?: string | null
+          discovery_source?: string | null
           employee_count?: string | null
           full_address?: string | null
           funding_stage?: string | null
           id?: string
           industries?: string[] | null
+          instructor_course_id?: string | null
           job_postings?: Json | null
           keywords?: string[] | null
+          last_enriched_at?: string | null
           linkedin_profile?: string | null
+          match_confidence?: string | null
+          match_reason?: string | null
+          match_score?: number | null
           name: string
+          organization_revenue_range?: string | null
           revenue_range?: string | null
           sector?: string | null
+          seo_description?: string | null
+          similarity_score?: number | null
           size?: string | null
           technologies_used?: string[] | null
           total_funding_usd?: number | null
@@ -1033,31 +1059,52 @@ export type Database = {
         }
         Update: {
           apollo_organization_id?: string | null
+          buying_intent_signals?: Json | null
           contact_email?: string | null
+          contact_first_name?: string | null
+          contact_last_name?: string | null
           contact_person?: string | null
           contact_phone?: string | null
           contact_title?: string | null
           created_at?: string
           data_completeness_score?: number | null
+          departmental_head_count?: Json | null
           description?: string | null
+          discovery_source?: string | null
           employee_count?: string | null
           full_address?: string | null
           funding_stage?: string | null
           id?: string
           industries?: string[] | null
+          instructor_course_id?: string | null
           job_postings?: Json | null
           keywords?: string[] | null
+          last_enriched_at?: string | null
           linkedin_profile?: string | null
+          match_confidence?: string | null
+          match_reason?: string | null
+          match_score?: number | null
           name?: string
+          organization_revenue_range?: string | null
           revenue_range?: string | null
           sector?: string | null
+          seo_description?: string | null
+          similarity_score?: number | null
           size?: string | null
           technologies_used?: string[] | null
           total_funding_usd?: number | null
           updated_at?: string
           website?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "company_profiles_instructor_course_id_fkey"
+            columns: ["instructor_course_id"]
+            isOneToOne: false
+            referencedRelation: "instructor_courses"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       consumption_records: {
         Row: {
