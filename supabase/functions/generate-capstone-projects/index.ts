@@ -232,6 +232,8 @@ const handler = async (req: Request): Promise<Response> => {
           description: proposal.description,
           budget: budget,
           roi_multiplier: roi.roi_multiplier,
+          roi_breakdown: roiBreakdown,
+          value_components: roi.value_components,
         },
         form2_contact_info: {
           company: company.name,
