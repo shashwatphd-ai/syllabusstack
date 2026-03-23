@@ -1,48 +1,100 @@
 
 
-# Fix 4 Quality Issues in Capstone Pipeline
+# Fix Capstone Ranking Algorithm — Development Plan
 
-## Issue 1: Random ROI Scores in ProjectReportView.tsx
+## Problem Summary
 
-**What's wrong**: Lines 196, 209, 222 use `Math.round(60 + Math.random() * 30)` for Stakeholder ROI sub-scores (Career Readiness, Skills Development, etc.). This produces different numbers on every render — meaningless data.
-
-**Why it's wrong**: EduThree1 computes these from the `pricing-service.ts` ROI output. SyllabusStack already has `roi_multiplier` stored in `project_forms.form1_project_details.roi_multiplier` and the full ROI breakdown is computed in `generate-capstone-projects/index.ts` (line 174: `calculateApolloEnrichedROI`). The data exists but isn't stored granularly enough.
-
-**Fix**: In `generate-capstone-projects/index.ts`, store the full ROI breakdown object (which `calculateApolloEnrichedROI` already returns) into `form1_project_details.roi_breakdown`. Then in `ProjectReportView.tsx`, derive sub-scores deterministically from the stored ROI data (e.g., `roi_multiplier * weight` per category). If no ROI data exists, show "N/A" instead of random numbers.
+The ranking service (`company-ranking-service.ts`) scores companies on 5 factors but only meaningfully uses 2 of the 10+ enrichment signals Apollo provides. Revenue, funding, buying intent, tech overlap, contact quality, and data completeness are all fetched and stored but never influence which companies surface to the top. Location scoring uses naive substring matching. Hiring scoring counts jobs but ignores relevance.
 
 ---
 
-## Issue 2: Duplicate "employees" Text in CompanyCard.tsx
+## Implementation Steps
 
-**What's wrong**: `discover-companies/index.ts` line 253 stores `employee_count` as a string like `"150"` or `"51-200 employees"` (Apollo sometimes includes the word). Then `CompanyCard.tsx` line 69 appends `" employees"` again, producing `"51-200 employees employees"`.
+### Step 1: Expand the Scoring Model (ranking service)
 
-**Fix**: In `CompanyCard.tsx`, strip the word "employees" from the stored value before displaying, or display the raw value without appending. One line change: remove `employees` from the template literal and let the raw value speak for itself, OR sanitize with `.replace(/\s*employees$/i, '')`.
+**File:** `supabase/functions/_shared/capstone/company-ranking-service.ts`
+
+Rewrite the scoring engine with 9 factors instead of 5:
+
+```text
+NEW WEIGHTS:
+  semantic:       0.25   (was 0.40)
+  hiring:         0.15   (was 0.25) — now quality-aware
+  location:       0.12   (was 0.15) — now metro-aware
+  size:           0.08   (was 0.10)
+  diversity:      0.05   (was 0.10)
+  buyingIntent:   0.12   (NEW — uses stored composite score)
+  techOverlap:    0.10   (NEW — course tech vs company tech)
+  contactQuality: 0.05   (NEW — prefer companies with verified contacts)
+  completeness:   0.08   (NEW — uses stored data_completeness_score)
+```
+
+New scoring functions:
+
+- **`calculateBuyingIntentScore(company)`** — Read `buying_intent_signals.compositeScore` directly from the stored company profile. Already calculated by enrichment service; just needs to be consumed.
+
+- **`calculateTechOverlapScore(company, courseSkills)`** — Compare `technologies_used` array against course skill keywords. Jaccard-style overlap ratio (intersection / union). Requires passing `courseSkills` into the ranking function signature.
+
+- **`calculateContactQualityScore(company)`** — Score based on presence of contact fields: email (+0.4), name (+0.2), title (+0.2), phone (+0.2). A company with a real decision-maker contact is more actionable for capstone partnerships.
+
+- **`calculateCompletenessScore(company)`** — Read `data_completeness_score` directly from stored profile.
+
+- **Upgrade `calculateHiringScore(company, courseSkills)`** — In addition to counting job postings, scan job titles for keyword overlap with `courseSkills`. A company hiring for roles matching the course gets a relevance bonus (+0.3 max).
+
+- **Upgrade `calculateLocationScore(company, targetLocation)`** — Add a metro area lookup table (~30 entries: NYC boroughs, SF Bay Area cities, DFW metroplex, etc.). If company city is in the same metro as target city, score 0.9 instead of 0.3.
+
+Update `CompanyScores` interface to include the 4 new fields. Update `rankAndSelectCompanies()` signature to accept `courseSkills: string[]`.
+
+### Step 2: Pass Course Skills to Ranking
+
+**File:** `supabase/functions/discover-companies/index.ts`
+
+The ranking call currently passes only `(companies, targetLocation, maxResults)`. Add the extracted course skill keywords as a 4th parameter so tech overlap and hiring relevance can be evaluated.
+
+### Step 3: Add Metro Area Lookup
+
+**File:** `supabase/functions/_shared/capstone/location-utils.ts`
+
+Add a `METRO_AREAS` constant mapping ~30 US metro groups (e.g., `"new york": ["manhattan", "brooklyn", "queens", "jersey city", "hoboken", "newark"]`). Export a `isSameMetroArea(city1, city2)` helper. This is a static lookup — no API needed.
+
+### Step 4: Enrich CompanyCard UI
+
+**File:** `src/components/capstone/CompanyCard.tsx`
+
+Add display rows for:
+- Revenue range (from `organization_revenue_range`)
+- Buying intent badge (from `buying_intent_signals.compositeScore` — show as "High/Medium/Low Intent")
+- LinkedIn link (from `linkedin_profile`)
+- Contact summary (from `contact_first_name`, `contact_title` — e.g., "Jane Doe, VP Engineering")
+
+### Step 5: Update CompanyProfile Type
+
+**File:** `src/hooks/useCapstoneProjects.ts`
+
+The `CompanyProfile` interface already has all the fields. The `CompanyScores` interface in `pipeline-types.ts` needs the 4 new score fields added.
 
 ---
 
-## Issue 3: Duplicated Completeness Function
+## Testing Strategy
 
-**What's wrong**: `calculateCompleteness()` exists in `discover-companies/index.ts` (line 362, scores basic search fields, max 100) AND `calculateEnrichmentCompleteness()` exists in `apollo-enrichment-service.ts` (line 355, scores enriched fields, max 100). Both normalize to 0-1. The discover function uses `enrichData?.completenessScore ?? calculateCompleteness(original)` (line 267), so they're fallbacks of each other — but they score different things with different weights, which is confusing.
+All changes are in one edge function (`discover-companies`) and one shared service (`company-ranking-service.ts`), so they can be tested with a single discovery run:
 
-**Fix**: Remove `calculateCompleteness()` from `discover-companies/index.ts`. Always use `calculateEnrichmentCompleteness()` from the enrichment service. When enrichment doesn't run (fallback path), call it with `null` values — it already handles nulls and returns a low score, which is correct for unenriched companies.
-
----
-
-## Issue 4: Unused Bloom Tier
-
-**What's wrong**: `generate-capstone-projects/index.ts` line 82 computes `bloomTier` (Guided/Applied/Advanced) from learning objectives' Bloom levels, logs it, then never uses it. The `generateProjectProposal()` call on line 140 doesn't receive it. The AI prompt generates its own tier independently.
-
-**Fix**: Pass `bloomTier` as a parameter to `generateProjectProposal()` in `generation-service.ts`. Add it to the prompt as a constraint: "The project MUST be at {bloomTier} complexity level" with definitions (Guided = structured tasks, Applied = open-ended analysis, Advanced = original research/creation). This ensures Bloom-level calibration flows through to the generated output instead of being discarded.
+1. Deploy updated edge functions
+2. Trigger discovery on a test course
+3. Verify in the UI that companies now show revenue, intent, and contact info
+4. Check that the top-ranked companies differ from before (buying intent and tech overlap should reshuffle order)
+5. Verify edge function logs show the new scoring factors in the ranking output
 
 ---
 
-## Files to Change
+## Files Changed
 
 | File | Change |
 |---|---|
-| `generate-capstone-projects/index.ts` | Store full ROI breakdown in form1; pass `bloomTier` to `generateProjectProposal()` |
-| `_shared/capstone/generation-service.ts` | Accept `bloomTier` param, add to prompt |
-| `src/components/capstone/ProjectReportView.tsx` | Replace `Math.random()` with deterministic ROI derivation from stored data |
-| `src/components/capstone/CompanyCard.tsx` | Strip duplicate "employees" text |
-| `discover-companies/index.ts` | Remove `calculateCompleteness()`, import from enrichment service |
+| `_shared/capstone/company-ranking-service.ts` | 4 new scoring functions, updated weights, expanded interface |
+| `_shared/capstone/location-utils.ts` | Metro area lookup table + `isSameMetroArea()` |
+| `_shared/capstone/pipeline-types.ts` | Add 4 new fields to `CompanyScores` |
+| `discover-companies/index.ts` | Pass `courseSkills` to ranking function |
+| `src/components/capstone/CompanyCard.tsx` | Display revenue, intent, LinkedIn, contact |
+| `src/hooks/useCapstoneProjects.ts` | No changes needed (types already present) |
 
