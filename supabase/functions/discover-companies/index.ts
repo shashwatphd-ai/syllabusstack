@@ -133,7 +133,7 @@ const handler = async (req: Request): Promise<Response> => {
   const discoveryResult = await discoverCompanies({
     industries: industryKeywords,
     jobTitles,
-    skillKeywords: skillKeywords.slice(0, 10),
+    skillKeywords: combinedKeywords.slice(0, 15),
     location: normalizedLocation,
     targetCount: count * 3,
   });
