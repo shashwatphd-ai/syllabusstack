@@ -272,7 +272,7 @@ export function ProjectReportView({ projectId, courseId, open, onOpenChange }: P
               )}
               {company?.employee_count && (
                 <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <Users className="h-3.5 w-3.5 shrink-0" /> {company.employee_count} employees
+                  <Users className="h-3.5 w-3.5 shrink-0" /> {company.employee_count.replace(/\s*employees$/i, '')} employees
                 </span>
               )}
               {company?.funding_stage && (

@@ -66,7 +66,7 @@ export function CompanyCard({ company }: CompanyCardProps) {
         <div className="flex flex-wrap gap-1.5">
           {company.employee_count && (
             <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
-              <Users className="h-3 w-3" /> {company.employee_count} employees
+              <Users className="h-3 w-3" /> {company.employee_count.replace(/\s*employees$/i, '')} employees
             </span>
           )}
           {company.funding_stage && (

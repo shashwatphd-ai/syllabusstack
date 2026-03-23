@@ -81,7 +81,14 @@ export async function generateProjectProposal(
 
 Return ONLY valid JSON, no markdown code blocks.`;
 
+  const bloomTierConstraint = `
+🎯 PROJECT COMPLEXITY TIER: ${bloomTier.toUpperCase()}
+${bloomTier === 'Guided' ? '→ Structured tasks with clear steps, templates provided, instructor checkpoints at each phase. Suitable for lower Bloom levels (Remember/Understand).' : ''}${bloomTier === 'Applied' ? '→ Open-ended analysis requiring students to select frameworks and justify methods. Suitable for mid Bloom levels (Apply/Analyze).' : ''}${bloomTier === 'Advanced' ? '→ Original research/creation with minimal scaffolding. Students define methodology, defend choices, produce novel artifacts. Suitable for high Bloom levels (Evaluate/Create).' : ''}
+The "tier" field in your JSON output MUST be "${bloomTier.toLowerCase()}".
+`;
+
   const prompt = `Design a ${weeks}-week project for ${academicLevel} students that applies COURSE CONCEPTS to solve a company's real-world problem.
+${bloomTierConstraint}
 
 🎓 PRIMARY CONSTRAINT: COURSE SUBJECT MATTER (This determines project type)
 Course Title: ${courseTitle}

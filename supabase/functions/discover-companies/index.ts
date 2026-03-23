@@ -359,19 +359,4 @@ const handler = async (req: Request): Promise<Response> => {
   }, corsHeaders);
 };
 
-function calculateCompleteness(company: any): number {
-  let score = 0;
-  if (company.name) score += 15;
-  if (company.description) score += 15;
-  if (company.website) score += 10;
-  if (company.industry && company.industry !== 'Unknown') score += 10;
-  if (company.employeeCount) score += 10;
-  if (company.technologies?.length > 0) score += 15;
-  if (company.fundingStage) score += 10;
-  if (company.location?.city && company.location?.state) score += 5;
-  if (company.jobPostings?.length > 0) score += 10;
-  // Normalize to 0.0-1.0 scale (max possible = 100)
-  return score / 100;
-}
-
 Deno.serve(withErrorHandling(handler, getCorsHeaders));
