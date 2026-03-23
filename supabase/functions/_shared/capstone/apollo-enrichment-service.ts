@@ -4,11 +4,11 @@
  * 
  * 3-stage enrichment per company:
  * 1. Organization Enrich API — full company profile
- * 2. Job Postings — robust dual-endpoint fetch
- * 3. Contact Search — 4-strategy decision-maker cascade
+ * 2. Job Postings — GET /organizations/{id}/job_postings (corrected endpoint)
+ * 3. Contact Search — /mixed_people/api_search + /people/bulk_match (migrated from deprecated endpoint)
  */
 
-const APOLLO_API_BASE = 'https://api.apollo.io/v1';
+const APOLLO_API_BASE = 'https://api.apollo.io';
 const REQUEST_TIMEOUT_MS = 25000;
 const ENRICHMENT_DELAY_MS = 200;
 
@@ -125,7 +125,7 @@ export async function enrichOrganization(
   const cleanDomain = domain.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
 
   const result = await apolloEnrichFetch<ApolloEnrichmentResponse>(
-    '/organizations/enrich',
+    '/v1/organizations/enrich',
     { domain: cleanDomain },
     apiKey
   );
@@ -148,7 +148,7 @@ export async function enrichOrganization(
 }
 
 // ============================================
-// 2. ROBUST JOB POSTINGS FETCH
+// 2. ROBUST JOB POSTINGS FETCH (FIXED)
 // ============================================
 
 interface ApolloJobPosting {
@@ -160,26 +160,49 @@ interface ApolloJobPosting {
   url?: string;
 }
 
+/**
+ * Fetch job postings using the correct GET endpoint:
+ * GET /api/v1/organizations/{organization_id}/job_postings
+ */
 export async function fetchJobPostingsRobust(
   orgId: string,
   apiKey: string
 ): Promise<ApolloJobPosting[]> {
-  // Strategy 1: Direct job postings endpoint
-  const result1 = await apolloEnrichFetch<Record<string, unknown>>(
-    '/organizations/job_postings',
-    { organization_id: orgId, per_page: 15 },
-    apiKey
-  );
+  // Strategy 1: Correct REST path — GET /api/v1/organizations/{orgId}/job_postings
+  try {
+    const url = `${APOLLO_API_BASE}/api/v1/organizations/${orgId}/job_postings`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
-  const jobs1 = (result1?.job_postings || result1?.organization_job_postings) as ApolloJobPosting[] | undefined;
-  if (jobs1?.length) {
-    console.log(`  [Enrich] Found ${jobs1.length} job postings via primary endpoint`);
-    return jobs1;
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Api-Key': apiKey,
+        'Cache-Control': 'no-cache',
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (response.ok) {
+      const data = await response.json();
+      const jobs = (data?.job_postings || data?.organization_job_postings || []) as ApolloJobPosting[];
+      if (jobs.length > 0) {
+        console.log(`  [Enrich] Found ${jobs.length} job postings via GET endpoint`);
+        return jobs;
+      }
+    } else {
+      const errorText = await response.text();
+      console.warn(`  [Enrich] GET /organizations/${orgId}/job_postings returned ${response.status}: ${errorText.substring(0, 100)}`);
+    }
+  } catch (error) {
+    console.warn(`  [Enrich] Job postings GET failed:`, error);
   }
 
   // Strategy 2: Mixed companies search with job postings inline
   const result2 = await apolloEnrichFetch<Record<string, unknown>>(
-    '/mixed_companies/search',
+    '/v1/mixed_companies/search',
     { organization_ids: [orgId], per_page: 1 },
     apiKey
   );
@@ -195,10 +218,11 @@ export async function fetchJobPostingsRobust(
 }
 
 // ============================================
-// 3. DECISION-MAKER CONTACT SEARCH
+// 3. DECISION-MAKER CONTACT SEARCH (MIGRATED)
 // ============================================
 
 interface ApolloContact {
+  id?: string;
   first_name?: string;
   last_name?: string;
   email?: string;
@@ -225,6 +249,11 @@ const DOMAIN_DEPARTMENT_MAP: Record<string, string[]> = {
   default: ['operations', 'business_development', 'engineering'],
 };
 
+/**
+ * Find best contact using the NEW 2-step flow:
+ * Step 1: /mixed_people/api_search (returns partial profiles, no credits)
+ * Step 2: /people/bulk_match (enriches with email/phone, costs credits)
+ */
 export async function findBestContact(
   orgId: string,
   courseDomain: string,
@@ -242,6 +271,8 @@ export async function findBestContact(
 
   for (let i = 0; i < strategies.length; i++) {
     const strategy = strategies[i];
+
+    // Step 1: api_search (free, returns partial profiles with IDs)
     const searchBody: Record<string, unknown> = {
       organization_ids: [orgId],
       person_seniorities: strategy.seniorities,
@@ -252,24 +283,58 @@ export async function findBestContact(
       searchBody.person_departments = strategy.departments;
     }
 
-    const result = await apolloEnrichFetch<{ people?: ApolloContact[] }>(
-      '/mixed_people/search',
+    const searchResult = await apolloEnrichFetch<{ people?: ApolloContact[] }>(
+      '/api/v1/mixed_people/api_search',
       searchBody,
       apiKey
     );
 
-    const people = result?.people || [];
-    // Find first person with an email
-    const contact = people.find(p => p.email);
-    if (contact) {
-      console.log(`  [Enrich] Found contact via strategy ${i + 1}: ${contact.first_name} ${contact.last_name} (${contact.title})`);
+    const people = searchResult?.people || [];
+    if (people.length === 0) {
+      await sleep(100);
+      continue;
+    }
+
+    // Step 2: Enrich the best candidate via /people/bulk_match
+    const personIds = people.slice(0, 1).map(p => p.id).filter(Boolean);
+    if (personIds.length > 0) {
+      const enrichResult = await apolloEnrichFetch<{ people?: ApolloContact[] }>(
+        '/api/v1/people/bulk_match',
+        { 
+          details: personIds.map(id => ({ id })),
+          reveal_personal_emails: false,
+          reveal_phone_number: true,
+        },
+        apiKey
+      );
+
+      const enrichedPeople = enrichResult?.people || [];
+      const contact = enrichedPeople.find(p => p.email) || enrichedPeople[0];
+
+      if (contact) {
+        console.log(`  [Enrich] Found contact via strategy ${i + 1} (api_search+bulk_match): ${contact.first_name} ${contact.last_name} (${contact.title})`);
+        return {
+          firstName: contact.first_name || '',
+          lastName: contact.last_name || '',
+          email: contact.email || '',
+          title: contact.title || '',
+          phone: contact.phone_numbers?.[0]?.sanitized_number || '',
+          linkedinUrl: contact.linkedin_url || '',
+        };
+      }
+    }
+
+    // Fallback: use partial data from api_search if bulk_match fails
+    const partialContact = people[0];
+    if (partialContact && (partialContact.first_name || partialContact.title)) {
+      console.log(`  [Enrich] Found partial contact via strategy ${i + 1} (api_search only): ${partialContact.first_name} ${partialContact.last_name} (${partialContact.title})`);
       return {
-        firstName: contact.first_name || '',
-        lastName: contact.last_name || '',
-        email: contact.email || '',
-        title: contact.title || '',
-        phone: contact.phone_numbers?.[0]?.sanitized_number || '',
-        linkedinUrl: contact.linkedin_url || '',
+        firstName: partialContact.first_name || '',
+        lastName: partialContact.last_name || '',
+        email: '', // api_search doesn't return emails
+        title: partialContact.title || '',
+        phone: '',
+        linkedinUrl: partialContact.linkedin_url || '',
       };
     }
 

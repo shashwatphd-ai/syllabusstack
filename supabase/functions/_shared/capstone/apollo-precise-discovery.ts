@@ -6,6 +6,8 @@
  * 1. technology_filter — companies using specific technologies (not used yet; requires Apollo tech UIDs)
  * 2. job_title_search — companies with matching job titles
  * 3. industry_search — companies in relevant industries (broadest fallback)
+ *
+ * NOTE: Uses /api/v1 base path for all Apollo endpoints (correct as of 2025).
  */
 
 import type {
@@ -18,7 +20,7 @@ import type {
 import { generateLocationVariants } from './location-utils.ts';
 import { enrichOrganization, fetchJobPostingsRobust, calculateBuyingIntent } from './apollo-enrichment-service.ts';
 
-const APOLLO_API_BASE = 'https://api.apollo.io/v1';
+const APOLLO_API_BASE = 'https://api.apollo.io';
 const REQUEST_TIMEOUT_MS = 30000;
 const MAX_RETRIES = 3;
 
@@ -124,7 +126,7 @@ async function searchByJobTitles(
   if (jobTitles.length === 0) return [];
 
   const result = await apolloFetch<{ organizations: ApolloOrganization[] }>(
-    '/mixed_companies/search',
+    '/api/v1/mixed_companies/search',
     {
       q_organization_job_titles: jobTitles.slice(0, 5),
       organization_locations: locations,
@@ -151,7 +153,7 @@ async function searchByIndustry(
   if (industries.length === 0 && keywords.length === 0) return [];
 
   const result = await apolloFetch<{ organizations: ApolloOrganization[] }>(
-    '/mixed_companies/search',
+    '/api/v1/mixed_companies/search',
     {
       q_organization_keyword_tags: [...industries, ...keywords].slice(0, 15),
       organization_locations: locations,
@@ -166,8 +168,6 @@ async function searchByIndustry(
   console.log(`  [Strategy 3] Found ${orgs.length} companies in matching industries`);
   return orgs;
 }
-
-// fetchJobPostings removed — using fetchJobPostingsRobust from apollo-enrichment-service.ts
 
 function transformOrganization(
   org: ApolloOrganization,
@@ -190,7 +190,8 @@ function transformOrganization(
     technologies: (org.current_technologies || []).map(t => t.name),
     fundingStage: org.latest_funding_stage,
     totalFunding: org.total_funding,
-    discoveryStrategy: strategy
+    discoveryStrategy: strategy,
+    primary_domain: org.primary_domain,
   };
 }
 
@@ -319,6 +320,7 @@ export async function discoverCompanies(
   const processingTimeMs = Date.now() - startTime;
   console.log(`\nPhase 3 complete: ${companies.length} companies in ${processingTimeMs}ms`);
   console.log(`Companies with job postings: ${companies.filter(c => c.jobPostings.length > 0).length}`);
+  console.log(`Companies with descriptions: ${companies.filter(c => c.description?.length > 0).length}`);
 
   return {
     companies,
