@@ -22,6 +22,8 @@ import { extractIndustrySkills } from "../_shared/capstone/skill-extraction.ts";
 import { discoverCompanies } from "../_shared/capstone/apollo-precise-discovery.ts";
 import { filterValidCompanies } from "../_shared/capstone/company-validation-service.ts";
 import { rankAndSelectCompanies } from "../_shared/capstone/company-ranking-service.ts";
+import { enrichCompanyFull } from "../_shared/capstone/apollo-enrichment-service.ts";
+import { classifyCourseDomain as classifyDomainForEnrich } from "../_shared/capstone/context-aware-industry-filter.ts";
 
 const handler = async (req: Request): Promise<Response> => {
   const corsHeaders = getCorsHeaders(req);
