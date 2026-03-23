@@ -32,6 +32,20 @@ export interface CompanyProfile {
   keywords: string[] | null;
   data_completeness_score: number | null;
   created_at: string;
+  // New enrichment fields
+  instructor_course_id: string | null;
+  match_score: number | null;
+  match_reason: string | null;
+  similarity_score: number | null;
+  match_confidence: string | null;
+  discovery_source: string | null;
+  seo_description: string | null;
+  buying_intent_signals: any | null;
+  contact_first_name: string | null;
+  contact_last_name: string | null;
+  departmental_head_count: any | null;
+  organization_revenue_range: string | null;
+  last_enriched_at: string | null;
 }
 
 export interface CapstoneProject {
