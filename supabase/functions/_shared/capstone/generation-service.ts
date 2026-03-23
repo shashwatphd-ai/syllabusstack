@@ -27,7 +27,8 @@ export async function generateProjectProposal(
   academicLevel: string,
   expectedArtifacts: string[],
   weeks: number = 15,
-  hrsPerWeek: number = 10
+  hrsPerWeek: number = 10,
+  bloomTier: string = 'Applied'
 ): Promise<ProjectProposal> {
   // Build company intelligence section from Apollo data
   let intelligenceSection = '';
