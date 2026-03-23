@@ -239,9 +239,15 @@ const handler = async (req: Request): Promise<Response> => {
         ? `${enrichData?.enrichment?.employeeCount || original.employeeCount} employees` : 'Unknown',
       description: enrichData?.enrichment?.shortDescription || original.description || company.description,
       website: original.website || company.website || null,
-      full_address: original.location
-        ? [original.location.city, original.location.state, original.location.country].filter(Boolean).join(', ')
-        : company.full_address || null,
+      full_address: (() => {
+        // Build from discovery location data (city/state/country from Apollo search)
+        const loc = original.location;
+        if (loc && (loc.city || loc.state)) {
+          return [loc.city, loc.state, loc.country].filter(Boolean).join(', ');
+        }
+        // Fallback to any existing address
+        return company.full_address || searchLocation || null;
+      })(),
       apollo_organization_id: original.apolloId || null,
       technologies_used: enrichData?.enrichment?.technologies?.length
         ? enrichData.enrichment.technologies
