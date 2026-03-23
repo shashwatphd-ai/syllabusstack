@@ -267,14 +267,39 @@ export async function discoverCompanies(
   console.log(`  By job title search: ${statsByStrategy.job_title_search}`);
   console.log(`  By industry search: ${statsByStrategy.industry_search}`);
 
-  // Transform + fetch job postings (limit to targetCount * 2 to save API calls)
+  // Transform + enrich companies (limit to targetCount to control API spend)
+  // Enrichment runs BEFORE validation so AI validates on full company data
   const companies: DiscoveredCompany[] = [];
-  for (const { org, strategy } of allOrganizations.slice(0, input.targetCount * 2)) {
-    const company = transformOrganization(org, strategy);
+  const enrichmentCap = Math.min(allOrganizations.length, input.targetCount * 2);
+  console.log(`\n  Enriching up to ${enrichmentCap} companies before validation...`);
 
-    // Fetch job postings for enrichment
+  for (const { org, strategy } of allOrganizations.slice(0, enrichmentCap)) {
+    const company = transformOrganization(org, strategy);
+    const domain = org.website_url || org.primary_domain;
+
+    // Stage 1: Organization enrichment (full profile)
     try {
-      const jobPostings = await fetchJobPostings(org.id, apiKey);
+      const enrichment = await enrichOrganization(domain, apiKey);
+      if (enrichment) {
+        company.description = enrichment.shortDescription || enrichment.seoDescription || company.description;
+        company.seoDescription = enrichment.seoDescription;
+        company.technologies = enrichment.technologies.length > 0 ? enrichment.technologies : company.technologies;
+        company.employeeCount = enrichment.employeeCount || company.employeeCount;
+        company.fundingStage = enrichment.fundingStage || company.fundingStage;
+        company.totalFunding = enrichment.totalFunding || company.totalFunding;
+        company.industryTags = enrichment.industries.length > 0 ? enrichment.industries : company.industryTags;
+        company.revenueRange = enrichment.revenueRange;
+        company.departmentalHeadCount = enrichment.departmentalHeadCount;
+        company.lastEnrichedAt = new Date().toISOString();
+      }
+    } catch (e) {
+      console.warn(`  Org enrichment failed for ${org.name}:`, e);
+    }
+    await sleep(200);
+
+    // Stage 2: Robust job postings fetch
+    try {
+      const jobPostings = await fetchJobPostingsRobust(org.id, apiKey);
       company.jobPostings = jobPostings.map(jp => ({
         id: jp.id,
         title: jp.title,
@@ -283,11 +308,19 @@ export async function discoverCompanies(
         location: jp.location
       }));
     } catch (e) {
-      console.warn(`  Failed to fetch job postings for ${org.name}:`, e);
+      console.warn(`  Job postings failed for ${org.name}:`, e);
     }
+    await sleep(200);
+
+    // Stage 3: Buying intent signals
+    const buyingIntent = calculateBuyingIntent(
+      company.fundingStage,
+      company.totalFunding,
+      company.jobPostings.length
+    );
+    company.buyingIntentSignals = buyingIntent;
 
     companies.push(company);
-    await sleep(100); // Don't overwhelm Apollo
   }
 
   const processingTimeMs = Date.now() - startTime;
