@@ -277,7 +277,7 @@ const handler = async (req: Request): Promise<Response> => {
       instructor_course_id,
       discovery_source: original.discoveryStrategy || 'unknown',
       seo_description: enrichData?.enrichment?.seoDescription || null,
-      buying_intent_signals: enrichData?.buyingIntent || null,
+      buying_intent_signals: enrichData?.buyingIntent || original.buyingIntentSignals || null,
       contact_first_name: enrichData?.contact?.firstName || null,
       contact_last_name: enrichData?.contact?.lastName || null,
       contact_email: enrichData?.contact?.email || null,
