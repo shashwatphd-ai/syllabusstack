@@ -167,14 +167,7 @@ async function searchByIndustry(
   return orgs;
 }
 
-async function fetchJobPostings(companyId: string, apiKey: string): Promise<ApolloJobPosting[]> {
-  const result = await apolloFetch<{ job_postings: ApolloJobPosting[] }>(
-    '/organizations/job_postings',
-    { organization_id: companyId, per_page: 10 },
-    apiKey
-  );
-  return result?.job_postings || [];
-}
+// fetchJobPostings removed — using fetchJobPostingsRobust from apollo-enrichment-service.ts
 
 function transformOrganization(
   org: ApolloOrganization,
