@@ -1,7 +1,7 @@
 /**
  * Location Utilities for Capstone Discovery
  * Normalizes and generates location variants for Apollo API search.
- * Ported from EduThree1's apollo-precise-discovery.ts location handling.
+ * Includes metro area awareness for improved location scoring.
  */
 
 const STATE_MAP: Record<string, string> = {
@@ -20,10 +20,65 @@ const STATE_MAP: Record<string, string> = {
   'WI': 'Wisconsin', 'WY': 'Wyoming', 'DC': 'District of Columbia'
 };
 
-// Reverse map: full name → abbreviation
 const STATE_REVERSE_MAP: Record<string, string> = {};
 for (const [abbr, full] of Object.entries(STATE_MAP)) {
   STATE_REVERSE_MAP[full.toLowerCase()] = abbr;
+}
+
+// ============================================
+// METRO AREA LOOKUP (~30 US metro groups)
+// ============================================
+
+const METRO_AREAS: Record<string, string[]> = {
+  'new york': ['manhattan', 'brooklyn', 'queens', 'bronx', 'staten island', 'jersey city', 'hoboken', 'newark', 'yonkers', 'new rochelle', 'white plains', 'stamford', 'long island city'],
+  'los angeles': ['santa monica', 'pasadena', 'glendale', 'burbank', 'long beach', 'torrance', 'inglewood', 'culver city', 'west hollywood', 'beverly hills', 'el segundo'],
+  'san francisco': ['oakland', 'berkeley', 'san jose', 'palo alto', 'mountain view', 'sunnyvale', 'santa clara', 'menlo park', 'redwood city', 'fremont', 'hayward', 'san mateo', 'cupertino', 'south san francisco', 'daly city'],
+  'chicago': ['evanston', 'oak park', 'naperville', 'schaumburg', 'arlington heights', 'skokie', 'des plaines', 'cicero'],
+  'boston': ['cambridge', 'somerville', 'brookline', 'quincy', 'waltham', 'newton', 'medford', 'malden', 'watertown'],
+  'seattle': ['bellevue', 'redmond', 'kirkland', 'tacoma', 'renton', 'bothell', 'kent', 'everett'],
+  'washington': ['arlington', 'alexandria', 'bethesda', 'silver spring', 'falls church', 'mclean', 'reston', 'tysons', 'college park'],
+  'dallas': ['fort worth', 'plano', 'irving', 'arlington', 'frisco', 'richardson', 'garland', 'mckinney', 'denton'],
+  'houston': ['sugar land', 'the woodlands', 'pasadena', 'pearland', 'league city', 'katy', 'baytown'],
+  'atlanta': ['sandy springs', 'marietta', 'roswell', 'alpharetta', 'decatur', 'smyrna', 'kennesaw', 'duluth'],
+  'miami': ['fort lauderdale', 'hialeah', 'coral gables', 'doral', 'boca raton', 'pompano beach', 'hollywood', 'aventura'],
+  'denver': ['aurora', 'lakewood', 'boulder', 'centennial', 'arvada', 'westminster', 'thornton', 'broomfield'],
+  'phoenix': ['scottsdale', 'mesa', 'tempe', 'chandler', 'gilbert', 'glendale', 'peoria'],
+  'philadelphia': ['camden', 'cherry hill', 'wilmington', 'conshohocken', 'king of prussia', 'norristown'],
+  'minneapolis': ['saint paul', 'st paul', 'bloomington', 'eden prairie', 'plymouth', 'maple grove', 'eagan'],
+  'detroit': ['dearborn', 'ann arbor', 'troy', 'southfield', 'royal oak', 'farmington hills', 'warren'],
+  'portland': ['beaverton', 'hillsboro', 'lake oswego', 'tigard', 'gresham', 'vancouver'],
+  'san diego': ['chula vista', 'oceanside', 'carlsbad', 'escondido', 'el cajon', 'la jolla'],
+  'austin': ['round rock', 'cedar park', 'pflugerville', 'georgetown', 'san marcos', 'kyle'],
+  'nashville': ['franklin', 'murfreesboro', 'brentwood', 'hendersonville', 'gallatin', 'lebanon'],
+  'charlotte': ['concord', 'gastonia', 'huntersville', 'mooresville', 'rock hill', 'matthews'],
+  'pittsburgh': ['cranberry township', 'bethel park', 'moon township', 'monroeville'],
+  'salt lake city': ['west valley city', 'provo', 'sandy', 'orem', 'west jordan', 'draper', 'lehi'],
+  'kansas city': ['overland park', 'olathe', 'lee\'s summit', 'shawnee', 'lenexa', 'independence'],
+  'columbus': ['dublin', 'westerville', 'grove city', 'hilliard', 'reynoldsburg', 'upper arlington'],
+  'indianapolis': ['carmel', 'fishers', 'noblesville', 'greenwood', 'westfield'],
+  'san antonio': ['new braunfels', 'schertz', 'boerne', 'converse', 'live oak'],
+  'raleigh': ['durham', 'chapel hill', 'cary', 'apex', 'morrisville', 'wake forest'],
+  'tampa': ['st petersburg', 'clearwater', 'brandon', 'lakeland', 'sarasota'],
+  'baltimore': ['towson', 'columbia', 'ellicott city', 'annapolis', 'glen burnie'],
+};
+
+/**
+ * Check if two location strings are in the same metro area.
+ * `city` is a single city name; `addressString` is a full address.
+ */
+export function isSameMetroArea(city: string, addressString: string): boolean {
+  const lowerCity = city.toLowerCase().trim();
+  const lowerAddress = addressString.toLowerCase();
+
+  for (const [metro, cities] of Object.entries(METRO_AREAS)) {
+    const allCities = [metro, ...cities];
+    const cityInMetro = allCities.some(c => lowerCity.includes(c) || c.includes(lowerCity));
+    if (!cityInMetro) continue;
+    const addressInMetro = allCities.some(c => lowerAddress.includes(c));
+    if (addressInMetro) return true;
+  }
+
+  return false;
 }
 
 /**

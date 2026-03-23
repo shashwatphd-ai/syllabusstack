@@ -1,4 +1,4 @@
-import { Building2, Globe, Users, Briefcase, TrendingUp, Zap } from 'lucide-react';
+import { Building2, Globe, Users, Briefcase, TrendingUp, Zap, Linkedin, DollarSign, Target, UserCheck } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -14,9 +14,26 @@ const confidenceColors: Record<string, string> = {
   low: 'bg-red-500/10 text-red-700 border-red-200',
 };
 
+function getIntentLevel(signals: any): { label: string; className: string } | null {
+  if (!signals) return null;
+  const score = signals.compositeScore ?? signals.composite_score ?? 0;
+  if (score >= 70) return { label: 'High Intent', className: 'bg-green-500/10 text-green-700 border-green-200' };
+  if (score >= 40) return { label: 'Medium Intent', className: 'bg-amber-500/10 text-amber-700 border-amber-200' };
+  if (score > 0) return { label: 'Low Intent', className: 'bg-red-500/10 text-red-700 border-red-200' };
+  return null;
+}
+
 export function CompanyCard({ company }: CompanyCardProps) {
   const matchPercent = company.match_score != null ? Math.round(company.match_score * 100) : null;
   const enriched = !!company.last_enriched_at;
+  const intentBadge = getIntentLevel(company.buying_intent_signals);
+  const revenueRange = company.organization_revenue_range;
+  const contactName = company.contact_first_name
+    ? `${company.contact_first_name}${company.contact_last_name ? ' ' + company.contact_last_name : ''}`
+    : company.contact_person;
+  const contactSummary = contactName && company.contact_title
+    ? `${contactName}, ${company.contact_title}`
+    : contactName || null;
 
   return (
     <Card className="hover:shadow-md transition-shadow">
@@ -57,9 +74,15 @@ export function CompanyCard({ company }: CompanyCardProps) {
           </TooltipProvider>
         )}
 
-        {/* Description fallback if no match_reason */}
         {!company.match_reason && company.description && (
           <p className="text-xs text-muted-foreground line-clamp-2">{company.description}</p>
+        )}
+
+        {/* Intent badge */}
+        {intentBadge && (
+          <Badge variant="outline" className={`text-[10px] ${intentBadge.className}`}>
+            <Target className="h-3 w-3 mr-1" /> {intentBadge.label}
+          </Badge>
         )}
 
         {/* Company metadata */}
@@ -67,6 +90,11 @@ export function CompanyCard({ company }: CompanyCardProps) {
           {company.employee_count && (
             <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
               <Users className="h-3 w-3" /> {company.employee_count.replace(/\s*employees$/i, '')} employees
+            </span>
+          )}
+          {revenueRange && (
+            <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+              <DollarSign className="h-3 w-3" /> {revenueRange}
             </span>
           )}
           {company.funding_stage && (
@@ -84,12 +112,29 @@ export function CompanyCard({ company }: CompanyCardProps) {
               <Globe className="h-3 w-3" /> Website
             </a>
           )}
+          {company.linkedin_profile && (
+            <a
+              href={company.linkedin_profile.startsWith('http') ? company.linkedin_profile : `https://${company.linkedin_profile}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-[10px] text-primary hover:underline"
+            >
+              <Linkedin className="h-3 w-3" /> LinkedIn
+            </a>
+          )}
           {enriched && (
             <span className="inline-flex items-center gap-1 text-[10px] text-green-600">
               <Zap className="h-3 w-3" /> Enriched
             </span>
           )}
         </div>
+
+        {/* Contact summary */}
+        {contactSummary && (
+          <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+            <UserCheck className="h-3 w-3" /> {contactSummary}
+          </span>
+        )}
 
         {/* Technologies */}
         {company.technologies_used && company.technologies_used.length > 0 && (

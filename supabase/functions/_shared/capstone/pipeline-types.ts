@@ -114,6 +114,10 @@ export interface CompanyScores {
   location: number;
   size: number;
   diversity: number;
+  buyingIntent: number;
+  techOverlap: number;
+  contactQuality: number;
+  completeness: number;
   composite: number;
 }
 
