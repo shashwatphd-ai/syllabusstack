@@ -370,7 +370,8 @@ function calculateCompleteness(company: any): number {
   if (company.fundingStage) score += 10;
   if (company.location?.city && company.location?.state) score += 5;
   if (company.jobPostings?.length > 0) score += 10;
-  return score;
+  // Normalize to 0.0-1.0 scale (max possible = 100)
+  return score / 100;
 }
 
 Deno.serve(withErrorHandling(handler, getCorsHeaders));

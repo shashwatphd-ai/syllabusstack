@@ -381,7 +381,8 @@ export function calculateEnrichmentCompleteness(
   if (jobPostingCount > 0) score += 15;
   if (techCount > 0) score += 15;
 
-  return score;
+  // Normalize to 0.0-1.0 scale (max possible = 100)
+  return score / 100;
 }
 
 // ============================================
