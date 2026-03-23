@@ -144,7 +144,7 @@ export function CapstoneProjectsTab({ courseId }: CapstoneProjectsTabProps) {
 
       {/* Project Detail Dialog */}
       {detailProjectId && (
-        <ProjectDetailView
+        <ProjectReportView
           projectId={detailProjectId}
           courseId={courseId}
           open={!!detailProjectId}
