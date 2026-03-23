@@ -1,0 +1,1 @@
+UPDATE company_profiles SET instructor_course_id = 'f14ffddb-3c5b-413e-adc3-e468b46cc12b' WHERE instructor_course_id IS NULL AND match_score IS NOT NULL AND created_at > '2026-03-23 19:34:00';
