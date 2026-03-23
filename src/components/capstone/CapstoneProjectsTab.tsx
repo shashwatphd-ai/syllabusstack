@@ -15,7 +15,7 @@ import { useCourseStudents } from '@/hooks/useInstructorCourses';
 import { LocationSetup } from './LocationSetup';
 import { CompanyCard } from './CompanyCard';
 import { CapstoneProjectCard } from './CapstoneProjectCard';
-import { ProjectDetailView } from './ProjectDetailView';
+import { ProjectReportView } from './ProjectReportView';
 import { AssignStudentDialog } from './AssignStudentDialog';
 
 interface CapstoneProjectsTabProps {
