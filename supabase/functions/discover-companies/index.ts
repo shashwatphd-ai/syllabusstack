@@ -107,11 +107,16 @@ const handler = async (req: Request): Promise<Response> => {
     console.warn('⚠️ No SOC mappings found — will rely on AI skill extraction only');
   }
 
-  // ── Phase 3: Skill Extraction (AI-powered) ──
+  // ── Phase 3: Skill Extraction (AI-powered + LO search_keywords) ──
   console.log(`\n🧠 PHASE 3: SKILL EXTRACTION`);
-  const skillResult = await extractIndustrySkills(objectiveTexts, course.title, course.academic_level || '');
+  const skillResult = await extractIndustrySkills(objectiveTexts, course.title, course.academic_level || '', loSearchKeywords);
   const skillKeywords = skillResult.skills.map(s => s.skill);
+  // Merge LO search_keywords for extra Apollo precision
+  const combinedKeywords = [...new Set([...skillKeywords, ...loSearchKeywords.slice(0, 10)])];
   console.log(`   Extracted ${skillResult.skills.length} skills via ${skillResult.extractionMethod}`);
+  if (loSearchKeywords.length > 0) {
+    console.log(`   + ${loSearchKeywords.length} LO search_keywords merged`);
+  }
 
   // ── Phase 4: Build Apollo Search Parameters ──
   const industryKeywords = getIndustryKeywordsFromSOC(socMappings);
