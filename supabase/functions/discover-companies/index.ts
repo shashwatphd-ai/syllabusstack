@@ -22,7 +22,7 @@ import { extractIndustrySkills } from "../_shared/capstone/skill-extraction.ts";
 import { discoverCompanies } from "../_shared/capstone/apollo-precise-discovery.ts";
 import { filterValidCompanies } from "../_shared/capstone/company-validation-service.ts";
 import { rankAndSelectCompanies } from "../_shared/capstone/company-ranking-service.ts";
-import { enrichCompanyFull } from "../_shared/capstone/apollo-enrichment-service.ts";
+import { enrichCompanyFull, calculateEnrichmentCompleteness } from "../_shared/capstone/apollo-enrichment-service.ts";
 import { classifyCourseDomain as classifyDomainForEnrich } from "../_shared/capstone/context-aware-industry-filter.ts";
 
 const handler = async (req: Request): Promise<Response> => {
@@ -264,7 +264,7 @@ const handler = async (req: Request): Promise<Response> => {
         posted_date: jp.postedDate || jp.posted_date || jp.posted_at,
         description: jp.description?.substring(0, 200),
       })),
-      data_completeness_score: enrichData?.completenessScore ?? calculateCompleteness(original),
+      data_completeness_score: enrichData?.completenessScore ?? calculateEnrichmentCompleteness(null, null, (original.jobPostings || []).length, (original.technologies || []).length),
       match_score: ranked.scores.composite,
       match_reason: ranked.selectionReason,
       // Phase 1 new columns
@@ -358,20 +358,5 @@ const handler = async (req: Request): Promise<Response> => {
     },
   }, corsHeaders);
 };
-
-function calculateCompleteness(company: any): number {
-  let score = 0;
-  if (company.name) score += 15;
-  if (company.description) score += 15;
-  if (company.website) score += 10;
-  if (company.industry && company.industry !== 'Unknown') score += 10;
-  if (company.employeeCount) score += 10;
-  if (company.technologies?.length > 0) score += 15;
-  if (company.fundingStage) score += 10;
-  if (company.location?.city && company.location?.state) score += 5;
-  if (company.jobPostings?.length > 0) score += 10;
-  // Normalize to 0.0-1.0 scale (max possible = 100)
-  return score / 100;
-}
 
 Deno.serve(withErrorHandling(handler, getCorsHeaders));

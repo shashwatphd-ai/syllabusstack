@@ -144,7 +144,8 @@ const handler = async (req: Request): Promise<Response> => {
         course.academic_level || 'undergraduate',
         course.expected_artifacts || [],
         15, // weeks
-        10  // hours per week
+        10, // hours per week
+        bloomTier
       );
 
       // ── Step 3: LO Alignment Scoring ──
@@ -177,6 +178,9 @@ const handler = async (req: Request): Promise<Response> => {
         company as CompanyInfo,
         proposal.tasks
       );
+
+      // Build deterministic stakeholder ROI breakdown from value_components
+      const roiBreakdown = buildStakeholderROI(roi, loScore, feasibilityScore);
 
       // ── Step 6: LO Alignment Detail ──
       const loDetail = await generateLOAlignmentDetail(
@@ -229,6 +233,8 @@ const handler = async (req: Request): Promise<Response> => {
           description: proposal.description,
           budget: budget,
           roi_multiplier: roi.roi_multiplier,
+          roi_breakdown: roiBreakdown,
+          value_components: roi.value_components,
         },
         form2_contact_info: {
           company: company.name,
@@ -337,6 +343,43 @@ function determineBloomTier(bloomLevels: string[]): string {
 /**
  * Generate weekly milestones from deliverables
  */
+/**
+ * Build deterministic stakeholder ROI scores from pricing service output
+ */
+function buildStakeholderROI(roi: any, loScore: number, feasibilityScore: number) {
+  const multiplier = roi.roi_multiplier || 1;
+  const components = roi.value_components || [];
+
+  // Derive category scores from actual data
+  const hasDeliverables = components.some((c: any) => c.category === 'Professional Deliverables');
+  const hasTalent = components.some((c: any) => c.category === 'Talent Pipeline Access');
+  const hasStrategic = components.some((c: any) => c.category === 'Strategic Innovation Consulting');
+  const hasTech = components.some((c: any) => c.category === 'Academic Research & Technology Transfer');
+
+  const clamp = (v: number) => Math.min(100, Math.max(0, Math.round(v)));
+
+  return {
+    students: {
+      career_readiness: clamp(feasibilityScore * 100 * 0.9 + (hasTalent ? 15 : 0)),
+      skills_development: clamp(loScore * 100 * 0.85 + (hasTech ? 10 : 0)),
+      portfolio_value: clamp(hasDeliverables ? multiplier * 22 : multiplier * 15),
+      network_growth: clamp(hasTalent ? 75 + multiplier * 5 : 50 + multiplier * 5),
+    },
+    university: {
+      partnership: clamp(multiplier * 20 + (hasStrategic ? 15 : 0)),
+      placement: clamp(hasTalent ? 80 + multiplier * 3 : 55),
+      research: clamp(hasTech ? 70 + multiplier * 5 : 45),
+      reputation: clamp(feasibilityScore * 100 * 0.7 + loScore * 100 * 0.3),
+    },
+    industry: {
+      mroi: clamp(multiplier * 25),
+      talent_pipeline: clamp(hasTalent ? 85 + multiplier * 2 : 40),
+      innovation: clamp(hasStrategic ? 70 + multiplier * 5 : 50),
+      efficiency: clamp(hasDeliverables ? 65 + multiplier * 5 : 45),
+    },
+  };
+}
+
 function generateMilestones(deliverables: string[], totalWeeks: number): any[] {
   if (!deliverables || deliverables.length === 0) return [];
 
