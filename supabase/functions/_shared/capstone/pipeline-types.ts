@@ -56,6 +56,23 @@ export interface DiscoveredCompany {
   fundingStage?: string;
   totalFunding?: number;
   discoveryStrategy: DiscoveryStrategy;
+  // Enrichment fields (populated by apollo-enrichment-service)
+  seoDescription?: string;
+  contactFirstName?: string;
+  contactLastName?: string;
+  contactEmail?: string;
+  contactTitle?: string;
+  contactPhone?: string;
+  departmentalHeadCount?: Record<string, number>;
+  buyingIntentSignals?: {
+    fundingScore: number;
+    hiringVelocityScore: number;
+    compositeScore: number;
+    signals: string[];
+  };
+  revenueRange?: string;
+  lastEnrichedAt?: string;
+  primary_domain?: string;
 }
 
 export interface CompanyDiscoveryInput {
