@@ -25,7 +25,8 @@ export interface ExtractedSkill {
 export async function extractIndustrySkills(
   objectiveTexts: string[],
   courseTitle: string,
-  courseLevel: string = ''
+  courseLevel: string = '',
+  searchKeywords: string[] = []
 ): Promise<SkillExtractionOutput> {
   const startTime = Date.now();
 
@@ -77,6 +78,24 @@ RULES:
       }));
 
       console.log(`✅ AI extracted ${skills.length} industry skills from ${objectiveTexts.length} objectives`);
+
+      // Merge LO search_keywords as additional skills with boosted confidence
+      if (searchKeywords.length > 0) {
+        const existingSkillNames = new Set(skills.map(s => s.skill.toLowerCase()));
+        for (const kw of searchKeywords) {
+          if (!existingSkillNames.has(kw.toLowerCase())) {
+            existingSkillNames.add(kw.toLowerCase());
+            skills.push({
+              skill: kw,
+              category: 'domain',
+              confidence: 0.80,
+              source: 'lo-search-keyword',
+              keywords: [kw.toLowerCase()]
+            });
+          }
+        }
+        console.log(`   + ${searchKeywords.length} LO search_keywords merged`);
+      }
 
       return {
         skills,

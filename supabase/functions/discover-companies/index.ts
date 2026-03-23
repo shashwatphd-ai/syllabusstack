@@ -22,6 +22,8 @@ import { extractIndustrySkills } from "../_shared/capstone/skill-extraction.ts";
 import { discoverCompanies } from "../_shared/capstone/apollo-precise-discovery.ts";
 import { filterValidCompanies } from "../_shared/capstone/company-validation-service.ts";
 import { rankAndSelectCompanies } from "../_shared/capstone/company-ranking-service.ts";
+import { enrichCompanyFull } from "../_shared/capstone/apollo-enrichment-service.ts";
+import { classifyCourseDomain as classifyDomainForEnrich } from "../_shared/capstone/context-aware-industry-filter.ts";
 
 const handler = async (req: Request): Promise<Response> => {
   const corsHeaders = getCorsHeaders(req);
@@ -73,9 +75,11 @@ const handler = async (req: Request): Promise<Response> => {
 
   const { data: los } = await supabase
     .from('learning_objectives')
-    .select('id, text, bloom_level')
+    .select('id, text, bloom_level, search_keywords, core_concept')
     .eq('instructor_course_id', instructor_course_id);
   const objectiveTexts = (los || []).map((lo: any) => lo.text).filter(Boolean);
+  const loSearchKeywords = (los || []).flatMap((lo: any) => lo.search_keywords || []).filter(Boolean);
+  const bloomLevels = (los || []).map((lo: any) => lo.bloom_level).filter(Boolean);
 
   if (objectiveTexts.length === 0) {
     return createErrorResponse('BAD_REQUEST', corsHeaders, 'Course has no learning objectives for skill extraction');
@@ -103,11 +107,16 @@ const handler = async (req: Request): Promise<Response> => {
     console.warn('⚠️ No SOC mappings found — will rely on AI skill extraction only');
   }
 
-  // ── Phase 3: Skill Extraction (AI-powered) ──
+  // ── Phase 3: Skill Extraction (AI-powered + LO search_keywords) ──
   console.log(`\n🧠 PHASE 3: SKILL EXTRACTION`);
-  const skillResult = await extractIndustrySkills(objectiveTexts, course.title, course.academic_level || '');
+  const skillResult = await extractIndustrySkills(objectiveTexts, course.title, course.academic_level || '', loSearchKeywords);
   const skillKeywords = skillResult.skills.map(s => s.skill);
+  // Merge LO search_keywords for extra Apollo precision
+  const combinedKeywords = [...new Set([...skillKeywords, ...loSearchKeywords.slice(0, 10)])];
   console.log(`   Extracted ${skillResult.skills.length} skills via ${skillResult.extractionMethod}`);
+  if (loSearchKeywords.length > 0) {
+    console.log(`   + ${loSearchKeywords.length} LO search_keywords merged`);
+  }
 
   // ── Phase 4: Build Apollo Search Parameters ──
   const industryKeywords = getIndustryKeywordsFromSOC(socMappings);
@@ -124,7 +133,7 @@ const handler = async (req: Request): Promise<Response> => {
   const discoveryResult = await discoverCompanies({
     industries: industryKeywords,
     jobTitles,
-    skillKeywords: skillKeywords.slice(0, 10),
+    skillKeywords: combinedKeywords.slice(0, 15),
     location: normalizedLocation,
     targetCount: count * 3,
   });
@@ -200,38 +209,83 @@ const handler = async (req: Request): Promise<Response> => {
   const rankingResult = rankAndSelectCompanies(validated, searchLocation, count);
   console.log(`   Selected: ${rankingResult.selected.length} | Alternates: ${rankingResult.alternates.length}`);
 
-  // ── Phase 7: Upsert into company_profiles ──
-  console.log(`\n💾 PHASE 7: SAVING COMPANIES`);
+  // ── Phase 7: Enrich + Upsert into company_profiles ──
+  console.log(`\n💾 PHASE 7: ENRICHMENT + SAVING COMPANIES`);
   const insertedCompanies: any[] = [];
+  const APOLLO_KEY = Deno.env.get('APOLLO_API_KEY')!;
+  const courseDomainForEnrich = classifyDomainForEnrich(socMappings).domain;
 
   for (const ranked of rankingResult.selected) {
     const company = ranked.company;
     const original = company._original || company;
 
-    const companyData = {
+    // ── Enrichment: 3-stage Apollo enrichment per company ──
+    let enrichData: Awaited<ReturnType<typeof enrichCompanyFull>> | null = null;
+    try {
+      const orgId = original.apolloId;
+      const domain = original.website || original.primary_domain;
+      if (orgId) {
+        console.log(`   🔄 Enriching: ${original.name || company.name}...`);
+        enrichData = await enrichCompanyFull(orgId, domain, courseDomainForEnrich, APOLLO_KEY);
+      }
+    } catch (e) {
+      console.warn(`   ⚠️ Enrichment failed for ${original.name || company.name}:`, e);
+    }
+
+    const companyData: Record<string, unknown> = {
       name: original.name || company.name,
       sector: original.industry || company.sector,
-      size: original.employeeCount ? `${original.employeeCount} employees` : 'Unknown',
-      description: original.description || company.description,
+      size: (enrichData?.enrichment?.employeeCount || original.employeeCount)
+        ? `${enrichData?.enrichment?.employeeCount || original.employeeCount} employees` : 'Unknown',
+      description: enrichData?.enrichment?.shortDescription || original.description || company.description,
       website: original.website || company.website || null,
       full_address: original.location
         ? [original.location.city, original.location.state, original.location.country].filter(Boolean).join(', ')
         : company.full_address || null,
       apollo_organization_id: original.apolloId || null,
-      technologies_used: original.technologies || company.technologies_used || [],
-      funding_stage: original.fundingStage || null,
-      total_funding_usd: original.totalFunding ? Math.round(original.totalFunding) : null,
-      employee_count: original.employeeCount?.toString() || null,
-      industries: (original.industryTags || company.industries || []).slice(0, 10),
-      keywords: skillKeywords.slice(0, 10),
-      job_postings: (original.jobPostings || company.job_postings || []).slice(0, 5).map((jp: any) => ({
+      technologies_used: enrichData?.enrichment?.technologies?.length
+        ? enrichData.enrichment.technologies
+        : (original.technologies || company.technologies_used || []),
+      funding_stage: enrichData?.enrichment?.fundingStage || original.fundingStage || null,
+      total_funding_usd: enrichData?.enrichment?.totalFunding
+        ? Math.round(enrichData.enrichment.totalFunding)
+        : (original.totalFunding ? Math.round(original.totalFunding) : null),
+      employee_count: (enrichData?.enrichment?.employeeCount || original.employeeCount)?.toString() || null,
+      industries: enrichData?.enrichment?.industries?.length
+        ? enrichData.enrichment.industries.slice(0, 10)
+        : (original.industryTags || company.industries || []).slice(0, 10),
+      keywords: combinedKeywords.slice(0, 10),
+      job_postings: (enrichData?.jobPostings?.length
+        ? enrichData.jobPostings
+        : (original.jobPostings || company.job_postings || [])
+      ).slice(0, 10).map((jp: any) => ({
         title: jp.title,
         location: jp.location,
-        posted_date: jp.postedDate || jp.posted_date,
+        posted_date: jp.postedDate || jp.posted_date || jp.posted_at,
+        description: jp.description?.substring(0, 200),
       })),
-      data_completeness_score: calculateCompleteness(original),
+      data_completeness_score: enrichData?.completenessScore ?? calculateCompleteness(original),
       match_score: ranked.scores.composite,
       match_reason: ranked.selectionReason,
+      // Phase 1 new columns
+      instructor_course_id,
+      discovery_source: original.discoveryStrategy || 'unknown',
+      seo_description: enrichData?.enrichment?.seoDescription || null,
+      buying_intent_signals: enrichData?.buyingIntent || null,
+      contact_first_name: enrichData?.contact?.firstName || null,
+      contact_last_name: enrichData?.contact?.lastName || null,
+      contact_email: enrichData?.contact?.email || null,
+      contact_title: enrichData?.contact?.title || null,
+      contact_phone: enrichData?.contact?.phone || null,
+      contact_person: enrichData?.contact
+        ? `${enrichData.contact.firstName} ${enrichData.contact.lastName}`.trim()
+        : null,
+      linkedin_profile: enrichData?.contact?.linkedinUrl || enrichData?.enrichment?.linkedinUrl || null,
+      departmental_head_count: enrichData?.enrichment?.departmentalHeadCount || null,
+      organization_revenue_range: enrichData?.enrichment?.revenueRange || null,
+      last_enriched_at: enrichData ? new Date().toISOString() : null,
+      similarity_score: ranked.scores.semantic,
+      match_confidence: ranked.scores.composite >= 0.7 ? 'high' : ranked.scores.composite >= 0.4 ? 'medium' : 'low',
     };
 
     const { data: savedCompany, error: insertError } = await supabase

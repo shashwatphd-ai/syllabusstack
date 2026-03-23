@@ -32,6 +32,20 @@ export interface CompanyProfile {
   keywords: string[] | null;
   data_completeness_score: number | null;
   created_at: string;
+  // New enrichment fields
+  instructor_course_id: string | null;
+  match_score: number | null;
+  match_reason: string | null;
+  similarity_score: number | null;
+  match_confidence: string | null;
+  discovery_source: string | null;
+  seo_description: string | null;
+  buying_intent_signals: any | null;
+  contact_first_name: string | null;
+  contact_last_name: string | null;
+  departmental_head_count: any | null;
+  organization_revenue_range: string | null;
+  last_enriched_at: string | null;
 }
 
 export interface CapstoneProject {
@@ -77,30 +91,12 @@ export function useCompanyProfiles(courseId: string) {
   return useQuery({
     queryKey: queryKeys.capstone.companies(courseId),
     queryFn: async () => {
-      // Get company IDs linked to this course via capstone_projects
-      const { data: projects } = await supabase
-        .from('capstone_projects')
-        .select('company_profile_id')
-        .eq('instructor_course_id', courseId)
-        .not('company_profile_id', 'is', null);
-
-      const companyIds = [...new Set((projects || []).map(p => p.company_profile_id).filter(Boolean))];
-      if (companyIds.length === 0) {
-        // Also check if there are any companies discovered but not yet linked
-        const { data: allCompanies, error } = await supabase
-          .from('company_profiles')
-          .select('*')
-          .order('created_at', { ascending: false })
-          .limit(50);
-        if (error) throw error;
-        return (allCompanies || []) as CompanyProfile[];
-      }
-
+      // Direct query: companies linked to this course via instructor_course_id
       const { data, error } = await supabase
         .from('company_profiles')
         .select('*')
-        .in('id', companyIds)
-        .order('data_completeness_score', { ascending: false });
+        .eq('instructor_course_id', courseId)
+        .order('match_score', { ascending: false, nullsFirst: false });
 
       if (error) throw error;
       return (data || []) as CompanyProfile[];
