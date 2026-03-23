@@ -287,9 +287,8 @@ export function ProjectReportView({ projectId, courseId, open, onOpenChange }: P
                 </span>
               )}
               {company?.funding_stage && (
-                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <TrendingUp className="h-3.5 w-3.5 shrink-0" /> {company.funding_stage}
-                  {company.total_funding_usd ? ` · $${(company.total_funding_usd / 1000000).toFixed(1)}M` : ''}
                 </span>
               )}
               {company?.website && (
