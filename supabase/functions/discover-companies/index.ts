@@ -264,7 +264,7 @@ const handler = async (req: Request): Promise<Response> => {
         posted_date: jp.postedDate || jp.posted_date || jp.posted_at,
         description: jp.description?.substring(0, 200),
       })),
-      data_completeness_score: enrichData?.completenessScore ?? calculateCompleteness(original),
+      data_completeness_score: enrichData?.completenessScore ?? calculateEnrichmentCompleteness(null, null, (original.jobPostings || []).length, (original.technologies || []).length),
       match_score: ranked.scores.composite,
       match_reason: ranked.selectionReason,
       // Phase 1 new columns
