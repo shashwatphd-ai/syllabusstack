@@ -178,6 +178,9 @@ const handler = async (req: Request): Promise<Response> => {
         proposal.tasks
       );
 
+      // Build deterministic stakeholder ROI breakdown from value_components
+      const roiBreakdown = buildStakeholderROI(roi, loScore, feasibilityScore);
+
       // ── Step 6: LO Alignment Detail ──
       const loDetail = await generateLOAlignmentDetail(
         proposal.tasks,
