@@ -313,6 +313,28 @@ const handler = async (req: Request): Promise<Response> => {
 };
 
 /**
+ * Determine project tier from Bloom's taxonomy levels
+ */
+function determineBloomTier(bloomLevels: string[]): string {
+  if (bloomLevels.length === 0) return 'Applied'; // default
+
+  const counts: Record<string, number> = {};
+  for (const level of bloomLevels) {
+    const normalized = (level || '').toLowerCase();
+    counts[normalized] = (counts[normalized] || 0) + 1;
+  }
+
+  const highOrder = (counts['evaluate'] || 0) + (counts['create'] || 0) + (counts['synthesis'] || 0);
+  const midOrder = (counts['apply'] || 0) + (counts['analyze'] || 0) + (counts['analysis'] || 0);
+  const lowOrder = (counts['remember'] || 0) + (counts['understand'] || 0) + (counts['knowledge'] || 0) + (counts['comprehension'] || 0);
+
+  const total = bloomLevels.length;
+  if (highOrder / total >= 0.4) return 'Advanced';
+  if (midOrder / total >= 0.4) return 'Applied';
+  return 'Guided';
+}
+
+/**
  * Generate weekly milestones from deliverables
  */
 function generateMilestones(deliverables: string[], totalWeeks: number): any[] {
@@ -328,7 +350,7 @@ function generateMilestones(deliverables: string[], totalWeeks: number): any[] {
   });
 
   // Distribute deliverables across weeks 3 to (totalWeeks - 2)
-  const availableWeeks = totalWeeks - 4; // Reserve weeks 1-2 for setup, last 2 for final
+  const availableWeeks = totalWeeks - 4;
   const weekSpacing = Math.max(1, Math.floor(availableWeeks / deliverables.length));
 
   deliverables.forEach((d, i) => {
@@ -357,9 +379,7 @@ function generateMilestones(deliverables: string[], totalWeeks: number): any[] {
     type: 'final',
   });
 
-  // Sort by week
   milestones.sort((a, b) => a.week - b.week);
-
   return milestones;
 }
 
