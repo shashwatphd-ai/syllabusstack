@@ -25,7 +25,8 @@ export interface ExtractedSkill {
 export async function extractIndustrySkills(
   objectiveTexts: string[],
   courseTitle: string,
-  courseLevel: string = ''
+  courseLevel: string = '',
+  searchKeywords: string[] = []
 ): Promise<SkillExtractionOutput> {
   const startTime = Date.now();
 
