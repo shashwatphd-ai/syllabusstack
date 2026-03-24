@@ -211,7 +211,7 @@ const handler = async (req: Request): Promise<Response> => {
 
   // ── Phase 6c: Multi-Factor Ranking ──
   console.log(`\n📊 PHASE 6c: RANKING & SELECTION`);
-  const rankingResult = rankAndSelectCompanies(validated, searchLocation, count, combinedKeywords);
+  const rankingResult = await rankAndSelectCompanies(validated, searchLocation, count, combinedKeywords);
   console.log(`   Selected: ${rankingResult.selected.length} | Alternates: ${rankingResult.alternates.length}`);
 
   // ── Phase 7: Enrich + Upsert into company_profiles ──
