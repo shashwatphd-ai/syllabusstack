@@ -18,6 +18,8 @@ import { CompanyCard } from './CompanyCard';
 import { CapstoneProjectCard } from './CapstoneProjectCard';
 import { ProjectReportView } from './ProjectReportView';
 import { AssignStudentDialog } from './AssignStudentDialog';
+import { DiscoveryConfigDialog, type DiscoveryConfig } from './DiscoveryConfigDialog';
+import { GenerationProgressCard } from './GenerationProgressCard';
 
 interface CapstoneProjectsTabProps {
   courseId: string;
@@ -59,6 +61,8 @@ export function CapstoneProjectsTab({ courseId }: CapstoneProjectsTabProps) {
   const [assignProjectId, setAssignProjectId] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<SortKey>('composite');
   const [confidenceFilter, setConfidenceFilter] = useState<ConfidenceFilter>('all');
+  const [configOpen, setConfigOpen] = useState(false);
+  const [discoveryActive, setDiscoveryActive] = useState(false);
 
   const hasLocation = !!(course?.location_city || course?.location_state || course?.search_location);
   const hasLOs = (los?.length ?? 0) > 0;
@@ -75,12 +79,23 @@ export function CapstoneProjectsTab({ courseId }: CapstoneProjectsTabProps) {
     return filtered;
   }, [companies, sortBy, confidenceFilter]);
 
+  const handleStartDiscovery = (config: DiscoveryConfig) => {
+    setConfigOpen(false);
+    setDiscoveryActive(true);
+    discoverCompanies.mutate(courseId, {
+      onSettled: () => setDiscoveryActive(false),
+    });
+  };
+
   return (
     <div className="space-y-6">
       {/* Location Setup */}
       {!hasLocation && (
         <LocationSetup courseId={courseId} initialValues={course} autoDetect />
       )}
+
+      {/* Generation Progress */}
+      <GenerationProgressCard courseId={courseId} isActive={discoveryActive || discoverCompanies.isPending} />
 
       {/* Company Discovery */}
       <div className="space-y-3">
@@ -99,7 +114,7 @@ export function CapstoneProjectsTab({ courseId }: CapstoneProjectsTabProps) {
                 {reEnrichAddresses.isPending ? 'Updating...' : 'Update Addresses'}
               </Button>
             )}
-            <Button size="sm" variant="outline" className="gap-2" onClick={() => discoverCompanies.mutate(courseId)} disabled={discoverCompanies.isPending || !hasLocation || !hasLOs} title={!hasLOs ? 'Add learning objectives first' : !hasLocation ? 'Set course location first' : undefined}>
+            <Button size="sm" variant="outline" className="gap-2" onClick={() => setConfigOpen(true)} disabled={discoverCompanies.isPending || !hasLocation || !hasLOs} title={!hasLOs ? 'Add learning objectives first' : !hasLocation ? 'Set course location first' : undefined}>
               {discoverCompanies.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
               {discoverCompanies.isPending ? 'Discovering...' : 'Discover Companies'}
             </Button>
@@ -202,6 +217,14 @@ export function CapstoneProjectsTab({ courseId }: CapstoneProjectsTabProps) {
         )}
       </div>
 
+      {/* Dialogs */}
+      <DiscoveryConfigDialog
+        open={configOpen}
+        onOpenChange={setConfigOpen}
+        onStart={handleStartDiscovery}
+        isPending={discoverCompanies.isPending}
+        courseName={course?.title}
+      />
       {detailProjectId && (
         <ProjectReportView projectId={detailProjectId} courseId={courseId} open={!!detailProjectId} onOpenChange={(open) => !open && setDetailProjectId(null)} />
       )}
