@@ -95,7 +95,7 @@ export function CapstoneProjectsTab({ courseId }: CapstoneProjectsTabProps) {
       )}
 
       {/* Generation Progress */}
-      <GenerationProgressCard courseId={courseId} isActive={discoveryActive || discoverCompanies.isPending} />
+      <GenerationProgressCard courseId={courseId} isActive={discoveryActive || discoverCompanies.isPending || generateProjects.isPending} />
 
       {/* Company Discovery */}
       <div className="space-y-3">
