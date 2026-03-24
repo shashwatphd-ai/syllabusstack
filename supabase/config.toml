@@ -189,3 +189,40 @@ verify_jwt = true
 [functions.accept-instructor-invite]
 # validate action is public (pre-signup), accept action checks JWT in code
 verify_jwt = false
+
+# ============================================================================
+# CAPSTONE PROJECT PIPELINE (EduThree Parity)
+# ============================================================================
+
+[functions.generate-capstone-projects]
+# AI project generation from discovered companies + course LOs
+# Auth validated in-code (instructor ownership check)
+verify_jwt = false
+
+[functions.extract-capstone-competencies]
+# Extract verified skills from completed capstone projects
+verify_jwt = true
+
+# ============================================================================
+# DEMAND SIGNAL & JOB MATCHING ENGINE
+# ============================================================================
+
+[functions.aggregate-demand-signals]
+# CRON-triggered batch aggregation from Lightcast + Adzuna + Apollo
+verify_jwt = false
+
+[functions.get-live-demand]
+# Real-time demand lookup for skill/location pairs
+verify_jwt = true
+
+[functions.job-matcher]
+# Embedding-based cosine similarity matching (student skills ↔ job requirements)
+verify_jwt = true
+
+[functions.sync-project-match]
+# Sync capstone project completion to job match records + verified skills
+verify_jwt = true
+
+[functions.portfolio-export]
+# Generate exportable student portfolio (verified skills, projects, certificates)
+verify_jwt = true

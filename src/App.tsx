@@ -43,6 +43,8 @@ import SlideContentEditorPage from "./pages/instructor/SlideContentEditor";
 import SyllabusReviewPage from "./pages/instructor/SyllabusReview";
 import { StudentCourseDetailPage, LearningObjectivePage, AssessmentPage, StudentSlidePage, IdentityVerificationPage, ChallengeSessionPage } from "./pages/student";
 import StudentCapstoneProjects from "./pages/student/StudentCapstoneProjects";
+import StudentJobMatches from "./pages/student/StudentJobMatches";
+import StudentPortfolio from "./pages/student/StudentPortfolio";
 // Admin pages
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import UserManagement from "./pages/admin/UserManagement";
@@ -145,6 +147,8 @@ const App = () => (
             <Route path="/verify-identity" element={<AuthGuard><IdentityVerificationPage /></AuthGuard>} />
             <Route path="/learn/challenge/:challengeId" element={<AuthGuard><ChallengeSessionPage /></AuthGuard>} />
             <Route path="/student/capstone-projects" element={<AuthGuard><StudentCapstoneProjects /></AuthGuard>} />
+            <Route path="/student/jobs" element={<AuthGuard><StudentJobMatches /></AuthGuard>} />
+            <Route path="/student/portfolio" element={<AuthGuard><StudentPortfolio /></AuthGuard>} />
 
             {/* Instructor routes */}
             <Route path="/instructor/courses" element={<AuthGuard><InstructorCoursesPage /></AuthGuard>} />
