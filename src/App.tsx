@@ -144,6 +144,7 @@ const App = () => (
             <Route path="/learn/slides/:slideId" element={<AuthGuard><StudentSlidePage /></AuthGuard>} />
             <Route path="/verify-identity" element={<AuthGuard><IdentityVerificationPage /></AuthGuard>} />
             <Route path="/learn/challenge/:challengeId" element={<AuthGuard><ChallengeSessionPage /></AuthGuard>} />
+            <Route path="/student/capstone-projects" element={<AuthGuard><StudentCapstoneProjects /></AuthGuard>} />
 
             {/* Instructor routes */}
             <Route path="/instructor/courses" element={<AuthGuard><InstructorCoursesPage /></AuthGuard>} />

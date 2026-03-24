@@ -153,20 +153,38 @@ export function ProjectDetailView({ projectId, courseId, open, onOpenChange }: P
             </>
           )}
 
-          {/* Complete action for in-progress projects */}
-          {project.status === 'in_progress' && (
-            <>
-              <Separator />
+          {/* Actions */}
+          <Separator />
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setFeedbackOpen(true)}
+              className="gap-2"
+              size="sm"
+            >
+              <MessageSquare className="h-4 w-4" />
+              Rate / Feedback
+            </Button>
+
+            {project.status === 'in_progress' && (
               <Button
                 onClick={() => completeProject.mutate({ projectId, courseId })}
                 disabled={completeProject.isPending}
                 className="gap-2"
+                size="sm"
               >
                 <CheckCircle2 className="h-4 w-4" />
                 {completeProject.isPending ? 'Extracting Skills...' : 'Mark Completed & Extract Skills'}
               </Button>
-            </>
-          )}
+            )}
+          </div>
+
+          <ProjectFeedbackDialog
+            projectId={projectId}
+            projectTitle={project.title}
+            open={feedbackOpen}
+            onOpenChange={setFeedbackOpen}
+          />
         </div>
       </ResponsiveDialogContent>
     </ResponsiveDialog>
