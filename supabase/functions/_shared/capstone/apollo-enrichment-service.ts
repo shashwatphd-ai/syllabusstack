@@ -303,7 +303,6 @@ export async function findBestContact(
         { 
           details: personIds.map(id => ({ id })),
           reveal_personal_emails: false,
-          reveal_phone_number: true,
         },
         apiKey
       );
