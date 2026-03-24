@@ -1,7 +1,8 @@
-import { Building2, Globe, Users, Briefcase, TrendingUp, Zap, Linkedin, DollarSign, Target, UserCheck } from 'lucide-react';
+import { Building2, Globe, Users, Briefcase, TrendingUp, Zap, Linkedin, DollarSign, Target, UserCheck, Twitter, Facebook, Calendar } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import type { CompanyProfile } from '@/hooks/useCapstoneProjects';
 
 interface CompanyCardProps {
@@ -12,6 +13,12 @@ const confidenceColors: Record<string, string> = {
   high: 'bg-green-500/10 text-green-700 border-green-200',
   medium: 'bg-amber-500/10 text-amber-700 border-amber-200',
   low: 'bg-red-500/10 text-red-700 border-red-200',
+};
+
+const enrichmentColors: Record<string, string> = {
+  basic: 'bg-muted text-muted-foreground',
+  apollo_verified: 'bg-blue-500/10 text-blue-700 border-blue-200',
+  fully_enriched: 'bg-green-500/10 text-green-700 border-green-200',
 };
 
 function getIntentLevel(signals: any): { label: string; className: string } | null {
@@ -35,16 +42,27 @@ export function CompanyCard({ company }: CompanyCardProps) {
     ? `${contactName}, ${company.contact_title}`
     : contactName || null;
 
+  // Build structured address from separate fields, fallback to full_address
+  const structuredAddress = [company.city, company.state, company.zip].filter(Boolean).join(', ') || company.full_address;
+
   return (
     <Card className="hover:shadow-md transition-shadow">
       <CardContent className="pt-4 pb-4 space-y-2.5">
-        {/* Header with match score */}
+        {/* Header with logo + match score */}
         <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <h4 className="font-semibold text-sm truncate">{company.name}</h4>
-            {company.sector && company.sector !== 'Unknown' && (
-              <p className="text-xs text-muted-foreground">{company.sector}</p>
+          <div className="flex items-center gap-2 min-w-0">
+            {company.organization_logo_url && (
+              <Avatar className="h-8 w-8 shrink-0">
+                <AvatarImage src={company.organization_logo_url} alt={company.name} />
+                <AvatarFallback className="text-[10px]">{company.name.substring(0, 2).toUpperCase()}</AvatarFallback>
+              </Avatar>
             )}
+            <div className="min-w-0">
+              <h4 className="font-semibold text-sm truncate">{company.name}</h4>
+              {company.sector && company.sector !== 'Unknown' && (
+                <p className="text-xs text-muted-foreground">{company.sector}</p>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
             {company.match_confidence && (
@@ -78,12 +96,19 @@ export function CompanyCard({ company }: CompanyCardProps) {
           <p className="text-xs text-muted-foreground line-clamp-2">{company.description}</p>
         )}
 
-        {/* Intent badge */}
-        {intentBadge && (
-          <Badge variant="outline" className={`text-[10px] ${intentBadge.className}`}>
-            <Target className="h-3 w-3 mr-1" /> {intentBadge.label}
-          </Badge>
-        )}
+        {/* Intent + enrichment badges */}
+        <div className="flex flex-wrap gap-1">
+          {intentBadge && (
+            <Badge variant="outline" className={`text-[10px] ${intentBadge.className}`}>
+              <Target className="h-3 w-3 mr-1" /> {intentBadge.label}
+            </Badge>
+          )}
+          {company.data_enrichment_level && company.data_enrichment_level !== 'basic' && (
+            <Badge variant="outline" className={`text-[10px] ${enrichmentColors[company.data_enrichment_level] || ''}`}>
+              <Zap className="h-3 w-3 mr-1" /> {company.data_enrichment_level.replace('_', ' ')}
+            </Badge>
+          )}
+        </div>
 
         {/* Company metadata */}
         <div className="flex flex-wrap gap-1.5">
@@ -102,6 +127,15 @@ export function CompanyCard({ company }: CompanyCardProps) {
               <TrendingUp className="h-3 w-3" /> {company.funding_stage}
             </span>
           )}
+          {company.organization_founded_year && company.organization_founded_year > 0 && (
+            <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+              <Calendar className="h-3 w-3" /> Est. {company.organization_founded_year}
+            </span>
+          )}
+        </div>
+
+        {/* Social links */}
+        <div className="flex flex-wrap gap-1.5">
           {company.website && (
             <a
               href={company.website.startsWith('http') ? company.website : `https://${company.website}`}
@@ -112,9 +146,12 @@ export function CompanyCard({ company }: CompanyCardProps) {
               <Globe className="h-3 w-3" /> Website
             </a>
           )}
-          {company.linkedin_profile && (
+          {(company.organization_linkedin_url || company.linkedin_profile) && (
             <a
-              href={company.linkedin_profile.startsWith('http') ? company.linkedin_profile : `https://${company.linkedin_profile}`}
+              href={(() => {
+                const url = company.organization_linkedin_url || company.linkedin_profile || '';
+                return url.startsWith('http') ? url : `https://${url}`;
+              })()}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 text-[10px] text-primary hover:underline"
@@ -122,25 +159,52 @@ export function CompanyCard({ company }: CompanyCardProps) {
               <Linkedin className="h-3 w-3" /> LinkedIn
             </a>
           )}
-          {enriched && (
-            <span className="inline-flex items-center gap-1 text-[10px] text-green-600">
-              <Zap className="h-3 w-3" /> Enriched
-            </span>
+          {company.organization_twitter_url && (
+            <a
+              href={company.organization_twitter_url.startsWith('http') ? company.organization_twitter_url : `https://${company.organization_twitter_url}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-[10px] text-primary hover:underline"
+            >
+              <Twitter className="h-3 w-3" /> Twitter
+            </a>
+          )}
+          {company.organization_facebook_url && (
+            <a
+              href={company.organization_facebook_url.startsWith('http') ? company.organization_facebook_url : `https://${company.organization_facebook_url}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-[10px] text-primary hover:underline"
+            >
+              <Facebook className="h-3 w-3" /> Facebook
+            </a>
           )}
         </div>
 
         {/* Address */}
-        {company.full_address && (
+        {structuredAddress && (
           <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
-            <Building2 className="h-3 w-3" /> {company.full_address}
+            <Building2 className="h-3 w-3" /> {structuredAddress}
           </span>
         )}
 
-        {/* Contact summary */}
+        {/* Contact summary with photo */}
         {contactSummary && (
-          <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
-            <UserCheck className="h-3 w-3" /> {contactSummary}
-          </span>
+          <div className="flex items-center gap-1.5">
+            {company.contact_photo_url && (
+              <Avatar className="h-5 w-5">
+                <AvatarImage src={company.contact_photo_url} alt={contactName || ''} />
+                <AvatarFallback className="text-[8px]">{(contactName || '?')[0]}</AvatarFallback>
+              </Avatar>
+            )}
+            <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+              {!company.contact_photo_url && <UserCheck className="h-3 w-3" />}
+              {contactSummary}
+              {company.contact_headline && (
+                <span className="text-muted-foreground/60"> — {company.contact_headline}</span>
+              )}
+            </span>
+          </div>
         )}
 
         {/* Technologies */}
@@ -156,6 +220,17 @@ export function CompanyCard({ company }: CompanyCardProps) {
                 +{company.technologies_used.length - 5}
               </Badge>
             )}
+          </div>
+        )}
+
+        {/* Industry keywords */}
+        {company.organization_industry_keywords && company.organization_industry_keywords.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {company.organization_industry_keywords.slice(0, 4).map(kw => (
+              <Badge key={kw} variant="outline" className="text-[10px] px-1.5 py-0 h-4 text-muted-foreground">
+                {kw}
+              </Badge>
+            ))}
           </div>
         )}
 

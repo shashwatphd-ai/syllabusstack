@@ -94,6 +94,10 @@ interface ApolloEnrichmentResponse {
     annual_revenue_printed?: string;
     annual_revenue?: number;
     linkedin_url?: string;
+    twitter_url?: string;
+    facebook_url?: string;
+    logo_url?: string;
+    founded_year?: number;
     latest_funding_stage?: string;
     total_funding?: number;
     // Address fields
@@ -124,6 +128,13 @@ export interface EnrichmentResult {
   postalCode: string;
   country: string;
   phone: string;
+  // New EduThree-parity fields
+  twitterUrl: string;
+  facebookUrl: string;
+  logoUrl: string;
+  foundedYear: number;
+  industryKeywords: string[];
+  fundingEvents: Array<{ date?: string; news_url?: string; type?: string; amount?: number }>;
 }
 
 export async function enrichOrganization(
@@ -164,6 +175,13 @@ export async function enrichOrganization(
     postalCode: org.postal_code || '',
     country: org.country || '',
     phone: org.phone || '',
+    // New EduThree-parity fields
+    twitterUrl: org.twitter_url || '',
+    facebookUrl: org.facebook_url || '',
+    logoUrl: org.logo_url || '',
+    foundedYear: org.founded_year || 0,
+    industryKeywords: org.industry_tag_list || [],
+    fundingEvents: org.funding_events || [],
   };
 }
 
@@ -246,18 +264,35 @@ interface ApolloContact {
   first_name?: string;
   last_name?: string;
   email?: string;
+  email_status?: string;
   title?: string;
-  phone_numbers?: Array<{ sanitized_number?: string }>;
+  headline?: string;
+  photo_url?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  twitter_url?: string;
+  phone_numbers?: Array<{ sanitized_number?: string; type?: string }>;
   linkedin_url?: string;
+  employment_history?: Array<{ organization_name?: string; title?: string; start_date?: string; end_date?: string }>;
 }
 
 export interface ContactResult {
   firstName: string;
   lastName: string;
   email: string;
+  emailStatus: string;
   title: string;
+  headline: string;
   phone: string;
   linkedinUrl: string;
+  photoUrl: string;
+  city: string;
+  state: string;
+  country: string;
+  twitterUrl: string;
+  phoneNumbers: Array<{ number: string; type?: string }>;
+  employmentHistory: Array<{ organization_name?: string; title?: string; start_date?: string; end_date?: string }>;
 }
 
 const DOMAIN_DEPARTMENT_MAP: Record<string, string[]> = {
@@ -268,6 +303,26 @@ const DOMAIN_DEPARTMENT_MAP: Record<string, string[]> = {
   arts: ['marketing', 'media_and_communication', 'human_resources'],
   default: ['operations', 'business_development', 'engineering'],
 };
+
+function buildContactResult(c: ApolloContact): ContactResult {
+  return {
+    firstName: c.first_name || '',
+    lastName: c.last_name || '',
+    email: c.email || '',
+    emailStatus: c.email_status || '',
+    title: c.title || '',
+    headline: c.headline || '',
+    phone: c.phone_numbers?.[0]?.sanitized_number || '',
+    linkedinUrl: c.linkedin_url || '',
+    photoUrl: c.photo_url || '',
+    city: c.city || '',
+    state: c.state || '',
+    country: c.country || '',
+    twitterUrl: c.twitter_url || '',
+    phoneNumbers: (c.phone_numbers || []).map(pn => ({ number: pn.sanitized_number || '', type: pn.type })),
+    employmentHistory: c.employment_history || [],
+  };
+}
 
 /**
  * Find best contact using the NEW 2-step flow:
@@ -332,14 +387,7 @@ export async function findBestContact(
 
       if (contact) {
         console.log(`  [Enrich] Found contact via strategy ${i + 1} (api_search+bulk_match): ${contact.first_name} ${contact.last_name} (${contact.title})`);
-        return {
-          firstName: contact.first_name || '',
-          lastName: contact.last_name || '',
-          email: contact.email || '',
-          title: contact.title || '',
-          phone: contact.phone_numbers?.[0]?.sanitized_number || '',
-          linkedinUrl: contact.linkedin_url || '',
-        };
+        return buildContactResult(contact);
       }
     }
 
@@ -347,14 +395,7 @@ export async function findBestContact(
     const partialContact = people[0];
     if (partialContact && (partialContact.first_name || partialContact.title)) {
       console.log(`  [Enrich] Found partial contact via strategy ${i + 1} (api_search only): ${partialContact.first_name} ${partialContact.last_name} (${partialContact.title})`);
-      return {
-        firstName: partialContact.first_name || '',
-        lastName: partialContact.last_name || '',
-        email: '', // api_search doesn't return emails
-        title: partialContact.title || '',
-        phone: '',
-        linkedinUrl: partialContact.linkedin_url || '',
-      };
+      return buildContactResult(partialContact);
     }
 
     await sleep(100); // Brief pause between strategies

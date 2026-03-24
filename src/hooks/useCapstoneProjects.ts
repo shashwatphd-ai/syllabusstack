@@ -32,7 +32,7 @@ export interface CompanyProfile {
   keywords: string[] | null;
   data_completeness_score: number | null;
   created_at: string;
-  // New enrichment fields
+  // Enrichment fields
   instructor_course_id: string | null;
   match_score: number | null;
   match_reason: string | null;
@@ -46,6 +46,32 @@ export interface CompanyProfile {
   departmental_head_count: any | null;
   organization_revenue_range: string | null;
   last_enriched_at: string | null;
+  // Structured location
+  city: string | null;
+  state: string | null;
+  zip: string | null;
+  country: string | null;
+  // Organization metadata
+  organization_logo_url: string | null;
+  organization_linkedin_url: string | null;
+  organization_twitter_url: string | null;
+  organization_facebook_url: string | null;
+  organization_founded_year: number | null;
+  organization_industry_keywords: string[] | null;
+  // Granular contact
+  contact_headline: string | null;
+  contact_photo_url: string | null;
+  contact_city: string | null;
+  contact_state: string | null;
+  contact_country: string | null;
+  contact_email_status: string | null;
+  contact_employment_history: any | null;
+  contact_phone_numbers: any | null;
+  contact_twitter_url: string | null;
+  // Market intelligence
+  funding_events: any | null;
+  data_enrichment_level: string | null;
+  matching_skills: string[] | null;
 }
 
 export interface CapstoneProject {
