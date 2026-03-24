@@ -44,7 +44,7 @@ const handler = async (req: Request): Promise<Response> => {
   const { data: { user }, error: authError } = await anonClient.auth.getUser();
   if (authError || !user) return createErrorResponse('UNAUTHORIZED', corsHeaders);
 
-  const { instructor_course_id, company_ids } = await req.json();
+  const { instructor_course_id, company_ids, max_projects = 10 } = await req.json();
   if (!instructor_course_id) {
     return createErrorResponse('BAD_REQUEST', corsHeaders, 'instructor_course_id is required');
   }
@@ -57,6 +57,25 @@ const handler = async (req: Request): Promise<Response> => {
   if (!isInstructor) return createErrorResponse('FORBIDDEN', corsHeaders);
 
   console.log(`🚀 Generating capstone projects for course: ${instructor_course_id}`);
+
+  // ── Create generation run for progress tracking ──
+  const { data: genRun } = await supabase
+    .from('capstone_generation_runs')
+    .insert({
+      instructor_course_id,
+      started_by: user.id,
+      status: 'running',
+      current_phase: 'project_generation',
+      phases_completed: [],
+    })
+    .select('id')
+    .single();
+  const runId = genRun?.id;
+
+  const updateRun = async (updates: Record<string, any>) => {
+    if (!runId) return;
+    await supabase.from('capstone_generation_runs').update(updates).eq('id', runId);
+  };
 
   // ── Fetch course data ──
   const { data: course, error: courseError } = await supabase
