@@ -129,15 +129,19 @@ const handler = async (req: Request): Promise<Response> => {
   console.log(`   Job titles: ${jobTitles.join(', ')}`);
   console.log(`   Location (normalized): ${normalizedLocation}`);
 
-  // ── Phase 5: Apollo Multi-Strategy Discovery ──
+  // ── Phase 5: Apollo Multi-Strategy Discovery (Enhanced) ──
   // Request 3x target count to allow for validation filtering
+  const socCodes = socMappings.map(s => s.socCode);
   const discoveryResult = await discoverCompanies({
     industries: industryKeywords,
     jobTitles,
     skillKeywords: combinedKeywords.slice(0, 15),
     location: normalizedLocation,
     targetCount: count * 3,
-  });
+    socCodes,
+    socMappings,
+    courseTitle: course.title,
+  } as EnhancedDiscoveryInput);
 
   console.log(`\n📦 PHASE 5 RESULTS: ${discoveryResult.companies.length} companies discovered`);
 
