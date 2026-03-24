@@ -30,6 +30,7 @@ export function CapstoneProjectsTab({ courseId }: CapstoneProjectsTabProps) {
   const { data: projects, isLoading: loadingProjects } = useCapstoneProjects(courseId);
   const discoverCompanies = useDiscoverCompanies();
   const generateProjects = useGenerateCapstoneProjects();
+  const reEnrichAddresses = useReEnrichAddresses();
 
   const [detailProjectId, setDetailProjectId] = useState<string | null>(null);
   const [assignProjectId, setAssignProjectId] = useState<string | null>(null);
