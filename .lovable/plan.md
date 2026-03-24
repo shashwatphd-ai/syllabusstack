@@ -1,41 +1,98 @@
 
 
-# Fix: Capture Real Office Addresses from Apollo API
+# Parity Plan: EduThree-Level Company Data & Project Generation
 
-## Problem
-The addresses shown in the UI are incomplete (e.g., "Kansas City, Missouri, United States") because:
-1. The **Apollo Organization Enrich API** returns `street_address`, `city`, `state`, `postal_code`, `country` — but SyllabusStack's `ApolloEnrichmentResponse` interface **does not capture any address fields**
-2. The **Apollo Search API** returns `city`, `state`, `country` but SyllabusStack's `ApolloOrganization` interface is **missing `street_address` and `postal_code`**
-3. The `full_address` is built from just `city, state, country` — no street, no zip
-4. EduThree correctly builds addresses as `street_address, city, state, postal_code` from the enrichment response (lines 1921-1928 of `apollo-provider.ts`)
+## Problem Summary
 
-## Changes
+SyllabusStack's `company_profiles` table is missing **~20 columns** that EduThree captures from Apollo during discovery. This means:
 
-### 1. Update `apollo-enrichment-service.ts` — Capture address fields from enrichment
-- Add `street_address`, `city`, `state`, `postal_code`, `country`, `phone_number` to the `ApolloEnrichmentResponse.organization` interface
-- Add these fields to `EnrichmentResult` interface
-- Return them from `enrichOrganization()`
+1. **Missing organization fields**: logo, social links (LinkedIn/Twitter/Facebook), founded year, industry keywords
+2. **Missing granular contact fields**: photo, headline, city/state/country, email status, employment history, phone numbers, twitter
+3. **Missing location fields**: separate `city`, `zip`, `state`, `country` columns (only has `full_address`)
+4. **Missing metadata**: `funding_events`, `data_enrichment_level`, `source`, `matching_skills`, `matching_dwas`
+5. **Discovery stores less data**: The `discover-companies/index.ts` upsert only writes ~25 fields vs EduThree's ~45+
 
-### 2. Update `apollo-precise-discovery.ts` — Capture address fields from search
-- Add `street_address` and `postal_code` to the `ApolloOrganization` interface (already has `city`, `state`, `country`)
-- Pass `street_address` and `postal_code` through in `transformOrganization()` to the `DiscoveredCompany` location object
+Additionally, EduThree captures ALL enrichment data **during discovery itself** (in `apollo-provider.ts`), so there's no need for a separate re-enrichment step.
 
-### 3. Update `pipeline-types.ts` — Extend location type
-- Add `streetAddress` and `postalCode` to the `DiscoveredCompany.location` type
+---
 
-### 4. Update `discover-companies/index.ts` — Build proper full_address
-- When assembling `full_address`, prefer enrichment address fields (street_address, city, state, postal_code) from the enrichment result
-- Fallback to search result location fields
-- Build address as: `[street_address, city, state, postal_code].filter(Boolean).join(', ')` — matching EduThree's pattern
+## Plan
 
-### Files Modified
-| File | Change |
-|------|--------|
-| `_shared/capstone/apollo-enrichment-service.ts` | Add address fields to response/result types |
-| `_shared/capstone/apollo-precise-discovery.ts` | Add `street_address`, `postal_code` to search interface |
-| `_shared/capstone/pipeline-types.ts` | Extend location type with street/zip |
-| `discover-companies/index.ts` | Build full_address from enrichment street+city+state+zip |
+### Phase 1: Database Migration — Add Missing Columns
 
-### Not Needed
-- Google Geocoding triangulation is **not required** for address display — Apollo's enrichment endpoint already returns verified `street_address` directly. EduThree uses Google Geocoding only for **distance calculations** (already implemented in Phase A's Haversine logic via Nominatim). The address data itself comes directly from Apollo.
+Add ~15 missing columns to `company_profiles`:
+
+| Column | Type | Purpose |
+|--------|------|---------|
+| `city` | text | Separate city for structured display |
+| `zip` | text | Postal code |
+| `state` | text | State/province |
+| `country` | text | Country |
+| `organization_logo_url` | text | Company logo from Apollo |
+| `organization_linkedin_url` | text | Company LinkedIn |
+| `organization_twitter_url` | text | Company Twitter |
+| `organization_facebook_url` | text | Company Facebook |
+| `organization_founded_year` | integer | Year founded |
+| `organization_employee_count` | text | Raw employee count/range |
+| `organization_industry_keywords` | text[] | Industry tag list |
+| `contact_headline` | text | Contact's headline |
+| `contact_photo_url` | text | Contact's photo |
+| `contact_city` | text | Contact's city |
+| `contact_state` | text | Contact's state |
+| `contact_country` | text | Contact's country |
+| `contact_email_status` | text | Email verification status |
+| `contact_employment_history` | jsonb | Employment history |
+| `contact_phone_numbers` | jsonb | All phone numbers |
+| `contact_twitter_url` | text | Contact's Twitter |
+| `funding_events` | jsonb | Full funding history |
+| `data_enrichment_level` | text | basic/apollo_verified/fully_enriched |
+| `source` | text | Discovery source identifier |
+| `matching_skills` | text[] | Skills that matched |
+
+### Phase 2: Update Apollo Enrichment Service
+
+Update `apollo-enrichment-service.ts` to capture ALL fields that EduThree's `apollo-provider.ts` captures during enrichment (lines 1937-2001):
+
+- Organization: `logo_url`, `linkedin_url`, `twitter_url`, `facebook_url`, `founded_year`, `industry_tag_list`, `departmental_head_count`, `funding_events`
+- Contact: `headline`, `photo_url`, `city`, `state`, `country`, `email_status`, `employment_history`, `phone_numbers`, `twitter_url`
+- Metadata: `short_description`, `seo_description`, `industries`, `keywords`
+
+### Phase 3: Update `discover-companies/index.ts` Upsert
+
+Expand the `companyData` object to write ALL new fields during upsert — matching EduThree's 45+ field storage (lines 1327-1398):
+
+- Separate location fields: `city`, `zip`, `state`, `country`
+- Organization details: logo, social links, founded year, industry keywords
+- Contact details: all granular contact fields from enrichment
+- Market intelligence: funding events, data enrichment level
+- Matching data: skills, DWAs
+
+### Phase 4: Update Frontend Types & CompanyCard
+
+1. Update `CompanyProfile` interface in `useCapstoneProjects.ts` to include all new fields
+2. Enhance `CompanyCard.tsx` to display:
+   - Company logo (if available)
+   - Social links (LinkedIn, Twitter, Facebook icons)
+   - Founded year
+   - Contact photo + headline
+   - Structured address (city, state, zip)
+   - Data enrichment level badge
+   - Industry keywords
+
+### Phase 5: Update Project Generation
+
+Ensure `generate-capstone-projects/index.ts` passes ALL enriched company data to the AI prompt (matching EduThree's `generation-service.ts`):
+- Company `industries` and `keywords` for context
+- `buying_intent_signals` for market intelligence
+- `funding_events` for growth stage context
+- `organization_employee_count` and `organization_revenue_range` for company sizing
+
+---
+
+## Technical Notes
+
+- Database migration adds ~24 nullable columns — no impact on existing data
+- The enrichment service changes extend existing interfaces, not breaking changes
+- The `discover-companies` upsert expansion writes more data per company but doesn't change the pipeline flow
+- Frontend changes are additive — cards show more data when available, gracefully degrade when not
 
