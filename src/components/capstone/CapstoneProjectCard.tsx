@@ -26,6 +26,7 @@ const statusColors: Record<string, string> = {
 
 export function CapstoneProjectCard({ project, onAssign, onViewDetail }: CapstoneProjectCardProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const company = project.company_profiles;
 
   return (
