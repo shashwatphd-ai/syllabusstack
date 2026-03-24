@@ -97,6 +97,11 @@ export function CompanyCard({ company }: CompanyCardProps) {
             </div>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
+            {grade && (
+              <Badge variant="outline" className={`text-[10px] font-bold px-1.5 ${grade.className}`}>
+                {grade.label}
+              </Badge>
+            )}
             {(company.signal_confidence || company.match_confidence) && (
               <Badge variant="outline" className={`text-[10px] ${confidenceColors[(company.signal_confidence || company.match_confidence)!] || ''}`}>
                 {company.signal_confidence || company.match_confidence}
