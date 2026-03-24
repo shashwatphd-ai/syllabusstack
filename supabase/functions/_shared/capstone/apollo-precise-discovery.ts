@@ -39,8 +39,10 @@ interface ApolloOrganization {
   industry?: string;
   keywords?: string[];
   estimated_num_employees?: number;
+  street_address?: string;
   city?: string;
   state?: string;
+  postal_code?: string;
   country?: string;
   short_description?: string;
   seo_description?: string;
