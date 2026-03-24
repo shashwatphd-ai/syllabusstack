@@ -82,7 +82,7 @@ export function CapstoneProjectsTab({ courseId }: CapstoneProjectsTabProps) {
   const handleStartDiscovery = (config: DiscoveryConfig) => {
     setConfigOpen(false);
     setDiscoveryActive(true);
-    discoverCompanies.mutate(courseId, {
+    discoverCompanies.mutate({ courseId, config }, {
       onSettled: () => setDiscoveryActive(false),
     });
   };
