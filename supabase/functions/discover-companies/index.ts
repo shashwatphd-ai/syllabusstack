@@ -20,6 +20,7 @@ import { normalizeLocationForApollo } from "../_shared/capstone/location-utils.t
 import { classifyCourseDomain, shouldExcludeIndustry } from "../_shared/capstone/context-aware-industry-filter.ts";
 import { extractIndustrySkills } from "../_shared/capstone/skill-extraction.ts";
 import { discoverCompanies } from "../_shared/capstone/apollo-precise-discovery.ts";
+import type { EnhancedDiscoveryInput } from "../_shared/capstone/apollo-precise-discovery.ts";
 import { filterValidCompanies } from "../_shared/capstone/company-validation-service.ts";
 import { rankAndSelectCompanies } from "../_shared/capstone/company-ranking-service.ts";
 import { enrichCompanyFull, calculateEnrichmentCompleteness } from "../_shared/capstone/apollo-enrichment-service.ts";
