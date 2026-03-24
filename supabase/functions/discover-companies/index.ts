@@ -245,18 +245,21 @@ const handler = async (req: Request): Promise<Response> => {
       description: enrichData?.enrichment?.shortDescription || original.description || company.description,
       website: original.website || company.website || null,
       full_address: (() => {
-        // Prefer enrichment address fields (street-level from Apollo enrich API)
         const enrich = enrichData?.enrichment;
         if (enrich && (enrich.streetAddress || enrich.city)) {
           return [enrich.streetAddress, enrich.city, enrich.state, enrich.postalCode].filter(Boolean).join(', ');
         }
-        // Fallback to discovery location data (search API)
         const loc = original.location;
         if (loc) {
           return [loc.streetAddress, loc.city, loc.state, loc.postalCode, loc.country].filter(Boolean).join(', ');
         }
         return company.full_address || searchLocation || null;
       })(),
+      // Structured location fields (new)
+      city: enrichData?.enrichment?.city || original.location?.city || null,
+      state: enrichData?.enrichment?.state || original.location?.state || null,
+      zip: enrichData?.enrichment?.postalCode || original.location?.postalCode || null,
+      country: enrichData?.enrichment?.country || original.location?.country || null,
       apollo_organization_id: original.apolloId || null,
       technologies_used: enrichData?.enrichment?.technologies?.length
         ? enrichData.enrichment.technologies
@@ -282,11 +285,11 @@ const handler = async (req: Request): Promise<Response> => {
       data_completeness_score: enrichData?.completenessScore ?? calculateEnrichmentCompleteness(null, null, (original.jobPostings || []).length, (original.technologies || []).length),
       match_score: ranked.scores.composite,
       match_reason: ranked.selectionReason,
-      // Phase 1 new columns
       instructor_course_id,
       discovery_source: original.discoveryStrategy || 'unknown',
       seo_description: enrichData?.enrichment?.seoDescription || null,
       buying_intent_signals: enrichData?.buyingIntent || original.buyingIntentSignals || null,
+      // Contact fields
       contact_first_name: enrichData?.contact?.firstName || null,
       contact_last_name: enrichData?.contact?.lastName || null,
       contact_email: enrichData?.contact?.email || null,
@@ -295,10 +298,30 @@ const handler = async (req: Request): Promise<Response> => {
       contact_person: enrichData?.contact
         ? `${enrichData.contact.firstName} ${enrichData.contact.lastName}`.trim()
         : null,
+      contact_headline: enrichData?.contact?.headline || null,
+      contact_photo_url: enrichData?.contact?.photoUrl || null,
+      contact_city: enrichData?.contact?.city || null,
+      contact_state: enrichData?.contact?.state || null,
+      contact_country: enrichData?.contact?.country || null,
+      contact_email_status: enrichData?.contact?.emailStatus || null,
+      contact_twitter_url: enrichData?.contact?.twitterUrl || null,
+      contact_phone_numbers: enrichData?.contact?.phoneNumbers?.length ? enrichData.contact.phoneNumbers : null,
+      contact_employment_history: enrichData?.contact?.employmentHistory?.length ? enrichData.contact.employmentHistory : null,
+      // Organization metadata
       linkedin_profile: enrichData?.contact?.linkedinUrl || enrichData?.enrichment?.linkedinUrl || null,
+      organization_linkedin_url: enrichData?.enrichment?.linkedinUrl || null,
+      organization_twitter_url: enrichData?.enrichment?.twitterUrl || null,
+      organization_facebook_url: enrichData?.enrichment?.facebookUrl || null,
+      organization_logo_url: enrichData?.enrichment?.logoUrl || null,
+      organization_founded_year: enrichData?.enrichment?.foundedYear || null,
+      organization_industry_keywords: enrichData?.enrichment?.industryKeywords?.length ? enrichData.enrichment.industryKeywords : null,
       departmental_head_count: enrichData?.enrichment?.departmentalHeadCount || null,
       organization_revenue_range: enrichData?.enrichment?.revenueRange || null,
+      funding_events: enrichData?.enrichment?.fundingEvents?.length ? enrichData.enrichment.fundingEvents : null,
+      // Enrichment metadata
       last_enriched_at: enrichData ? new Date().toISOString() : null,
+      data_enrichment_level: enrichData ? 'apollo_verified' : 'basic',
+      matching_skills: combinedKeywords.slice(0, 15),
       similarity_score: ranked.scores.semantic,
       match_confidence: ranked.scores.composite >= 0.7 ? 'high' : ranked.scores.composite >= 0.4 ? 'medium' : 'low',
     };
