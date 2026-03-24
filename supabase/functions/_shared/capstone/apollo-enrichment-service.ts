@@ -164,6 +164,13 @@ export async function enrichOrganization(
     postalCode: org.postal_code || '',
     country: org.country || '',
     phone: org.phone || '',
+    // New EduThree-parity fields
+    twitterUrl: org.twitter_url || '',
+    facebookUrl: org.facebook_url || '',
+    logoUrl: org.logo_url || '',
+    foundedYear: org.founded_year || 0,
+    industryKeywords: org.industry_tag_list || [],
+    fundingEvents: org.funding_events || [],
   };
 }
 
