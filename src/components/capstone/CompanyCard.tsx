@@ -46,12 +46,22 @@ function SignalBar({ label, value, icon }: { label: string; value: number | null
   );
 }
 
+function getQualityGrade(score: number | null): { label: string; className: string } | null {
+  if (score == null) return null;
+  if (score >= 80) return { label: 'A+', className: 'bg-green-600 text-white border-green-600' };
+  if (score >= 65) return { label: 'A', className: 'bg-green-500/15 text-green-700 border-green-300' };
+  if (score >= 50) return { label: 'B', className: 'bg-amber-500/15 text-amber-700 border-amber-300' };
+  if (score >= 30) return { label: 'C', className: 'bg-orange-500/15 text-orange-700 border-orange-300' };
+  return { label: 'D', className: 'bg-red-500/15 text-red-700 border-red-300' };
+}
+
 export function CompanyCard({ company }: CompanyCardProps) {
   const compositeScore = company.composite_signal_score != null
     ? Math.round(company.composite_signal_score)
     : null;
   const matchPercent = company.match_score != null ? Math.round(company.match_score * 100) : null;
   const primaryScore = compositeScore ?? matchPercent;
+  const grade = getQualityGrade(primaryScore);
   const enriched = !!company.last_enriched_at;
   const intentBadge = getIntentLevel(company.buying_intent_signals);
   const revenueRange = company.organization_revenue_range;
