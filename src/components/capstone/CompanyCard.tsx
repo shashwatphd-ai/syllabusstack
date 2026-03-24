@@ -120,6 +120,7 @@ export function CompanyCard({ company }: CompanyCardProps) {
                 </Tooltip>
               </TooltipProvider>
             )}
+          <CompanyHiringBadge jobPostings={company.job_postings} />
           </div>
         </div>
 
