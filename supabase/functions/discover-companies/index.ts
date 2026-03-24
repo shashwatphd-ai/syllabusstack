@@ -1,15 +1,21 @@
 /**
- * Discover Companies Edge Function (Enhanced with Validation + Ranking)
+ * Discover Companies Edge Function — Full EduThree-Parity Pipeline
  * 
- * Full EduThree1-parity pipeline:
- * 1. SOC code mapping from course context
- * 2. AI-powered skill extraction
- * 3. Location normalization with variants
- * 4. 3-strategy Apollo discovery
- * 5. Context-aware industry filtering
- * 6. AI company-course validation (NEW)
- * 7. Multi-factor ranking & selection (NEW)
- * 8. Upsert into company_profiles
+ * 10-phase pipeline:
+ * 1. Fetch course data
+ * 2. SOC code mapping from course context
+ * 2b. O*NET occupational enrichment (skills, DWAs, tools, technologies)
+ * 3. AI-powered skill extraction + O*NET skill merge
+ * 4. Build Apollo search parameters
+ * 5. Apollo multi-strategy discovery
+ * 6. Context-aware industry filtering
+ * 6b. AI company-course validation
+ * 6c. Semantic matching (TF-IDF + adaptive threshold)
+ * 6d. Multi-factor ranking & selection
+ * 7. 3-stage enrichment + upsert
+ * 8. Signal scoring (4 parallel signals)
+ * 9. Career page validation (Firecrawl)
+ * 10. Inferred needs synthesis + final update
  */
 
 import { createClient } from "@supabase/supabase-js";
@@ -25,6 +31,14 @@ import { filterValidCompanies } from "../_shared/capstone/company-validation-ser
 import { rankAndSelectCompanies } from "../_shared/capstone/company-ranking-service.ts";
 import { enrichCompanyFull, calculateEnrichmentCompleteness } from "../_shared/capstone/apollo-enrichment-service.ts";
 import { classifyCourseDomain as classifyDomainForEnrich } from "../_shared/capstone/context-aware-industry-filter.ts";
+
+// NEW: EduThree-parity services
+import { mapSkillsToOnet } from "../_shared/capstone/onet-service.ts";
+import { rankCompaniesBySimilarity } from "../_shared/capstone/semantic-matching-service.ts";
+import { calculateBatchSignals, toStorableSignalData } from "../_shared/capstone/signals/index.ts";
+import { validateCareerPage } from "../_shared/capstone/career-page-validator.ts";
+import { inferCompanyNeeds } from "../_shared/capstone/inferred-needs-service.ts";
+import type { CompanyForSignal } from "../_shared/capstone/signal-types.ts";
 
 const handler = async (req: Request): Promise<Response> => {
   const corsHeaders = getCorsHeaders(req);
@@ -66,13 +80,48 @@ const handler = async (req: Request): Promise<Response> => {
     return createErrorResponse('CONFIG_ERROR', corsHeaders, 'Apollo API key not configured.');
   }
 
+  const pipelineStart = Date.now();
+  const phaseTimings: Record<string, number> = {};
+  const phasesCompleted: string[] = [];
+  let generationRunId: string | null = null;
+
+  // ── Create Generation Run for audit trail ──
+  try {
+    const { data: run } = await supabase
+      .from('capstone_generation_runs')
+      .insert({
+        instructor_course_id,
+        started_by: user.id,
+        status: 'running',
+        current_phase: 'initialization',
+      })
+      .select('id')
+      .single();
+    generationRunId = run?.id || null;
+  } catch (e) {
+    console.warn('⚠️ Could not create generation run:', e);
+  }
+
+  const updateRun = async (updates: Record<string, unknown>) => {
+    if (!generationRunId) return;
+    try {
+      await supabase.from('capstone_generation_runs').update(updates).eq('id', generationRunId);
+    } catch { /* non-critical */ }
+  };
+
   // ── Phase 1: Fetch course data ──
+  let phaseStart = Date.now();
+  await updateRun({ current_phase: 'fetch_course' });
+
   const { data: course, error: courseError } = await supabase
     .from('instructor_courses')
     .select('id, title, search_location, location_city, location_state, academic_level')
     .eq('id', instructor_course_id)
     .single();
-  if (courseError || !course) return createErrorResponse('NOT_FOUND', corsHeaders, 'Course not found');
+  if (courseError || !course) {
+    await updateRun({ status: 'failed', error_details: { phase: 'fetch_course', error: 'Course not found' } });
+    return createErrorResponse('NOT_FOUND', corsHeaders, 'Course not found');
+  }
 
   const { data: los } = await supabase
     .from('learning_objectives')
@@ -80,9 +129,9 @@ const handler = async (req: Request): Promise<Response> => {
     .eq('instructor_course_id', instructor_course_id);
   const objectiveTexts = (los || []).map((lo: any) => lo.text).filter(Boolean);
   const loSearchKeywords = (los || []).flatMap((lo: any) => lo.search_keywords || []).filter(Boolean);
-  const bloomLevels = (los || []).map((lo: any) => lo.bloom_level).filter(Boolean);
 
   if (objectiveTexts.length === 0) {
+    await updateRun({ status: 'failed', error_details: { phase: 'fetch_course', error: 'No learning objectives' } });
     return createErrorResponse('BAD_REQUEST', corsHeaders, 'Course has no learning objectives for skill extraction');
   }
 
@@ -90,34 +139,73 @@ const handler = async (req: Request): Promise<Response> => {
     (course.location_city && course.location_state ? `${course.location_city}, ${course.location_state}` : null);
 
   if (!searchLocation) {
-    return createErrorResponse('BAD_REQUEST', corsHeaders, 'Course location not set. Please configure location first.');
+    await updateRun({ status: 'failed', error_details: { phase: 'fetch_course', error: 'No location' } });
+    return createErrorResponse('BAD_REQUEST', corsHeaders, 'Course location not set.');
   }
 
+  phaseTimings['fetch_course'] = Date.now() - phaseStart;
+  phasesCompleted.push('fetch_course');
+
   console.log(`\n🔍 ═══════════════════════════════════════`);
-  console.log(`   CAPSTONE COMPANY DISCOVERY PIPELINE`);
+  console.log(`   CAPSTONE COMPANY DISCOVERY PIPELINE (v2)`);
   console.log(`   Course: ${course.title}`);
   console.log(`   Location: ${searchLocation}`);
   console.log(`   Objectives: ${objectiveTexts.length}`);
+  console.log(`   Run ID: ${generationRunId}`);
   console.log(`═══════════════════════════════════════════\n`);
 
   // ── Phase 2: SOC Code Mapping ──
+  phaseStart = Date.now();
+  await updateRun({ current_phase: 'soc_mapping' });
   console.log(`\n📋 PHASE 2: SOC CODE MAPPING`);
   const socMappings = mapCourseToSOC(course.title, objectiveTexts, course.academic_level || '');
+  console.log(`   Found ${socMappings.length} SOC mappings`);
+  phaseTimings['soc_mapping'] = Date.now() - phaseStart;
+  phasesCompleted.push('soc_mapping');
 
-  if (socMappings.length === 0) {
-    console.warn('⚠️ No SOC mappings found — will rely on AI skill extraction only');
-  }
+  // ── Phase 2b: O*NET Occupational Enrichment ──
+  phaseStart = Date.now();
+  await updateRun({ current_phase: 'onet_mapping' });
+  console.log(`\n🏛️ PHASE 2b: O*NET OCCUPATIONAL ENRICHMENT`);
+  let onetResult = await mapSkillsToOnet(loSearchKeywords.length > 0 ? loSearchKeywords.slice(0, 10) : objectiveTexts.slice(0, 5));
 
-  // ── Phase 3: Skill Extraction (AI-powered + LO search_keywords) ──
+  // Merge O*NET skills/technologies into our keyword pool
+  const onetSkills = onetResult.occupations.flatMap(o => o.skills.map(s => s.name));
+  const onetTechnologies = onetResult.occupations.flatMap(o => o.technologies);
+  console.log(`   O*NET occupations: ${onetResult.occupations.length}, skills: ${onetSkills.length}, tech: ${onetTechnologies.length}`);
+  phaseTimings['onet_mapping'] = Date.now() - phaseStart;
+  phasesCompleted.push('onet_mapping');
+
+  // Store O*NET data in generation run
+  await updateRun({
+    onet_data: {
+      occupations: onetResult.occupations.map(o => ({ code: o.code, title: o.title, matchScore: o.matchScore })),
+      totalMapped: onetResult.totalMapped,
+      unmappedSkills: onetResult.unmappedSkills,
+      apiCalls: onetResult.apiCalls,
+      cacheHits: onetResult.cacheHits,
+    },
+  });
+
+  // ── Phase 3: Skill Extraction (AI + LO keywords + O*NET) ──
+  phaseStart = Date.now();
+  await updateRun({ current_phase: 'skill_extraction' });
   console.log(`\n🧠 PHASE 3: SKILL EXTRACTION`);
   const skillResult = await extractIndustrySkills(objectiveTexts, course.title, course.academic_level || '', loSearchKeywords);
   const skillKeywords = skillResult.skills.map(s => s.skill);
-  // Merge LO search_keywords for extra Apollo precision
-  const combinedKeywords = [...new Set([...skillKeywords, ...loSearchKeywords.slice(0, 10)])];
+
+  // Merge all keyword sources: extracted skills + LO keywords + O*NET skills + O*NET technologies
+  const combinedKeywords = [...new Set([
+    ...skillKeywords,
+    ...loSearchKeywords.slice(0, 10),
+    ...onetSkills.slice(0, 10),
+    ...onetTechnologies.slice(0, 10),
+  ])];
   console.log(`   Extracted ${skillResult.skills.length} skills via ${skillResult.extractionMethod}`);
-  if (loSearchKeywords.length > 0) {
-    console.log(`   + ${loSearchKeywords.length} LO search_keywords merged`);
-  }
+  console.log(`   + ${onetSkills.length} O*NET skills, ${onetTechnologies.length} O*NET tech`);
+  console.log(`   Combined keywords: ${combinedKeywords.length}`);
+  phaseTimings['skill_extraction'] = Date.now() - phaseStart;
+  phasesCompleted.push('skill_extraction');
 
   // ── Phase 4: Build Apollo Search Parameters ──
   const industryKeywords = getIndustryKeywordsFromSOC(socMappings);
@@ -129,8 +217,9 @@ const handler = async (req: Request): Promise<Response> => {
   console.log(`   Job titles: ${jobTitles.join(', ')}`);
   console.log(`   Location (normalized): ${normalizedLocation}`);
 
-  // ── Phase 5: Apollo Multi-Strategy Discovery (Enhanced) ──
-  // Request 3x target count to allow for validation filtering
+  // ── Phase 5: Apollo Multi-Strategy Discovery ──
+  phaseStart = Date.now();
+  await updateRun({ current_phase: 'discovery' });
   const socCodes = socMappings.map(s => s.socCode);
   const discoveryResult = await discoverCompanies({
     industries: industryKeywords,
@@ -144,77 +233,92 @@ const handler = async (req: Request): Promise<Response> => {
   } as EnhancedDiscoveryInput);
 
   console.log(`\n📦 PHASE 5 RESULTS: ${discoveryResult.companies.length} companies discovered`);
+  phaseTimings['discovery'] = Date.now() - phaseStart;
+  phasesCompleted.push('discovery');
+  await updateRun({ companies_discovered: discoveryResult.companies.length });
 
   if (discoveryResult.companies.length === 0) {
+    await updateRun({ status: 'completed', completed_at: new Date().toISOString(), companies_discovered: 0 });
     return createSuccessResponse({
-      success: true,
-      companies_discovered: 0,
-      companies_saved: 0,
-      companies: [],
+      success: true, companies_discovered: 0, companies_saved: 0, companies: [],
       message: 'No companies found matching the course criteria in this location.',
-      debug: {
-        socMappings: socMappings.map(s => s.title),
-        industryKeywords,
-        jobTitles,
-        skillCount: skillResult.skills.length,
-        extractionMethod: skillResult.extractionMethod,
-        location: normalizedLocation,
-      }
+      debug: { socMappings: socMappings.map(s => s.title), industryKeywords, jobTitles, skillCount: skillResult.skills.length, extractionMethod: skillResult.extractionMethod, location: normalizedLocation },
     }, corsHeaders);
   }
 
   // ── Phase 6: Context-Aware Industry Filtering ──
+  phaseStart = Date.now();
+  await updateRun({ current_phase: 'filtering' });
   console.log(`\n🏭 PHASE 6: INDUSTRY FILTERING`);
   const domainClassification = classifyCourseDomain(socMappings);
   console.log(`   Course domain: ${domainClassification.domain} (${(domainClassification.confidence * 100).toFixed(0)}%)`);
 
   const filteredCompanies = discoveryResult.companies.filter(company => {
-    const decision = shouldExcludeIndustry(
-      company.industry,
-      domainClassification.domain,
-      socMappings,
-      company.jobPostings
-    );
-    if (decision.shouldExclude) {
-      console.log(`   ❌ Excluded: ${company.name} (${decision.reason})`);
-    }
+    const decision = shouldExcludeIndustry(company.industry, domainClassification.domain, socMappings, company.jobPostings);
+    if (decision.shouldExclude) console.log(`   ❌ Excluded: ${company.name} (${decision.reason})`);
     return !decision.shouldExclude;
   });
-
   console.log(`   Passed filtering: ${filteredCompanies.length}/${discoveryResult.companies.length}`);
+  phaseTimings['filtering'] = Date.now() - phaseStart;
+  phasesCompleted.push('filtering');
 
   // ── Phase 6b: AI Company-Course Validation ──
+  phaseStart = Date.now();
+  await updateRun({ current_phase: 'validation' });
   console.log(`\n🔍 PHASE 6b: AI COMPANY-COURSE VALIDATION`);
 
-  // Convert discovered companies to format expected by validation
   const companiesForValidation = filteredCompanies.map(c => ({
-    name: c.name,
-    description: c.description,
-    sector: c.industry,
-    industries: c.industryTags,
-    keywords: skillKeywords.slice(0, 10),
+    name: c.name, description: c.description, sector: c.industry,
+    industries: c.industryTags, keywords: skillKeywords.slice(0, 10),
     job_postings: c.jobPostings.map(jp => ({ title: jp.title })),
-    technologies_used: c.technologies,
-    website: c.website,
-    // Preserve original data for upsert
-    _original: c,
+    technologies_used: c.technologies, website: c.website, _original: c,
   }));
 
   const { validCompanies: validated, rejectedCompanies: rejected } = await filterValidCompanies(
-    companiesForValidation,
-    course.title,
-    course.academic_level || 'undergraduate',
-    objectiveTexts
+    companiesForValidation, course.title, course.academic_level || 'undergraduate', objectiveTexts
+  );
+  console.log(`   Validated: ${validated.length} | Rejected: ${rejected.length}`);
+  phaseTimings['validation'] = Date.now() - phaseStart;
+  phasesCompleted.push('validation');
+  await updateRun({ companies_validated: validated.length });
+
+  // ── Phase 6c: Semantic Matching (O*NET-enriched) ──
+  phaseStart = Date.now();
+  await updateRun({ current_phase: 'semantic_matching' });
+  console.log(`\n🧠 PHASE 6c: SEMANTIC MATCHING`);
+
+  const semanticResult = rankCompaniesBySimilarity(
+    combinedKeywords,
+    onetResult.occupations,
+    validated,
+    0.3 // Lower threshold since we already validated
   );
 
-  console.log(`   Validated: ${validated.length} | Rejected: ${rejected.length}`);
+  // Re-order validated companies by semantic score
+  const semanticMap = new Map(semanticResult.allMatches.map(m => [m.companyName, m]));
+  validated.sort((a: any, b: any) => {
+    const aScore = semanticMap.get(a.name)?.similarityScore || 0;
+    const bScore = semanticMap.get(b.name)?.similarityScore || 0;
+    return bScore - aScore;
+  });
 
-  // ── Phase 6c: Multi-Factor Ranking ──
-  console.log(`\n📊 PHASE 6c: RANKING & SELECTION`);
+  console.log(`   Average similarity: ${(semanticResult.averageSimilarity * 100).toFixed(0)}%`);
+  console.log(`   Threshold: ${(semanticResult.threshold * 100).toFixed(0)}%`);
+  phaseTimings['semantic_matching'] = Date.now() - phaseStart;
+  phasesCompleted.push('semantic_matching');
+
+  // ── Phase 6d: Multi-Factor Ranking ──
+  phaseStart = Date.now();
+  await updateRun({ current_phase: 'ranking' });
+  console.log(`\n📊 PHASE 6d: RANKING & SELECTION`);
   const rankingResult = await rankAndSelectCompanies(validated, searchLocation, count, combinedKeywords);
   console.log(`   Selected: ${rankingResult.selected.length} | Alternates: ${rankingResult.alternates.length}`);
+  phaseTimings['ranking'] = Date.now() - phaseStart;
+  phasesCompleted.push('ranking');
 
   // ── Phase 7: Enrich + Upsert into company_profiles ──
+  phaseStart = Date.now();
+  await updateRun({ current_phase: 'enrichment' });
   console.log(`\n💾 PHASE 7: ENRICHMENT + SAVING COMPANIES`);
   const insertedCompanies: any[] = [];
   const APOLLO_KEY = Deno.env.get('APOLLO_API_KEY')!;
@@ -237,6 +341,9 @@ const handler = async (req: Request): Promise<Response> => {
       console.warn(`   ⚠️ Enrichment failed for ${original.name || company.name}:`, e);
     }
 
+    // Get semantic match data for this company
+    const semanticData = semanticMap.get(original.name || company.name);
+
     const companyData: Record<string, unknown> = {
       name: original.name || company.name,
       sector: original.industry || company.sector,
@@ -250,12 +357,9 @@ const handler = async (req: Request): Promise<Response> => {
           return [enrich.streetAddress, enrich.city, enrich.state, enrich.postalCode].filter(Boolean).join(', ');
         }
         const loc = original.location;
-        if (loc) {
-          return [loc.streetAddress, loc.city, loc.state, loc.postalCode, loc.country].filter(Boolean).join(', ');
-        }
+        if (loc) return [loc.streetAddress, loc.city, loc.state, loc.postalCode, loc.country].filter(Boolean).join(', ');
         return company.full_address || searchLocation || null;
       })(),
-      // Structured location fields (new)
       city: enrichData?.enrichment?.city || original.location?.city || null,
       state: enrichData?.enrichment?.state || original.location?.state || null,
       zip: enrichData?.enrichment?.postalCode || original.location?.postalCode || null,
@@ -277,8 +381,7 @@ const handler = async (req: Request): Promise<Response> => {
         ? enrichData.jobPostings
         : (original.jobPostings || company.job_postings || [])
       ).slice(0, 10).map((jp: any) => ({
-        title: jp.title,
-        location: jp.location,
+        title: jp.title, location: jp.location,
         posted_date: jp.postedDate || jp.posted_date || jp.posted_at,
         description: jp.description?.substring(0, 200),
       })),
@@ -286,6 +389,7 @@ const handler = async (req: Request): Promise<Response> => {
       match_score: ranked.scores.composite,
       match_reason: ranked.selectionReason,
       instructor_course_id,
+      generation_run_id: generationRunId,
       discovery_source: original.discoveryStrategy || 'unknown',
       seo_description: enrichData?.enrichment?.seoDescription || null,
       buying_intent_signals: enrichData?.buyingIntent || original.buyingIntentSignals || null,
@@ -295,9 +399,7 @@ const handler = async (req: Request): Promise<Response> => {
       contact_email: enrichData?.contact?.email || null,
       contact_title: enrichData?.contact?.title || null,
       contact_phone: enrichData?.contact?.phone || null,
-      contact_person: enrichData?.contact
-        ? `${enrichData.contact.firstName} ${enrichData.contact.lastName}`.trim()
-        : null,
+      contact_person: enrichData?.contact ? `${enrichData.contact.firstName} ${enrichData.contact.lastName}`.trim() : null,
       contact_headline: enrichData?.contact?.headline || null,
       contact_photo_url: enrichData?.contact?.photoUrl || null,
       contact_city: enrichData?.contact?.city || null,
@@ -321,8 +423,8 @@ const handler = async (req: Request): Promise<Response> => {
       // Enrichment metadata
       last_enriched_at: enrichData ? new Date().toISOString() : null,
       data_enrichment_level: enrichData ? 'apollo_verified' : 'basic',
-      matching_skills: combinedKeywords.slice(0, 15),
-      similarity_score: ranked.scores.semantic,
+      matching_skills: semanticData?.matchingSkills || combinedKeywords.slice(0, 15),
+      similarity_score: semanticData?.similarityScore ?? ranked.scores.semantic,
       match_confidence: ranked.scores.composite >= 0.7 ? 'high' : ranked.scores.composite >= 0.4 ? 'medium' : 'low',
     };
 
@@ -334,7 +436,6 @@ const handler = async (req: Request): Promise<Response> => {
 
     if (insertError) {
       console.warn(`   ⚠️ Failed to upsert ${companyData.name}:`, insertError.message);
-      // Fallback: try insert without upsert constraint
       const { data: fallbackCompany, error: fallbackError } = await supabase
         .from('company_profiles')
         .insert({ ...companyData, apollo_organization_id: null })
@@ -354,16 +455,172 @@ const handler = async (req: Request): Promise<Response> => {
     console.log(`   ✅ Saved: ${savedCompany.name} (rank #${ranked.rank}, score: ${(ranked.scores.composite * 100).toFixed(0)}%)`);
   }
 
-  console.log(`\n✅ Discovery complete: ${insertedCompanies.length} companies saved`);
+  phaseTimings['enrichment'] = Date.now() - phaseStart;
+  phasesCompleted.push('enrichment');
+  await updateRun({ companies_saved: insertedCompanies.length });
+
+  // ── Phase 8: Signal Scoring (4 parallel signals) ──
+  phaseStart = Date.now();
+  await updateRun({ current_phase: 'signal_scoring' });
+  console.log(`\n📡 PHASE 8: SIGNAL SCORING (4 parallel signals)`);
+
+  const companiesForSignals: CompanyForSignal[] = insertedCompanies.map((c: any) => ({
+    id: c.id,
+    name: c.name,
+    apollo_organization_id: c.apollo_organization_id,
+    industries: c.industries,
+    departmental_head_count: c.departmental_head_count,
+    technologies: c.technologies_used,
+    technologies_used: c.technologies_used,
+    job_postings: c.job_postings,
+    description: c.description,
+    size: c.size,
+    sector: c.sector,
+    funding_stage: c.funding_stage,
+    total_funding_usd: c.total_funding_usd,
+    contact_email: c.contact_email,
+    contact_person: c.contact_person,
+    contact_title: c.contact_title,
+  }));
+
+  const syllabusDomain = domainClassification.domain;
+  const signalResults = await calculateBatchSignals(
+    companiesForSignals, combinedKeywords, syllabusDomain, APOLLO_API_KEY
+  );
+
+  // Update each company with signal scores
+  let signalSummary: Record<string, unknown> = {};
+  for (const [companyId, composite] of signalResults) {
+    const storable = toStorableSignalData(composite);
+    const { error: signalError } = await supabase
+      .from('company_profiles')
+      .update({
+        skill_match_score: storable.skill_match_score,
+        market_signal_score: storable.market_signal_score,
+        department_fit_score: storable.department_fit_score,
+        contact_quality_score: storable.contact_quality_score,
+        composite_signal_score: storable.composite_signal_score,
+        signal_confidence: storable.signal_confidence,
+        signal_data: storable.signal_data,
+      })
+      .eq('id', companyId);
+
+    if (signalError) {
+      console.warn(`   ⚠️ Signal update failed for ${companyId}:`, signalError.message);
+    } else {
+      const company = insertedCompanies.find((c: any) => c.id === companyId);
+      console.log(`   📊 ${company?.name}: composite=${composite.overall}, confidence=${composite.confidence}`);
+    }
+  }
+
+  // Build signal summary for the generation run
+  const signalScores = [...signalResults.values()];
+  signalSummary = {
+    companiesScored: signalScores.length,
+    avgComposite: signalScores.length > 0 ? Math.round(signalScores.reduce((s, c) => s + c.overall, 0) / signalScores.length) : 0,
+    confidenceDistribution: {
+      high: signalScores.filter(s => s.confidence === 'high').length,
+      medium: signalScores.filter(s => s.confidence === 'medium').length,
+      low: signalScores.filter(s => s.confidence === 'low').length,
+    },
+  };
+
+  phaseTimings['signal_scoring'] = Date.now() - phaseStart;
+  phasesCompleted.push('signal_scoring');
+
+  // ── Phase 9: Career Page Validation (Firecrawl) — top 5 only ──
+  phaseStart = Date.now();
+  await updateRun({ current_phase: 'career_validation' });
+  console.log(`\n🔥 PHASE 9: CAREER PAGE VALIDATION`);
+
+  const topCompaniesForCareer = insertedCompanies
+    .filter((c: any) => c.website)
+    .slice(0, 5); // Limit to top 5 to conserve Firecrawl credits
+
+  for (const company of topCompaniesForCareer) {
+    try {
+      const careerResult = await validateCareerPage(company.website, company.name);
+      if (careerResult.success && careerResult.jobCount > 0) {
+        // Update the company with career validation data
+        await supabase
+          .from('company_profiles')
+          .update({
+            signal_data: {
+              ...(typeof company.signal_data === 'object' ? company.signal_data : {}),
+              careerPageValidation: {
+                careerPageUrl: careerResult.careerPageUrl,
+                jobCount: careerResult.jobCount,
+                hiringVelocity: careerResult.hiringVelocitySignal,
+                hiringDepartments: careerResult.hiringDepartments,
+                techStack: careerResult.techStack,
+              },
+            },
+          })
+          .eq('id', company.id);
+        console.log(`   ✅ ${company.name}: ${careerResult.jobCount} jobs on career page (${careerResult.hiringVelocitySignal})`);
+      }
+    } catch (e) {
+      console.warn(`   ⚠️ Career validation failed for ${company.name}:`, e);
+    }
+  }
+
+  phaseTimings['career_validation'] = Date.now() - phaseStart;
+  phasesCompleted.push('career_validation');
+
+  // ── Phase 10: Inferred Needs Synthesis ──
+  phaseStart = Date.now();
+  await updateRun({ current_phase: 'inferred_needs' });
+  console.log(`\n💡 PHASE 10: INFERRED NEEDS SYNTHESIS`);
+
+  for (const company of insertedCompanies) {
+    try {
+      const needs = inferCompanyNeeds(
+        company.job_postings || [],
+        company.technologies_used || [],
+        company.description || '',
+        company.funding_stage,
+        company.employee_count
+      );
+
+      if (needs.needs.length > 0) {
+        await supabase
+          .from('company_profiles')
+          .update({ inferred_needs: needs.needs })
+          .eq('id', company.id);
+        console.log(`   💡 ${company.name}: ${needs.needs.length} needs, ${needs.growthAreas.length} growth areas`);
+      }
+    } catch (e) {
+      console.warn(`   ⚠️ Needs inference failed for ${company.name}:`, e);
+    }
+  }
+
+  phaseTimings['inferred_needs'] = Date.now() - phaseStart;
+  phasesCompleted.push('inferred_needs');
+
+  // ── Finalize Generation Run ──
+  const totalTime = Date.now() - pipelineStart;
+  await updateRun({
+    status: 'completed',
+    completed_at: new Date().toISOString(),
+    phases_completed: phasesCompleted,
+    phase_timings: phaseTimings,
+    total_processing_time_ms: totalTime,
+    signal_summary: signalSummary,
+  });
+
+  console.log(`\n✅ Discovery pipeline complete in ${(totalTime / 1000).toFixed(1)}s`);
+  console.log(`   Phases: ${phasesCompleted.join(' → ')}`);
+  console.log(`   Companies saved: ${insertedCompanies.length}`);
 
   return createSuccessResponse({
     success: true,
+    generation_run_id: generationRunId,
     companies_discovered: discoveryResult.companies.length,
     companies_filtered: filteredCompanies.length,
     companies_validated: validated.length,
     companies_rejected: rejected.length,
     companies_saved: insertedCompanies.length,
-    companies: insertedCompanies.map(c => ({
+    companies: insertedCompanies.map((c: any) => ({
       id: c.id,
       name: c.name,
       sector: c.sector,
@@ -374,11 +631,21 @@ const handler = async (req: Request): Promise<Response> => {
       match_reason: c.match_reason,
     })),
     pipeline: {
+      version: 'v2-eduthree-parity',
+      totalTimeMs: totalTime,
+      phases: phaseTimings,
       socMappings: socMappings.map(s => ({ title: s.title, socCode: s.socCode, confidence: s.confidence })),
+      onet: {
+        occupations: onetResult.occupations.length,
+        skills: onetSkills.length,
+        technologies: onetTechnologies.length,
+        apiCalls: onetResult.apiCalls,
+      },
       skillExtraction: {
         method: skillResult.extractionMethod,
         skillCount: skillResult.skills.length,
         topSkills: skillResult.skills.slice(0, 5).map(s => s.skill),
+        combinedKeywords: combinedKeywords.length,
       },
       discovery: discoveryResult.stats,
       filtering: {
@@ -386,12 +653,18 @@ const handler = async (req: Request): Promise<Response> => {
         inputCount: discoveryResult.companies.length,
         passedCount: filteredCompanies.length,
       },
+      semanticMatching: {
+        averageSimilarity: semanticResult.averageSimilarity,
+        threshold: semanticResult.threshold,
+        processingTimeMs: semanticResult.processingTimeMs,
+      },
       validation: {
         validated: validated.length,
         rejected: rejected.length,
         rejectionReasons: rejected.slice(0, 5).map(r => `${r.company.name}: ${r.reason}`),
       },
       ranking: rankingResult.selectionSummary,
+      signals: signalSummary,
       location: normalizedLocation,
     },
   }, corsHeaders);
