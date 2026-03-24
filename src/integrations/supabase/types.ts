@@ -585,6 +585,80 @@ export type Database = {
         }
         Relationships: []
       }
+      capstone_generation_runs: {
+        Row: {
+          companies_discovered: number | null
+          companies_saved: number | null
+          companies_validated: number | null
+          completed_at: string | null
+          created_at: string
+          credits_used: number | null
+          current_phase: string | null
+          error_details: Json | null
+          id: string
+          instructor_course_id: string
+          onet_data: Json | null
+          phase_timings: Json | null
+          phases_completed: string[] | null
+          projects_generated: number | null
+          signal_summary: Json | null
+          started_by: string
+          status: string
+          total_processing_time_ms: number | null
+          updated_at: string
+        }
+        Insert: {
+          companies_discovered?: number | null
+          companies_saved?: number | null
+          companies_validated?: number | null
+          completed_at?: string | null
+          created_at?: string
+          credits_used?: number | null
+          current_phase?: string | null
+          error_details?: Json | null
+          id?: string
+          instructor_course_id: string
+          onet_data?: Json | null
+          phase_timings?: Json | null
+          phases_completed?: string[] | null
+          projects_generated?: number | null
+          signal_summary?: Json | null
+          started_by: string
+          status?: string
+          total_processing_time_ms?: number | null
+          updated_at?: string
+        }
+        Update: {
+          companies_discovered?: number | null
+          companies_saved?: number | null
+          companies_validated?: number | null
+          completed_at?: string | null
+          created_at?: string
+          credits_used?: number | null
+          current_phase?: string | null
+          error_details?: Json | null
+          id?: string
+          instructor_course_id?: string
+          onet_data?: Json | null
+          phase_timings?: Json | null
+          phases_completed?: string[] | null
+          projects_generated?: number | null
+          signal_summary?: Json | null
+          started_by?: string
+          status?: string
+          total_processing_time_ms?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "capstone_generation_runs_instructor_course_id_fkey"
+            columns: ["instructor_course_id"]
+            isOneToOne: false
+            referencedRelation: "instructor_courses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       capstone_projects: {
         Row: {
           assigned_student_id: string | null
@@ -983,6 +1057,7 @@ export type Database = {
           apollo_organization_id: string | null
           buying_intent_signals: Json | null
           city: string | null
+          composite_signal_score: number | null
           contact_city: string | null
           contact_country: string | null
           contact_email: string | null
@@ -995,6 +1070,7 @@ export type Database = {
           contact_phone: string | null
           contact_phone_numbers: Json | null
           contact_photo_url: string | null
+          contact_quality_score: number | null
           contact_state: string | null
           contact_title: string | null
           contact_twitter_url: string | null
@@ -1002,6 +1078,7 @@ export type Database = {
           created_at: string
           data_completeness_score: number | null
           data_enrichment_level: string | null
+          department_fit_score: number | null
           departmental_head_count: Json | null
           description: string | null
           discovery_source: string | null
@@ -1009,13 +1086,16 @@ export type Database = {
           full_address: string | null
           funding_events: Json | null
           funding_stage: string | null
+          generation_run_id: string | null
           id: string
           industries: string[] | null
+          inferred_needs: string[] | null
           instructor_course_id: string | null
           job_postings: Json | null
           keywords: string[] | null
           last_enriched_at: string | null
           linkedin_profile: string | null
+          market_signal_score: number | null
           match_confidence: string | null
           match_reason: string | null
           match_score: number | null
@@ -1031,8 +1111,11 @@ export type Database = {
           revenue_range: string | null
           sector: string | null
           seo_description: string | null
+          signal_confidence: string | null
+          signal_data: Json | null
           similarity_score: number | null
           size: string | null
+          skill_match_score: number | null
           state: string | null
           technologies_used: string[] | null
           total_funding_usd: number | null
@@ -1044,6 +1127,7 @@ export type Database = {
           apollo_organization_id?: string | null
           buying_intent_signals?: Json | null
           city?: string | null
+          composite_signal_score?: number | null
           contact_city?: string | null
           contact_country?: string | null
           contact_email?: string | null
@@ -1056,6 +1140,7 @@ export type Database = {
           contact_phone?: string | null
           contact_phone_numbers?: Json | null
           contact_photo_url?: string | null
+          contact_quality_score?: number | null
           contact_state?: string | null
           contact_title?: string | null
           contact_twitter_url?: string | null
@@ -1063,6 +1148,7 @@ export type Database = {
           created_at?: string
           data_completeness_score?: number | null
           data_enrichment_level?: string | null
+          department_fit_score?: number | null
           departmental_head_count?: Json | null
           description?: string | null
           discovery_source?: string | null
@@ -1070,13 +1156,16 @@ export type Database = {
           full_address?: string | null
           funding_events?: Json | null
           funding_stage?: string | null
+          generation_run_id?: string | null
           id?: string
           industries?: string[] | null
+          inferred_needs?: string[] | null
           instructor_course_id?: string | null
           job_postings?: Json | null
           keywords?: string[] | null
           last_enriched_at?: string | null
           linkedin_profile?: string | null
+          market_signal_score?: number | null
           match_confidence?: string | null
           match_reason?: string | null
           match_score?: number | null
@@ -1092,8 +1181,11 @@ export type Database = {
           revenue_range?: string | null
           sector?: string | null
           seo_description?: string | null
+          signal_confidence?: string | null
+          signal_data?: Json | null
           similarity_score?: number | null
           size?: string | null
+          skill_match_score?: number | null
           state?: string | null
           technologies_used?: string[] | null
           total_funding_usd?: number | null
@@ -1105,6 +1197,7 @@ export type Database = {
           apollo_organization_id?: string | null
           buying_intent_signals?: Json | null
           city?: string | null
+          composite_signal_score?: number | null
           contact_city?: string | null
           contact_country?: string | null
           contact_email?: string | null
@@ -1117,6 +1210,7 @@ export type Database = {
           contact_phone?: string | null
           contact_phone_numbers?: Json | null
           contact_photo_url?: string | null
+          contact_quality_score?: number | null
           contact_state?: string | null
           contact_title?: string | null
           contact_twitter_url?: string | null
@@ -1124,6 +1218,7 @@ export type Database = {
           created_at?: string
           data_completeness_score?: number | null
           data_enrichment_level?: string | null
+          department_fit_score?: number | null
           departmental_head_count?: Json | null
           description?: string | null
           discovery_source?: string | null
@@ -1131,13 +1226,16 @@ export type Database = {
           full_address?: string | null
           funding_events?: Json | null
           funding_stage?: string | null
+          generation_run_id?: string | null
           id?: string
           industries?: string[] | null
+          inferred_needs?: string[] | null
           instructor_course_id?: string | null
           job_postings?: Json | null
           keywords?: string[] | null
           last_enriched_at?: string | null
           linkedin_profile?: string | null
+          market_signal_score?: number | null
           match_confidence?: string | null
           match_reason?: string | null
           match_score?: number | null
@@ -1153,8 +1251,11 @@ export type Database = {
           revenue_range?: string | null
           sector?: string | null
           seo_description?: string | null
+          signal_confidence?: string | null
+          signal_data?: Json | null
           similarity_score?: number | null
           size?: string | null
+          skill_match_score?: number | null
           state?: string | null
           technologies_used?: string[] | null
           total_funding_usd?: number | null
@@ -1163,6 +1264,13 @@ export type Database = {
           zip?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "company_profiles_generation_run_id_fkey"
+            columns: ["generation_run_id"]
+            isOneToOne: false
+            referencedRelation: "capstone_generation_runs"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "company_profiles_instructor_course_id_fkey"
             columns: ["instructor_course_id"]
