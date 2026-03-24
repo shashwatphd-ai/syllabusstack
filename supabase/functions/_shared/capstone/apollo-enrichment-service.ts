@@ -117,6 +117,13 @@ export interface EnrichmentResult {
   fundingStage: string;
   totalFunding: number;
   linkedinUrl: string;
+  // Address fields from Apollo enrichment
+  streetAddress: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+  phone: string;
 }
 
 export async function enrichOrganization(
