@@ -304,6 +304,26 @@ const DOMAIN_DEPARTMENT_MAP: Record<string, string[]> = {
   default: ['operations', 'business_development', 'engineering'],
 };
 
+function buildContactResult(c: ApolloContact): ContactResult {
+  return {
+    firstName: c.first_name || '',
+    lastName: c.last_name || '',
+    email: c.email || '',
+    emailStatus: c.email_status || '',
+    title: c.title || '',
+    headline: c.headline || '',
+    phone: c.phone_numbers?.[0]?.sanitized_number || '',
+    linkedinUrl: c.linkedin_url || '',
+    photoUrl: c.photo_url || '',
+    city: c.city || '',
+    state: c.state || '',
+    country: c.country || '',
+    twitterUrl: c.twitter_url || '',
+    phoneNumbers: (c.phone_numbers || []).map(pn => ({ number: pn.sanitized_number || '', type: pn.type })),
+    employmentHistory: c.employment_history || [],
+  };
+}
+
 /**
  * Find best contact using the NEW 2-step flow:
  * Step 1: /mixed_people/api_search (returns partial profiles, no credits)
