@@ -1,4 +1,5 @@
-import { CheckCircle2, Building2, Mail, Phone, User } from 'lucide-react';
+import { useState } from 'react';
+import { CheckCircle2, Building2, Mail, Phone, User, MessageSquare } from 'lucide-react';
 import {
   ResponsiveDialog,
   ResponsiveDialogContent,
@@ -10,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { useCapstoneProject, useCompleteProject } from '@/hooks/useCapstoneProjects';
+import { ProjectFeedbackDialog } from './ProjectFeedbackDialog';
 
 interface ProjectDetailViewProps {
   projectId: string;
