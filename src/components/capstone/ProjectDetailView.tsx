@@ -23,6 +23,7 @@ interface ProjectDetailViewProps {
 export function ProjectDetailView({ projectId, courseId, open, onOpenChange }: ProjectDetailViewProps) {
   const { data: project, isLoading } = useCapstoneProject(projectId);
   const completeProject = useCompleteProject();
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   if (!project) return null;
 
