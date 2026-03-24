@@ -320,15 +320,22 @@ const handler = async (req: Request): Promise<Response> => {
 
       console.log(`   ✅ "${proposal.title}" (score: ${(finalScore * 100).toFixed(0)}%, budget: $${budget})`);
 
-      // Rate limit pause between companies
-      if (companies.indexOf(company) < companies.length - 1) {
-        await new Promise(r => setTimeout(r, 1500));
-      }
+      await updateRun({ projects_generated: results.length });
     } catch (err) {
       console.error(`   ❌ Failed for ${company.name}:`, err);
       errors.push(`${company.name}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
+
+  // Update generation run as completed
+  await updateRun({
+    status: results.length > 0 ? 'completed' : 'failed',
+    projects_generated: results.length,
+    companies_validated: validationResults.length,
+    completed_at: new Date().toISOString(),
+    error_details: errors.length > 0 ? { errors } : null,
+    total_processing_time_ms: Date.now() - Date.now(), // approximate
+  });
 
   return createSuccessResponse({
     success: true,
