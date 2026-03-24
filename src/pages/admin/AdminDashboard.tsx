@@ -1,7 +1,8 @@
 import { useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Users, BookOpen, TrendingUp, Award, Settings, FileText, BarChart3, Building2 } from 'lucide-react';
+import { Users, BookOpen, TrendingUp, Award, Settings, FileText, BarChart3, Building2, Briefcase } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
