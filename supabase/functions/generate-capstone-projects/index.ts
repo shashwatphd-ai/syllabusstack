@@ -44,7 +44,7 @@ const handler = async (req: Request): Promise<Response> => {
   const { data: { user }, error: authError } = await anonClient.auth.getUser();
   if (authError || !user) return createErrorResponse('UNAUTHORIZED', corsHeaders);
 
-  const { instructor_course_id, company_ids } = await req.json();
+  const { instructor_course_id, company_ids, max_projects = 10 } = await req.json();
   if (!instructor_course_id) {
     return createErrorResponse('BAD_REQUEST', corsHeaders, 'instructor_course_id is required');
   }
@@ -57,6 +57,25 @@ const handler = async (req: Request): Promise<Response> => {
   if (!isInstructor) return createErrorResponse('FORBIDDEN', corsHeaders);
 
   console.log(`🚀 Generating capstone projects for course: ${instructor_course_id}`);
+
+  // ── Create generation run for progress tracking ──
+  const { data: genRun } = await supabase
+    .from('capstone_generation_runs')
+    .insert({
+      instructor_course_id,
+      started_by: user.id,
+      status: 'running',
+      current_phase: 'project_generation',
+      phases_completed: [],
+    })
+    .select('id')
+    .single();
+  const runId = genRun?.id;
+
+  const updateRun = async (updates: Record<string, any>) => {
+    if (!runId) return;
+    await supabase.from('capstone_generation_runs').update(updates).eq('id', runId);
+  };
 
   // ── Fetch course data ──
   const { data: course, error: courseError } = await supabase
@@ -91,16 +110,21 @@ const handler = async (req: Request): Promise<Response> => {
     // Primary: fetch companies linked to this course via instructor_course_id
     companiesQuery = companiesQuery
       .eq('instructor_course_id', instructor_course_id)
-      .order('match_score', { ascending: false, nullsFirst: false });
+      .order('composite_signal_score', { ascending: false, nullsFirst: false });
   }
 
-  const { data: companies, error: compError } = await companiesQuery;
-  if (compError || !companies?.length) {
+  const { data: allCompanies, error: compError } = await companiesQuery;
+  if (compError || !allCompanies?.length) {
+    await updateRun({ status: 'failed', error_details: { message: 'No companies found' }, completed_at: new Date().toISOString() });
     return createErrorResponse('BAD_REQUEST', corsHeaders,
       'No companies found for this course. Run company discovery first.');
   }
 
-  console.log(`📊 Processing ${companies.length} companies for project generation`);
+  // Cap to top N companies to avoid timeout
+  const companies = allCompanies.slice(0, max_projects);
+  console.log(`📊 Processing top ${companies.length} of ${allCompanies.length} companies for project generation`);
+
+  await updateRun({ companies_discovered: allCompanies.length });
 
   const results: any[] = [];
   const errors: string[] = [];
@@ -179,6 +203,10 @@ const handler = async (req: Request): Promise<Response> => {
         proposal.tasks
       );
 
+      // ── Calculate final composite score ──
+      const feasibilityScore = Math.min(1.0, (marketScore / 100) * 0.6 + 0.4);
+      const finalScore = 0.5 * loScore + 0.3 * feasibilityScore + 0.2 * (validation.confidence || 0.7);
+
       // Build deterministic stakeholder ROI breakdown from value_components
       const roiBreakdown = buildStakeholderROI(roi, loScore, feasibilityScore);
 
@@ -189,10 +217,6 @@ const handler = async (req: Request): Promise<Response> => {
         objectives,
         proposal.lo_alignment
       );
-
-      // ── Calculate final composite score ──
-      const feasibilityScore = Math.min(1.0, (marketScore / 100) * 0.6 + 0.4);
-      const finalScore = 0.5 * loScore + 0.3 * feasibilityScore + 0.2 * (validation.confidence || 0.7);
 
       // ── Step 7: Insert capstone project ──
       const { data: project, error: insertError } = await supabase
@@ -296,15 +320,22 @@ const handler = async (req: Request): Promise<Response> => {
 
       console.log(`   ✅ "${proposal.title}" (score: ${(finalScore * 100).toFixed(0)}%, budget: $${budget})`);
 
-      // Rate limit pause between companies
-      if (companies.indexOf(company) < companies.length - 1) {
-        await new Promise(r => setTimeout(r, 1500));
-      }
+      await updateRun({ projects_generated: results.length });
     } catch (err) {
       console.error(`   ❌ Failed for ${company.name}:`, err);
       errors.push(`${company.name}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
+
+  // Update generation run as completed
+  await updateRun({
+    status: results.length > 0 ? 'completed' : 'failed',
+    projects_generated: results.length,
+    companies_validated: validationResults.length,
+    completed_at: new Date().toISOString(),
+    error_details: errors.length > 0 ? { errors } : null,
+    total_processing_time_ms: Date.now() - Date.now(), // approximate
+  });
 
   return createSuccessResponse({
     success: true,

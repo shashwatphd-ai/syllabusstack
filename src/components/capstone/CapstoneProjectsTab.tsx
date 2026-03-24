@@ -82,7 +82,7 @@ export function CapstoneProjectsTab({ courseId }: CapstoneProjectsTabProps) {
   const handleStartDiscovery = (config: DiscoveryConfig) => {
     setConfigOpen(false);
     setDiscoveryActive(true);
-    discoverCompanies.mutate(courseId, {
+    discoverCompanies.mutate({ courseId, config }, {
       onSettled: () => setDiscoveryActive(false),
     });
   };
@@ -95,7 +95,7 @@ export function CapstoneProjectsTab({ courseId }: CapstoneProjectsTabProps) {
       )}
 
       {/* Generation Progress */}
-      <GenerationProgressCard courseId={courseId} isActive={discoveryActive || discoverCompanies.isPending} />
+      <GenerationProgressCard courseId={courseId} isActive={discoveryActive || discoverCompanies.isPending || generateProjects.isPending} />
 
       {/* Company Discovery */}
       <div className="space-y-3">

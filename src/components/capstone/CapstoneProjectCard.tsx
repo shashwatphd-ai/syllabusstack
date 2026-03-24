@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronUp, Star, Target, UserPlus, Eye } from 'lucide-react';
+import { ChevronDown, ChevronUp, Star, Target, UserPlus, Eye, MessageSquare } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,7 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import type { CapstoneProject } from '@/hooks/useCapstoneProjects';
+import { ProjectFeedbackDialog } from './ProjectFeedbackDialog';
 
 interface CapstoneProjectCardProps {
   project: CapstoneProject;
@@ -25,6 +26,7 @@ const statusColors: Record<string, string> = {
 
 export function CapstoneProjectCard({ project, onAssign, onViewDetail }: CapstoneProjectCardProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const company = project.company_profiles;
 
   return (
@@ -120,12 +122,23 @@ export function CapstoneProjectCard({ project, onAssign, onViewDetail }: Capston
               <Eye className="h-3 w-3" /> View
             </Button>
           )}
+          <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => setFeedbackOpen(true)}>
+            <MessageSquare className="h-3 w-3" /> Rate
+          </Button>
           {onAssign && project.status === 'generated' && (
             <Button variant="default" size="sm" className="h-7 text-xs gap-1" onClick={onAssign}>
               <UserPlus className="h-3 w-3" /> Assign Student
             </Button>
           )}
         </div>
+
+        {/* Feedback Dialog */}
+        <ProjectFeedbackDialog
+          projectId={project.id}
+          projectTitle={project.title}
+          open={feedbackOpen}
+          onOpenChange={setFeedbackOpen}
+        />
       </CardContent>
     </Card>
   );

@@ -211,15 +211,21 @@ export function useDiscoverCompanies() {
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: async (courseId: string) => {
+    mutationFn: async ({ courseId, config }: { courseId: string; config?: { targetIndustries?: string[]; maxCompanies?: number; maxDistanceMiles?: number; minEmployees?: string } }) => {
       const { data, error } = await supabase.functions.invoke('discover-companies', {
-        body: { instructor_course_id: courseId },
+        body: {
+          instructor_course_id: courseId,
+          count: config?.maxCompanies || 15,
+          target_industries: config?.targetIndustries,
+          max_distance_miles: config?.maxDistanceMiles,
+          min_employees: config?.minEmployees,
+        },
       });
       if (error) throw error;
       return data;
     },
-    onSuccess: (data, courseId) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.capstone.companies(courseId) });
+    onSuccess: (data, variables) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.capstone.companies(variables.courseId) });
       toast({
         title: 'Companies Discovered',
         description: `Found ${data?.companies_saved || 0} companies matching your course.`,
@@ -270,17 +276,19 @@ export function useGenerateCapstoneProjects() {
 
   return useMutation({
     mutationFn: async (courseId: string) => {
+      // Fire-and-forget: the edge function creates a generation_run we can poll
       const { data, error } = await supabase.functions.invoke('generate-capstone-projects', {
-        body: { instructor_course_id: courseId },
+        body: { instructor_course_id: courseId, max_projects: 10 },
       });
       if (error) throw error;
       return data;
     },
     onSuccess: (data, courseId) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.capstone.projects(courseId) });
+      queryClient.invalidateQueries({ queryKey: ['capstone-generation-run', courseId] });
       toast({
         title: 'Projects Generated',
-        description: `Created ${data?.projects_created || 0} capstone project proposals.`,
+        description: `Created ${data?.projects_generated || 0} capstone project proposals.`,
       });
     },
     onError: (error: Error) => {
