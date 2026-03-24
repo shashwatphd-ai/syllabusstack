@@ -72,6 +72,16 @@ export interface CompanyProfile {
   funding_events: any | null;
   data_enrichment_level: string | null;
   matching_skills: string[] | null;
+  // Signal scoring (from pipeline Phase 8)
+  skill_match_score: number | null;
+  market_signal_score: number | null;
+  department_fit_score: number | null;
+  contact_quality_score: number | null;
+  composite_signal_score: number | null;
+  signal_confidence: string | null;
+  signal_data: any | null;
+  generation_run_id: string | null;
+  inferred_needs: string[] | null;
 }
 
 export interface CapstoneProject {
