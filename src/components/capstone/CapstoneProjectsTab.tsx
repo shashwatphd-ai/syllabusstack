@@ -10,6 +10,7 @@ import {
   useDiscoverCompanies,
   useGenerateCapstoneProjects,
   useAssignStudent,
+  useReEnrichAddresses,
 } from '@/hooks/useCapstoneProjects';
 import { useCourseStudents } from '@/hooks/useInstructorCourses';
 import { LocationSetup } from './LocationSetup';
