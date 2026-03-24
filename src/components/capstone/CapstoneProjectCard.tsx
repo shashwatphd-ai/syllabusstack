@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronUp, Star, Target, UserPlus, Eye } from 'lucide-react';
+import { ChevronDown, ChevronUp, Star, Target, UserPlus, Eye, MessageSquare } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,7 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import type { CapstoneProject } from '@/hooks/useCapstoneProjects';
+import { ProjectFeedbackDialog } from './ProjectFeedbackDialog';
 
 interface CapstoneProjectCardProps {
   project: CapstoneProject;
