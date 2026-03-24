@@ -39,8 +39,10 @@ interface ApolloOrganization {
   industry?: string;
   keywords?: string[];
   estimated_num_employees?: number;
+  street_address?: string;
   city?: string;
   state?: string;
+  postal_code?: string;
   country?: string;
   short_description?: string;
   seo_description?: string;
@@ -238,6 +240,8 @@ function transformOrganization(
       city: org.city || '',
       state: org.state || '',
       country: org.country || 'United States',
+      streetAddress: org.street_address || '',
+      postalCode: org.postal_code || '',
     },
     description: org.short_description || org.seo_description || '',
     jobPostings: [],

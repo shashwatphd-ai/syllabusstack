@@ -245,12 +245,16 @@ const handler = async (req: Request): Promise<Response> => {
       description: enrichData?.enrichment?.shortDescription || original.description || company.description,
       website: original.website || company.website || null,
       full_address: (() => {
-        // Build from discovery location data (city/state/country from Apollo search)
-        const loc = original.location;
-        if (loc && (loc.city || loc.state)) {
-          return [loc.city, loc.state, loc.country].filter(Boolean).join(', ');
+        // Prefer enrichment address fields (street-level from Apollo enrich API)
+        const enrich = enrichData?.enrichment;
+        if (enrich && (enrich.streetAddress || enrich.city)) {
+          return [enrich.streetAddress, enrich.city, enrich.state, enrich.postalCode].filter(Boolean).join(', ');
         }
-        // Fallback to any existing address
+        // Fallback to discovery location data (search API)
+        const loc = original.location;
+        if (loc) {
+          return [loc.streetAddress, loc.city, loc.state, loc.postalCode, loc.country].filter(Boolean).join(', ');
+        }
         return company.full_address || searchLocation || null;
       })(),
       apollo_organization_id: original.apolloId || null,

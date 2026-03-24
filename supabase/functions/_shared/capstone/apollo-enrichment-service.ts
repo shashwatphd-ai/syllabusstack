@@ -96,6 +96,13 @@ interface ApolloEnrichmentResponse {
     linkedin_url?: string;
     latest_funding_stage?: string;
     total_funding?: number;
+    // Address fields
+    street_address?: string;
+    city?: string;
+    state?: string;
+    postal_code?: string;
+    country?: string;
+    phone?: string;
   };
 }
 
@@ -110,6 +117,13 @@ export interface EnrichmentResult {
   fundingStage: string;
   totalFunding: number;
   linkedinUrl: string;
+  // Address fields from Apollo enrichment
+  streetAddress: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+  phone: string;
 }
 
 export async function enrichOrganization(
@@ -144,6 +158,12 @@ export async function enrichOrganization(
     fundingStage: org.latest_funding_stage || '',
     totalFunding: org.total_funding || 0,
     linkedinUrl: org.linkedin_url || '',
+    streetAddress: org.street_address || '',
+    city: org.city || '',
+    state: org.state || '',
+    postalCode: org.postal_code || '',
+    country: org.country || '',
+    phone: org.phone || '',
   };
 }
 

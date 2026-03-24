@@ -49,6 +49,8 @@ export interface DiscoveredCompany {
     city: string;
     state: string;
     country: string;
+    streetAddress?: string;
+    postalCode?: string;
   };
   description: string;
   jobPostings: JobPosting[];
