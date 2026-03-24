@@ -585,6 +585,44 @@ export type Database = {
         }
         Relationships: []
       }
+      capstone_applications: {
+        Row: {
+          capstone_project_id: string
+          cover_letter: string | null
+          created_at: string
+          id: string
+          status: string
+          student_id: string
+          updated_at: string
+        }
+        Insert: {
+          capstone_project_id: string
+          cover_letter?: string | null
+          created_at?: string
+          id?: string
+          status?: string
+          student_id: string
+          updated_at?: string
+        }
+        Update: {
+          capstone_project_id?: string
+          cover_letter?: string | null
+          created_at?: string
+          id?: string
+          status?: string
+          student_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "capstone_applications_capstone_project_id_fkey"
+            columns: ["capstone_project_id"]
+            isOneToOne: false
+            referencedRelation: "capstone_projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       capstone_generation_runs: {
         Row: {
           companies_discovered: number | null
@@ -2253,6 +2291,60 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      employer_interest_submissions: {
+        Row: {
+          company_name: string
+          contact_email: string
+          contact_name: string
+          contact_phone: string | null
+          created_at: string
+          id: string
+          notes: string | null
+          preferred_timeline: string | null
+          project_description: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string
+          submitted_by: string | null
+          target_skills: string[] | null
+          updated_at: string
+        }
+        Insert: {
+          company_name: string
+          contact_email: string
+          contact_name: string
+          contact_phone?: string | null
+          created_at?: string
+          id?: string
+          notes?: string | null
+          preferred_timeline?: string | null
+          project_description?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          submitted_by?: string | null
+          target_skills?: string[] | null
+          updated_at?: string
+        }
+        Update: {
+          company_name?: string
+          contact_email?: string
+          contact_name?: string
+          contact_phone?: string | null
+          created_at?: string
+          id?: string
+          notes?: string | null
+          preferred_timeline?: string | null
+          project_description?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          submitted_by?: string | null
+          target_skills?: string[] | null
+          updated_at?: string
+        }
+        Relationships: []
       }
       employer_webhooks: {
         Row: {
@@ -3986,6 +4078,44 @@ export type Database = {
           },
         ]
       }
+      project_feedback: {
+        Row: {
+          capstone_project_id: string
+          created_at: string
+          feedback_text: string | null
+          id: string
+          instructor_id: string
+          rating: number | null
+          tags: string[] | null
+        }
+        Insert: {
+          capstone_project_id: string
+          created_at?: string
+          feedback_text?: string | null
+          id?: string
+          instructor_id: string
+          rating?: number | null
+          tags?: string[] | null
+        }
+        Update: {
+          capstone_project_id?: string
+          created_at?: string
+          feedback_text?: string | null
+          id?: string
+          instructor_id?: string
+          rating?: number | null
+          tags?: string[] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_feedback_capstone_project_id_fkey"
+            columns: ["capstone_project_id"]
+            isOneToOne: false
+            referencedRelation: "capstone_projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_forms: {
         Row: {
           capstone_project_id: string
@@ -4514,6 +4644,54 @@ export type Database = {
             columns: ["lecture_slides_id"]
             isOneToOne: false
             referencedRelation: "lecture_slides"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      student_ratings: {
+        Row: {
+          capstone_project_id: string | null
+          created_at: string
+          employer_account_id: string | null
+          feedback: string | null
+          id: string
+          rating: number
+          skills_demonstrated: string[] | null
+          student_id: string
+        }
+        Insert: {
+          capstone_project_id?: string | null
+          created_at?: string
+          employer_account_id?: string | null
+          feedback?: string | null
+          id?: string
+          rating: number
+          skills_demonstrated?: string[] | null
+          student_id: string
+        }
+        Update: {
+          capstone_project_id?: string | null
+          created_at?: string
+          employer_account_id?: string | null
+          feedback?: string | null
+          id?: string
+          rating?: number
+          skills_demonstrated?: string[] | null
+          student_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "student_ratings_capstone_project_id_fkey"
+            columns: ["capstone_project_id"]
+            isOneToOne: false
+            referencedRelation: "capstone_projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "student_ratings_employer_account_id_fkey"
+            columns: ["employer_account_id"]
+            isOneToOne: false
+            referencedRelation: "employer_accounts"
             referencedColumns: ["id"]
           },
         ]
