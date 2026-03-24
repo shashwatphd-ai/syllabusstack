@@ -128,6 +128,13 @@ export interface EnrichmentResult {
   postalCode: string;
   country: string;
   phone: string;
+  // New EduThree-parity fields
+  twitterUrl: string;
+  facebookUrl: string;
+  logoUrl: string;
+  foundedYear: number;
+  industryKeywords: string[];
+  fundingEvents: Array<{ date?: string; news_url?: string; type?: string; amount?: number }>;
 }
 
 export async function enrichOrganization(
