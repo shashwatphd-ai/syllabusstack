@@ -203,6 +203,10 @@ const handler = async (req: Request): Promise<Response> => {
         proposal.tasks
       );
 
+      // ── Calculate final composite score ──
+      const feasibilityScore = Math.min(1.0, (marketScore / 100) * 0.6 + 0.4);
+      const finalScore = 0.5 * loScore + 0.3 * feasibilityScore + 0.2 * (validation.confidence || 0.7);
+
       // Build deterministic stakeholder ROI breakdown from value_components
       const roiBreakdown = buildStakeholderROI(roi, loScore, feasibilityScore);
 
@@ -213,10 +217,6 @@ const handler = async (req: Request): Promise<Response> => {
         objectives,
         proposal.lo_alignment
       );
-
-      // ── Calculate final composite score ──
-      const feasibilityScore = Math.min(1.0, (marketScore / 100) * 0.6 + 0.4);
-      const finalScore = 0.5 * loScore + 0.3 * feasibilityScore + 0.2 * (validation.confidence || 0.7);
 
       // ── Step 7: Insert capstone project ──
       const { data: project, error: insertError } = await supabase
