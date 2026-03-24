@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Building2, Loader2, Search, Sparkles, AlertCircle } from 'lucide-react';
+import { Building2, Loader2, Search, Sparkles, AlertCircle, MapPin } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useInstructorCourse } from '@/hooks/useInstructorCourses';
@@ -10,6 +10,7 @@ import {
   useDiscoverCompanies,
   useGenerateCapstoneProjects,
   useAssignStudent,
+  useReEnrichAddresses,
 } from '@/hooks/useCapstoneProjects';
 import { useCourseStudents } from '@/hooks/useInstructorCourses';
 import { LocationSetup } from './LocationSetup';
@@ -29,6 +30,7 @@ export function CapstoneProjectsTab({ courseId }: CapstoneProjectsTabProps) {
   const { data: projects, isLoading: loadingProjects } = useCapstoneProjects(courseId);
   const discoverCompanies = useDiscoverCompanies();
   const generateProjects = useGenerateCapstoneProjects();
+  const reEnrichAddresses = useReEnrichAddresses();
 
   const [detailProjectId, setDetailProjectId] = useState<string | null>(null);
   const [assignProjectId, setAssignProjectId] = useState<string | null>(null);
@@ -54,21 +56,39 @@ export function CapstoneProjectsTab({ courseId }: CapstoneProjectsTabProps) {
             <Building2 className="h-4 w-4" />
             Discovered Companies
           </h3>
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-2"
-            onClick={() => discoverCompanies.mutate(courseId)}
-            disabled={discoverCompanies.isPending || !hasLocation || !hasLOs}
-            title={!hasLOs ? 'Add learning objectives to your course first' : !hasLocation ? 'Set course location first' : undefined}
-          >
-            {discoverCompanies.isPending ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Search className="h-3.5 w-3.5" />
+          <div className="flex gap-2">
+            {companies && companies.length > 0 && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="gap-2"
+                onClick={() => reEnrichAddresses.mutate(courseId)}
+                disabled={reEnrichAddresses.isPending}
+              >
+                {reEnrichAddresses.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <MapPin className="h-3.5 w-3.5" />
+                )}
+                {reEnrichAddresses.isPending ? 'Updating...' : 'Update Addresses'}
+              </Button>
             )}
-            {discoverCompanies.isPending ? 'Discovering...' : 'Discover Companies'}
-          </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-2"
+              onClick={() => discoverCompanies.mutate(courseId)}
+              disabled={discoverCompanies.isPending || !hasLocation || !hasLOs}
+              title={!hasLOs ? 'Add learning objectives to your course first' : !hasLocation ? 'Set course location first' : undefined}
+            >
+              {discoverCompanies.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Search className="h-3.5 w-3.5" />
+              )}
+              {discoverCompanies.isPending ? 'Discovering...' : 'Discover Companies'}
+            </Button>
+          </div>
         </div>
 
         {loadingCompanies ? (

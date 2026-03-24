@@ -199,6 +199,35 @@ export function useDiscoverCompanies() {
   });
 }
 
+export function useReEnrichAddresses() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async (courseId: string) => {
+      const { data, error } = await supabase.functions.invoke('re-enrich-addresses', {
+        body: { instructor_course_id: courseId },
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data, courseId) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.capstone.companies(courseId) });
+      toast({
+        title: 'Addresses Updated',
+        description: `Updated ${data?.updated || 0} of ${data?.total || 0} company addresses.`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Re-enrichment Failed',
+        description: error.message,
+        variant: 'destructive',
+      });
+    },
+  });
+}
+
 export function useGenerateCapstoneProjects() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
