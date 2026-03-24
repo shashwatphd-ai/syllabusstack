@@ -158,6 +158,12 @@ export async function enrichOrganization(
     fundingStage: org.latest_funding_stage || '',
     totalFunding: org.total_funding || 0,
     linkedinUrl: org.linkedin_url || '',
+    streetAddress: org.street_address || '',
+    city: org.city || '',
+    state: org.state || '',
+    postalCode: org.postal_code || '',
+    country: org.country || '',
+    phone: org.phone || '',
   };
 }
 
