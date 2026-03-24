@@ -20,6 +20,7 @@ import { normalizeLocationForApollo } from "../_shared/capstone/location-utils.t
 import { classifyCourseDomain, shouldExcludeIndustry } from "../_shared/capstone/context-aware-industry-filter.ts";
 import { extractIndustrySkills } from "../_shared/capstone/skill-extraction.ts";
 import { discoverCompanies } from "../_shared/capstone/apollo-precise-discovery.ts";
+import type { EnhancedDiscoveryInput } from "../_shared/capstone/apollo-precise-discovery.ts";
 import { filterValidCompanies } from "../_shared/capstone/company-validation-service.ts";
 import { rankAndSelectCompanies } from "../_shared/capstone/company-ranking-service.ts";
 import { enrichCompanyFull, calculateEnrichmentCompleteness } from "../_shared/capstone/apollo-enrichment-service.ts";
@@ -128,15 +129,19 @@ const handler = async (req: Request): Promise<Response> => {
   console.log(`   Job titles: ${jobTitles.join(', ')}`);
   console.log(`   Location (normalized): ${normalizedLocation}`);
 
-  // ── Phase 5: Apollo Multi-Strategy Discovery ──
+  // ── Phase 5: Apollo Multi-Strategy Discovery (Enhanced) ──
   // Request 3x target count to allow for validation filtering
+  const socCodes = socMappings.map(s => s.socCode);
   const discoveryResult = await discoverCompanies({
     industries: industryKeywords,
     jobTitles,
     skillKeywords: combinedKeywords.slice(0, 15),
     location: normalizedLocation,
     targetCount: count * 3,
-  });
+    socCodes,
+    socMappings,
+    courseTitle: course.title,
+  } as EnhancedDiscoveryInput);
 
   console.log(`\n📦 PHASE 5 RESULTS: ${discoveryResult.companies.length} companies discovered`);
 
@@ -206,7 +211,7 @@ const handler = async (req: Request): Promise<Response> => {
 
   // ── Phase 6c: Multi-Factor Ranking ──
   console.log(`\n📊 PHASE 6c: RANKING & SELECTION`);
-  const rankingResult = rankAndSelectCompanies(validated, searchLocation, count, combinedKeywords);
+  const rankingResult = await rankAndSelectCompanies(validated, searchLocation, count, combinedKeywords);
   console.log(`   Selected: ${rankingResult.selected.length} | Alternates: ${rankingResult.alternates.length}`);
 
   // ── Phase 7: Enrich + Upsert into company_profiles ──

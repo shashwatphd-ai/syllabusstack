@@ -3,11 +3,15 @@
  * Ported from EduThree1's 3-strategy Apollo search system.
  *
  * Discovery Strategies (in order of precision):
- * 1. technology_filter — companies using specific technologies (not used yet; requires Apollo tech UIDs)
+ * 1. technology_filter — companies using specific technologies (via Apollo tech UIDs)
  * 2. job_title_search — companies with matching job titles
  * 3. industry_search — companies in relevant industries (broadest fallback)
  *
- * NOTE: Uses /api/v1 base path for all Apollo endpoints (correct as of 2025).
+ * Features:
+ * - Progressive location fallback (city → state → national)
+ * - Course seed diversity via page offset
+ * - Industry keyword mapping to Apollo taxonomy
+ * - Recruiter title exclusion for technical courses
  */
 
 import type {
@@ -19,6 +23,9 @@ import type {
 } from './pipeline-types.ts';
 import { generateLocationVariants } from './location-utils.ts';
 import { enrichOrganization, fetchJobPostingsRobust, calculateBuyingIntent } from './apollo-enrichment-service.ts';
+import { getTechnologyUIDsFromSOC } from './apollo-technology-mapping.ts';
+import { mapSOCIndustriesToApollo } from './apollo-industry-mapper.ts';
+import type { SOCMapping } from './course-soc-mapping.ts';
 
 const APOLLO_API_BASE = 'https://api.apollo.io';
 const REQUEST_TIMEOUT_MS = 30000;
@@ -41,14 +48,6 @@ interface ApolloOrganization {
   latest_funding_stage?: string;
   total_funding?: number;
   industry_tag_list?: string[];
-}
-
-interface ApolloJobPosting {
-  id: string;
-  title: string;
-  posted_at?: string;
-  location?: string;
-  description?: string;
 }
 
 function getApolloApiKey(): string {
@@ -114,26 +113,74 @@ async function apolloFetch<T>(
   return null;
 }
 
+// ========== COURSE SEED FOR DIVERSITY ==========
+
+function getCoursePageOffset(courseTitle: string): number {
+  if (!courseTitle) return 1;
+  const hash = courseTitle.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+  return (hash % 5) + 1; // Pages 1-5
+}
+
 // ========== STRATEGIES ==========
+
+/**
+ * Strategy 1: Technology UID filter — most precise, filters for companies
+ * that actually USE specific technologies.
+ */
+async function searchByTechnology(
+  technologyUids: string[],
+  locations: string[],
+  targetCount: number,
+  apiKey: string,
+  pageOffset: number = 1
+): Promise<ApolloOrganization[]> {
+  console.log(`  [Strategy 1] Searching by ${technologyUids.length} technology UIDs...`);
+  if (technologyUids.length === 0) return [];
+
+  const result = await apolloFetch<{ organizations: ApolloOrganization[] }>(
+    '/api/v1/mixed_companies/search',
+    {
+      currently_using_any_of_technology_uids: technologyUids.slice(0, 10),
+      organization_locations: locations,
+      organization_num_employees_ranges: ["11,50", "51,200", "201,500", "501,1000", "1001,5000"],
+      per_page: Math.min(targetCount * 3, 100),
+      page: pageOffset
+    },
+    apiKey
+  );
+
+  const orgs = result?.organizations || [];
+  console.log(`  [Strategy 1] Found ${orgs.length} companies using matching technologies`);
+  return orgs;
+}
 
 async function searchByJobTitles(
   jobTitles: string[],
   locations: string[],
   targetCount: number,
-  apiKey: string
+  apiKey: string,
+  pageOffset: number = 1,
+  excludeTitles: string[] = []
 ): Promise<ApolloOrganization[]> {
   console.log(`  [Strategy 2] Searching by ${jobTitles.length} job titles...`);
   if (jobTitles.length === 0) return [];
 
+  const body: Record<string, unknown> = {
+    q_organization_job_titles: jobTitles.slice(0, 5),
+    organization_locations: locations,
+    organization_num_employees_ranges: ["11,50", "51,200", "201,500", "501,1000", "1001,5000"],
+    per_page: Math.min(targetCount * 3, 100),
+    page: pageOffset
+  };
+
+  // Exclude recruiter titles for technical courses
+  if (excludeTitles.length > 0) {
+    body.person_not_titles = excludeTitles;
+  }
+
   const result = await apolloFetch<{ organizations: ApolloOrganization[] }>(
     '/api/v1/mixed_companies/search',
-    {
-      q_organization_job_titles: jobTitles.slice(0, 5),
-      organization_locations: locations,
-      organization_num_employees_ranges: ["11,50", "51,200", "201,500", "501,1000", "1001,5000"],
-      per_page: Math.min(targetCount * 3, 100),
-      page: 1
-    },
+    body,
     apiKey
   );
 
@@ -143,24 +190,31 @@ async function searchByJobTitles(
 }
 
 async function searchByIndustry(
-  industries: string[],
-  keywords: string[],
+  apolloKeywords: string[],
   locations: string[],
   targetCount: number,
-  apiKey: string
+  apiKey: string,
+  pageOffset: number = 1,
+  excludeTitles: string[] = []
 ): Promise<ApolloOrganization[]> {
-  console.log(`  [Strategy 3] Searching by ${industries.length} industries + ${keywords.length} keywords...`);
-  if (industries.length === 0 && keywords.length === 0) return [];
+  console.log(`  [Strategy 3] Searching by ${apolloKeywords.length} Apollo keywords...`);
+  if (apolloKeywords.length === 0) return [];
+
+  const body: Record<string, unknown> = {
+    q_organization_keyword_tags: apolloKeywords.slice(0, 15),
+    organization_locations: locations,
+    organization_num_employees_ranges: ["11,50", "51,200", "201,500", "501,1000", "1001,5000"],
+    per_page: Math.min(targetCount * 4, 100),
+    page: pageOffset
+  };
+
+  if (excludeTitles.length > 0) {
+    body.person_not_titles = excludeTitles;
+  }
 
   const result = await apolloFetch<{ organizations: ApolloOrganization[] }>(
     '/api/v1/mixed_companies/search',
-    {
-      q_organization_keyword_tags: [...industries, ...keywords].slice(0, 15),
-      organization_locations: locations,
-      organization_num_employees_ranges: ["11,50", "51,200", "201,500", "501,1000", "1001,5000"],
-      per_page: Math.min(targetCount * 4, 100),
-      page: 1
-    },
+    body,
     apiKey
   );
 
@@ -195,28 +249,86 @@ function transformOrganization(
   };
 }
 
+// ========== PROGRESSIVE LOCATION FALLBACK ==========
+
+/**
+ * Parse location into cascading levels for progressive search.
+ * Returns: [cityLevel, stateLevel, nationalLevel]
+ */
+function getLocationCascade(location: string): string[][] {
+  const parts = location.split(',').map(p => p.trim());
+
+  if (parts.length >= 2) {
+    const city = parts[0];
+    const state = parts[1].replace(/,?\s*United States$/i, '').trim();
+
+    return [
+      // Level 1: City + State (most specific)
+      [`${city}, ${state}, United States`, `${city}, ${state}`],
+      // Level 2: State only
+      [`${state}, United States`, state],
+      // Level 3: National
+      ['United States'],
+    ];
+  }
+
+  // Can't parse — use full variant generation
+  const variants = generateLocationVariants(location);
+  return [variants, ['United States']];
+}
+
 // ========== MAIN EXPORT ==========
 
 /**
- * Discover companies using multi-strategy Apollo search.
+ * Extended input with SOC codes and course title for enhanced discovery.
+ */
+export interface EnhancedDiscoveryInput extends CompanyDiscoveryInput {
+  socCodes?: string[];
+  socMappings?: SOCMapping[];
+  courseTitle?: string;
+}
+
+/**
+ * Discover companies using multi-strategy Apollo search with:
+ * - Technology UID filtering (Strategy 1)
+ * - Progressive location fallback (city → state → national)
+ * - Course seed diversity
+ * - Apollo industry keyword mapping
  */
 export async function discoverCompanies(
-  input: CompanyDiscoveryInput
+  input: EnhancedDiscoveryInput
 ): Promise<CompanyDiscoveryOutput> {
   const startTime = Date.now();
 
   console.log(`\n========================================`);
-  console.log(`PHASE 3: COMPANY DISCOVERY (Apollo)`);
+  console.log(`PHASE 3: COMPANY DISCOVERY (Apollo Enhanced)`);
   console.log(`========================================`);
   console.log(`Location: ${input.location}`);
   console.log(`Target: ${input.targetCount} companies`);
   console.log(`Industries: ${input.industries.length}`);
   console.log(`Job Titles: ${input.jobTitles.length}`);
   console.log(`Skill Keywords: ${input.skillKeywords.length}`);
+  console.log(`SOC Codes: ${(input.socCodes || []).length}`);
 
   const apiKey = getApolloApiKey();
-  const locations = generateLocationVariants(input.location);
-  console.log(`Location variants: ${locations.join(', ')}`);
+  const pageOffset = getCoursePageOffset(input.courseTitle || '');
+  console.log(`Course page offset: ${pageOffset}`);
+
+  // Map industries to Apollo taxonomy
+  const { apolloKeywords, excludeTitles } = input.socMappings
+    ? mapSOCIndustriesToApollo(input.industries, input.socMappings)
+    : { apolloKeywords: input.industries, excludeTitles: [] as string[] };
+
+  console.log(`Apollo keywords (mapped): ${apolloKeywords.slice(0, 5).join(', ')}...`);
+  if (excludeTitles.length > 0) {
+    console.log(`Excluding titles: ${excludeTitles.join(', ')}`);
+  }
+
+  // Get technology UIDs for Strategy 1
+  const technologyUids = input.socCodes
+    ? getTechnologyUIDsFromSOC(input.socCodes)
+    : [];
+  console.log(`Technology UIDs: ${technologyUids.length}`);
 
   const statsByStrategy: Record<DiscoveryStrategy, number> = {
     technology_filter: 0,
@@ -227,44 +339,60 @@ export async function discoverCompanies(
   const allOrganizations: Array<{ org: ApolloOrganization; strategy: DiscoveryStrategy }> = [];
   const seenIds = new Set<string>();
 
-  // STRATEGY 2: Job Title Search (most useful without tech UIDs)
-  if (input.jobTitles.length > 0) {
-    const jobOrgs = await searchByJobTitles(input.jobTitles, locations, input.targetCount, apiKey);
-    for (const org of jobOrgs) {
+  const addOrgs = (orgs: ApolloOrganization[], strategy: DiscoveryStrategy) => {
+    for (const org of orgs) {
       if (!seenIds.has(org.id)) {
         seenIds.add(org.id);
-        allOrganizations.push({ org, strategy: 'job_title_search' });
-        statsByStrategy.job_title_search++;
+        allOrganizations.push({ org, strategy });
+        statsByStrategy[strategy]++;
       }
     }
-  }
+  };
 
-  // STRATEGY 3: Industry Search (fallback / additional)
-  if (allOrganizations.length < input.targetCount * 2) {
-    const industryOrgs = await searchByIndustry(
-      input.industries,
-      input.skillKeywords.slice(0, 5),
-      locations,
-      input.targetCount,
-      apiKey
-    );
-    for (const org of industryOrgs) {
-      if (!seenIds.has(org.id)) {
-        seenIds.add(org.id);
-        allOrganizations.push({ org, strategy: 'industry_search' });
-        statsByStrategy.industry_search++;
-      }
+  // ── Progressive Location Fallback ──
+  const locationCascade = getLocationCascade(input.location);
+  const targetTotal = input.targetCount * 3; // 3x for filtering headroom
+
+  for (let level = 0; level < locationCascade.length; level++) {
+    const locations = locationCascade[level];
+    const levelName = level === 0 ? 'City' : level === 1 ? 'State' : 'National';
+    console.log(`\n  📍 Location level ${level + 1} (${levelName}): ${locations[0]}`);
+
+    // STRATEGY 1: Technology Filter (most precise)
+    if (technologyUids.length > 0 && allOrganizations.length < targetTotal) {
+      const techOrgs = await searchByTechnology(technologyUids, locations, input.targetCount, apiKey, pageOffset);
+      addOrgs(techOrgs, 'technology_filter');
     }
+
+    // STRATEGY 2: Job Title Search
+    if (input.jobTitles.length > 0 && allOrganizations.length < targetTotal) {
+      const jobOrgs = await searchByJobTitles(input.jobTitles, locations, input.targetCount, apiKey, pageOffset, excludeTitles);
+      addOrgs(jobOrgs, 'job_title_search');
+    }
+
+    // STRATEGY 3: Industry Search (broadest)
+    if (allOrganizations.length < targetTotal) {
+      const industryOrgs = await searchByIndustry(apolloKeywords, locations, input.targetCount, apiKey, pageOffset, excludeTitles);
+      addOrgs(industryOrgs, 'industry_search');
+    }
+
+    // If we have enough companies, stop broadening
+    if (allOrganizations.length >= targetTotal) {
+      console.log(`  ✅ Sufficient companies found at ${levelName} level (${allOrganizations.length})`);
+      break;
+    }
+
+    console.log(`  ⚠️ Only ${allOrganizations.length}/${targetTotal} companies — broadening to next level`);
   }
 
   console.log(`\nTotal unique organizations found: ${allOrganizations.length}`);
+  console.log(`  By technology filter: ${statsByStrategy.technology_filter}`);
   console.log(`  By job title search: ${statsByStrategy.job_title_search}`);
   console.log(`  By industry search: ${statsByStrategy.industry_search}`);
 
-  // Transform + enrich companies (limit to targetCount to control API spend)
-  // Enrichment runs BEFORE validation so AI validates on full company data
+  // Transform + enrich companies (cap to control API spend and timeout)
   const companies: DiscoveredCompany[] = [];
-  const enrichmentCap = Math.min(allOrganizations.length, input.targetCount * 2);
+  const enrichmentCap = Math.min(allOrganizations.length, 20); // Hard cap at 20 for timeout safety
   console.log(`\n  Enriching up to ${enrichmentCap} companies before validation...`);
 
   for (const { org, strategy } of allOrganizations.slice(0, enrichmentCap)) {
@@ -289,9 +417,8 @@ export async function discoverCompanies(
     } catch (e) {
       console.warn(`  Org enrichment failed for ${org.name}:`, e);
     }
-    await sleep(200);
 
-    // Stage 2: Robust job postings fetch
+    // Stage 2: Robust job postings fetch (no delay between calls)
     try {
       const jobPostings = await fetchJobPostingsRobust(org.id, apiKey);
       company.jobPostings = jobPostings.map(jp => ({
@@ -304,7 +431,6 @@ export async function discoverCompanies(
     } catch (e) {
       console.warn(`  Job postings failed for ${org.name}:`, e);
     }
-    await sleep(200);
 
     // Stage 3: Buying intent signals
     const buyingIntent = calculateBuyingIntent(
