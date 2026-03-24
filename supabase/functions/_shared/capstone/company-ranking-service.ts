@@ -1,5 +1,5 @@
 /**
- * Company Ranking Service (v2 — Full Enrichment Utilization)
+ * Company Ranking Service (v3 — Haversine Distance Scoring)
  *
  * PHASE 5 of the pipeline: Rank and select final companies.
  *
@@ -7,7 +7,7 @@
  * - Semantic score (25%) - Validation confidence / skill overlap
  * - Hiring score (15%) - Job postings quantity + title relevance
  * - Buying Intent (12%) - Funding + hiring velocity composite
- * - Location score (12%) - Metro-aware proximity
+ * - Location score (12%) - Haversine distance-based proximity
  * - Tech Overlap (10%) - Course skills vs company tech stack
  * - Size score (8%) - Company size fit for capstone projects
  * - Completeness (8%) - Data completeness from enrichment
@@ -16,6 +16,7 @@
  */
 
 import { isSameMetroArea } from './location-utils.ts';
+import { parseLocationToCoordinates, calculateDistanceMiles, distanceToScore } from './geo-distance.ts';
 
 // ============================================
 // TYPES
@@ -79,22 +80,17 @@ function calculateSemanticScore(company: any): number {
   return Math.min(1.0, validationConfidence + skillBonus);
 }
 
-/**
- * Hiring score: quantity + title relevance against course skills
- */
 function calculateHiringScore(company: any, courseSkills: string[]): number {
   const jobs = company.job_postings || [];
   const jobCount = Array.isArray(jobs) ? jobs.length : 0;
   if (jobCount === 0) return 0;
 
-  // Base quantity score (0-0.7)
   let quantityScore: number;
   if (jobCount >= 10) quantityScore = 0.7;
   else if (jobCount >= 5) quantityScore = 0.55;
   else if (jobCount >= 3) quantityScore = 0.4;
   else quantityScore = 0.25;
 
-  // Relevance bonus: do any job titles contain course skill keywords? (0-0.3)
   let relevanceBonus = 0;
   if (courseSkills.length > 0 && Array.isArray(jobs)) {
     const lowerSkills = courseSkills.map(s => s.toLowerCase());
@@ -113,36 +109,51 @@ function calculateHiringScore(company: any, courseSkills: string[]): number {
 }
 
 /**
- * Location score: metro-area aware matching
+ * Location score: Haversine distance-based with metro area boost.
+ * Now async — uses coordinate lookup + distance calculation.
  */
-function calculateLocationScore(company: any, targetLocation: string): number {
+async function calculateLocationScore(company: any, targetLocation: string): Promise<number> {
   const companyAddress = (company.full_address || '').toLowerCase();
   const target = targetLocation.toLowerCase();
 
   if (!companyAddress || !target) return 0.5;
 
+  // Parse target location
   const targetParts = target.split(',').map((p: string) => p.trim());
   const targetCity = targetParts[0] || '';
-  const targetState = targetParts[1] || '';
 
-  // Same city = perfect score
+  // Quick metro area check (synchronous, fast)
+  if (targetCity && isSameMetroArea(targetCity, companyAddress)) return 0.95;
+
+  // Same city substring match — still a strong signal
   if (targetCity && companyAddress.includes(targetCity)) return 1.0;
 
-  // Metro area match
-  if (targetCity && isSameMetroArea(targetCity, companyAddress)) return 0.9;
+  // Try Haversine distance calculation
+  try {
+    const [targetCoords, companyCoords] = await Promise.all([
+      parseLocationToCoordinates(targetLocation),
+      parseLocationToCoordinates(companyAddress),
+    ]);
 
-  // Same state = good score
-  if (targetState && companyAddress.includes(targetState)) return 0.7;
+    if (targetCoords && companyCoords) {
+      const distance = calculateDistanceMiles(targetCoords, companyCoords);
+      const score = distanceToScore(distance);
+      return score;
+    }
+  } catch {
+    // Geocoding failed — fall back to substring matching
+  }
+
+  // Fallback: substring matching for state
+  const targetState = targetParts[1] || '';
+  if (targetState && companyAddress.includes(targetState)) return 0.6;
 
   // Same country = moderate
-  if (companyAddress.includes('united states') || companyAddress.includes('usa')) return 0.4;
+  if (companyAddress.includes('united states') || companyAddress.includes('usa')) return 0.3;
 
-  return 0.3;
+  return 0.2;
 }
 
-/**
- * Size score: prefer 50-5000 employees for capstone projects
- */
 function calculateSizeScore(company: any): number {
   const sizeStr = company.employee_count || company.size || '';
   const count = parseEmployeeCount(sizeStr);
@@ -154,9 +165,6 @@ function calculateSizeScore(company: any): number {
   return 0.4;
 }
 
-/**
- * Diversity bonus for industry variety
- */
 function calculateDiversityScore(company: any, selectedIndustries: Set<string>): number {
   const companyIndustry = (company.sector || company.industry || 'unknown').toLowerCase();
 
@@ -168,25 +176,17 @@ function calculateDiversityScore(company: any, selectedIndustries: Set<string>):
   return Math.max(0.3, 1.0 - selectedIndustries.size * 0.05);
 }
 
-/**
- * NEW: Buying intent from stored composite score
- */
 function calculateBuyingIntentScore(company: any): number {
   const signals = company.buying_intent_signals;
-  if (!signals) return 0.3; // Unknown — neutral default
-
+  if (!signals) return 0.3;
   const compositeScore = signals.compositeScore ?? signals.composite_score ?? 0;
-  // compositeScore is typically 0-100 from enrichment service
   return Math.min(1.0, compositeScore / 100);
 }
 
-/**
- * NEW: Tech overlap — Jaccard similarity between company tech and course skills
- */
 function calculateTechOverlapScore(company: any, courseSkills: string[]): number {
   const companyTech = company.technologies_used || [];
   if (!Array.isArray(companyTech) || companyTech.length === 0 || courseSkills.length === 0) {
-    return 0.3; // No data — neutral
+    return 0.3;
   }
 
   const lowerTech = new Set(companyTech.map((t: string) => t.toLowerCase()));
@@ -205,12 +205,9 @@ function calculateTechOverlapScore(company: any, courseSkills: string[]): number
   const union = new Set([...lowerTech, ...lowerSkills]).size;
   if (union === 0) return 0.3;
 
-  return Math.min(1.0, intersection / union + 0.1); // +0.1 baseline boost
+  return Math.min(1.0, intersection / union + 0.1);
 }
 
-/**
- * NEW: Contact quality — prefer companies with verified decision-maker contacts
- */
 function calculateContactQualityScore(company: any): number {
   let score = 0;
   if (company.contact_email) score += 0.4;
@@ -220,13 +217,9 @@ function calculateContactQualityScore(company: any): number {
   return score;
 }
 
-/**
- * NEW: Data completeness from stored enrichment score
- */
 function calculateCompletenessScore(company: any): number {
   const score = company.data_completeness_score;
   if (score == null) return 0.3;
-  // Stored as 0-1 from enrichment service
   return Math.min(1.0, typeof score === 'number' ? score : 0.3);
 }
 
@@ -326,17 +319,17 @@ function applyDiversityConstraints(companies: RankedCompany[], maxResults: numbe
 }
 
 // ============================================
-// MAIN EXPORT
+// MAIN EXPORT (now async for Haversine)
 // ============================================
 
-export function rankAndSelectCompanies(
+export async function rankAndSelectCompanies(
   companies: any[],
   targetLocation: string,
   maxResults: number = 10,
   courseSkills: string[] = []
-): RankingOutput {
+): Promise<RankingOutput> {
   console.log(`\n========================================`);
-  console.log(`PHASE: RANKING & SELECTION (v2 — 9 factors)`);
+  console.log(`PHASE: RANKING & SELECTION (v3 — Haversine)`);
   console.log(`========================================`);
   console.log(`Companies to rank: ${companies.length}`);
   console.log(`Max results: ${maxResults}`);
@@ -344,27 +337,32 @@ export function rankAndSelectCompanies(
 
   const selectedIndustries = new Set<string>();
 
-  const rankedCompanies: RankedCompany[] = companies.map((company) => {
-    const scores: CompanyScores = {
-      semantic: calculateSemanticScore(company),
-      hiring: calculateHiringScore(company, courseSkills),
-      location: calculateLocationScore(company, targetLocation),
-      size: calculateSizeScore(company),
-      diversity: calculateDiversityScore(company, selectedIndustries),
-      buyingIntent: calculateBuyingIntentScore(company),
-      techOverlap: calculateTechOverlapScore(company, courseSkills),
-      contactQuality: calculateContactQualityScore(company),
-      completeness: calculateCompletenessScore(company),
-      composite: 0,
-    };
+  // Score all companies (location scoring is now async)
+  const rankedCompanies: RankedCompany[] = await Promise.all(
+    companies.map(async (company) => {
+      const locationScore = await calculateLocationScore(company, targetLocation);
 
-    scores.composite = calculateCompositeScore(scores);
+      const scores: CompanyScores = {
+        semantic: calculateSemanticScore(company),
+        hiring: calculateHiringScore(company, courseSkills),
+        location: locationScore,
+        size: calculateSizeScore(company),
+        diversity: calculateDiversityScore(company, selectedIndustries),
+        buyingIntent: calculateBuyingIntentScore(company),
+        techOverlap: calculateTechOverlapScore(company, courseSkills),
+        contactQuality: calculateContactQualityScore(company),
+        completeness: calculateCompletenessScore(company),
+        composite: 0,
+      };
 
-    const industry = (company.sector || 'unknown').toLowerCase();
-    selectedIndustries.add(industry);
+      scores.composite = calculateCompositeScore(scores);
 
-    return { rank: 0, company, scores, selectionReason: '' };
-  });
+      const industry = (company.sector || 'unknown').toLowerCase();
+      selectedIndustries.add(industry);
+
+      return { rank: 0, company, scores, selectionReason: '' };
+    })
+  );
 
   rankedCompanies.sort((a, b) => b.scores.composite - a.scores.composite);
 
@@ -395,7 +393,7 @@ export function rankAndSelectCompanies(
     : 0;
   const allHaveActiveHiring = selected.every(c => c.scores.hiring > 0);
 
-  // Log results with new factors
+  // Log results
   console.log(`\nRanking Results:`);
   selected.forEach(c => {
     console.log(`  ${c.rank}. ${c.company.name}`);

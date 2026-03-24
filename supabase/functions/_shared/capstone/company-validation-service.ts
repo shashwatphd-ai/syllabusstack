@@ -1,11 +1,13 @@
 /**
- * COMPANY-COURSE VALIDATION SERVICE
- * Ported from EduThree1's company-validation-service.ts (247 lines)
+ * COMPANY-COURSE VALIDATION SERVICE (v2 — Batch Processing)
  * 
  * AI-powered validation to ensure company-course fit BEFORE project generation.
- * This prevents force-fitting projects with irrelevant companies.
  * 
- * Adapted to use SyllabusStack's unified-ai-client.ts instead of direct Lovable AI calls.
+ * v2 Changes:
+ * - Batch validation: single AI call for ~15 companies instead of sequential
+ * - Numeric confidence scores instead of binary valid/invalid
+ * - No sleep delays between companies
+ * - Handles token limits by splitting into batches of 15
  */
 
 import { generateText, MODELS } from '../unified-ai-client.ts';
@@ -26,129 +28,14 @@ export interface CompanyValidationInput {
 
 export interface ValidationResult {
   isValid: boolean;
-  confidence: number; // 0-1
+  confidence: number;
   reason: string;
   suggestedProjectType?: string;
   skillsOverlap: string[];
 }
 
 /**
- * Validate if a company is a good fit for a course BEFORE generating a project.
- * Uses AI to assess genuine mutual benefit rather than force-fitting.
- */
-export async function validateCompanyCourseMatch(
-  input: CompanyValidationInput
-): Promise<ValidationResult> {
-  // Build context for AI validation
-  const jobTitles = input.companyJobPostings
-    .slice(0, 5)
-    .map((j: any) => j.title || j.name)
-    .filter(Boolean)
-    .join(', ');
-
-  const techStack = input.companyTechnologies.slice(0, 8).join(', ');
-
-  const prompt = `You are a strict evaluator determining if a company is a GENUINE match for an academic course project.
-
-COURSE INFORMATION:
-- Title: ${input.courseTitle}
-- Level: ${input.courseLevel}
-- Learning Outcomes:
-${input.courseOutcomes.map((o, i) => `  ${i + 1}. ${o}`).join('\n')}
-
-COMPANY INFORMATION:
-- Name: ${input.companyName}
-- Sector: ${input.companySector}
-- Industries: ${input.companyIndustries.join(', ') || 'Not specified'}
-- Description: ${input.companyDescription.substring(0, 500)}
-- Keywords/Capabilities: ${input.companyKeywords.slice(0, 10).join(', ') || 'Not specified'}
-- Current Job Openings: ${jobTitles || 'None available'}
-- Technology Stack: ${techStack || 'Not specified'}
-
-EVALUATION CRITERIA:
-1. **Field Alignment**: Does the company operate in a field where the course's TECHNICAL skills would be genuinely useful?
-2. **Skills Match**: Would the company's actual needs (based on job postings, tech stack, industry) require the skills taught in this course?
-3. **Realistic Scope**: Can students realistically apply course concepts to help this company?
-
-EXAMPLES OF MISMATCHES TO REJECT:
-- Engineering course (Fluid Mechanics) + HR software company = REJECT (no engineering work needed)
-- Structural Engineering course + Marketing agency = REJECT (no structural analysis needed)
-- Data Science course + Bakery with no data needs = REJECT (no data work available)
-- Computer Science course + Law firm with no tech needs = REJECT (no software development needed)
-
-EXAMPLES OF GOOD MATCHES:
-- Fluid Mechanics + Water treatment company = ACCEPT (flow analysis, pipe sizing)
-- Data Science + E-commerce company = ACCEPT (recommendation systems, analytics)
-- Structural Engineering + Construction firm = ACCEPT (load calculations, designs)
-- Marketing course + B2B SaaS startup = ACCEPT (go-to-market strategy)
-
-Respond with ONLY valid JSON (no markdown):
-{
-  "isValid": true or false,
-  "confidence": 0.0 to 1.0,
-  "reason": "One clear sentence explaining why this is or isn't a good match",
-  "suggestedProjectType": "If valid, suggest what type of project would work. If invalid, leave empty",
-  "skillsOverlap": ["List", "of", "skills", "that", "overlap", "between", "course", "and", "company"]
-}`;
-
-  try {
-    console.log(`  🔍 Validating company-course match for ${input.companyName}...`);
-
-    const circuitResult = await withAICircuit(async () => {
-      const result = await generateText({
-        prompt,
-        systemPrompt: 'You are a strict evaluator for academic-industry project matching. Return only valid JSON.',
-        options: { model: MODELS.FAST, temperature: 0.3 },
-      });
-      return result;
-    });
-
-    if (!circuitResult.success) {
-      console.warn(`  ⚠️ AI circuit breaker open or timeout: ${circuitResult.error}`);
-      return {
-        isValid: true,
-        confidence: 0.5,
-        reason: 'AI validation unavailable - defaulting to accept',
-        skillsOverlap: []
-      };
-    }
-
-    const validationContent = circuitResult.data?.content || '';
-    const jsonMatch = validationContent.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      console.warn('  ⚠️ Could not parse validation response');
-      return {
-        isValid: true,
-        confidence: 0.5,
-        reason: 'Could not parse AI response - defaulting to accept',
-        skillsOverlap: []
-      };
-    }
-
-    const result: ValidationResult = JSON.parse(jsonMatch[0]);
-
-    const status = result.isValid ? '✅ VALID' : '❌ REJECTED';
-    console.log(`  ${status} (${Math.round(result.confidence * 100)}%): ${result.reason}`);
-
-    if (result.skillsOverlap && result.skillsOverlap.length > 0) {
-      console.log(`     Skills overlap: ${result.skillsOverlap.join(', ')}`);
-    }
-
-    return result;
-
-  } catch (error) {
-    console.error(`  ❌ Validation error:`, error);
-    return {
-      isValid: true,
-      confidence: 0.5,
-      reason: `Validation error: ${error instanceof Error ? error.message : 'Unknown'}`,
-      skillsOverlap: []
-    };
-  }
-}
-
-/**
- * Batch validate multiple companies for a course.
+ * Batch validate multiple companies for a course in a single AI call.
  * Returns only companies that pass validation.
  */
 export async function filterValidCompanies(
@@ -160,40 +47,45 @@ export async function filterValidCompanies(
   console.log(`\n🔍 AI Company-Course Validation (${companies.length} companies)`);
   console.log(`   Course: "${courseTitle}" (${courseLevel})`);
 
+  if (companies.length === 0) {
+    return { validCompanies: [], rejectedCompanies: [] };
+  }
+
+  // Split into batches of 15 to stay within token limits
+  const BATCH_SIZE = 15;
+  const batches: any[][] = [];
+  for (let i = 0; i < companies.length; i += BATCH_SIZE) {
+    batches.push(companies.slice(i, i + BATCH_SIZE));
+  }
+
   const validCompanies: any[] = [];
   const rejectedCompanies: { company: any; reason: string }[] = [];
 
-  for (const company of companies) {
-    const validationResult = await validateCompanyCourseMatch({
-      companyName: company.name,
-      companyDescription: company.description || '',
-      companySector: company.sector || 'Unknown',
-      companyIndustries: company.industries || [],
-      companyKeywords: company.keywords || [],
-      companyJobPostings: company.job_postings || [],
-      companyTechnologies: company.technologies_used || [],
-      courseTitle,
-      courseLevel,
-      courseOutcomes
-    });
+  for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
+    const batch = batches[batchIdx];
+    console.log(`   Processing batch ${batchIdx + 1}/${batches.length} (${batch.length} companies)...`);
 
-    if (validationResult.isValid && validationResult.confidence >= 0.6) {
-      validCompanies.push({
-        ...company,
-        validation_confidence: validationResult.confidence,
-        validation_reason: validationResult.reason,
-        suggested_project_type: validationResult.suggestedProjectType,
-        skills_overlap: validationResult.skillsOverlap
-      });
-    } else {
-      rejectedCompanies.push({
-        company,
-        reason: validationResult.reason
-      });
+    const results = await validateBatch(batch, courseTitle, courseLevel, courseOutcomes);
+
+    for (let i = 0; i < batch.length; i++) {
+      const company = batch[i];
+      const result = results[i];
+
+      if (result && result.isValid && result.confidence >= 0.6) {
+        validCompanies.push({
+          ...company,
+          validation_confidence: result.confidence,
+          validation_reason: result.reason,
+          suggested_project_type: result.suggestedProjectType,
+          skills_overlap: result.skillsOverlap
+        });
+      } else {
+        rejectedCompanies.push({
+          company,
+          reason: result?.reason || 'Validation failed'
+        });
+      }
     }
-
-    // Small delay to avoid rate limiting
-    await new Promise(resolve => setTimeout(resolve, 300));
   }
 
   console.log(`\n📊 Validation Results:`);
@@ -202,10 +94,148 @@ export async function filterValidCompanies(
 
   if (rejectedCompanies.length > 0) {
     console.log(`   Rejection reasons:`);
-    rejectedCompanies.forEach(r => {
+    rejectedCompanies.slice(0, 5).forEach(r => {
       console.log(`     - ${r.company.name}: ${r.reason}`);
     });
   }
 
   return { validCompanies, rejectedCompanies };
+}
+
+/**
+ * Validate a batch of companies in a single AI call.
+ */
+async function validateBatch(
+  companies: any[],
+  courseTitle: string,
+  courseLevel: string,
+  courseOutcomes: string[]
+): Promise<ValidationResult[]> {
+  // Build compact company descriptions for the batch prompt
+  const companyList = companies.map((c, i) => {
+    const desc = (c.description || '').substring(0, 200);
+    const techs = (c.technologies_used || []).slice(0, 5).join(', ');
+    const jobs = (c.job_postings || []).slice(0, 3).map((j: any) => j.title).join(', ');
+    return `${i + 1}. "${c.name}" — Sector: ${c.sector || 'Unknown'} | Desc: ${desc} | Tech: ${techs || 'N/A'} | Jobs: ${jobs || 'None'}`;
+  }).join('\n');
+
+  const prompt = `You are a strict evaluator determining if companies are GENUINE matches for an academic course project.
+
+COURSE: "${courseTitle}" (${courseLevel})
+LEARNING OUTCOMES:
+${courseOutcomes.slice(0, 5).map((o, i) => `  ${i + 1}. ${o}`).join('\n')}
+
+COMPANIES TO EVALUATE:
+${companyList}
+
+For EACH company, determine if it's a genuine match based on:
+1. Does the company operate in a field where the course's skills are genuinely useful?
+2. Would students realistically apply course concepts at this company?
+
+REJECT mismatches like: Engineering course + HR software company, Data Science + bakery with no data needs.
+ACCEPT genuine fits like: Fluid Mechanics + water treatment, Marketing + B2B SaaS startup.
+
+Respond with ONLY a valid JSON array (no markdown). Each element:
+{"company": "Name", "isValid": true/false, "confidence": 0.0-1.0, "reason": "One sentence", "suggestedProjectType": "If valid", "skillsOverlap": ["skill1", "skill2"]}`;
+
+  try {
+    const circuitResult = await withAICircuit(async () => {
+      const result = await generateText({
+        prompt,
+        systemPrompt: 'You are a strict evaluator for academic-industry project matching. Return only valid JSON array.',
+        options: { model: MODELS.FAST, temperature: 0.3 },
+      });
+      return result;
+    });
+
+    if (!circuitResult.success) {
+      console.warn(`  ⚠️ AI circuit breaker open: ${circuitResult.error}`);
+      return companies.map(() => ({
+        isValid: true,
+        confidence: 0.5,
+        reason: 'AI validation unavailable - defaulting to accept',
+        skillsOverlap: []
+      }));
+    }
+
+    const content = circuitResult.data?.content || '';
+    const jsonMatch = content.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) {
+      console.warn('  ⚠️ Could not parse batch validation response');
+      return companies.map(() => ({
+        isValid: true,
+        confidence: 0.5,
+        reason: 'Could not parse AI response - defaulting to accept',
+        skillsOverlap: []
+      }));
+    }
+
+    const results: ValidationResult[] = JSON.parse(jsonMatch[0]);
+
+    // Log results
+    results.forEach(r => {
+      const status = r.isValid ? '✅' : '❌';
+      console.log(`  ${status} ${(r as any).company || '?'}: ${r.reason} (${Math.round(r.confidence * 100)}%)`);
+    });
+
+    // Ensure we have results for all companies (pad if AI returned fewer)
+    while (results.length < companies.length) {
+      results.push({
+        isValid: true,
+        confidence: 0.5,
+        reason: 'Not evaluated - defaulting to accept',
+        skillsOverlap: []
+      });
+    }
+
+    return results;
+  } catch (error) {
+    console.error(`  ❌ Batch validation error:`, error);
+    return companies.map(() => ({
+      isValid: true,
+      confidence: 0.5,
+      reason: `Validation error: ${error instanceof Error ? error.message : 'Unknown'}`,
+      skillsOverlap: []
+    }));
+  }
+}
+
+/**
+ * Validate a single company (kept for backward compatibility).
+ */
+export async function validateCompanyCourseMatch(
+  input: CompanyValidationInput
+): Promise<ValidationResult> {
+  const results = await filterValidCompanies(
+    [{
+      name: input.companyName,
+      description: input.companyDescription,
+      sector: input.companySector,
+      industries: input.companyIndustries,
+      keywords: input.companyKeywords,
+      job_postings: input.companyJobPostings,
+      technologies_used: input.companyTechnologies,
+    }],
+    input.courseTitle,
+    input.courseLevel,
+    input.courseOutcomes
+  );
+
+  if (results.validCompanies.length > 0) {
+    const v = results.validCompanies[0];
+    return {
+      isValid: true,
+      confidence: v.validation_confidence,
+      reason: v.validation_reason,
+      suggestedProjectType: v.suggested_project_type,
+      skillsOverlap: v.skills_overlap || [],
+    };
+  }
+
+  return {
+    isValid: false,
+    confidence: 0.3,
+    reason: results.rejectedCompanies[0]?.reason || 'Rejected',
+    skillsOverlap: [],
+  };
 }
