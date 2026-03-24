@@ -78,7 +78,7 @@ export function CompanyCard({ company }: CompanyCardProps) {
     || company.department_fit_score != null || company.contact_quality_score != null;
 
   return (
-    <Card className="hover:shadow-md transition-shadow">
+    <Card className={`hover:shadow-md transition-shadow ${grade?.label === 'A+' ? 'ring-1 ring-green-400/50' : ''}`}>
       <CardContent className="pt-4 pb-4 space-y-2.5">
         {/* Header with logo + composite score */}
         <div className="flex items-start justify-between gap-2">
