@@ -367,14 +367,7 @@ export async function findBestContact(
 
       if (contact) {
         console.log(`  [Enrich] Found contact via strategy ${i + 1} (api_search+bulk_match): ${contact.first_name} ${contact.last_name} (${contact.title})`);
-        return {
-          firstName: contact.first_name || '',
-          lastName: contact.last_name || '',
-          email: contact.email || '',
-          title: contact.title || '',
-          phone: contact.phone_numbers?.[0]?.sanitized_number || '',
-          linkedinUrl: contact.linkedin_url || '',
-        };
+        return buildContactResult(contact);
       }
     }
 
