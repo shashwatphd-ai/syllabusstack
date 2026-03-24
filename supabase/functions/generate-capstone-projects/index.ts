@@ -110,16 +110,21 @@ const handler = async (req: Request): Promise<Response> => {
     // Primary: fetch companies linked to this course via instructor_course_id
     companiesQuery = companiesQuery
       .eq('instructor_course_id', instructor_course_id)
-      .order('match_score', { ascending: false, nullsFirst: false });
+      .order('composite_signal_score', { ascending: false, nullsFirst: false });
   }
 
-  const { data: companies, error: compError } = await companiesQuery;
-  if (compError || !companies?.length) {
+  const { data: allCompanies, error: compError } = await companiesQuery;
+  if (compError || !allCompanies?.length) {
+    await updateRun({ status: 'failed', error_details: { message: 'No companies found' }, completed_at: new Date().toISOString() });
     return createErrorResponse('BAD_REQUEST', corsHeaders,
       'No companies found for this course. Run company discovery first.');
   }
 
-  console.log(`📊 Processing ${companies.length} companies for project generation`);
+  // Cap to top N companies to avoid timeout
+  const companies = allCompanies.slice(0, max_projects);
+  console.log(`📊 Processing top ${companies.length} of ${allCompanies.length} companies for project generation`);
+
+  await updateRun({ companies_discovered: allCompanies.length });
 
   const results: any[] = [];
   const errors: string[] = [];
