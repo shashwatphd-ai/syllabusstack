@@ -132,7 +132,7 @@ export function useCompanyProfiles(courseId: string) {
         .from('company_profiles')
         .select('*')
         .eq('instructor_course_id', courseId)
-        .order('match_score', { ascending: false, nullsFirst: false });
+        .order('composite_signal_score', { ascending: false, nullsFirst: false });
 
       if (error) throw error;
       return (data || []) as CompanyProfile[];
