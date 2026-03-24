@@ -1,86 +1,84 @@
 
 
-# EduThree Action Map by User Role → SyllabusStack Gap Analysis
+# Audit & Fix Plan: Capstone Pipeline Wiring Issues
 
-## Complete User Journey Mapping
+## What You're Seeing vs What Should Happen
 
-### ROLE 1: FACULTY / INSTRUCTOR
+The screenshot shows the **Capstone Projects tab** is rendering correctly — 26 discovered companies with scores, badges, contacts, and technologies. The UI code is built and working. The core issues are:
 
+1. **"Generate Projects" button does nothing visible** — it calls the edge function but likely times out (60s limit) processing 26 companies sequentially with AI calls + 1.5s delays between each
+2. **Discovery config is not passed to the backend** — the `handleStartDiscovery` receives a `DiscoveryConfig` object but ignores it, only passing `courseId`
+3. **No visible feedback when generation fails** — the toast fires on error but the edge function timeout manifests as a generic network error
+
+## Complete Feature Map & Wiring Status
+
+### Working (Visible in Screenshot)
+- Company discovery (26 companies loaded) 
+- Quality grades (B badges visible)
+- Composite scores (60-62% visible)
+- Job posting badges (1-10 Jobs)
+- Confidence badges (medium)
+- Intent badges (Low Intent)
+- Social links, contact info, technologies, addresses
+- Sort by composite/skill/market/department/contact
+- Confidence filter dropdown
+
+### Broken / Not Wired
+1. **Generate Projects button** — edge function times out processing 26 companies with sequential AI calls (validation + proposal + LO alignment + pricing = ~4 AI calls per company x 26 = ~104 AI calls, well over 60s)
+2. **Discovery config not passed** — `config` parameter is received but not sent to the edge function
+3. **`feasibilityScore` used before declared** on line 183 of generate-capstone-projects (variable hoisting bug — `const` is used at line 194)
+
+### Built But Not Navigable From Current View
+- Student project browse (`/student/capstone-projects`) — exists but no sidebar link for students
+- Syllabus Review page (`/instructor/courses/:id/review`) — route exists but no navigation link from course detail
+- Admin Capstone Shells tab — wired into AdminDashboard
+- Admin Employer Leads tab — wired into AdminDashboard
+- Employer Interest Form — component exists, not integrated into employer dashboard
+- Student Rating Dialog — component exists, not integrated
+- Project Feedback Dialog — component exists, not integrated into project cards
+
+## Implementation Plan
+
+### Fix 1: Generate Projects Timeout (Critical)
+The edge function processes companies sequentially with AI calls. With 26 companies, this far exceeds the 60s timeout.
+
+- Cap companies processed to top 10 by composite score
+- Remove the 1.5s `setTimeout` delay between companies (line 300-302)
+- Add a `generation_runs`-style status tracking so the UI can poll progress
+- If the function still times out, implement batch continuation pattern (process 3-5 companies per invocation, self-continue)
+
+### Fix 2: Pass Discovery Config to Backend
+- Modify `useDiscoverCompanies` mutation to accept `{ courseId, config }` 
+- Pass `config.maxCompanies`, `config.targetIndustries`, `config.maxDistanceMiles`, `config.minEmployees` in the edge function body
+- Consume these in `discover-companies/index.ts`
+
+### Fix 3: Fix Variable Hoisting Bug
+- In `generate-capstone-projects/index.ts` line 183, `feasibilityScore` is referenced before its `const` declaration on line 194. Move the declaration before the `buildStakeholderROI` call.
+
+### Fix 4: Wire Missing Navigation
+- Add "Review Syllabus" button/link on the Course Structure tab header
+- Add "Capstone Projects" link in student sidebar navigation
+- Integrate `ProjectFeedbackDialog` into `CapstoneProjectCard` (faculty feedback)
+- Integrate `EmployerInterestForm` into employer dashboard
+
+### Fix 5: Generation Progress Feedback
+- Show `GenerationProgressCard` during project generation (not just discovery)
+- Add a `capstone_generation_runs` entry when project generation starts
+- Update the progress card to distinguish "discovery" vs "generation" phases
+
+## Technical Details
+
+**Variable hoisting bug (Fix 3):**
 ```text
-EduThree Flow:
-  Landing → Auth → Upload → ReviewSyllabus → Configure → Projects → ProjectDetail
-                     ↓
-              InstructorDashboard (SyllabusManagement)
+Line 183: const roiBreakdown = buildStakeholderROI(roi, loScore, feasibilityScore);
+          ← feasibilityScore not yet declared
+Line 194: const feasibilityScore = Math.min(1.0, (marketScore / 100) * 0.6 + 0.4);
 ```
+This causes a `ReferenceError` at runtime, silently killing project generation.
 
-| # | EduThree Action | EduThree Page/Component | SyllabusStack Equivalent | Status |
-|---|----------------|------------------------|--------------------------|--------|
-| F1 | Sign up / Sign in | `/auth` | `/auth` | ✅ DONE |
-| F2 | View dashboard with all syllabi | `/dashboard` → `InstructorDashboard` | `/teach` (TeachPage) | ✅ DONE |
-| F3 | Upload syllabus PDF + auto-detect location from email | `/upload` (Upload.tsx) | `/instructor/quick-setup` (file upload to process-syllabus) | ✅ DONE (LocationSetup) |
-| F4 | Review parsed syllabus (title, outcomes, artifacts, schedule) | `/review-syllabus` | `/instructor/courses/:id/review` (SyllabusReview) | ✅ DONE |
-| F5 | Configure generation (industries, companies, num teams) | `/configure` | `DiscoveryConfigDialog` | ✅ DONE |
-| F6 | Monitor generation progress (polling, realtime status) | `/configure` polling UI | `GenerationProgressCard` | ✅ DONE |
-| F7 | Browse all generated projects with quality grades (A+/A/B/C) | `/projects` | `CapstoneProjectsTab` + `CompanyCard` with grading | ✅ DONE |
-| F8 | View project detail (tabbed view) | `/projects/:id` | `ProjectReportView` (6 tabs: Overview, Market Intel, Contact, LO Alignment, Timeline, Scoring) | ✅ DONE |
-| F9 | Rate/review a project (faculty feedback + tags) | ProjectFeedbackDialog | `ProjectFeedbackDialog` + `project_feedback` table | ✅ DONE |
-| F10 | Download syllabus as PDF | `downloadCoursePdf()` | Existing html2pdf integration | PARTIAL |
-| F11 | Print project view | PrintableProjectView | Print-optimized ProjectReportView | ✅ DONE |
-| F12 | Manage syllabus list (view courses, re-generate, delete) | SyllabusManagement | InstructorCourses page | ✅ DONE |
-| F13 | Propose partnership from project detail | ProposePartnershipDialog | `EmployerInterestForm` | ✅ DONE |
+**Timeout math (Fix 1):**
+Each company requires ~4 AI gateway calls (validation, proposal, LO alignment, LO detail). At ~3-5s per call = ~15s per company. 26 companies = ~390s, far exceeding the 60s limit. Capping to 8 companies + removing sleep = ~120s, still tight. Will implement batch continuation.
 
-### ROLE 2: STUDENT
+**Config passthrough (Fix 2):**
+The `DiscoveryConfig` type has `targetIndustries`, `maxCompanies`, `maxDistanceMiles`, `minEmployees` — all already defined but the mutation only sends `courseId`.
 
-| # | EduThree Action | SyllabusStack Equivalent | Status |
-|---|----------------|--------------------------|--------|
-| S1 | View student dashboard | `/dashboard` | ✅ DONE |
-| S2 | Browse available projects | `/student/capstone-projects` (StudentCapstoneProjects) | ✅ DONE |
-| S3 | Apply to a project | `useApplyToProject` + `capstone_applications` table | ✅ DONE |
-| S4 | View "My Opportunities" | Job matching via career matches | PARTIAL |
-| S5 | View "My Competencies" | `verified_skills` table + skill profiles | ✅ DONE |
-| S6 | Export portfolio as PDF | Portfolio export | PARTIAL |
-| S7 | View recommended projects | AI recommendations via career matches | PARTIAL |
-| S8 | Realtime updates on application status | `capstone_applications` realtime enabled | ✅ DONE |
-
-### ROLE 3: EMPLOYER
-
-| # | EduThree Action | SyllabusStack Equivalent | Status |
-|---|----------------|--------------------------|--------|
-| E1 | View employer dashboard | `/employer` (EmployerDashboard) | ✅ DONE |
-| E2 | View projects linked to their company | Employer portal | ✅ DONE |
-| E3 | See student applicants | `capstone_applications` with instructor policies | ✅ DONE |
-| E4 | Rate students | `StudentRatingDialog` + `student_ratings` table | ✅ DONE |
-| E5 | Submit interest / propose partnership | `EmployerInterestForm` + `employer_interest_submissions` table | ✅ DONE |
-| E6 | Realtime updates | Realtime on `capstone_applications` | ✅ DONE |
-
-### ROLE 4: ADMIN
-
-| # | EduThree Action | SyllabusStack Equivalent | Status |
-|---|----------------|--------------------------|--------|
-| A1 | View all AI project shells with signal scores | `AdminCapstoneShells` tab in AdminDashboard | ✅ DONE |
-| A2 | View employer interest submissions | `AdminEmployerLeads` tab in AdminDashboard | ✅ DONE |
-| A3 | Match employer leads to AI project shells | Manual review via admin tabs | ✅ DONE |
-| A4 | Approve pending faculty requests | `/admin/instructor-review` | ✅ DONE |
-| A5 | View analytics | AdminDashboard stats | ✅ DONE |
-| A6 | Role management | `/admin/roles` | ✅ DONE |
-
-### CROSS-CUTTING FEATURES
-
-| # | EduThree Feature | Status |
-|---|-----------------|--------|
-| X1 | Realtime notifications | ✅ DONE (capstone_applications realtime) |
-| X2 | Demand Board | ✅ DONE (EmployerInterestForm) |
-| X3 | Company Hiring Badge | ✅ DONE (CompanyHiringBadge) |
-| X4 | Live Demand Badge | PARTIAL |
-| X5 | Lazy-loaded routes | ✅ DONE |
-| X6 | Error boundaries | ✅ DONE |
-
----
-
-## Implementation Status: ALL PHASES COMPLETE
-
-### Phase 1: Core Faculty Pipeline UX ✅
-### Phase 2: Student Capstone Experience ✅
-### Phase 3: Employer Engagement ✅
-### Phase 4: Admin Capstone Management ✅
-### Phase 5: Polish ✅
