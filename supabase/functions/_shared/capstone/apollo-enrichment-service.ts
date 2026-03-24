@@ -96,6 +96,13 @@ interface ApolloEnrichmentResponse {
     linkedin_url?: string;
     latest_funding_stage?: string;
     total_funding?: number;
+    // Address fields
+    street_address?: string;
+    city?: string;
+    state?: string;
+    postal_code?: string;
+    country?: string;
+    phone?: string;
   };
 }
 
