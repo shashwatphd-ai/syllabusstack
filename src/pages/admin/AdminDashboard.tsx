@@ -1,7 +1,8 @@
 import { useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Users, BookOpen, TrendingUp, Award, Settings, FileText, BarChart3, Building2 } from 'lucide-react';
+import { Users, BookOpen, TrendingUp, Award, Settings, FileText, BarChart3, Building2, Briefcase } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -9,6 +10,8 @@ import { useSubscription } from '@/hooks/useSubscription';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { AdminCapstoneShells } from '@/components/admin/AdminCapstoneShells';
+import { AdminEmployerLeads } from '@/components/admin/AdminEmployerLeads';
 
 export default function AdminDashboard() {
   const { user } = useAuth();
@@ -165,25 +168,44 @@ export default function AdminDashboard() {
         </Card>
       </div>
 
-      {/* Recent Activity */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <BarChart3 className="h-5 w-5" />
-            Recent Activity
-          </CardTitle>
-          <CardDescription>
-            Latest actions across your organization
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="text-center py-8 text-muted-foreground">
-            <BarChart3 className="h-12 w-12 mx-auto mb-4 opacity-50" />
-            <p>Activity feed coming soon</p>
-            <p className="text-sm">Track user engagement and platform usage</p>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Capstone Management Tabs */}
+      <Tabs defaultValue="activity" className="w-full">
+        <TabsList>
+          <TabsTrigger value="activity" className="gap-1.5">
+            <BarChart3 className="h-3.5 w-3.5" />Activity
+          </TabsTrigger>
+          <TabsTrigger value="shells" className="gap-1.5">
+            <Briefcase className="h-3.5 w-3.5" />AI Project Shells
+          </TabsTrigger>
+          <TabsTrigger value="leads" className="gap-1.5">
+            <Building2 className="h-3.5 w-3.5" />Employer Leads
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value="activity">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <BarChart3 className="h-5 w-5" />
+                Recent Activity
+              </CardTitle>
+              <CardDescription>Latest actions across your organization</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="text-center py-8 text-muted-foreground">
+                <BarChart3 className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                <p>Activity feed coming soon</p>
+                <p className="text-sm">Track user engagement and platform usage</p>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+        <TabsContent value="shells">
+          <AdminCapstoneShells />
+        </TabsContent>
+        <TabsContent value="leads">
+          <AdminEmployerLeads />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

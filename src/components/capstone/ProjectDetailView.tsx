@@ -1,4 +1,5 @@
-import { CheckCircle2, Building2, Mail, Phone, User } from 'lucide-react';
+import { useState } from 'react';
+import { CheckCircle2, Building2, Mail, Phone, User, MessageSquare } from 'lucide-react';
 import {
   ResponsiveDialog,
   ResponsiveDialogContent,
@@ -10,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { useCapstoneProject, useCompleteProject } from '@/hooks/useCapstoneProjects';
+import { ProjectFeedbackDialog } from './ProjectFeedbackDialog';
 
 interface ProjectDetailViewProps {
   projectId: string;
@@ -21,6 +23,7 @@ interface ProjectDetailViewProps {
 export function ProjectDetailView({ projectId, courseId, open, onOpenChange }: ProjectDetailViewProps) {
   const { data: project, isLoading } = useCapstoneProject(projectId);
   const completeProject = useCompleteProject();
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   if (!project) return null;
 
@@ -150,20 +153,38 @@ export function ProjectDetailView({ projectId, courseId, open, onOpenChange }: P
             </>
           )}
 
-          {/* Complete action for in-progress projects */}
-          {project.status === 'in_progress' && (
-            <>
-              <Separator />
+          {/* Actions */}
+          <Separator />
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setFeedbackOpen(true)}
+              className="gap-2"
+              size="sm"
+            >
+              <MessageSquare className="h-4 w-4" />
+              Rate / Feedback
+            </Button>
+
+            {project.status === 'in_progress' && (
               <Button
                 onClick={() => completeProject.mutate({ projectId, courseId })}
                 disabled={completeProject.isPending}
                 className="gap-2"
+                size="sm"
               >
                 <CheckCircle2 className="h-4 w-4" />
                 {completeProject.isPending ? 'Extracting Skills...' : 'Mark Completed & Extract Skills'}
               </Button>
-            </>
-          )}
+            )}
+          </div>
+
+          <ProjectFeedbackDialog
+            projectId={projectId}
+            projectTitle={project.title}
+            open={feedbackOpen}
+            onOpenChange={setFeedbackOpen}
+          />
         </div>
       </ResponsiveDialogContent>
     </ResponsiveDialog>

@@ -287,5 +287,7 @@ export const queryKeys = {
     projects: (courseId: string) => ['capstone-projects', courseId] as const,
     projectDetail: (projectId: string) => ['capstone-project', projectId] as const,
     studentProject: (courseId: string) => ['student-capstone', courseId] as const,
+    applications: (scope: string) => ['capstone-applications', scope] as const,
+    feedback: (projectId: string) => ['project-feedback', projectId] as const,
   },
 };
