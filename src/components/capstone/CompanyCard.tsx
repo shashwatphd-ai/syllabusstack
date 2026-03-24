@@ -1,4 +1,5 @@
 import { Building2, Globe, Users, Briefcase, TrendingUp, Zap, Linkedin, DollarSign, Target, UserCheck, Twitter, Facebook, Calendar, BarChart3, Lightbulb } from 'lucide-react';
+import { CompanyHiringBadge } from './CompanyHiringBadge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
