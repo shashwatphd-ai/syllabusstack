@@ -129,6 +129,13 @@ export function CompanyCard({ company }: CompanyCardProps) {
           )}
         </div>
 
+        {/* Address */}
+        {company.full_address && (
+          <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+            <Building2 className="h-3 w-3" /> {company.full_address}
+          </span>
+        )}
+
         {/* Contact summary */}
         {contactSummary && (
           <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
