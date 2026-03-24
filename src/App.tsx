@@ -151,6 +151,7 @@ const App = () => (
             <Route path="/instructor/courses/:courseId/gradebook" element={<AuthGuard><GradebookPage /></AuthGuard>} />
             <Route path="/instructor/courses/:courseId/slides/:lectureSlideId/edit" element={<AuthGuard><SlideContentEditorPage /></AuthGuard>} />
             <Route path="/instructor/quick-setup" element={<AuthGuard><QuickCourseSetupPage /></AuthGuard>} />
+            <Route path="/instructor/courses/:id/review" element={<AuthGuard><SyllabusReviewPage /></AuthGuard>} />
             <Route path="/instructor/verification" element={<AuthGuard><InstructorVerificationPage /></AuthGuard>} />
 
             {/* Admin routes (requires admin role) */}

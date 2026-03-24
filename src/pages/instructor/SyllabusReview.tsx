@@ -43,7 +43,7 @@ export default function SyllabusReviewPage() {
   const handleSave = () => {
     if (!courseId) return;
     updateCourse.mutate(
-      { courseId, title: editTitle, description: editDescription },
+      { courseId, updates: { title: editTitle, description: editDescription } },
       { onSuccess: () => setEditing(false) }
     );
   };
