@@ -253,18 +253,35 @@ interface ApolloContact {
   first_name?: string;
   last_name?: string;
   email?: string;
+  email_status?: string;
   title?: string;
-  phone_numbers?: Array<{ sanitized_number?: string }>;
+  headline?: string;
+  photo_url?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  twitter_url?: string;
+  phone_numbers?: Array<{ sanitized_number?: string; type?: string }>;
   linkedin_url?: string;
+  employment_history?: Array<{ organization_name?: string; title?: string; start_date?: string; end_date?: string }>;
 }
 
 export interface ContactResult {
   firstName: string;
   lastName: string;
   email: string;
+  emailStatus: string;
   title: string;
+  headline: string;
   phone: string;
   linkedinUrl: string;
+  photoUrl: string;
+  city: string;
+  state: string;
+  country: string;
+  twitterUrl: string;
+  phoneNumbers: Array<{ number: string; type?: string }>;
+  employmentHistory: Array<{ organization_name?: string; title?: string; start_date?: string; end_date?: string }>;
 }
 
 const DOMAIN_DEPARTMENT_MAP: Record<string, string[]> = {
