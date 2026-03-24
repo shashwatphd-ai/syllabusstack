@@ -94,6 +94,10 @@ interface ApolloEnrichmentResponse {
     annual_revenue_printed?: string;
     annual_revenue?: number;
     linkedin_url?: string;
+    twitter_url?: string;
+    facebook_url?: string;
+    logo_url?: string;
+    founded_year?: number;
     latest_funding_stage?: string;
     total_funding?: number;
     // Address fields
