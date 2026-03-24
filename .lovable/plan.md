@@ -1,98 +1,167 @@
 
 
-# Parity Plan: EduThree-Level Company Data & Project Generation
+# EduThree vs SyllabusStack: Comprehensive Gap Analysis
 
-## Problem Summary
+## How EduThree's Pipeline Works (End-to-End)
 
-SyllabusStack's `company_profiles` table is missing **~20 columns** that EduThree captures from Apollo during discovery. This means:
+When a professor uploads a syllabus in EduThree, a **7-phase pipeline** executes:
 
-1. **Missing organization fields**: logo, social links (LinkedIn/Twitter/Facebook), founded year, industry keywords
-2. **Missing granular contact fields**: photo, headline, city/state/country, email status, employment history, phone numbers, twitter
-3. **Missing location fields**: separate `city`, `zip`, `state`, `country` columns (only has `full_address`)
-4. **Missing metadata**: `funding_events`, `data_enrichment_level`, `source`, `matching_skills`, `matching_dwas`
-5. **Discovery stores less data**: The `discover-companies/index.ts` upsert only writes ~25 fields vs EduThree's ~45+
+```text
+Phase 1: PDF Parse → AI extraction (Gemini Flash + pdfjs-serverless)
+         Extracts: title, level, weeks, hrs_per_week, outcomes[], artifacts[], schedule[]
+         Also captures: location (city, state, zip, country) as separate fields
+         Stores into: course_profiles table
 
-Additionally, EduThree captures ALL enrichment data **during discovery itself** (in `apollo-provider.ts`), so there's no need for a separate re-enrichment step.
+Phase 2: SOC Code Mapping (mapCourseToSOC)
+         Course title + outcomes → O*NET Standard Occupational Classification codes
+         Then: O*NET API → skills, DWAs, tools, technologies, tasks per occupation
+
+Phase 3: Skill Extraction (extractSkillsHybrid)
+         Primary: Lightcast Skills Extractor NLP API (industry taxonomy)
+         Fallback: SOC-based skills + 400-line pattern matching with 17 discipline mappings
+         Output: ExtractedSkill[] with confidence, category, keywords
+
+Phase 4: Apollo Discovery (apollo-provider.ts — 2,122 lines!)
+         Step 1: AI-generated search filters via Lovable AI Gateway
+         Step 2: Multi-strategy search (location → state → country → no-industry fallback)
+         Step 3: 3-stage enrichment per company:
+           a) Organization enrichment (logo, social, funding, revenue, technologies, departments)
+           b) Job postings fetch (GET /api/v1/organizations/{id}/job_postings)
+           c) Contact search (mixed_people → bulk_match)
+         Step 4: Distance calculation (Nominatim geocoding + Haversine)
+         Step 5: Context-aware industry filtering (exclude staffing firms)
+
+Phase 5: Semantic Filtering (semantic-matching-service.ts)
+         Uses Sentence-BERT embeddings (embedding-service.ts)
+         Course skills + DWAs → course embedding
+         Company sector + jobs + technologies → company embedding
+         Cosine similarity → threshold filtering
+         Adaptive retry: lowers threshold if too few pass
+         Intelligent fallback: preserves top N if all filtered out
+
+Phase 6: Signal Scoring (signals/ directory — 4 parallel signals)
+         Signal 1: Skill Match Score (technology overlap)
+         Signal 2: Market Signal Score (hiring velocity + funding)
+         Signal 3: Department Fit Score (departmental headcount alignment)
+         Signal 4: Contact Quality Score (email verified, seniority)
+         + Career Page Validation via Firecrawl (scrape /careers pages)
+         Output: composite_signal_score per company
+
+Phase 7: Project Generation (generate-projects — 1,122 lines)
+         For each company:
+           a) Intelligent signal filtering (expand keywords with synonyms)
+           b) Company validation (reject poor fits)
+           c) AI proposal generation (250-line prompt with domain-specific guidance)
+           d) LO alignment scoring
+           e) Market alignment scoring
+           f) Pricing & ROI calculation (based on company revenue, size)
+           g) Store: project + 6-form structured data (overview, academic, logistics, contact, timeline, verification)
+```
+
+### External APIs Used by EduThree
+
+| API | Purpose | Phase |
+|-----|---------|-------|
+| **Lovable AI Gateway** (Gemini Flash) | PDF parsing, filter generation, project proposals | 1, 4, 7 |
+| **O*NET Web Services** | Occupation details, skills, DWAs, technologies | 2 |
+| **Lightcast Skills Extractor** | NLP-based skill extraction from text | 3 |
+| **Apollo.io** (Organizations Search) | Company discovery | 4 |
+| **Apollo.io** (Org Enrichment) | Full company data (revenue, tech, departments) | 4 |
+| **Apollo.io** (Job Postings) | Active hiring data | 4 |
+| **Apollo.io** (People Search + Bulk Match) | Decision-maker contacts | 4 |
+| **Nominatim** (OpenStreetMap) | Geocoding for distance calculation | 4 |
+| **Sentence-BERT** (via embedding API) | Semantic similarity embeddings | 5 |
+| **Firecrawl** | Career page scraping for hiring validation | 6 |
+| **Adzuna** (fallback) | Job-based company discovery if Apollo fails | 4 |
 
 ---
 
-## Plan
+## What SyllabusStack Is MISSING vs EduThree
 
-### Phase 1: Database Migration — Add Missing Columns
+### CRITICAL GAPS (Pipeline Quality)
 
-Add ~15 missing columns to `company_profiles`:
+| # | Gap | EduThree Has | SyllabusStack Has | Impact |
+|---|-----|-------------|-------------------|--------|
+| 1 | **O*NET Integration** | Full O*NET API client with skills, DWAs, tools, technologies, tasks | None — SOC mapping is code-only with hardcoded fallbacks | Companies matched on superficial keywords, not validated occupational data |
+| 2 | **Sentence-BERT Semantic Filtering** | Full embedding service + cosine similarity + adaptive threshold | None — uses AI validation (LLM call per company) which is slower/costlier | No true semantic matching; validation is LLM-based, not embeddings |
+| 3 | **Lightcast NLP Skill Extraction** | Lightcast Skills Extractor API as primary | AI-based extraction only (Gemini prompt) | Less taxonomically accurate skills, may miss industry-standard terms |
+| 4 | **Signal Scoring System** | 4 parallel signals (skill match, market, department fit, contact quality) with composite score | BuyingIntent only (funding + hiring) — no skill match, department fit, or contact quality | Missing half the ranking intelligence |
+| 5 | **Career Page Validation** | Firecrawl scrapes company /careers pages to validate hiring | None | Can't verify Apollo hiring data against real career pages |
+| 6 | **Adzuna Fallback Provider** | Full Adzuna provider as fallback if Apollo fails | None | If Apollo returns 0, pipeline has no recovery |
+| 7 | **generation_runs Table** | Full pipeline execution tracking (status, phases, timing, credits, errors) | None — no execution audit trail | Can't debug failed discoveries, no metrics |
 
-| Column | Type | Purpose |
-|--------|------|---------|
-| `city` | text | Separate city for structured display |
-| `zip` | text | Postal code |
-| `state` | text | State/province |
-| `country` | text | Country |
-| `organization_logo_url` | text | Company logo from Apollo |
-| `organization_linkedin_url` | text | Company LinkedIn |
-| `organization_twitter_url` | text | Company Twitter |
-| `organization_facebook_url` | text | Company Facebook |
-| `organization_founded_year` | integer | Year founded |
-| `organization_employee_count` | text | Raw employee count/range |
-| `organization_industry_keywords` | text[] | Industry tag list |
-| `contact_headline` | text | Contact's headline |
-| `contact_photo_url` | text | Contact's photo |
-| `contact_city` | text | Contact's city |
-| `contact_state` | text | Contact's state |
-| `contact_country` | text | Contact's country |
-| `contact_email_status` | text | Email verification status |
-| `contact_employment_history` | jsonb | Employment history |
-| `contact_phone_numbers` | jsonb | All phone numbers |
-| `contact_twitter_url` | text | Contact's Twitter |
-| `funding_events` | jsonb | Full funding history |
-| `data_enrichment_level` | text | basic/apollo_verified/fully_enriched |
-| `source` | text | Discovery source identifier |
-| `matching_skills` | text[] | Skills that matched |
+### MODERATE GAPS (Data Completeness)
 
-### Phase 2: Update Apollo Enrichment Service
+| # | Gap | Detail |
+|---|-----|--------|
+| 8 | **Course location parsing** | EduThree captures city, state, zip, country as separate fields during upload. SyllabusStack has `search_location` but not always `location_city/state/zip` |
+| 9 | **Company inferred_needs** | EduThree generates business needs from job postings + technologies for the AI prompt. SyllabusStack doesn't synthesize needs |
+| 10 | **Data completeness scoring** | EduThree calculates data_completeness_score (0-100) from all enrichment fields. SyllabusStack has the column but doesn't populate it comprehensively |
+| 11 | **Scoring/ranking transparency** | EduThree stores scoring_notes, scoring_version, match_explanation per company. SyllabusStack has match_score but less explanation |
 
-Update `apollo-enrichment-service.ts` to capture ALL fields that EduThree's `apollo-provider.ts` captures during enrichment (lines 1937-2001):
+### MINOR GAPS (Already Partially Addressed)
 
-- Organization: `logo_url`, `linkedin_url`, `twitter_url`, `facebook_url`, `founded_year`, `industry_tag_list`, `departmental_head_count`, `funding_events`
-- Contact: `headline`, `photo_url`, `city`, `state`, `country`, `email_status`, `employment_history`, `phone_numbers`, `twitter_url`
-- Metadata: `short_description`, `seo_description`, `industries`, `keywords`
+| # | Gap | Status |
+|---|-----|--------|
+| 12 | Address fields | Just fixed (city, zip, state, country, street) |
+| 13 | Organization metadata (logo, social, founded) | Just added in Phase 1 migration |
+| 14 | Contact granular fields | Just added |
+| 15 | Funding events / revenue range | Just added |
 
-### Phase 3: Update `discover-companies/index.ts` Upsert
+---
 
-Expand the `companyData` object to write ALL new fields during upsert — matching EduThree's 45+ field storage (lines 1327-1398):
+## Recommended Implementation Plan
 
-- Separate location fields: `city`, `zip`, `state`, `country`
-- Organization details: logo, social links, founded year, industry keywords
-- Contact details: all granular contact fields from enrichment
-- Market intelligence: funding events, data enrichment level
-- Matching data: skills, DWAs
+### Phase A: O*NET Integration (Highest Impact)
 
-### Phase 4: Update Frontend Types & CompanyCard
+Add O*NET Web Services API client to `_shared/capstone/onet-service.ts`:
+- `getOccupationDetails(socCode)` → skills, DWAs, tools, technologies, tasks
+- Requires free O*NET API key (no cost)
+- Wire into `discover-companies/index.ts` Phase 2 after SOC mapping
+- Store results in a new `onet_occupations` column on a `capstone_generation_runs` table
 
-1. Update `CompanyProfile` interface in `useCapstoneProjects.ts` to include all new fields
-2. Enhance `CompanyCard.tsx` to display:
-   - Company logo (if available)
-   - Social links (LinkedIn, Twitter, Facebook icons)
-   - Founded year
-   - Contact photo + headline
-   - Structured address (city, state, zip)
-   - Data enrichment level badge
-   - Industry keywords
+### Phase B: Semantic Filtering via Embeddings
 
-### Phase 5: Update Project Generation
+Add `_shared/capstone/embedding-service.ts`:
+- Use Lovable AI Gateway with an embedding-capable model (or a dedicated embedding endpoint)
+- OR use a simpler TF-IDF / keyword overlap scoring as a lighter alternative
+- Add `semantic-matching-service.ts` with cosine similarity + adaptive threshold
+- Insert between company discovery and ranking in the pipeline
 
-Ensure `generate-capstone-projects/index.ts` passes ALL enriched company data to the AI prompt (matching EduThree's `generation-service.ts`):
-- Company `industries` and `keywords` for context
-- `buying_intent_signals` for market intelligence
-- `funding_events` for growth stage context
-- `organization_employee_count` and `organization_revenue_range` for company sizing
+### Phase C: Signal Scoring System
+
+Port EduThree's 4-signal scoring to `_shared/capstone/signals/`:
+- Signal 1: Skill Match (O*NET skills vs company technologies/jobs)
+- Signal 2: Market Signal (funding + hiring velocity) — partially exists
+- Signal 3: Department Fit (departmental headcount vs course domain)
+- Signal 4: Contact Quality (email status, seniority, title relevance)
+- Store `composite_signal_score`, `signal_data` on company_profiles
+
+### Phase D: Generation Runs Audit Trail
+
+Create `capstone_generation_runs` table:
+- Track: course_id, status, phases completed, timing, credits used, error details
+- Enable pipeline debugging and metrics
+- Add `generation_run_id` FK on company_profiles
+
+### Phase E: Fallback & Validation Enhancements
+
+- Add Adzuna as fallback provider (requires ADZUNA_APP_ID + ADZUNA_APP_KEY)
+- Add Firecrawl career page validation (already have FIRECRAWL_API_KEY)
+- Add company `inferred_needs` synthesis from job postings + technologies
+
+### Not Recommended to Port
+
+- Lightcast API (requires paid API key, AI extraction is adequate)
+- Sentence-BERT external service (can use simpler keyword overlap or AI gateway embeddings)
 
 ---
 
 ## Technical Notes
 
-- Database migration adds ~24 nullable columns — no impact on existing data
-- The enrichment service changes extend existing interfaces, not breaking changes
-- The `discover-companies` upsert expansion writes more data per company but doesn't change the pipeline flow
-- Frontend changes are additive — cards show more data when available, gracefully degrade when not
+- O*NET Web Services is free with registration — no API cost
+- The signal scoring system is the biggest quality differentiator after O*NET
+- Semantic filtering can be approximated with TF-IDF keyword overlap instead of BERT embeddings
+- The generation_runs audit table is critical for debugging and should be Phase D
+- All changes are additive — no breaking changes to existing pipeline
 
