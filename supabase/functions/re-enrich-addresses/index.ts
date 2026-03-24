@@ -1,55 +1,15 @@
 /**
  * Re-Enrich Addresses Edge Function
- * Calls Apollo Organization Enrich API for existing companies to update their full_address.
+ * Calls Apollo Organization Enrich API + Contact Search for existing companies.
+ * Updates ALL enrichment fields (not just address).
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2.49.1";
 import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
 import { withErrorHandling, createErrorResponse, createSuccessResponse } from "../_shared/error-handler.ts";
-
-const APOLLO_API_BASE = 'https://api.apollo.io';
-
-async function enrichAddress(domain: string, apiKey: string): Promise<{
-  street_address?: string;
-  city?: string;
-  state?: string;
-  postal_code?: string;
-  country?: string;
-} | null> {
-  try {
-    const cleanDomain = domain.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 20000);
-
-    const response = await fetch(`${APOLLO_API_BASE}/v1/organizations/enrich`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Api-Key': apiKey,
-        'Cache-Control': 'no-cache',
-      },
-      body: JSON.stringify({ domain: cleanDomain }),
-      signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
-
-    if (!response.ok) return null;
-
-    const data = await response.json();
-    const org = data?.organization;
-    if (!org) return null;
-
-    return {
-      street_address: org.street_address || undefined,
-      city: org.city || undefined,
-      state: org.state || undefined,
-      postal_code: org.postal_code || undefined,
-      country: org.country || undefined,
-    };
-  } catch {
-    return null;
-  }
-}
+import { enrichCompanyFull } from "../_shared/capstone/apollo-enrichment-service.ts";
+import { classifyCourseDomain } from "../_shared/capstone/context-aware-industry-filter.ts";
+import { mapCourseToSOC } from "../_shared/capstone/course-soc-mapping.ts";
 
 const handler = async (req: Request): Promise<Response> => {
   const corsHeaders = getCorsHeaders(req);
@@ -61,7 +21,6 @@ const handler = async (req: Request): Promise<Response> => {
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
   );
 
-  // Auth
   const authHeader = req.headers.get('Authorization');
   if (!authHeader) return createErrorResponse('UNAUTHORIZED', corsHeaders);
 
@@ -83,7 +42,23 @@ const handler = async (req: Request): Promise<Response> => {
     return createErrorResponse('CONFIG_ERROR', corsHeaders, 'Apollo API key not configured');
   }
 
-  // Fetch companies with incomplete addresses
+  // Get course info for domain classification
+  const { data: course } = await supabase
+    .from('instructor_courses')
+    .select('title, academic_level')
+    .eq('id', instructor_course_id)
+    .single();
+
+  const { data: los } = await supabase
+    .from('learning_objectives')
+    .select('text, bloom_level')
+    .eq('instructor_course_id', instructor_course_id);
+
+  const objectiveTexts = (los || []).map((lo: any) => lo.text).filter(Boolean);
+  const socMappings = course ? mapCourseToSOC(course.title, objectiveTexts, course.academic_level || '') : [];
+  const courseDomain = classifyCourseDomain(socMappings).domain;
+
+  // Fetch companies
   const { data: companies, error } = await supabase
     .from('company_profiles')
     .select('id, name, website, apollo_organization_id, full_address')
@@ -94,49 +69,106 @@ const handler = async (req: Request): Promise<Response> => {
     return createErrorResponse('INTERNAL_ERROR', corsHeaders, error?.message);
   }
 
-  console.log(`Re-enriching addresses for ${companies.length} companies...`);
+  console.log(`Re-enriching ${companies.length} companies with full EduThree-level data...`);
 
   let updated = 0;
-  const results: Array<{ name: string; old: string | null; new: string | null }> = [];
 
   for (const company of companies) {
+    const orgId = company.apollo_organization_id;
     const domain = company.website;
     if (!domain) continue;
 
-    const addr = await enrichAddress(domain, APOLLO_API_KEY);
-    if (!addr || (!addr.street_address && !addr.city)) {
-      results.push({ name: company.name, old: company.full_address, new: null });
-      continue;
-    }
+    try {
+      const enrichData = orgId
+        ? await enrichCompanyFull(orgId, domain, courseDomain, APOLLO_API_KEY)
+        : null;
 
-    const fullAddress = [addr.street_address, addr.city, addr.state, addr.postal_code]
-      .filter(Boolean)
-      .join(', ');
+      if (!enrichData?.enrichment) continue;
 
-    if (fullAddress && fullAddress !== company.full_address) {
+      const enrich = enrichData.enrichment;
+      const contact = enrichData.contact;
+      const fullAddress = [enrich.streetAddress, enrich.city, enrich.state, enrich.postalCode]
+        .filter(Boolean).join(', ');
+
+      const updateData: Record<string, unknown> = {
+        full_address: fullAddress || company.full_address,
+        city: enrich.city || null,
+        state: enrich.state || null,
+        zip: enrich.postalCode || null,
+        country: enrich.country || null,
+        description: enrich.shortDescription || undefined,
+        seo_description: enrich.seoDescription || null,
+        organization_logo_url: enrich.logoUrl || null,
+        organization_linkedin_url: enrich.linkedinUrl || null,
+        organization_twitter_url: enrich.twitterUrl || null,
+        organization_facebook_url: enrich.facebookUrl || null,
+        organization_founded_year: enrich.foundedYear || null,
+        organization_industry_keywords: enrich.industryKeywords?.length ? enrich.industryKeywords : null,
+        organization_revenue_range: enrich.revenueRange || null,
+        employee_count: enrich.employeeCount ? enrich.employeeCount.toString() : undefined,
+        technologies_used: enrich.technologies?.length ? enrich.technologies : undefined,
+        industries: enrich.industries?.length ? enrich.industries.slice(0, 10) : undefined,
+        funding_stage: enrich.fundingStage || undefined,
+        funding_events: enrich.fundingEvents?.length ? enrich.fundingEvents : null,
+        departmental_head_count: enrich.departmentalHeadCount || null,
+        buying_intent_signals: enrichData.buyingIntent || null,
+        job_postings: enrichData.jobPostings?.length
+          ? enrichData.jobPostings.slice(0, 10).map((jp: any) => ({
+              title: jp.title, location: jp.location,
+              posted_date: jp.posted_at, description: jp.description?.substring(0, 200),
+            }))
+          : undefined,
+        data_completeness_score: enrichData.completenessScore,
+        last_enriched_at: new Date().toISOString(),
+        data_enrichment_level: 'apollo_verified',
+      };
+
+      // Contact fields
+      if (contact) {
+        Object.assign(updateData, {
+          contact_first_name: contact.firstName || null,
+          contact_last_name: contact.lastName || null,
+          contact_email: contact.email || null,
+          contact_title: contact.title || null,
+          contact_phone: contact.phone || null,
+          contact_person: `${contact.firstName} ${contact.lastName}`.trim() || null,
+          contact_headline: contact.headline || null,
+          contact_photo_url: contact.photoUrl || null,
+          contact_city: contact.city || null,
+          contact_state: contact.state || null,
+          contact_country: contact.country || null,
+          contact_email_status: contact.emailStatus || null,
+          contact_twitter_url: contact.twitterUrl || null,
+          contact_phone_numbers: contact.phoneNumbers?.length ? contact.phoneNumbers : null,
+          contact_employment_history: contact.employmentHistory?.length ? contact.employmentHistory : null,
+          linkedin_profile: contact.linkedinUrl || enrich.linkedinUrl || null,
+        });
+      }
+
+      // Remove undefined values
+      const cleanData = Object.fromEntries(
+        Object.entries(updateData).filter(([, v]) => v !== undefined)
+      );
+
       const { error: updateError } = await supabase
         .from('company_profiles')
-        .update({ full_address: fullAddress })
+        .update(cleanData)
         .eq('id', company.id);
 
       if (!updateError) {
         updated++;
-        console.log(`  ✅ ${company.name}: ${fullAddress}`);
-        results.push({ name: company.name, old: company.full_address, new: fullAddress });
+        console.log(`  ✅ ${company.name}: ${fullAddress || 'enriched'}`);
       }
+    } catch (e) {
+      console.warn(`  ⚠️ Failed: ${company.name}:`, e);
     }
 
-    // Brief delay to avoid rate limiting
-    await new Promise(r => setTimeout(r, 200));
+    await new Promise(r => setTimeout(r, 300));
   }
 
-  console.log(`Re-enrichment complete: ${updated}/${companies.length} addresses updated`);
+  console.log(`Re-enrichment complete: ${updated}/${companies.length} companies updated`);
 
-  return createSuccessResponse({
-    total: companies.length,
-    updated,
-    results,
-  }, corsHeaders);
+  return createSuccessResponse({ total: companies.length, updated }, corsHeaders);
 };
 
 Deno.serve(withErrorHandling(handler, getCorsHeaders));
