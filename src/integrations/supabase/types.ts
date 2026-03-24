@@ -982,19 +982,32 @@ export type Database = {
         Row: {
           apollo_organization_id: string | null
           buying_intent_signals: Json | null
+          city: string | null
+          contact_city: string | null
+          contact_country: string | null
           contact_email: string | null
+          contact_email_status: string | null
+          contact_employment_history: Json | null
           contact_first_name: string | null
+          contact_headline: string | null
           contact_last_name: string | null
           contact_person: string | null
           contact_phone: string | null
+          contact_phone_numbers: Json | null
+          contact_photo_url: string | null
+          contact_state: string | null
           contact_title: string | null
+          contact_twitter_url: string | null
+          country: string | null
           created_at: string
           data_completeness_score: number | null
+          data_enrichment_level: string | null
           departmental_head_count: Json | null
           description: string | null
           discovery_source: string | null
           employee_count: string | null
           full_address: string | null
+          funding_events: Json | null
           funding_stage: string | null
           id: string
           industries: string[] | null
@@ -1006,34 +1019,56 @@ export type Database = {
           match_confidence: string | null
           match_reason: string | null
           match_score: number | null
+          matching_skills: string[] | null
           name: string
+          organization_facebook_url: string | null
+          organization_founded_year: number | null
+          organization_industry_keywords: string[] | null
+          organization_linkedin_url: string | null
+          organization_logo_url: string | null
           organization_revenue_range: string | null
+          organization_twitter_url: string | null
           revenue_range: string | null
           sector: string | null
           seo_description: string | null
           similarity_score: number | null
           size: string | null
+          state: string | null
           technologies_used: string[] | null
           total_funding_usd: number | null
           updated_at: string
           website: string | null
+          zip: string | null
         }
         Insert: {
           apollo_organization_id?: string | null
           buying_intent_signals?: Json | null
+          city?: string | null
+          contact_city?: string | null
+          contact_country?: string | null
           contact_email?: string | null
+          contact_email_status?: string | null
+          contact_employment_history?: Json | null
           contact_first_name?: string | null
+          contact_headline?: string | null
           contact_last_name?: string | null
           contact_person?: string | null
           contact_phone?: string | null
+          contact_phone_numbers?: Json | null
+          contact_photo_url?: string | null
+          contact_state?: string | null
           contact_title?: string | null
+          contact_twitter_url?: string | null
+          country?: string | null
           created_at?: string
           data_completeness_score?: number | null
+          data_enrichment_level?: string | null
           departmental_head_count?: Json | null
           description?: string | null
           discovery_source?: string | null
           employee_count?: string | null
           full_address?: string | null
+          funding_events?: Json | null
           funding_stage?: string | null
           id?: string
           industries?: string[] | null
@@ -1045,34 +1080,56 @@ export type Database = {
           match_confidence?: string | null
           match_reason?: string | null
           match_score?: number | null
+          matching_skills?: string[] | null
           name: string
+          organization_facebook_url?: string | null
+          organization_founded_year?: number | null
+          organization_industry_keywords?: string[] | null
+          organization_linkedin_url?: string | null
+          organization_logo_url?: string | null
           organization_revenue_range?: string | null
+          organization_twitter_url?: string | null
           revenue_range?: string | null
           sector?: string | null
           seo_description?: string | null
           similarity_score?: number | null
           size?: string | null
+          state?: string | null
           technologies_used?: string[] | null
           total_funding_usd?: number | null
           updated_at?: string
           website?: string | null
+          zip?: string | null
         }
         Update: {
           apollo_organization_id?: string | null
           buying_intent_signals?: Json | null
+          city?: string | null
+          contact_city?: string | null
+          contact_country?: string | null
           contact_email?: string | null
+          contact_email_status?: string | null
+          contact_employment_history?: Json | null
           contact_first_name?: string | null
+          contact_headline?: string | null
           contact_last_name?: string | null
           contact_person?: string | null
           contact_phone?: string | null
+          contact_phone_numbers?: Json | null
+          contact_photo_url?: string | null
+          contact_state?: string | null
           contact_title?: string | null
+          contact_twitter_url?: string | null
+          country?: string | null
           created_at?: string
           data_completeness_score?: number | null
+          data_enrichment_level?: string | null
           departmental_head_count?: Json | null
           description?: string | null
           discovery_source?: string | null
           employee_count?: string | null
           full_address?: string | null
+          funding_events?: Json | null
           funding_stage?: string | null
           id?: string
           industries?: string[] | null
@@ -1084,17 +1141,26 @@ export type Database = {
           match_confidence?: string | null
           match_reason?: string | null
           match_score?: number | null
+          matching_skills?: string[] | null
           name?: string
+          organization_facebook_url?: string | null
+          organization_founded_year?: number | null
+          organization_industry_keywords?: string[] | null
+          organization_linkedin_url?: string | null
+          organization_logo_url?: string | null
           organization_revenue_range?: string | null
+          organization_twitter_url?: string | null
           revenue_range?: string | null
           sector?: string | null
           seo_description?: string | null
           similarity_score?: number | null
           size?: string | null
+          state?: string | null
           technologies_used?: string[] | null
           total_funding_usd?: number | null
           updated_at?: string
           website?: string | null
+          zip?: string | null
         }
         Relationships: [
           {
