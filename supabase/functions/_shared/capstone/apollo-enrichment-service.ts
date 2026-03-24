@@ -375,14 +375,7 @@ export async function findBestContact(
     const partialContact = people[0];
     if (partialContact && (partialContact.first_name || partialContact.title)) {
       console.log(`  [Enrich] Found partial contact via strategy ${i + 1} (api_search only): ${partialContact.first_name} ${partialContact.last_name} (${partialContact.title})`);
-      return {
-        firstName: partialContact.first_name || '',
-        lastName: partialContact.last_name || '',
-        email: '', // api_search doesn't return emails
-        title: partialContact.title || '',
-        phone: '',
-        linkedinUrl: partialContact.linkedin_url || '',
-      };
+      return buildContactResult(partialContact);
     }
 
     await sleep(100); // Brief pause between strategies
