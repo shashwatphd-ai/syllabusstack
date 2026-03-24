@@ -1,167 +1,126 @@
 
 
-# EduThree vs SyllabusStack: Comprehensive Gap Analysis
+# EduThree Action Map by User Role → SyllabusStack Gap Analysis
 
-## How EduThree's Pipeline Works (End-to-End)
+## Complete User Journey Mapping
 
-When a professor uploads a syllabus in EduThree, a **7-phase pipeline** executes:
+### ROLE 1: FACULTY / INSTRUCTOR
 
 ```text
-Phase 1: PDF Parse → AI extraction (Gemini Flash + pdfjs-serverless)
-         Extracts: title, level, weeks, hrs_per_week, outcomes[], artifacts[], schedule[]
-         Also captures: location (city, state, zip, country) as separate fields
-         Stores into: course_profiles table
-
-Phase 2: SOC Code Mapping (mapCourseToSOC)
-         Course title + outcomes → O*NET Standard Occupational Classification codes
-         Then: O*NET API → skills, DWAs, tools, technologies, tasks per occupation
-
-Phase 3: Skill Extraction (extractSkillsHybrid)
-         Primary: Lightcast Skills Extractor NLP API (industry taxonomy)
-         Fallback: SOC-based skills + 400-line pattern matching with 17 discipline mappings
-         Output: ExtractedSkill[] with confidence, category, keywords
-
-Phase 4: Apollo Discovery (apollo-provider.ts — 2,122 lines!)
-         Step 1: AI-generated search filters via Lovable AI Gateway
-         Step 2: Multi-strategy search (location → state → country → no-industry fallback)
-         Step 3: 3-stage enrichment per company:
-           a) Organization enrichment (logo, social, funding, revenue, technologies, departments)
-           b) Job postings fetch (GET /api/v1/organizations/{id}/job_postings)
-           c) Contact search (mixed_people → bulk_match)
-         Step 4: Distance calculation (Nominatim geocoding + Haversine)
-         Step 5: Context-aware industry filtering (exclude staffing firms)
-
-Phase 5: Semantic Filtering (semantic-matching-service.ts)
-         Uses Sentence-BERT embeddings (embedding-service.ts)
-         Course skills + DWAs → course embedding
-         Company sector + jobs + technologies → company embedding
-         Cosine similarity → threshold filtering
-         Adaptive retry: lowers threshold if too few pass
-         Intelligent fallback: preserves top N if all filtered out
-
-Phase 6: Signal Scoring (signals/ directory — 4 parallel signals)
-         Signal 1: Skill Match Score (technology overlap)
-         Signal 2: Market Signal Score (hiring velocity + funding)
-         Signal 3: Department Fit Score (departmental headcount alignment)
-         Signal 4: Contact Quality Score (email verified, seniority)
-         + Career Page Validation via Firecrawl (scrape /careers pages)
-         Output: composite_signal_score per company
-
-Phase 7: Project Generation (generate-projects — 1,122 lines)
-         For each company:
-           a) Intelligent signal filtering (expand keywords with synonyms)
-           b) Company validation (reject poor fits)
-           c) AI proposal generation (250-line prompt with domain-specific guidance)
-           d) LO alignment scoring
-           e) Market alignment scoring
-           f) Pricing & ROI calculation (based on company revenue, size)
-           g) Store: project + 6-form structured data (overview, academic, logistics, contact, timeline, verification)
+EduThree Flow:
+  Landing → Auth → Upload → ReviewSyllabus → Configure → Projects → ProjectDetail
+                     ↓
+              InstructorDashboard (SyllabusManagement)
 ```
 
-### External APIs Used by EduThree
+| # | EduThree Action | EduThree Page/Component | SyllabusStack Equivalent | Status |
+|---|----------------|------------------------|--------------------------|--------|
+| F1 | Sign up / Sign in | `/auth` | `/auth` | DONE |
+| F2 | View dashboard with all syllabi | `/dashboard` → `InstructorDashboard` | `/teach` (TeachPage) | DONE |
+| F3 | Upload syllabus PDF + auto-detect location from email | `/upload` (Upload.tsx) | `/instructor/quick-setup` (file upload to process-syllabus) | PARTIAL — no location auto-detection from email |
+| F4 | Review parsed syllabus (title, outcomes, artifacts, schedule) | `/review-syllabus` (ReviewSyllabus.tsx + SyllabusReview component) | No equivalent — goes straight from upload to course detail | MISSING |
+| F5 | Configure generation (industries, companies, num teams) + auto-generate option | `/configure` (Configure.tsx) | Capstone tab "Discover Companies" button — no configuration UI | MISSING |
+| F6 | Monitor generation progress (polling, realtime status) | `/configure` polling UI + progress bar | Inline loading spinner only | PARTIAL |
+| F7 | Browse all generated projects with quality grades (A+/A/B/C) | `/projects` (Projects.tsx) with pagination, course filter, quality borders | `CapstoneProjectsTab` — basic card list | PARTIAL |
+| F8 | View project detail (14 tabs: Overview, Premium Insights, Discovery Quality, Value Analysis, Market Intelligence, Contact, Timeline, Logistics, Academic, LO Alignment, Feedback, Verification, Scoring, Algorithm) | `/projects/:id` (ProjectDetail.tsx) | No project detail page — only CompanyCard inline | MISSING |
+| F9 | Rate/review a project (faculty feedback + tags) | ProjectFeedbackDialog in Projects.tsx | No feedback mechanism | MISSING |
+| F10 | Download syllabus as PDF | `downloadCoursePdf()` on Projects page | No download | MISSING |
+| F11 | Print project view | PrintableProjectView in ProjectDetail | No print | MISSING |
+| F12 | Manage syllabus list (view courses, re-generate, delete) | SyllabusManagement component on InstructorDashboard | InstructorCourses page — manages courses but not capstone pipeline | PARTIAL |
+| F13 | Propose partnership from project detail | ProposePartnershipDialog | No equivalent | MISSING |
 
-| API | Purpose | Phase |
-|-----|---------|-------|
-| **Lovable AI Gateway** (Gemini Flash) | PDF parsing, filter generation, project proposals | 1, 4, 7 |
-| **O*NET Web Services** | Occupation details, skills, DWAs, technologies | 2 |
-| **Lightcast Skills Extractor** | NLP-based skill extraction from text | 3 |
-| **Apollo.io** (Organizations Search) | Company discovery | 4 |
-| **Apollo.io** (Org Enrichment) | Full company data (revenue, tech, departments) | 4 |
-| **Apollo.io** (Job Postings) | Active hiring data | 4 |
-| **Apollo.io** (People Search + Bulk Match) | Decision-maker contacts | 4 |
-| **Nominatim** (OpenStreetMap) | Geocoding for distance calculation | 4 |
-| **Sentence-BERT** (via embedding API) | Semantic similarity embeddings | 5 |
-| **Firecrawl** | Career page scraping for hiring validation | 6 |
-| **Adzuna** (fallback) | Job-based company discovery if Apollo fails | 4 |
+### ROLE 2: STUDENT
+
+| # | EduThree Action | EduThree Page/Component | SyllabusStack Equivalent | Status |
+|---|----------------|------------------------|--------------------------|--------|
+| S1 | View student dashboard (metrics: applications, approved, job matches, skills) | `/dashboard` → `StudentDashboard` | `/dashboard` — has student widgets but no capstone metrics | PARTIAL |
+| S2 | Browse available projects | `/projects` (student view with "Apply Now" buttons) | No student-facing project browse | MISSING |
+| S3 | Apply to a project | `handleApplyToProject()` in Projects.tsx → `project_applications` table | No application system | MISSING |
+| S4 | View "My Opportunities" — job matches from Apollo | `/my-opportunities` (MyOpportunities.tsx) — `job_matches` table | No job matching | MISSING |
+| S5 | View "My Competencies" — verified skills with employer ratings | `/my-competencies` (MyCompetencies.tsx) — `verified_competencies` table | No competency tracking | MISSING |
+| S6 | Export portfolio as PDF | `portfolio-export` edge function | No portfolio export | MISSING |
+| S7 | View recommended projects (AI-based) | RecommendedProjects component on StudentDashboard | No recommendations | MISSING |
+| S8 | Realtime updates on application status changes | useStudentRealtime hook | No realtime for students | MISSING |
+
+### ROLE 3: EMPLOYER
+
+| # | EduThree Action | EduThree Page/Component | SyllabusStack Equivalent | Status |
+|---|----------------|------------------------|--------------------------|--------|
+| E1 | View employer dashboard with company profile | `/employer/dashboard` (EmployerDashboard.tsx) | `/employer` (EmployerDashboard) | DONE |
+| E2 | View projects linked to their company | ProjectCard list in EmployerDashboard | Employer portal exists but limited | PARTIAL |
+| E3 | See student applicants for their projects | ApplicationCard list in EmployerDashboard | No student applications | MISSING |
+| E4 | Rate students (StudentRatingDialog) | Rate button → `StudentRatingDialog` | No student rating | MISSING |
+| E5 | Submit interest / propose partnership | DemandBoard / EmployerCTAModal | Employer signup exists but no interest submission | PARTIAL |
+| E6 | Realtime updates on new applications | useEmployerRealtime hook | No realtime | MISSING |
+
+### ROLE 4: ADMIN
+
+| # | EduThree Action | EduThree Page/Component | SyllabusStack Equivalent | Status |
+|---|----------------|------------------------|--------------------------|--------|
+| A1 | View all AI project shells with signal scores | AdminHub → "AI Project Shells" tab | `/admin` AdminDashboard — has course/user management but not project shells | PARTIAL |
+| A2 | View employer interest submissions | AdminHub → "Employer Leads" tab | No employer lead management | MISSING |
+| A3 | Match employer leads to AI project shells | `sync-project-match` edge function via modal | No matching system | MISSING |
+| A4 | Approve pending faculty requests | AdminHub → "Pending Faculty" tab | `/admin/instructor-review` (InstructorReviewQueue) | DONE |
+| A5 | View analytics (ProjectAnalytics component) | AdminHub → "Analytics" tab | `/admin` has basic metrics | PARTIAL |
+| A6 | Role management | `/admin-hub/roles` (RoleManagement.tsx) | `/admin/roles` (RoleManagementPage) | DONE |
+| A7 | View metrics dashboard | `/admin-hub/metrics` (AdminMetrics.tsx) | No dedicated metrics page | MISSING |
+| A8 | Import universities | `/admin-hub/import-universities` | No equivalent | MISSING |
+| A9 | Test dashboard | `/admin-hub/tests` | No equivalent | MISSING |
+
+### CROSS-CUTTING FEATURES
+
+| # | EduThree Feature | SyllabusStack Status |
+|---|-----------------|---------------------|
+| X1 | Realtime notifications (RealtimeNotificationListener + NotificationProvider) | No notification system for capstone events |
+| X2 | Demand Board — public view of hiring signals | No demand board |
+| X3 | Company Hiring Badge (CompanyHiringBadge) on project cards | No hiring badges |
+| X4 | Live Demand Badge (LiveDemandBadge) — premium feature | No demand signals |
+| X5 | Lazy-loaded routes with code splitting | Already implemented |
+| X6 | Error boundaries per route | Already implemented |
 
 ---
 
-## What SyllabusStack Is MISSING vs EduThree
+## Implementation Plan (Prioritized)
 
-### CRITICAL GAPS (Pipeline Quality)
+### Phase 1: Core Faculty Pipeline UX (Highest Impact)
 
-| # | Gap | EduThree Has | SyllabusStack Has | Impact |
-|---|-----|-------------|-------------------|--------|
-| 1 | **O*NET Integration** | Full O*NET API client with skills, DWAs, tools, technologies, tasks | None — SOC mapping is code-only with hardcoded fallbacks | Companies matched on superficial keywords, not validated occupational data |
-| 2 | **Sentence-BERT Semantic Filtering** | Full embedding service + cosine similarity + adaptive threshold | None — uses AI validation (LLM call per company) which is slower/costlier | No true semantic matching; validation is LLM-based, not embeddings |
-| 3 | **Lightcast NLP Skill Extraction** | Lightcast Skills Extractor API as primary | AI-based extraction only (Gemini prompt) | Less taxonomically accurate skills, may miss industry-standard terms |
-| 4 | **Signal Scoring System** | 4 parallel signals (skill match, market, department fit, contact quality) with composite score | BuyingIntent only (funding + hiring) — no skill match, department fit, or contact quality | Missing half the ranking intelligence |
-| 5 | **Career Page Validation** | Firecrawl scrapes company /careers pages to validate hiring | None | Can't verify Apollo hiring data against real career pages |
-| 6 | **Adzuna Fallback Provider** | Full Adzuna provider as fallback if Apollo fails | None | If Apollo returns 0, pipeline has no recovery |
-| 7 | **generation_runs Table** | Full pipeline execution tracking (status, phases, timing, credits, errors) | None — no execution audit trail | Can't debug failed discoveries, no metrics |
+**Goal**: Give instructors the same Upload → Review → Configure → Generate → Browse → Detail flow.
 
-### MODERATE GAPS (Data Completeness)
+1. **Create `/instructor/courses/:id/review` page** — Show parsed syllabus data (title, outcomes, schedule) with edit capability before generation, matching EduThree's ReviewSyllabus
+2. **Create Configure modal/page for capstone generation** — Before discovery, let instructor set: target industries, target companies, number of projects, max distance. Wire into discover-companies
+3. **Create Project Detail page** (`/instructor/courses/:courseId/project/:companyId`) — Tabbed view with: Overview, Contact, Market Intelligence, LO Alignment, Timeline, Scoring. Pull from company_profiles + capstone_projects
+4. **Add generation progress UI** — Polling-based progress indicator during discover+generate pipeline (replace simple spinner)
+5. **Add quality grading to company cards** — A+/A/B/C badges based on composite_signal_score thresholds
 
-| # | Gap | Detail |
-|---|-----|--------|
-| 8 | **Course location parsing** | EduThree captures city, state, zip, country as separate fields during upload. SyllabusStack has `search_location` but not always `location_city/state/zip` |
-| 9 | **Company inferred_needs** | EduThree generates business needs from job postings + technologies for the AI prompt. SyllabusStack doesn't synthesize needs |
-| 10 | **Data completeness scoring** | EduThree calculates data_completeness_score (0-100) from all enrichment fields. SyllabusStack has the column but doesn't populate it comprehensively |
-| 11 | **Scoring/ranking transparency** | EduThree stores scoring_notes, scoring_version, match_explanation per company. SyllabusStack has match_score but less explanation |
+### Phase 2: Student Capstone Experience
 
-### MINOR GAPS (Already Partially Addressed)
+6. **Create student project browse page** — Students see published capstone projects and can apply
+7. **Add project application system** — `capstone_applications` table + apply button + status tracking
+8. **Add student capstone dashboard widgets** — Applications count, approved projects, available projects
 
-| # | Gap | Status |
-|---|-----|--------|
-| 12 | Address fields | Just fixed (city, zip, state, country, street) |
-| 13 | Organization metadata (logo, social, founded) | Just added in Phase 1 migration |
-| 14 | Contact granular fields | Just added |
-| 15 | Funding events / revenue range | Just added |
+### Phase 3: Employer Engagement
 
----
+9. **Add employer interest submission form** — Companies can propose project partnerships
+10. **Add student applicant view for employers** — See who applied to their linked projects
+11. **Add student rating system** — Employers rate students post-project
 
-## Recommended Implementation Plan
+### Phase 4: Admin Capstone Management
 
-### Phase A: O*NET Integration (Highest Impact)
+12. **Add capstone project shells view to admin** — See all generated projects across courses with signal scores
+13. **Add employer lead matching** — Match incoming employer interest to AI-generated project shells
 
-Add O*NET Web Services API client to `_shared/capstone/onet-service.ts`:
-- `getOccupationDetails(socCode)` → skills, DWAs, tools, technologies, tasks
-- Requires free O*NET API key (no cost)
-- Wire into `discover-companies/index.ts` Phase 2 after SOC mapping
-- Store results in a new `onet_occupations` column on a `capstone_generation_runs` table
+### Phase 5: Polish
 
-### Phase B: Semantic Filtering via Embeddings
-
-Add `_shared/capstone/embedding-service.ts`:
-- Use Lovable AI Gateway with an embedding-capable model (or a dedicated embedding endpoint)
-- OR use a simpler TF-IDF / keyword overlap scoring as a lighter alternative
-- Add `semantic-matching-service.ts` with cosine similarity + adaptive threshold
-- Insert between company discovery and ranking in the pipeline
-
-### Phase C: Signal Scoring System
-
-Port EduThree's 4-signal scoring to `_shared/capstone/signals/`:
-- Signal 1: Skill Match (O*NET skills vs company technologies/jobs)
-- Signal 2: Market Signal (funding + hiring velocity) — partially exists
-- Signal 3: Department Fit (departmental headcount vs course domain)
-- Signal 4: Contact Quality (email status, seniority, title relevance)
-- Store `composite_signal_score`, `signal_data` on company_profiles
-
-### Phase D: Generation Runs Audit Trail
-
-Create `capstone_generation_runs` table:
-- Track: course_id, status, phases completed, timing, credits used, error details
-- Enable pipeline debugging and metrics
-- Add `generation_run_id` FK on company_profiles
-
-### Phase E: Fallback & Validation Enhancements
-
-- Add Adzuna as fallback provider (requires ADZUNA_APP_ID + ADZUNA_APP_KEY)
-- Add Firecrawl career page validation (already have FIRECRAWL_API_KEY)
-- Add company `inferred_needs` synthesis from job postings + technologies
-
-### Not Recommended to Port
-
-- Lightcast API (requires paid API key, AI extraction is adequate)
-- Sentence-BERT external service (can use simpler keyword overlap or AI gateway embeddings)
+14. **Add project PDF download/print** — PrintableProjectView for capstone projects
+15. **Add realtime notifications** — Pipeline completion, application status changes
+16. **Add Company Hiring Badge** — Show active job posting count on company cards
 
 ---
 
 ## Technical Notes
 
-- O*NET Web Services is free with registration — no API cost
-- The signal scoring system is the biggest quality differentiator after O*NET
-- Semantic filtering can be approximated with TF-IDF keyword overlap instead of BERT embeddings
-- The generation_runs audit table is critical for debugging and should be Phase D
-- All changes are additive — no breaking changes to existing pipeline
+- Phase 1 is the critical UX gap — faculty currently have no visibility into what happens between "Discover Companies" and seeing results
+- The project detail page is the single biggest missing piece — EduThree has 14 tabs of intelligence per project; SyllabusStack shows a card
+- Student and employer features (Phases 2-3) require new database tables: `capstone_applications`, `employer_interest_submissions`, `verified_competencies`
+- All phases are additive — no breaking changes to existing instructor course management flow
 
