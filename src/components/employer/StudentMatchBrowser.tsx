@@ -60,7 +60,7 @@ export default function StudentMatchBrowser({ employerAccountId }: StudentMatchB
 
       const nameMap = new Map((profiles || []).map(p => [p.id, p.full_name]));
 
-      return jobMatches.map(m => ({
+      return (jobMatches as any[]).map((m: any) => ({
         student_id: m.student_id,
         student_name: nameMap.get(m.student_id) || 'Student',
         match_score: m.match_score,
