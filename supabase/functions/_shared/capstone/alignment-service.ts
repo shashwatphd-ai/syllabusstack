@@ -49,7 +49,7 @@ Return ONLY a JSON object with:
     const result = await generateText({
       prompt,
       systemPrompt: 'You are a learning outcomes assessment expert. Return only valid JSON.',
-      options: { model: MODELS.FAST, temperature: 0.3 },
+      model: MODELS.FAST, temperature: 0.3,
     });
 
     const jsonMatch = result.content.match(/\{[\s\S]*\}/);
