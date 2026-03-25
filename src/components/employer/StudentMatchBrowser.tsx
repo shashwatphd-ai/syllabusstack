@@ -52,7 +52,7 @@ export default function StudentMatchBrowser({ employerAccountId }: StudentMatchB
       if (!jobMatches?.length) return [];
 
       // Fetch student names
-      const studentIds = [...new Set(jobMatches.map(m => m.student_id))];
+      const studentIds = [...new Set((jobMatches as any[]).map((m: any) => m.student_id))];
       const { data: profiles } = await supabase
         .from('profiles')
         .select('id, full_name')
