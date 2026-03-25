@@ -329,9 +329,9 @@ const handler = async (req: Request): Promise<Response> => {
             await supabase.from('job_matches').insert({
               student_id: targetStudentId,
               job_title: posting.title,
-              company_name: match.company_name,
-              company_profile_id: match.company_profile_id,
-              match_score: match.match_score * 0.95, // Slightly lower since indirect
+              company_name: matchItem.company_name,
+              company_profile_id: matchItem.company_profile_id,
+              match_score: matchItem.match_score * 0.95, // Slightly lower since indirect
               apollo_job_id: posting.id || null,
               apollo_job_url: posting.url || null,
               apollo_job_payload: posting,
