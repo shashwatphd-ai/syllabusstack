@@ -387,7 +387,7 @@ serve(async (req) => {
         project_id: project_id,
         ai_model_version: 'google/gemini-2.5-flash',
         market_alignment_score: marketAlignmentScore,
-        estimated_roi: roiResult.roi,
+        estimated_roi: roiResult.roi_multiplier,
         pricing_breakdown: budgetResult.breakdown,
         lo_alignment_detail: loAlignmentDetail,
         lo_mapping_tasks: cleaned.tasks.map((task, i) => ({
