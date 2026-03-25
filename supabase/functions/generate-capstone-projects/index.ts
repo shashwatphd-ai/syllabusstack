@@ -22,6 +22,144 @@ import { validateCompanyCourseMatch } from "../_shared/capstone/company-validati
 import { calculateApolloEnrichedPricing, calculateApolloEnrichedROI } from "../_shared/capstone/pricing-service.ts";
 import type { CompanyInfo } from "../_shared/capstone/types.ts";
 
+// ============================================================================
+// INTELLIGENT SIGNAL FILTERING (EduThree parity)
+// Filters job postings, technologies, and buying intent signals to only
+// course-relevant data BEFORE the AI sees them. Prevents irrelevant job
+// titles (e.g. "Bartender" for a Strategic Management course) from polluting
+// the generation prompt.
+// ============================================================================
+
+function filterRelevantSignals(
+  company: CompanyInfo,
+  searchLocation: string,
+  courseTitle: string,
+  courseOutcomes: string[]
+): CompanyInfo {
+  console.log(`\n🔍 Filtering signals for ${company.name}...`);
+
+  // Step 1: Parse location
+  const zipMatch = (searchLocation || '').match(/\b\d{5}\b/);
+  const zipCode = zipMatch ? zipMatch[0] : null;
+  const cityName = (searchLocation || '').split(',')[0].trim().toLowerCase();
+  const stateMatch = (searchLocation || '').match(/,\s*([A-Z]{2})/);
+  const stateName = stateMatch ? stateMatch[1].toLowerCase() : null;
+
+  // Step 2: Extract keywords from course title + outcomes
+  const keywords = new Set<string>();
+
+  // From course title
+  courseTitle.toLowerCase().split(/[\s,]+/).forEach(word => {
+    if (word.length > 3) keywords.add(word);
+  });
+
+  // From learning outcomes — technical terms + key nouns
+  courseOutcomes.forEach(outcome => {
+    const technicalTerms = outcome.match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b/g) || [];
+    technicalTerms.forEach(term => {
+      term.toLowerCase().split(/\s+/).forEach(word => {
+        if (word.length > 3) keywords.add(word);
+      });
+    });
+    outcome.toLowerCase().split(/[\s,]+/).forEach(word => {
+      if (word.length > 4 && !['about', 'using', 'their', 'these', 'which', 'where', 'other', 'should', 'would', 'could'].includes(word)) {
+        keywords.add(word);
+      }
+    });
+  });
+
+  // Step 3: Synonym map for intelligent matching (STEM + business)
+  const synonymMap: Record<string, string[]> = {
+    // STEM
+    'ai': ['artificial intelligence', 'machine learning', 'ml', 'deep learning', 'neural'],
+    'ml': ['machine learning', 'artificial intelligence', 'ai', 'predictive'],
+    'cloud': ['aws', 'azure', 'gcp', 'kubernetes', 'docker', 'serverless'],
+    'data': ['analytics', 'database', 'sql', 'nosql', 'etl', 'pipeline'],
+    'software': ['development', 'engineering', 'programming', 'coding'],
+    'fluid': ['hydraulic', 'flow', 'pressure', 'liquid', 'gas'],
+    'mechanical': ['mechanics', 'engineering', 'design', 'cad'],
+    'chemical': ['chemistry', 'process', 'reaction', 'synthesis'],
+    'simulation': ['modeling', 'cfd', 'fem', 'analysis'],
+    'optimization': ['improve', 'enhance', 'efficiency', 'performance'],
+    // Business / Management
+    'strategy': ['strategic', 'planning', 'roadmap', 'competitive', 'vision', 'director'],
+    'management': ['manager', 'director', 'operations', 'executive', 'leadership', 'admin'],
+    'marketing': ['brand', 'digital', 'campaign', 'content', 'seo', 'advertising'],
+    'finance': ['financial', 'analyst', 'investment', 'accounting', 'budget', 'controller'],
+    'accounting': ['audit', 'tax', 'bookkeeping', 'financial', 'cpa'],
+    'supply': ['logistics', 'procurement', 'warehouse', 'inventory', 'distribution'],
+    'economics': ['economic', 'market', 'pricing', 'demand', 'forecast'],
+    'entrepreneurship': ['startup', 'venture', 'founder', 'innovation', 'business development'],
+    'analytics': ['analysis', 'insight', 'reporting', 'dashboard', 'metrics', 'kpi'],
+    'consulting': ['consultant', 'advisory', 'strategy', 'transformation'],
+  };
+
+  // Expand keywords with synonyms
+  const expandedKeywords = new Set(keywords);
+  keywords.forEach(keyword => {
+    if (synonymMap[keyword]) {
+      synonymMap[keyword].forEach(syn => expandedKeywords.add(syn));
+    }
+  });
+
+  console.log(`  🔑 Keywords (${expandedKeywords.size}): ${Array.from(expandedKeywords).slice(0, 12).join(', ')}...`);
+
+  // Step 4: Filter job postings by location AND topic relevance
+  const originalJobCount = (company as any).job_postings?.length || 0;
+  const filteredJobs = ((company as any).job_postings || []).filter((job: any) => {
+    // Location filter (pass if no location data available)
+    if (searchLocation) {
+      const jobLocation = (job.location || '').toLowerCase();
+      const locationMatch =
+        (zipCode && jobLocation.includes(zipCode)) ||
+        (cityName && cityName.length > 2 && jobLocation.includes(cityName)) ||
+        (stateName && jobLocation.includes(stateName)) ||
+        jobLocation.includes('remote') ||
+        jobLocation.includes('hybrid') ||
+        !jobLocation; // Keep jobs with no location data
+      if (!locationMatch) return false;
+    }
+
+    // Topic relevance filter — at least 1 keyword match
+    const jobText = `${job.title || ''} ${job.description || ''}`.toLowerCase();
+    const matchCount = Array.from(expandedKeywords).filter(keyword =>
+      jobText.includes(keyword)
+    ).length;
+
+    if (matchCount > 0) {
+      console.log(`    ✓ Job: "${job.title}" — ${matchCount} keyword matches`);
+    }
+    return matchCount > 0;
+  });
+
+  console.log(`  📊 Jobs: ${originalJobCount} total → ${filteredJobs.length} relevant (${Math.round(filteredJobs.length / Math.max(originalJobCount, 1) * 100)}%)`);
+
+  // Step 5: Filter technologies by course relevance
+  const originalTechCount = (company.technologies_used || []).length;
+  const filteredTech = (company.technologies_used || []).filter((tech: any) => {
+    const techName = typeof tech === 'string' ? tech : (tech?.name || tech?.technology || '');
+    const techLower = techName.toLowerCase();
+    return Array.from(expandedKeywords).some(keyword =>
+      techLower.includes(keyword) || keyword.includes(techLower)
+    );
+  });
+
+  console.log(`  💻 Tech: ${originalTechCount} total → ${filteredTech.length} relevant`);
+
+  // Step 6: Filter buying intent signals
+  const filteredIntent = ((company as any).buying_intent_signals || []).filter((signal: any) => {
+    const signalText = JSON.stringify(signal).toLowerCase();
+    return Array.from(expandedKeywords).some(keyword => signalText.includes(keyword));
+  });
+
+  return {
+    ...company,
+    job_postings: filteredJobs,
+    technologies_used: filteredTech,
+    buying_intent_signals: filteredIntent,
+  } as CompanyInfo;
+}
+
 const handler = async (req: Request): Promise<Response> => {
   const corsHeaders = getCorsHeaders(req);
   const preflightResponse = handleCorsPreFlight(req);
@@ -80,7 +218,7 @@ const handler = async (req: Request): Promise<Response> => {
   // ── Fetch course data ──
   const { data: course, error: courseError } = await supabase
     .from('instructor_courses')
-    .select('id, title, academic_level, expected_artifacts')
+    .select('id, title, academic_level, expected_artifacts, search_location')
     .eq('id', instructor_course_id)
     .single();
   if (courseError || !course) return createErrorResponse('NOT_FOUND', corsHeaders, 'Course not found');
@@ -159,10 +297,28 @@ const handler = async (req: Request): Promise<Response> => {
         continue; // Skip this company
       }
 
+      // ── Step 1b: Filter company signals to course-relevant data ──
+      const filteredCompany = filterRelevantSignals(
+        company as CompanyInfo,
+        course.search_location || '',
+        course.title,
+        objectives
+      );
+
+      // Skip company if zero relevant job postings AND zero relevant technologies
+      if (
+        (filteredCompany.job_postings || []).length === 0 &&
+        (filteredCompany.technologies_used || []).length === 0
+      ) {
+        console.log(`   ⚠️ Skipped: No relevant job postings or technologies for "${course.title}"`);
+        validationResults[validationResults.length - 1].reason += ' (no relevant signals)';
+        continue;
+      }
+
       // ── Step 2: AI Project Proposal Generation ──
       console.log(`   🤖 Generating project proposal...`);
       const proposal = await generateProjectProposal(
-        company as CompanyInfo,
+        filteredCompany,
         objectives,
         course.title,
         course.academic_level || 'undergraduate',
@@ -180,12 +336,12 @@ const handler = async (req: Request): Promise<Response> => {
         proposal.lo_alignment
       );
 
-      // ── Step 4: Market Alignment Scoring ──
+      // ── Step 4: Market Alignment Scoring (uses filtered data) ──
       const marketScore = calculateMarketAlignmentScore(
         proposal.tasks,
         objectives,
-        company.job_postings || [],
-        company.technologies_used || []
+        filteredCompany.job_postings || [],
+        filteredCompany.technologies_used || []
       );
 
       // ── Step 5: Pricing & ROI ──

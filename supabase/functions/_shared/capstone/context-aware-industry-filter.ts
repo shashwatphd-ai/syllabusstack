@@ -20,7 +20,13 @@ const HARD_EXCLUDE_INDUSTRIES = [
   'insurance', 'insurance services',
   'legal services', 'law firm', 'law practice',
   'gambling', 'casino',
-  'tobacco', 'alcohol'
+  'tobacco', 'alcohol',
+  // Hospitality/service — rarely produce relevant capstone projects for
+  // non-hospitality courses; their job postings (bartender, waiter, etc.)
+  // pollute the generation prompt.
+  'hotel', 'hotels', 'hospitality', 'hospitality services',
+  'restaurant', 'restaurants', 'food service', 'food and beverage',
+  'event planning', 'catering',
 ];
 
 // ========================================
