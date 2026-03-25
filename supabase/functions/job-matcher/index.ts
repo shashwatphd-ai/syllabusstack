@@ -12,6 +12,8 @@
  * 5. Compute cosine similarity scores
  * 6. Insert/update job_matches table
  * 7. Return ranked matches with skill overlap details
+ * 8. (EduThree parity) Fetch Apollo job postings for matched companies
+ * 9. (EduThree parity) Send Resend "Talent Alert" emails to employers
  *
  * Auth: JWT required
  */
@@ -22,6 +24,7 @@ import { withErrorHandling, createErrorResponse, createSuccessResponse } from ".
 import { validateRequest, jobMatcherSchema } from "../_shared/validators/index.ts";
 import { generateEmbedding, cosineSimilarity, getCachedOrGenerate } from "../_shared/embedding-client.ts";
 import { checkRateLimit, getUserLimits } from "../_shared/rate-limiter.ts";
+import { withRetry } from "../_shared/capstone/retry-utils.ts";
 
 const handler = async (req: Request): Promise<Response> => {
   const corsHeaders = getCorsHeaders(req);
@@ -276,12 +279,154 @@ const handler = async (req: Request): Promise<Response> => {
     }
   }
 
+  // ── Step 7: Fetch Apollo job postings for top matched companies ──
+  const APOLLO_API_KEY = Deno.env.get('APOLLO_API_KEY');
+  let apolloJobsEnriched = 0;
+
+  if (APOLLO_API_KEY && topMatches.length > 0) {
+    const companiesWithApollo = new Set<string>();
+
+    for (const match of topMatches) {
+      if (!match.company_profile_id || companiesWithApollo.has(match.company_profile_id)) continue;
+      companiesWithApollo.add(match.company_profile_id);
+
+      // Look up Apollo org ID
+      const { data: profile } = await supabase
+        .from('company_profiles')
+        .select('apollo_organization_id, contact_email')
+        .eq('id', match.company_profile_id)
+        .single();
+
+      if (!profile?.apollo_organization_id) continue;
+
+      try {
+        const apolloJobs = await withRetry(async () => {
+          const resp = await fetch(
+            `https://api.apollo.io/v1/organizations/${profile.apollo_organization_id}/job_postings?page=1&per_page=10`,
+            {
+              method: 'GET',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-Api-Key': APOLLO_API_KEY,
+              },
+            }
+          );
+          if (!resp.ok) throw new Error(`Apollo HTTP ${resp.status}`);
+          return resp.json();
+        }, { maxRetries: 2, baseDelayMs: 1000, operationName: 'Apollo job fetch' });
+
+        const postings = apolloJobs?.job_postings || apolloJobs?.organization_job_postings || [];
+
+        // Enrich matching records with Apollo data
+        for (const match of topMatches.filter((m: any) => m.company_profile_id === profile.apollo_organization_id || m.company_name === match.company_name)) {
+          for (const posting of postings.slice(0, 3)) {
+            // Check if job title overlaps with student skills
+            const titleLower = (posting.title || '').toLowerCase();
+            const hasSkillMatch = allStudentSkills.some(s => titleLower.includes(s.toLowerCase()));
+            if (!hasSkillMatch) continue;
+
+            // Insert Apollo-linked job match
+            await supabase.from('job_matches').insert({
+              student_id: targetStudentId,
+              job_title: posting.title,
+              company_name: match.company_name,
+              company_profile_id: match.company_profile_id,
+              match_score: match.match_score * 0.95, // Slightly lower since indirect
+              apollo_job_id: posting.id || null,
+              apollo_job_url: posting.url || null,
+              apollo_job_payload: posting,
+              source: 'direct_posting',
+              status: 'active',
+            });
+            apolloJobsEnriched++;
+          }
+        }
+      } catch (err) {
+        console.warn(`Failed to fetch Apollo jobs for ${match.company_name}:`, err);
+      }
+    }
+  }
+
+  // ── Step 8: Send Resend "Talent Alert" emails to employers ──
+  const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
+  let talentAlertsSent = 0;
+
+  if (RESEND_API_KEY && topMatches.length > 0) {
+    // Get student profile for the email
+    const { data: studentProfile } = await supabase
+      .from('profiles')
+      .select('full_name, email, university')
+      .eq('user_id', targetStudentId)
+      .single();
+
+    if (studentProfile) {
+      const notifiedCompanies = new Set<string>();
+
+      for (const match of topMatches.slice(0, 5)) {
+        if (!match.company_profile_id || notifiedCompanies.has(match.company_profile_id)) continue;
+
+        const { data: profile } = await supabase
+          .from('company_profiles')
+          .select('contact_email, name')
+          .eq('id', match.company_profile_id)
+          .single();
+
+        if (!profile?.contact_email) continue;
+        notifiedCompanies.add(match.company_profile_id);
+
+        try {
+          await withRetry(async () => {
+            const resp = await fetch('https://api.resend.com/emails', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${RESEND_API_KEY}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                from: 'SyllabusStack <noreply@syllabusstack.com>',
+                to: [profile.contact_email],
+                subject: `Talent Alert: ${studentProfile.full_name || 'A student'} matches your hiring needs`,
+                html: `
+                  <h2>New Talent Match on SyllabusStack</h2>
+                  <p>A student from <strong>${studentProfile.university || 'a partner university'}</strong> has skills that match your open positions.</p>
+                  <ul>
+                    <li><strong>Match Score:</strong> ${Math.round(match.match_score * 100)}%</li>
+                    <li><strong>Matched Skills:</strong> ${(match.skill_overlap?.matched || []).join(', ')}</li>
+                    <li><strong>Position:</strong> ${match.job_title}</li>
+                  </ul>
+                  <p>Log in to SyllabusStack to review this candidate's verified portfolio.</p>
+                `,
+              }),
+            });
+            if (!resp.ok) throw new Error(`Resend HTTP ${resp.status}`);
+            return resp.json();
+          }, { maxRetries: 2, baseDelayMs: 500, operationName: 'Resend talent alert' });
+
+          talentAlertsSent++;
+
+          // Update job match status
+          await supabase
+            .from('job_matches')
+            .update({ status: 'matched' })
+            .eq('student_id', targetStudentId)
+            .eq('company_profile_id', match.company_profile_id)
+            .eq('status', 'active');
+
+        } catch (err) {
+          console.warn(`Failed to send talent alert to ${profile.contact_email}:`, err);
+        }
+      }
+    }
+  }
+
   return createSuccessResponse({
     matches: topMatches,
     total_candidates: candidates.length,
     total_matches: matches.length,
     returned: topMatches.length,
     student_skills: allStudentSkills.length,
+    apollo_jobs_enriched: apolloJobsEnriched,
+    talent_alerts_sent: talentAlertsSent,
   }, corsHeaders);
 };
 

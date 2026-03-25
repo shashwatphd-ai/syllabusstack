@@ -226,3 +226,75 @@ verify_jwt = true
 [functions.portfolio-export]
 # Generate exportable student portfolio (verified skills, projects, certificates)
 verify_jwt = true
+
+# ============================================================================
+# EDUTHREE PARITY: Queue Processing & Admin
+# ============================================================================
+
+[functions.process-generation-queue]
+# CRON-triggered queue processor for async project generation (batch of 5)
+verify_jwt = false
+
+[functions.run-single-project-generation]
+# Worker: generates a single project proposal (called by queue processor)
+verify_jwt = false
+
+[functions.admin-regenerate-projects]
+# Admin-only: re-queues all ai_shell projects for regeneration
+verify_jwt = false
+
+# ============================================================================
+# EDUTHREE PARITY: Student & Employer Matching
+# ============================================================================
+
+[functions.student-project-matcher]
+# Skill-based project recommendations for students
+verify_jwt = true
+
+[functions.submit-employer-interest]
+# Structured employer submissions linked to demand signals
+verify_jwt = false
+
+[functions.skill-gap-analyzer]
+# Course/project/job skill gap analysis
+verify_jwt = true
+
+# ============================================================================
+# EDUTHREE PARITY: Value & ROI Analysis
+# ============================================================================
+
+[functions.career-pathway-mapper]
+# Career progression mapping based on project skills
+verify_jwt = true
+
+[functions.salary-roi-calculator]
+# Financial ROI calculation per skill/project
+verify_jwt = true
+
+[functions.analyze-project-value]
+# AI-powered value narrative for stakeholder buy-in
+verify_jwt = true
+
+# ============================================================================
+# EDUTHREE PARITY: B2B Intelligence & Maintenance
+# ============================================================================
+
+[functions.send-faculty-approval-email]
+# Resend email to faculty after admin approval
+verify_jwt = false
+
+[functions.refresh-company-jobs]
+# Re-fetch Apollo job postings for existing companies
+verify_jwt = false
+
+[functions.apollo-webhook-listener]
+# Receive Apollo webhooks (HMAC-SHA256 verified, no JWT)
+verify_jwt = false
+
+[functions.project-suitability-scorer]
+# Score company signals for project suitability
+verify_jwt = false
+
+[functions.cleanup-orphaned-data]
+# Scheduled maintenance: clean stale queues, orphaned records
+verify_jwt = false
