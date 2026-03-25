@@ -289,7 +289,7 @@ serve(async (req) => {
 
     console.log(`✓ Proposal generated: "${proposal.title}"`);
 
-    const { cleaned, issues } = cleanAndValidate(proposal);
+    const { cleaned, issues } = cleanAndValidate(proposal as any as ProjectProposal);
     const scores = await calculateScores(
       cleaned.tasks,
       cleaned.deliverables,
