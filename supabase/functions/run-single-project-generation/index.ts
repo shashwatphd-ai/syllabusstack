@@ -280,8 +280,9 @@ serve(async (req) => {
     const proposal = await generateProjectProposal(
       company,
       outcomes,
-      artifacts,
+      course.title || 'Capstone Project',
       course.level,
+      artifacts,
       course.weeks,
       course.hrs_per_week
     );
