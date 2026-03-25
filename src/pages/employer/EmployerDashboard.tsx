@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Building2, Key, Activity, Copy, Plus, Shield, Eye, EyeOff, Trash2, Webhook } from 'lucide-react';
+import { Building2, Key, Activity, Copy, Plus, Shield, Eye, EyeOff, Trash2, Webhook, Briefcase, Users, Star, MapPin, Send } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,9 +8,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Progress } from '@/components/ui/progress';
-import { 
-  useEmployerAccount, 
-  useEmployerApiKeys, 
+import {
+  useEmployerAccount,
+  useEmployerApiKeys,
   useEmployerApiRequests,
   useCreateEmployerAccount,
   useGenerateApiKey,
@@ -18,6 +18,7 @@ import {
 } from '@/hooks/useEmployerAccount';
 import { useToast } from '@/hooks/use-toast';
 import { WebhookConfig } from '@/components/employer/WebhookConfig';
+import { EmployerCapstoneTab } from '@/components/employer/EmployerCapstoneTab';
 
 export default function EmployerDashboard() {
   const { data: account, isLoading: accountLoading } = useEmployerAccount();
@@ -206,6 +207,10 @@ export default function EmployerDashboard() {
             <Activity className="h-4 w-4" />
             Activity Log
           </TabsTrigger>
+          <TabsTrigger value="capstone" className="gap-2">
+            <Briefcase className="h-4 w-4" />
+            Capstone Projects
+          </TabsTrigger>
           <TabsTrigger value="docs" className="gap-2">
             <Shield className="h-4 w-4" />
             API Docs
@@ -365,6 +370,10 @@ export default function EmployerDashboard() {
               </Card>
             )}
           </div>
+        </TabsContent>
+
+        <TabsContent value="capstone" className="space-y-4">
+          <EmployerCapstoneTab companyName={account.company_name} />
         </TabsContent>
 
         <TabsContent value="docs" className="space-y-4">

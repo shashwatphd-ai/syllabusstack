@@ -2,7 +2,7 @@ import { useState } from 'react';
 import {
   CheckCircle2, Building2, Mail, Phone, User, Globe, Briefcase, TrendingUp, Target,
   Star, Award, Clock, MapPin, BookOpen, Printer, DollarSign, Users, Zap, GraduationCap,
-  BarChart3, Shield, Brain, Lightbulb
+  BarChart3, Shield, Brain, Lightbulb, Handshake, Gem, Search, Cpu, ShieldCheck, LineChart
 } from 'lucide-react';
 import {
   ResponsiveDialog,
@@ -19,6 +19,17 @@ import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useCapstoneProject, useCompleteProject } from '@/hooks/useCapstoneProjects';
 import type { CompanyProfile, ProjectForm } from '@/hooks/useCapstoneProjects';
+import { ProposePartnershipDialog } from './ProposePartnershipDialog';
+import { SectionHeading } from './shared';
+import { useProjectMetadata, useGenerateValueAnalysis, useGeneratePremiumInsights } from '@/hooks/useProjectMetadata';
+import {
+  ValueAnalysisTab,
+  PremiumInsightsTab,
+  DiscoveryQualityTab,
+  AlgorithmTransparencyTab,
+  VerificationTab,
+  EnhancedMarketIntelTab,
+} from './ProjectDetailTabs';
 
 interface ProjectReportViewProps {
   projectId: string;
@@ -65,18 +76,6 @@ function SignalBar({ label, value }: { label: string; value: number | null }) {
         <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${percent}%` }} />
       </div>
       <span className="text-xs font-medium w-8 text-right">{percent}%</span>
-    </div>
-  );
-}
-
-function SectionHeading({ title, icon: Icon, children }: { title: string; icon?: any; children?: React.ReactNode }) {
-  return (
-    <div className="space-y-3">
-      <h3 className="text-sm font-semibold flex items-center gap-2">
-        {Icon && <Icon className="h-4 w-4 text-primary" />}
-        {title}
-      </h3>
-      {children}
     </div>
   );
 }
@@ -245,9 +244,21 @@ function MarketIntelTab({ company }: { company: CompanyProfile | null }) {
   );
 }
 
-function ContactTab({ contact, form2, company }: any) {
+function ContactTab({ contact, form2, company, onProposePartnership }: any) {
   return (
     <div className="space-y-5">
+      {/* Propose Partnership CTA */}
+      <div className="bg-primary/5 border border-primary/20 rounded-lg p-4 flex items-center justify-between">
+        <div>
+          <p className="text-sm font-semibold">Ready to reach out?</p>
+          <p className="text-xs text-muted-foreground">Send a partnership proposal to {company?.name || 'this company'}</p>
+        </div>
+        <Button size="sm" className="gap-2" onClick={onProposePartnership}>
+          <Handshake className="h-4 w-4" />
+          Propose Partnership
+        </Button>
+      </div>
+
       <SectionHeading title="Primary Contact" icon={User}>
         <div className="grid grid-cols-2 gap-3 text-sm">
           {(form2.contact_name || contact?.name) && (
@@ -504,8 +515,12 @@ function ScoringTab({ project, company, form1 }: any) {
 
 export function ProjectReportView({ projectId, courseId, open, onOpenChange }: ProjectReportViewProps) {
   const { data: project, isLoading } = useCapstoneProject(projectId);
+  const { data: metadata } = useProjectMetadata(projectId);
   const completeProject = useCompleteProject();
+  const generateValueAnalysis = useGenerateValueAnalysis();
+  const generatePremiumInsights = useGeneratePremiumInsights();
   const [activeTab, setActiveTab] = useState('overview');
+  const [showProposalDialog, setShowProposalDialog] = useState(false);
 
   if (!project) return null;
 
@@ -542,13 +557,19 @@ export function ProjectReportView({ projectId, courseId, open, onOpenChange }: P
         </ResponsiveDialogHeader>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-2">
-          <TabsList className="w-full justify-start overflow-x-auto print:hidden">
+          <TabsList className="w-full justify-start overflow-x-auto flex-wrap h-auto gap-0.5 print:hidden">
             <TabsTrigger value="overview" className="text-xs gap-1"><BookOpen className="h-3 w-3" /> Overview</TabsTrigger>
             <TabsTrigger value="market" className="text-xs gap-1"><TrendingUp className="h-3 w-3" /> Market Intel</TabsTrigger>
             <TabsTrigger value="contact" className="text-xs gap-1"><User className="h-3 w-3" /> Contact</TabsTrigger>
             <TabsTrigger value="alignment" className="text-xs gap-1"><Target className="h-3 w-3" /> LO Alignment</TabsTrigger>
             <TabsTrigger value="timeline" className="text-xs gap-1"><Clock className="h-3 w-3" /> Timeline</TabsTrigger>
             <TabsTrigger value="scoring" className="text-xs gap-1"><BarChart3 className="h-3 w-3" /> Scoring</TabsTrigger>
+            <TabsTrigger value="value" className="text-xs gap-1"><Gem className="h-3 w-3" /> Value Analysis</TabsTrigger>
+            <TabsTrigger value="insights" className="text-xs gap-1"><LineChart className="h-3 w-3" /> Premium Insights</TabsTrigger>
+            <TabsTrigger value="discovery" className="text-xs gap-1"><Search className="h-3 w-3" /> Discovery Quality</TabsTrigger>
+            <TabsTrigger value="algorithm" className="text-xs gap-1"><Cpu className="h-3 w-3" /> Algorithm</TabsTrigger>
+            <TabsTrigger value="verification" className="text-xs gap-1"><ShieldCheck className="h-3 w-3" /> Verification</TabsTrigger>
+            <TabsTrigger value="marketplus" className="text-xs gap-1"><DollarSign className="h-3 w-3" /> Market Intel+</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview">
@@ -558,7 +579,7 @@ export function ProjectReportView({ projectId, courseId, open, onOpenChange }: P
             <MarketIntelTab company={company} />
           </TabsContent>
           <TabsContent value="contact">
-            <ContactTab contact={contact} form2={form2} company={company} />
+            <ContactTab contact={contact} form2={form2} company={company} onProposePartnership={() => setShowProposalDialog(true)} />
           </TabsContent>
           <TabsContent value="alignment">
             <LOAlignmentTab project={project} form3={form3} />
@@ -569,7 +590,46 @@ export function ProjectReportView({ projectId, courseId, open, onOpenChange }: P
           <TabsContent value="scoring">
             <ScoringTab project={project} company={company} form1={form1} />
           </TabsContent>
+          <TabsContent value="value">
+            <ValueAnalysisTab
+              metadata={metadata || null}
+              onGenerate={() => generateValueAnalysis.mutate(projectId)}
+              isGenerating={generateValueAnalysis.isPending}
+            />
+          </TabsContent>
+          <TabsContent value="insights">
+            <PremiumInsightsTab
+              metadata={metadata || null}
+              onGenerate={() => generatePremiumInsights.mutate(projectId)}
+              isGenerating={generatePremiumInsights.isPending}
+            />
+          </TabsContent>
+          <TabsContent value="discovery">
+            <DiscoveryQualityTab company={company} metadata={metadata || null} />
+          </TabsContent>
+          <TabsContent value="algorithm">
+            <AlgorithmTransparencyTab project={project} company={company} metadata={metadata || null} />
+          </TabsContent>
+          <TabsContent value="verification">
+            <VerificationTab project={project} metadata={metadata || null} />
+          </TabsContent>
+          <TabsContent value="marketplus">
+            <EnhancedMarketIntelTab company={company} metadata={metadata || null} form1={form1} />
+          </TabsContent>
         </Tabs>
+
+        {/* Partnership Proposal Dialog */}
+        <ProposePartnershipDialog
+          open={showProposalDialog}
+          onOpenChange={setShowProposalDialog}
+          projectId={projectId}
+          courseId={courseId}
+          projectTitle={project.title}
+          company={company}
+          contactName={form2.contact_name || contact?.name}
+          contactEmail={form2.contact_email || contact?.email}
+          contactTitle={form2.contact_title || contact?.title}
+        />
 
         {/* Complete action */}
         {project.status === 'in_progress' && (

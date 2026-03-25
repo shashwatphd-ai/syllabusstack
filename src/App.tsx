@@ -70,6 +70,7 @@ import EmployerSignupPage from "./pages/employer/EmployerSignup";
 import EmployerApiDocsPage from "./pages/employer/ApiDocs";
 import WebhookSettingsPage from "./pages/employer/WebhookSettings";
 import EmployersPage from "./pages/Employers";
+import DemandBoard from "./pages/DemandBoard";
 import HelpCenterPage from "./pages/HelpCenter";
 import HelpArticlePage from "./pages/HelpArticle";
 
@@ -87,6 +88,7 @@ const App = () => (
             {/* Public routes */}
             <Route path="/" element={<Index />} />
             <Route path="/employers" element={<EmployersPage />} />
+            <Route path="/demand-board" element={<DemandBoard />} />
             <Route path="/scanner" element={<SyllabusScannerPage />} />
             <Route path="/test-results" element={<TestResultsPage />} />
             <Route path="/resources" element={<ResourcesPage />} />

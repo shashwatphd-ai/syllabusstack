@@ -12,6 +12,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { AdminCapstoneShells } from '@/components/admin/AdminCapstoneShells';
 import { AdminEmployerLeads } from '@/components/admin/AdminEmployerLeads';
+import { AdminCapstoneAnalytics } from '@/components/admin/AdminCapstoneAnalytics';
 
 export default function AdminDashboard() {
   const { user } = useAuth();
@@ -180,6 +181,9 @@ export default function AdminDashboard() {
           <TabsTrigger value="leads" className="gap-1.5">
             <Building2 className="h-3.5 w-3.5" />Employer Leads
           </TabsTrigger>
+          <TabsTrigger value="analytics" className="gap-1.5">
+            <TrendingUp className="h-3.5 w-3.5" />Capstone Analytics
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="activity">
           <Card>
@@ -204,6 +208,9 @@ export default function AdminDashboard() {
         </TabsContent>
         <TabsContent value="leads">
           <AdminEmployerLeads />
+        </TabsContent>
+        <TabsContent value="analytics">
+          <AdminCapstoneAnalytics />
         </TabsContent>
       </Tabs>
     </div>
