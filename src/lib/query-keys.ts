@@ -281,6 +281,28 @@ export const queryKeys = {
     list: (contentId: string, currentLoId: string) => ['video-other-matches', contentId, currentLoId] as const,
   },
 
+  // Job Matches
+  jobMatches: {
+    all: () => ['job-matches'] as const,
+    list: (studentId?: string) => studentId
+      ? ['job-matches', 'list', studentId] as const
+      : ['job-matches', 'list'] as const,
+  },
+
+  // Demand Signals
+  demandSignals: {
+    bySkills: (skills: string[]) => ['demand-signals', skills] as const,
+    live: (skills: string[], location?: string) =>
+      ['demand-signals', 'live', skills, location] as const,
+  },
+
+  // Portfolio
+  portfolio: {
+    data: (userId?: string) => userId
+      ? ['portfolio', userId] as const
+      : ['portfolio'] as const,
+  },
+
   // Capstone Projects
   capstone: {
     companies: (courseId: string) => ['capstone-companies', courseId] as const,

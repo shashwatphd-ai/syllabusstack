@@ -1,0 +1,247 @@
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.7.1';
+import { withAICircuit, CircuitState } from '../_shared/capstone/circuit-breaker.ts';
+import { getCorsHeaders, handleCorsPreFlight } from '../_shared/cors.ts';
+import { verifyAuth, unauthorizedResponse } from '../_shared/capstone/auth-middleware.ts';
+
+interface ValueAnalysisRequest {
+  projectId: string;
+  companyProfile: any;
+  projectData: any;
+  courseProfile: any;
+}
+
+serve(async (req) => {
+  const preflightResponse = handleCorsPreFlight(req);
+  if (preflightResponse) return preflightResponse;
+  const corsHeaders = getCorsHeaders(req);
+
+  try {
+    // Verify authentication using shared middleware
+    const authResult = await verifyAuth(req);
+    if (!authResult.authenticated) {
+      console.warn(`[analyze-project-value] Unauthorized request: ${authResult.error}`);
+      return unauthorizedResponse(req, authResult.error || 'Unauthorized');
+    }
+    console.log(`[analyze-project-value] Authenticated user: ${authResult.userId}`);
+
+    const { projectId, companyProfile, projectData, courseProfile }: ValueAnalysisRequest = await req.json();
+
+    console.log(`📊 Analyzing value for project: ${projectId}`);
+
+    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+    if (!LOVABLE_API_KEY) {
+      throw new Error('LOVABLE_API_KEY not configured');
+    }
+
+    // Prepare context for AI analysis
+    const analysisContext = {
+      company: {
+        name: companyProfile.name,
+        sector: companyProfile.sector,
+        size: companyProfile.organization_employee_count || companyProfile.size,
+        funding_stage: companyProfile.funding_stage,
+        total_funding: companyProfile.total_funding_usd,
+        job_postings: companyProfile.job_postings || [],
+        technologies_used: companyProfile.technologies_used || [],
+        inferred_needs: companyProfile.inferred_needs || [],
+        recent_news: companyProfile.recent_news
+      },
+      project: {
+        title: projectData.title,
+        tasks: projectData.tasks,
+        deliverables: projectData.deliverables,
+        duration_weeks: projectData.duration_weeks,
+        team_size: projectData.team_size,
+        tier: projectData.tier
+      },
+      course: {
+        title: courseProfile.title,
+        level: courseProfile.level,
+        outcomes: courseProfile.outcomes,
+        artifacts: courseProfile.artifacts
+      }
+    };
+
+    // AI-Powered Value Analysis using Lovable AI
+    const systemPrompt = `You are an elite academic-industry partnership strategist with expertise in market validation and value synthesis.
+
+YOUR CORE MISSION:
+1. Cross-validate company challenges against ALL data sources (job postings, technologies, funding, news, inferred needs)
+2. Synthesize evidence into crisp, validated insights
+3. Present data-driven value narratives for each stakeholder
+4. Provide visual-first metrics (scores represent real-world impact, not abstract ratings)
+
+VALIDATION FRAMEWORK:
+- Job postings → hiring priorities & skill gaps
+- Technologies → technical capabilities & modernization needs
+- Funding + stage → growth trajectory & investment areas
+- Recent news → strategic pivots & market positioning
+- Inferred needs → operational challenges & opportunities
+
+OUTPUT STYLE:
+- Be crisp, evidence-backed, and visual-ready
+- Each insight must trace back to specific data points
+- Scores reflect measurable real-world value (career prospects, hiring likelihood, ROI potential)
+- Use marketing-subtle language that's tech-driven and professional`;
+
+    const userPrompt = `SYNTHESIZE & VALIDATE the true partnership value by cross-referencing ALL available data:
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 COMPANY INTELLIGENCE SYNTHESIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Organization: ${analysisContext.company.name}
+Sector: ${analysisContext.company.sector}
+Scale: ${analysisContext.company.size} | ${analysisContext.company.funding_stage || 'Private'} ${analysisContext.company.total_funding ? `($${(analysisContext.company.total_funding / 1000000).toFixed(1)}M raised)` : ''}
+
+MARKET SIGNALS (Cross-validate these):
+└─ Active Hiring (${analysisContext.company.job_postings.length} roles):
+${analysisContext.company.job_postings.slice(0, 5).map((jp: any) => `   • ${jp.title}${jp.department ? ` (${jp.department})` : ''}`).join('\n')}
+
+└─ Tech Stack (${analysisContext.company.technologies_used.length} technologies):
+   ${analysisContext.company.technologies_used.slice(0, 10).join(', ')}
+
+└─ Validated Challenges:
+   ${analysisContext.company.inferred_needs.map((need: string) => `• ${need}`).join('\n   ')}
+
+${analysisContext.company.recent_news ? `└─ Recent Context:\n   ${analysisContext.company.recent_news}` : ''}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎓 PROJECT-COURSE ALIGNMENT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Project: ${analysisContext.project.title}
+Scope: ${analysisContext.project.duration_weeks} weeks | ${analysisContext.project.team_size} students | ${analysisContext.project.tier} tier
+
+Deliverables:
+${analysisContext.project.deliverables.map((d: string) => `  • ${d}`).join('\n')}
+
+Course Context: ${analysisContext.course.title} (${analysisContext.course.level})
+Learning Outcomes: ${analysisContext.course.outcomes.join(' | ')}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ANALYSIS REQUIREMENTS:
+1. VALIDATE: Does this project address the company's ACTUAL challenges (based on hiring + tech + needs)?
+2. QUANTIFY: Scores must reflect real-world outcomes (e.g., "80 career score" = high hiring likelihood based on job postings)
+3. SYNTHESIZE: Combine all data points into crisp, evidence-backed narratives
+4. VISUAL-READY: All text should be concise enough to display in visual dashboards
+
+Return comprehensive analysis with validated insights.`;
+
+    // Use circuit breaker for AI Gateway call
+    const result = await withAICircuit<{ choices?: Array<{ message?: { tool_calls?: Array<{ function: { arguments: string } }> } }> }>(async () => {
+      const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'google/gemini-2.5-flash',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt }
+          ],
+          tools: [{
+            type: 'function',
+            function: {
+              name: 'analyze_partnership_value',
+              description: 'Analyze academic-industry partnership value for all stakeholders',
+              parameters: {
+                type: 'object',
+                properties: {
+                  student_value: { type: 'object', properties: { score: { type: 'number' }, career_opportunities_score: { type: 'number' }, skill_development_score: { type: 'number' }, portfolio_value_score: { type: 'number' }, networking_score: { type: 'number' }, key_benefits: { type: 'array', items: { type: 'string' }, maxItems: 4 }, insights: { type: 'string', maxLength: 150 }, evidence_summary: { type: 'string', maxLength: 120 } }, required: ['score', 'key_benefits', 'insights'] },
+                  university_value: { type: 'object', properties: { score: { type: 'number' }, partnership_quality_score: { type: 'number' }, placement_potential_score: { type: 'number' }, research_collaboration_score: { type: 'number' }, reputation_score: { type: 'number' }, key_benefits: { type: 'array', items: { type: 'string' }, maxItems: 4 }, insights: { type: 'string', maxLength: 150 }, evidence_summary: { type: 'string', maxLength: 120 } }, required: ['score', 'key_benefits', 'insights'] },
+                  industry_value: { type: 'object', properties: { score: { type: 'number' }, deliverable_roi_score: { type: 'number' }, talent_pipeline_score: { type: 'number' }, innovation_score: { type: 'number' }, cost_efficiency_score: { type: 'number' }, key_benefits: { type: 'array', items: { type: 'string' }, maxItems: 4 }, insights: { type: 'string', maxLength: 150 }, evidence_summary: { type: 'string', maxLength: 120 } }, required: ['score', 'key_benefits', 'insights'] },
+                  synergistic_value: { type: 'object', properties: { index: { type: 'number' }, knowledge_transfer_multiplier: { type: 'number' }, innovation_potential_score: { type: 'number' }, long_term_partnership_score: { type: 'number' }, ecosystem_impact_score: { type: 'number' }, key_synergies: { type: 'array', items: { type: 'string' } }, insights: { type: 'string' } }, required: ['index', 'key_synergies', 'insights'] },
+                  problem_validation: { type: 'object', properties: { validated_challenges: { type: 'array', items: { type: 'string' }, maxItems: 3 }, evidence_trail: { type: 'string', maxLength: 180 }, alignment_score: { type: 'number' } }, required: ['validated_challenges', 'alignment_score'] },
+                  faculty_recommendations: { type: 'array', items: { type: 'string' }, maxItems: 4 },
+                  risk_factors: { type: 'array', items: { type: 'string' }, maxItems: 3 },
+                  opportunity_highlights: { type: 'array', items: { type: 'string' }, maxItems: 4 },
+                  overall_assessment: { type: 'string', maxLength: 210 }
+                },
+                required: ['student_value', 'university_value', 'industry_value', 'synergistic_value', 'problem_validation', 'faculty_recommendations', 'risk_factors', 'opportunity_highlights', 'overall_assessment']
+              }
+            }
+          }],
+          tool_choice: { type: 'function', function: { name: 'analyze_partnership_value' } }
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`AI Gateway error: ${response.status} - ${errorText}`);
+      }
+
+      return await response.json();
+    });
+
+    if (!result.success) {
+      console.error('❌ AI Circuit breaker failure:', result.error);
+      const statusCode = result.circuitState === CircuitState.OPEN ? 503 : 500;
+      return new Response(
+        JSON.stringify({ error: result.error || 'AI service unavailable' }),
+        { status: statusCode, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const toolCall = result.data?.choices?.[0]?.message?.tool_calls?.[0];
+
+    if (!toolCall) {
+      throw new Error('No tool call in AI response');
+    }
+
+    const valueAnalysis = JSON.parse(toolCall.function.arguments);
+    console.log('✓ Value analysis completed:', valueAnalysis);
+
+    // Store results in database
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    const { error: updateError } = await supabase
+      .from('project_metadata')
+      .update({
+        value_analysis: {
+          student_value: valueAnalysis.student_value,
+          university_value: valueAnalysis.university_value,
+          industry_value: valueAnalysis.industry_value,
+          synergistic_value: valueAnalysis.synergistic_value,
+          problem_validation: valueAnalysis.problem_validation,
+          generated_at: new Date().toISOString()
+        },
+        stakeholder_insights: {
+          faculty_recommendations: valueAnalysis.faculty_recommendations,
+          risk_factors: valueAnalysis.risk_factors,
+          opportunity_highlights: valueAnalysis.opportunity_highlights,
+          overall_assessment: valueAnalysis.overall_assessment
+        },
+        partnership_quality_score: valueAnalysis.university_value.partnership_quality_score,
+        synergistic_value_index: valueAnalysis.synergistic_value.index
+      })
+      .eq('project_id', projectId);
+
+    if (updateError) {
+      console.error('Database update error:', updateError);
+      throw updateError;
+    }
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        analysis: valueAnalysis
+      }),
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+
+  } catch (error: any) {
+    console.error('Error in analyze-project-value:', error);
+    // Return generic error message to prevent information leakage
+    return new Response(
+      JSON.stringify({ error: 'Failed to analyze project value. Please try again later.' }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+});

@@ -581,6 +581,54 @@ export const autoLinkCoursesSchema = z.object({
 });
 
 // ============================================================================
+// CAPSTONE PROJECT GENERATION SCHEMAS
+// ============================================================================
+
+export const generateCapstoneProjectsSchema = z.object({
+  instructor_course_id: uuidSchema,
+  company_ids: z.array(uuidSchema).max(50).optional(),
+  max_projects: z.number().int().min(1).max(50).optional().default(10),
+});
+
+export const extractCompetenciesSchema = z.object({
+  capstone_project_id: uuidSchema,
+});
+
+// ============================================================================
+// DEMAND SIGNAL & JOB MATCHING SCHEMAS
+// ============================================================================
+
+export const demandSignalQuerySchema = z.object({
+  skill_ids: z.array(z.string().min(1)).max(50).optional(),
+  skill_names: z.array(z.string().min(1)).max(50).optional(),
+  location: z.string().max(200).optional(),
+  timeframe: z.enum(['7d', '30d', '90d', '1y']).optional().default('30d'),
+}).refine(
+  data => data.skill_ids?.length || data.skill_names?.length,
+  { message: 'Either skill_ids or skill_names is required' }
+);
+
+export const jobMatcherSchema = z.object({
+  student_id: uuidSchema.optional(),
+  course_id: uuidSchema.optional(),
+  limit: z.number().int().min(1).max(100).optional().default(20),
+  min_score: z.number().min(0).max(1).optional().default(0.3),
+});
+
+export const syncProjectMatchSchema = z.object({
+  capstone_project_id: uuidSchema,
+  student_id: uuidSchema,
+});
+
+export const portfolioExportSchema = z.object({
+  format: z.enum(['json', 'html']).optional().default('json'),
+  include_sections: z.array(z.enum([
+    'verified_skills', 'capstone_projects', 'certificates',
+    'course_enrollments', 'job_matches', 'assessments',
+  ])).optional(),
+});
+
+// ============================================================================
 // VALIDATION HELPER FUNCTIONS
 // ============================================================================
 
