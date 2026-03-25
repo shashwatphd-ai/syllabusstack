@@ -125,7 +125,7 @@ Return ONLY valid JSON:
     const result = await generateText({
       prompt,
       systemPrompt: 'You are a learning outcomes assessment expert. Return only valid JSON with proper syntax.',
-      options: { model: MODELS.FAST, temperature: 0.3, maxTokens: 4000 },
+      model: MODELS.FAST, temperature: 0.3, maxTokens: 4000,
     });
 
     const jsonMatch = result.content.match(/\{[\s\S]*\}/);

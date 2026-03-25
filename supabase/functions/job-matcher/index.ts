@@ -318,7 +318,7 @@ const handler = async (req: Request): Promise<Response> => {
         const postings = apolloJobs?.job_postings || apolloJobs?.organization_job_postings || [];
 
         // Enrich matching records with Apollo data
-        for (const match of topMatches.filter((m: any) => m.company_profile_id === profile.apollo_organization_id || m.company_name === match.company_name)) {
+        for (const matchItem of topMatches.filter((m: any) => m.company_profile_id === profile.apollo_organization_id || m.company_name === profile.name)) {
           for (const posting of postings.slice(0, 3)) {
             // Check if job title overlaps with student skills
             const titleLower = (posting.title || '').toLowerCase();

@@ -232,7 +232,7 @@ Return ONLY valid JSON (no markdown code blocks):
   const result = await generateText({
     prompt,
     systemPrompt,
-    options: { model: MODELS.PROFESSOR_AI, temperature: 0.4, maxTokens: 5000 },
+    model: MODELS.PROFESSOR_AI, temperature: 0.4, maxTokens: 5000,
   });
 
   const jsonMatch = result.content.match(/\{[\s\S]*\}/);

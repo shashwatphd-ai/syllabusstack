@@ -209,7 +209,7 @@ export async function getCachedOrGenerate(
       metadata: { text_preview: text.slice(0, 200) },
     }, { onConflict: 'entity_type,entity_id,embedding_model' })
     .then(() => {})
-    .catch(err => console.warn('Failed to cache embedding:', err));
+    .then(() => {}, (err: any) => console.warn('Failed to cache embedding:', err));
 
   return {
     embedding,

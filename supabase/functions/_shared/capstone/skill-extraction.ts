@@ -52,11 +52,9 @@ RULES:
     const result = await generateText({
       prompt,
       systemPrompt: 'You are a skill taxonomy expert. Return only valid JSON arrays.',
-      options: {
-        model: 'google/gemini-2.5-flash',
-        temperature: 0.3,
-        maxTokens: 2000,
-      }
+      model: 'google/gemini-2.5-flash',
+      temperature: 0.3,
+      maxTokens: 2000,
     });
 
     const content = result.content.trim();
