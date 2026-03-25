@@ -18,11 +18,11 @@ CREATE TABLE IF NOT EXISTS public.partnership_proposals (
 
   -- Who is proposing
   instructor_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  instructor_course_id UUID NOT NULL,
+  instructor_course_id UUID NOT NULL REFERENCES public.instructor_courses(id) ON DELETE CASCADE,
 
   -- What project / company
-  capstone_project_id UUID NOT NULL,
-  company_profile_id UUID,
+  capstone_project_id UUID NOT NULL REFERENCES public.capstone_projects(id) ON DELETE CASCADE,
+  company_profile_id UUID REFERENCES public.company_profiles(id) ON DELETE SET NULL,
 
   -- Outreach details
   channel TEXT NOT NULL CHECK (channel IN ('email', 'linkedin', 'saved')),
@@ -91,7 +91,7 @@ CREATE TABLE IF NOT EXISTS public.evaluations (
   updated_at TIMESTAMPTZ DEFAULT now(),
 
   -- What is being evaluated
-  capstone_project_id UUID NOT NULL,
+  capstone_project_id UUID NOT NULL REFERENCES public.capstone_projects(id) ON DELETE CASCADE,
   student_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
 
   -- Who is evaluating

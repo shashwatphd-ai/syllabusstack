@@ -17,7 +17,6 @@ import { Separator } from '@/components/ui/separator';
 import { SectionHeading, EmptyState, StatusIcon } from './shared';
 import type { ProjectMetadata } from '@/hooks/useProjectMetadata';
 import type { CompanyProfile } from '@/hooks/useCapstoneProjects';
-}
 
 // ── Value Analysis Tab ──
 
