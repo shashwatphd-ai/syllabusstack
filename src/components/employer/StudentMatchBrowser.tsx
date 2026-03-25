@@ -41,7 +41,7 @@ export default function StudentMatchBrowser({ employerAccountId }: StudentMatchB
 
       const companyIds = companies.map(c => c.id);
 
-      const { data: jobMatches, error } = await supabase
+      const { data: jobMatches, error } = await (supabase as any)
         .from('job_matches')
         .select('student_id, job_title, company_name, match_score, skill_overlap, status')
         .in('company_profile_id', companyIds)
