@@ -18,6 +18,21 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
+interface EmployerSubmission {
+  id: string;
+  created_at: string;
+  company_name: string;
+  contact_email: string;
+  contact_name: string | null;
+  contact_phone: string | null;
+  project_description: string | null;
+  target_skills: string[] | null;
+  preferred_timeline: string | null;
+  status: 'pending' | 'approved' | 'rejected' | 'matched';
+  matched_project_id: string | null;
+  referral_source: string | null;
+}
+
 const statusConfig: Record<string, { icon: typeof Clock; color: string; bg: string }> = {
   pending: { icon: Clock, color: 'text-amber-500', bg: 'bg-amber-50' },
   approved: { icon: CheckCircle2, color: 'text-green-500', bg: 'bg-green-50' },
@@ -85,16 +100,17 @@ export function AdminEmployerLeads() {
 
   if (isLoading) return <div className="space-y-2">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-20" />)}</div>;
 
-  const filtered = (submissions || []).filter((s: any) =>
+  const typedSubmissions = (submissions || []) as EmployerSubmission[];
+  const filtered = typedSubmissions.filter((s) =>
     statusFilter === 'all' || s.status === statusFilter
   );
 
   const counts = {
-    all: (submissions || []).length,
-    pending: (submissions || []).filter((s: any) => s.status === 'pending').length,
-    approved: (submissions || []).filter((s: any) => s.status === 'approved').length,
-    matched: (submissions || []).filter((s: any) => s.status === 'matched').length,
-    rejected: (submissions || []).filter((s: any) => s.status === 'rejected').length,
+    all: typedSubmissions.length,
+    pending: typedSubmissions.filter((s) => s.status === 'pending').length,
+    approved: typedSubmissions.filter((s) => s.status === 'approved').length,
+    matched: typedSubmissions.filter((s) => s.status === 'matched').length,
+    rejected: typedSubmissions.filter((s) => s.status === 'rejected').length,
   };
 
   return (
@@ -131,7 +147,7 @@ export function AdminEmployerLeads() {
         <p className="text-sm text-muted-foreground py-4">No submissions match this filter.</p>
       ) : (
         <div className="space-y-2">
-          {filtered.map((s: any) => {
+          {filtered.map((s) => {
             const config = statusConfig[s.status] || statusConfig.pending;
             const StatusIcon = config.icon;
             return (

@@ -8,30 +8,104 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { queryKeys } from '@/lib/query-keys';
 
+// ── Typed JSONB field interfaces ──
+
+export interface StakeholderValue {
+  score: number;
+  key_benefits?: string[];
+  insights?: string;
+  [key: string]: unknown;
+}
+
+export interface ValueAnalysis {
+  students?: StakeholderValue;
+  university?: StakeholderValue;
+  industry?: StakeholderValue;
+  synergistic_value?: { index: number; key_synergies?: string[]; [key: string]: unknown };
+  problem_validation?: { validated_challenges?: string[]; alignment_score?: number; [key: string]: unknown };
+  generated_at?: string;
+}
+
+export interface StakeholderInsights {
+  faculty_recommendations?: string[];
+  risk_factors?: string[];
+  opportunity_highlights?: string[];
+  overall_assessment?: string;
+}
+
+export interface SkillGap {
+  skill: string;
+  current_level: number;
+  target_level: number;
+  gap: number;
+  in_project?: boolean;
+  in_company_stack?: boolean;
+  demand_level?: string;
+  posting_count?: number;
+}
+
+export interface SalaryProjection {
+  skill?: string;
+  role?: string;
+  title?: string;
+  salary_range?: string;
+  median_salary?: number;
+  growth_rate?: number;
+  growth?: number;
+  demand_level?: string;
+  posting_count?: number;
+}
+
+export interface LOAlignmentDetail {
+  objective?: string;
+  coverage?: number;
+  score?: number;
+  tasks?: string[];
+}
+
+export interface VerificationCheck {
+  label: string;
+  status: 'pass' | 'warning' | 'fail';
+  value: string;
+  detail: string;
+}
+
+export interface PricingBreakdown {
+  [key: string]: number | string;
+}
+
+export interface EstimatedROI {
+  [key: string]: number | string;
+}
+
+// ── Main interface ──
+
 export interface ProjectMetadata {
   id: string;
   project_id: string;
   ai_model_version: string | null;
   market_alignment_score: number | null;
-  estimated_roi: any | null;
-  pricing_breakdown: any | null;
-  lo_alignment_detail: any | null;
-  lo_mapping_tasks: any | null;
-  lo_mapping_deliverables: any | null;
-  market_signals_used: any | null;
-  value_analysis: any | null;
-  stakeholder_insights: any | null;
+  estimated_roi: EstimatedROI | null;
+  pricing_breakdown: PricingBreakdown | null;
+  lo_alignment_detail: LOAlignmentDetail[] | null;
+  lo_mapping_tasks: Record<string, string[]> | null;
+  lo_mapping_deliverables: Record<string, string[]> | null;
+  market_signals_used: string[] | Record<string, unknown> | null;
+  value_analysis: ValueAnalysis | null;
+  stakeholder_insights: StakeholderInsights | string[] | null;
   partnership_quality_score: number | null;
   synergistic_value_index: number | null;
-  skill_gap_analysis: any | null;
-  salary_projections: any | null;
-  discovery_quality: any | null;
-  algorithm_transparency: any | null;
-  verification_checks: any | null;
-  enhanced_market_intel: any | null;
+  skill_gap_analysis: SkillGap[] | Record<string, unknown> | null;
+  salary_projections: SalaryProjection[] | Record<string, unknown> | null;
+  discovery_quality: Record<string, unknown> | null;
+  algorithm_transparency: Record<string, unknown> | null;
+  verification_checks: VerificationCheck[] | null;
+  enhanced_market_intel: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
 }
+
+// ── Query Hooks ──
 
 export function useProjectMetadata(projectId?: string) {
   return useQuery({

@@ -93,10 +93,19 @@ export function useEmployerMatchedProjects(companyDomain?: string) {
     queryKey: ['employer-matched-projects', companyDomain],
     queryFn: async () => {
       if (!companyDomain) return [];
+      // Normalize domain: strip protocol, www, trailing slash for precise matching
+      const normalized = companyDomain
+        .replace(/^https?:\/\//, '')
+        .replace(/^www\./, '')
+        .replace(/\/.*$/, '')
+        .toLowerCase();
+
+      // Match on the domain portion of the website column
+      // Use two patterns: exact domain or domain with path (website ends with domain or domain/)
       const { data, error } = await supabase
         .from('capstone_projects')
         .select('*, company_profiles!inner(name, sector, website, city, state)')
-        .ilike('company_profiles.website', `%${companyDomain}%`)
+        .or(`website.ilike.%://${normalized},website.ilike.%://${normalized}/%,website.ilike.%://www.${normalized},website.ilike.%://www.${normalized}/%`, { referencedTable: 'company_profiles' })
         .order('final_score', { ascending: false });
       if (error) throw error;
       return data || [];

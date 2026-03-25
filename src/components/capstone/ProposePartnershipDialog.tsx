@@ -13,6 +13,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { useCreatePartnershipProposal } from '@/hooks/usePartnershipProposals';
+import { useAuth } from '@/contexts/AuthContext';
 import type { CompanyProfile } from '@/hooks/useCapstoneProjects';
 
 interface ProposePartnershipDialogProps {
@@ -35,11 +36,17 @@ const CHANNELS: { value: Channel; label: string; icon: typeof Mail; description:
   { value: 'saved', label: 'Save for Later', icon: Save, description: 'Save as draft to send later' },
 ];
 
-function generateDefaultMessage(projectTitle: string, companyName: string, contactName: string): string {
+function generateDefaultMessage(
+  projectTitle: string,
+  companyName: string,
+  contactName: string,
+  senderName?: string,
+): string {
   const greeting = contactName ? `Dear ${contactName}` : 'Dear Hiring Manager';
+  const signoff = senderName || '[Your Name]';
   return `${greeting},
 
-I am reaching out from [University Name] regarding a potential capstone project partnership with ${companyName}.
+I am reaching out regarding a potential capstone project partnership with ${companyName}.
 
 We have identified "${projectTitle}" as a strong match between our students' learning objectives and your company's current needs. This partnership would provide your team with deliverables from motivated students while giving them real-world industry experience.
 
@@ -51,9 +58,7 @@ Key benefits for ${companyName}:
 I would love to schedule a brief call to discuss how we can structure this partnership to maximize value for both sides.
 
 Best regards,
-[Your Name]
-[Your Title]
-[University Name]`;
+${signoff}`;
 }
 
 export function ProposePartnershipDialog({
@@ -67,12 +72,15 @@ export function ProposePartnershipDialog({
   contactEmail,
   contactTitle,
 }: ProposePartnershipDialogProps) {
+  const { profile } = useAuth();
+  const senderName = profile?.full_name || undefined;
+
   const [channel, setChannel] = useState<Channel>('email');
   const [subject, setSubject] = useState(
     `Capstone Partnership Proposal: ${projectTitle}`
   );
   const [message, setMessage] = useState(
-    generateDefaultMessage(projectTitle, company?.name || 'your company', contactName || '')
+    generateDefaultMessage(projectTitle, company?.name || 'your company', contactName || '', senderName)
   );
   const [recipientEmail, setRecipientEmail] = useState(contactEmail || '');
   const [copied, setCopied] = useState(false);

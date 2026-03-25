@@ -11,61 +11,76 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
+interface ProjectRow { id: string; final_score: number | null; status: string; tier: string | null }
+interface CompanyRow { id: string; composite_signal_score: number | null }
+interface StatusRow { id: string; status: string }
+
 function useCapstoneAnalytics() {
   return useQuery({
     queryKey: ['admin', 'capstone-analytics'],
     queryFn: async () => {
-      const [projectsRes, companiesRes, applicationsRes, proposalsRes, submissionsRes] = await Promise.all([
-        supabase.from('capstone_projects').select('id, final_score, lo_alignment_score, feasibility_score, status, tier'),
+      // Fetch projects + companies (need row data for score distributions)
+      // Use DB-side counts for applications/proposals/submissions
+      const [
+        projectsRes,
+        companiesRes,
+        appCountRes,
+        appAcceptedRes,
+        proposalCountRes,
+        proposalSentRes,
+        subCountRes,
+        subPendingRes,
+      ] = await Promise.all([
+        supabase.from('capstone_projects').select('id, final_score, status, tier'),
         supabase.from('company_profiles').select('id, composite_signal_score'),
-        (supabase as any).from('capstone_applications').select('id, status'),
-        (supabase as any).from('partnership_proposals').select('id, status, channel'),
-        supabase.from('employer_interest_submissions').select('id, status'),
+        (supabase as any).from('capstone_applications').select('id', { count: 'exact', head: true }),
+        (supabase as any).from('capstone_applications').select('id', { count: 'exact', head: true }).eq('status', 'accepted'),
+        (supabase as any).from('partnership_proposals').select('id', { count: 'exact', head: true }),
+        (supabase as any).from('partnership_proposals').select('id', { count: 'exact', head: true }).eq('status', 'sent'),
+        supabase.from('employer_interest_submissions').select('id', { count: 'exact', head: true }),
+        supabase.from('employer_interest_submissions').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
       ]);
 
-      const projects = projectsRes.data || [];
-      const companies = companiesRes.data || [];
-      const applications = applicationsRes.data || [];
-      const proposals = proposalsRes.data || [];
-      const submissions = submissionsRes.data || [];
+      const projects = (projectsRes.data || []) as ProjectRow[];
+      const companies = (companiesRes.data || []) as CompanyRow[];
 
       // Score distributions
       const scores = projects
-        .map((p: any) => p.final_score)
-        .filter((s: any) => s != null)
-        .map((s: number) => Math.round(s * 100));
+        .map((p) => p.final_score)
+        .filter((s): s is number => s != null)
+        .map((s) => Math.round(s * 100));
 
-      const avgScore = scores.length ? Math.round(scores.reduce((a: number, b: number) => a + b, 0) / scores.length) : 0;
-      const highQuality = scores.filter((s: number) => s >= 70).length;
-      const mediumQuality = scores.filter((s: number) => s >= 40 && s < 70).length;
-      const lowQuality = scores.filter((s: number) => s < 40).length;
+      const avgScore = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+      const highQuality = scores.filter((s) => s >= 70).length;
+      const mediumQuality = scores.filter((s) => s >= 40 && s < 70).length;
+      const lowQuality = scores.filter((s) => s < 40).length;
 
       // Status breakdown
       const statusCounts: Record<string, number> = {};
-      projects.forEach((p: any) => {
+      projects.forEach((p) => {
         statusCounts[p.status] = (statusCounts[p.status] || 0) + 1;
       });
 
       // Tier breakdown
       const tierCounts: Record<string, number> = {};
-      projects.forEach((p: any) => {
+      projects.forEach((p) => {
         if (p.tier) tierCounts[p.tier] = (tierCounts[p.tier] || 0) + 1;
       });
 
       // Company signal avg
       const signalScores = companies
-        .map((c: any) => c.composite_signal_score)
-        .filter((s: any) => s != null);
+        .map((c) => c.composite_signal_score)
+        .filter((s): s is number => s != null);
       const avgSignal = signalScores.length
-        ? Math.round(signalScores.reduce((a: number, b: number) => a + b, 0) / signalScores.length)
+        ? Math.round(signalScores.reduce((a, b) => a + b, 0) / signalScores.length)
         : 0;
 
       return {
         totalProjects: projects.length,
         totalCompanies: companies.length,
-        totalApplications: applications.length,
-        totalProposals: proposals.length,
-        totalSubmissions: submissions.length,
+        totalApplications: appCountRes.count ?? 0,
+        totalProposals: proposalCountRes.count ?? 0,
+        totalSubmissions: subCountRes.count ?? 0,
         avgScore,
         avgSignal,
         highQuality,
@@ -73,9 +88,9 @@ function useCapstoneAnalytics() {
         lowQuality,
         statusCounts,
         tierCounts,
-        pendingSubmissions: submissions.filter((s: any) => s.status === 'pending').length,
-        proposalsSent: proposals.filter((p: any) => p.status === 'sent').length,
-        applicationsAccepted: applications.filter((a: any) => a.status === 'accepted').length,
+        pendingSubmissions: subPendingRes.count ?? 0,
+        proposalsSent: proposalSentRes.count ?? 0,
+        applicationsAccepted: appAcceptedRes.count ?? 0,
       };
     },
   });

@@ -13,6 +13,24 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useEmployerMatchedProjects, useProjectApplicants } from '@/hooks/useDemandBoard';
 
+interface MatchedProject {
+  id: string;
+  title: string;
+  description: string | null;
+  skills: string[] | null;
+  final_score: number | null;
+  status: string;
+  company_profiles: { name: string; sector: string | null; city: string | null; state: string | null } | null;
+}
+
+interface ProjectApplicant {
+  id: string;
+  created_at: string;
+  status: string;
+  capstone_project_id: string;
+  profiles: { full_name: string | null; email: string | null; avatar_url: string | null } | null;
+}
+
 interface EmployerCapstoneTabProps {
   companyName: string;
 }
@@ -85,7 +103,7 @@ export function EmployerCapstoneTab({ companyName }: EmployerCapstoneTabProps) {
               </Card>
             ) : (
               <div className="space-y-3">
-                {projects.map((project: any) => {
+                {(projects as MatchedProject[]).map((project) => {
                   const company = project.company_profiles;
                   return (
                     <Card key={project.id}>
@@ -139,7 +157,7 @@ export function EmployerCapstoneTab({ companyName }: EmployerCapstoneTabProps) {
               </Card>
             ) : (
               <div className="space-y-2">
-                {applicants.map((app: any) => (
+                {(applicants as ProjectApplicant[]).map((app) => (
                   <Card key={app.id}>
                     <CardContent className="py-3 flex items-center justify-between">
                       <div className="flex items-center gap-3">
