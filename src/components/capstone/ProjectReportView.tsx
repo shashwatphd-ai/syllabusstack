@@ -20,6 +20,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useCapstoneProject, useCompleteProject } from '@/hooks/useCapstoneProjects';
 import type { CompanyProfile, ProjectForm } from '@/hooks/useCapstoneProjects';
 import { ProposePartnershipDialog } from './ProposePartnershipDialog';
+import { SectionHeading } from './shared';
 import { useProjectMetadata, useGenerateValueAnalysis, useGeneratePremiumInsights } from '@/hooks/useProjectMetadata';
 import {
   ValueAnalysisTab,
@@ -75,18 +76,6 @@ function SignalBar({ label, value }: { label: string; value: number | null }) {
         <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${percent}%` }} />
       </div>
       <span className="text-xs font-medium w-8 text-right">{percent}%</span>
-    </div>
-  );
-}
-
-function SectionHeading({ title, icon: Icon, children }: { title: string; icon?: any; children?: React.ReactNode }) {
-  return (
-    <div className="space-y-3">
-      <h3 className="text-sm font-semibold flex items-center gap-2">
-        {Icon && <Icon className="h-4 w-4 text-primary" />}
-        {title}
-      </h3>
-      {children}
     </div>
   );
 }
