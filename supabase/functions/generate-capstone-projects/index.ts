@@ -336,12 +336,13 @@ const handler = async (req: Request): Promise<Response> => {
         proposal.lo_alignment
       );
 
-      // ── Step 4: Market Alignment Scoring (uses filtered data) ──
+      // ── Step 4: Market Alignment Scoring (uses filtered data + inferred needs) ──
       const marketScore = calculateMarketAlignmentScore(
         proposal.tasks,
         objectives,
         filteredCompany.job_postings || [],
-        filteredCompany.technologies_used || []
+        filteredCompany.technologies_used || [],
+        company.inferred_needs || []
       );
 
       // ── Step 5: Pricing & ROI ──

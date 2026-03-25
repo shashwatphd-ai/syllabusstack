@@ -67,11 +67,16 @@ async function calculateScores(
   deliverables: string[],
   outcomes: string[],
   weeks: number,
-  loAlignment: string
+  loAlignment: string,
+  marketScore?: number,
+  validationConfidence?: number
 ) {
   const lo_score = await calculateLOAlignment(tasks, deliverables, outcomes, loAlignment);
-  const feasibility_score = weeks >= 12 ? 0.85 : 0.65;
-  const mutual_benefit_score = 0.80;
+  // Use market-based feasibility when available (EduThree parity), else fall back to weeks-based
+  const feasibility_score = marketScore != null
+    ? Math.min(1.0, (marketScore / 100) * 0.6 + 0.4)
+    : (weeks >= 12 ? 0.85 : 0.65);
+  const mutual_benefit_score = validationConfidence ?? 0.70;
   const final_score = 0.5 * lo_score + 0.3 * feasibility_score + 0.2 * mutual_benefit_score;
 
   return {
@@ -290,12 +295,23 @@ serve(async (req) => {
     console.log(`✓ Proposal generated: "${proposal.title}"`);
 
     const { cleaned, issues } = cleanAndValidate(proposal as any as ProjectProposal);
+
+    // Market alignment score first — needed by scoring formula
+    const marketAlignmentScore = calculateMarketAlignmentScore(
+      cleaned.tasks,
+      outcomes,
+      company.job_postings || [],
+      company.technologies_used || [],
+      company.inferred_needs || []
+    );
+
     const scores = await calculateScores(
       cleaned.tasks,
       cleaned.deliverables,
       outcomes,
       course.weeks,
-      cleaned.lo_alignment
+      cleaned.lo_alignment,
+      marketAlignmentScore
     );
 
     const budgetResult = calculateApolloEnrichedPricing(
@@ -304,13 +320,6 @@ serve(async (req) => {
       3,
       cleaned.tier,
       company
-    );
-
-    const marketAlignmentScore = calculateMarketAlignmentScore(
-      cleaned.tasks,
-      outcomes,
-      company.job_postings || [],
-      company.technologies_used || []
     );
 
     // Calculate LO alignment detail with robust error handling

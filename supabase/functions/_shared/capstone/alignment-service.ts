@@ -143,19 +143,20 @@ Return ONLY valid JSON:
 
 /**
  * Calculate Market Alignment Score
- * 
- * Scores alignment across 3 dimensions with synonym expansion:
- * 1. Job postings alignment (30 points)
- * 2. Technology stack alignment (30 points)
- * 3. Objective keyword alignment (40 points)
- * 
+ *
+ * Scores alignment across 3 dimensions with synonym expansion (EduThree parity):
+ * 1. Inferred needs alignment (40 points) — company needs vs project tasks
+ * 2. Job postings alignment (30 points) — keyword match on titles/descriptions
+ * 3. Technology stack alignment (30 points) — tech match
+ *
  * Returns: 0-100 score
  */
 export function calculateMarketAlignmentScore(
   projectTasks: string[],
   objectives: string[],
   jobPostings: any[],
-  technologiesUsed: string[]
+  technologiesUsed: string[],
+  inferredNeeds?: string[]
 ): number {
   let score = 0;
 
@@ -178,33 +179,42 @@ export function calculateMarketAlignmentScore(
 
   const taskText = projectTasks.join(' ').toLowerCase();
 
-  // Score 1: Job alignment (30 points max)
+  // Score 1: Inferred Needs Alignment (40 points max)
+  // Matches company's AI-inferred business needs against project tasks
+  if (inferredNeeds && inferredNeeds.length > 0) {
+    const matchedNeeds = inferredNeeds.filter(need => {
+      const needKeywords = need.toLowerCase().split(' ');
+      return needKeywords.some(keyword => keyword.length > 3 && taskText.includes(keyword));
+    });
+    score += (matchedNeeds.length / inferredNeeds.length) * 40;
+  } else {
+    // Fallback: use objective keyword coverage if no inferred needs available
+    if (keywords.size > 0) {
+      let covered = 0;
+      keywords.forEach(kw => {
+        if (taskText.includes(kw)) covered++;
+      });
+      score += (covered / keywords.size) * 40;
+    }
+  }
+
+  // Score 2: Job alignment (30 points max)
   if (jobPostings && jobPostings.length > 0) {
     let matched = 0;
     for (const job of jobPostings) {
       const jobText = `${job.title || ''} ${job.description || ''}`.toLowerCase();
       if (Array.from(expandedKeywords).some(kw => jobText.includes(kw))) matched++;
     }
-    const jobScore = (matched / jobPostings.length) * 30;
-    score += jobScore;
+    score += (matched / jobPostings.length) * 30;
   }
 
-  // Score 2: Tech alignment (30 points max)
+  // Score 3: Tech alignment (30 points max)
   if (technologiesUsed && technologiesUsed.length > 0) {
     const matchedTech = technologiesUsed.filter(tech => {
       const t = (typeof tech === 'string' ? tech : '').toLowerCase();
       return Array.from(expandedKeywords).some(kw => t.includes(kw) || kw.includes(t));
     });
     score += (matchedTech.length / technologiesUsed.length) * 30;
-  }
-
-  // Score 3: Objective keyword coverage in tasks (40 points max)
-  if (keywords.size > 0) {
-    let covered = 0;
-    keywords.forEach(kw => {
-      if (taskText.includes(kw)) covered++;
-    });
-    score += (covered / keywords.size) * 40;
   }
 
   return Math.round(score);
