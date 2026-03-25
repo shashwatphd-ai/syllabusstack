@@ -293,7 +293,7 @@ const handler = async (req: Request): Promise<Response> => {
       // Look up Apollo org ID
       const { data: profile } = await supabase
         .from('company_profiles')
-        .select('apollo_organization_id, contact_email')
+        .select('apollo_organization_id, contact_email, name')
         .eq('id', match.company_profile_id)
         .single();
 

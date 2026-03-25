@@ -223,21 +223,19 @@ serve(async (req) => {
             sector: company.sector || 'Unknown',
             size: company.size || 'Unknown',
             technologies_used: company.technologies_used || [],
-            job_postings: jobPostings, // Use freshly fetched job postings
+            job_postings: jobPostings,
             funding_stage: company.funding_stage,
             total_funding_usd: company.total_funding_usd,
             contact_email: company.contact_email,
             contact_person: company.contact_person,
             contact_title: company.contact_title,
-            organization_employee_count: company.organization_employee_count
           };
 
           const signalScores = await calculateCompanySignals(
             companyForSignal,
             syllabusSkills,
             syllabusDomain,
-            APOLLO_API_KEY,
-            Deno.env.get('GEMINI_API_KEY')
+            APOLLO_API_KEY
           );
 
           const storableData = toStorableSignalData(signalScores);
