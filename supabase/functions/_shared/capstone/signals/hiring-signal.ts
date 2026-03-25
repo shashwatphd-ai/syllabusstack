@@ -105,14 +105,14 @@ function calculateTitleRelevance(jobs: JobPosting[], syllabusSkills: string[], s
 function getDomainKeywords(domain: string): string[] {
   const domainLower = (domain || '').toLowerCase();
   const domainKeywordMap: Record<string, string[]> = {
-    'finance': ['financial', 'analyst', 'investment', 'portfolio', 'accounting', 'banking', 'risk', 'trading'],
+    'finance': ['financial', 'analyst', 'investment', 'portfolio', 'accounting', 'banking', 'risk', 'trading', 'cfa', 'cpa'],
     'engineering': ['engineer', 'developer', 'software', 'technical', 'architect', 'devops', 'data', 'cloud', 'backend', 'frontend'],
-    'marketing': ['marketing', 'digital', 'brand', 'content', 'social', 'seo', 'growth', 'campaign'],
-    'operations': ['operations', 'supply chain', 'logistics', 'process', 'lean', 'project manager'],
-    'healthcare': ['healthcare', 'medical', 'clinical', 'patient', 'nursing', 'pharma'],
-    'hr': ['human resources', 'recruiter', 'talent', 'hr manager', 'people operations'],
-    'sales': ['sales', 'account executive', 'business development', 'customer success'],
-    'design': ['designer', 'ux', 'ui', 'product design', 'creative', 'visual']
+    'marketing': ['marketing', 'digital', 'brand', 'content', 'social', 'seo', 'growth', 'campaign', 'advertising'],
+    'operations': ['operations', 'supply chain', 'logistics', 'process', 'lean', 'project manager', 'procurement'],
+    'healthcare': ['healthcare', 'medical', 'clinical', 'patient', 'nursing', 'pharma', 'biomedical'],
+    'hr': ['human resources', 'recruiter', 'talent', 'hr manager', 'people operations', 'workforce'],
+    'sales': ['sales', 'account executive', 'business development', 'customer success', 'client'],
+    'design': ['designer', 'ux', 'ui', 'product design', 'creative', 'visual', 'graphic']
   };
 
   for (const [key, keywords] of Object.entries(domainKeywordMap)) {
@@ -177,6 +177,39 @@ export function calculateHiringScore(jobPostings: any[], syllabusSkills: string[
 
 export function hasActiveJobs(jobPostings: any[]): boolean {
   return Array.isArray(jobPostings) && jobPostings.length > 0;
+}
+
+/**
+ * Get hiring stats for a batch of companies
+ */
+export function getHiringStats(companies: Array<{ jobPostings?: any[] }>): {
+  companiesWithJobs: number;
+  companiesWithoutJobs: number;
+  totalJobPostings: number;
+  averageJobsPerCompany: number;
+} {
+  let companiesWithJobs = 0;
+  let companiesWithoutJobs = 0;
+  let totalJobPostings = 0;
+
+  for (const company of companies) {
+    const jobs = company.jobPostings || [];
+    if (Array.isArray(jobs) && jobs.length > 0) {
+      companiesWithJobs++;
+      totalJobPostings += jobs.length;
+    } else {
+      companiesWithoutJobs++;
+    }
+  }
+
+  return {
+    companiesWithJobs,
+    companiesWithoutJobs,
+    totalJobPostings,
+    averageJobsPerCompany: companiesWithJobs > 0
+      ? Math.round(totalJobPostings / companiesWithJobs * 10) / 10
+      : 0
+  };
 }
 
 export default HiringSignal;

@@ -194,6 +194,11 @@ verify_jwt = false
 # CAPSTONE PROJECT PIPELINE (EduThree Parity)
 # ============================================================================
 
+[functions.discover-companies]
+# 10-phase company discovery pipeline (Apollo + O*NET + Lightcast + signals)
+# Auth validated in-code (instructor ownership check)
+verify_jwt = false
+
 [functions.generate-capstone-projects]
 # AI project generation from discovered companies + course LOs
 # Auth validated in-code (instructor ownership check)

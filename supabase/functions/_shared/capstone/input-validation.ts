@@ -116,6 +116,24 @@ export function validateUUIDField(body: Record<string, unknown>, fieldName: stri
   return sanitizeUUID(value);
 }
 
+/**
+ * Validates multiple UUID fields at once
+ * @returns Object with validated UUIDs or Response if validation failed
+ */
+export function validateUUIDFields(
+  body: Record<string, unknown>,
+  fields: Array<{ name: string; required: boolean }>,
+  req: Request
+): Record<string, string | null> | Response {
+  const result: Record<string, string | null> = {};
+  for (const { name, required } of fields) {
+    const validation = validateUUIDField(body, name, req, required);
+    if (validation instanceof Response) return validation;
+    result[name] = validation;
+  }
+  return result;
+}
+
 export function detectAndLogSQLInjection(fieldName: string, value: string): boolean {
   if (hasSQLInjectionPatterns(value)) {
     console.warn(`[SECURITY] Potential SQL injection detected in ${fieldName}:`, sanitizeForLog(value, 50));

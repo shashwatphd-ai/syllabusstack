@@ -7,6 +7,7 @@
 -- 3. dashboard_analytics — Event tracking for demand signal dashboard
 -- 4. project_applications — Student project applications (for student-project-matcher)
 -- 5. project_metadata — Extended project data (ROI, value analysis, skill gaps)
+-- 6. verified_competencies — Student skills verified by capstone project work
 --
 -- Also adds:
 -- - Apollo job fields to job_matches
@@ -238,6 +239,69 @@ CREATE POLICY "Service role can manage project metadata"
 CREATE INDEX idx_project_metadata_project ON public.project_metadata(project_id);
 
 -- ============================================================================
+-- TABLE 6: verified_competencies
+-- Student skills verified by capstone project work (EduThree core table)
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS public.verified_competencies (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+
+  -- Link to the student and the project that proved the skill
+  student_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  project_id UUID,
+
+  -- The skill itself
+  skill_name VARCHAR(255) NOT NULL,
+
+  -- How the skill was verified
+  verification_source VARCHAR(100),  -- e.g., 'ai_deliverable_scan', 'employer_rating'
+
+  -- Employer-given rating (if applicable)
+  employer_rating INTEGER CHECK (employer_rating >= 1 AND employer_rating <= 5),
+
+  -- A link to the specific evidence
+  portfolio_evidence_url TEXT,
+
+  UNIQUE(student_id, project_id, skill_name)
+);
+
+COMMENT ON TABLE public.verified_competencies IS 'Student skills verified by capstone project work — bridges competency-extractor to job-matcher';
+
+CREATE INDEX idx_competencies_student_id ON public.verified_competencies(student_id);
+CREATE INDEX idx_competencies_skill_name ON public.verified_competencies(skill_name);
+
+ALTER TABLE public.verified_competencies ENABLE ROW LEVEL SECURITY;
+
+-- Students can view their own competencies
+CREATE POLICY "Students can view own competencies"
+  ON public.verified_competencies
+  FOR SELECT
+  TO authenticated
+  USING (student_id = auth.uid());
+
+-- Service role (AI functions) can insert competencies
+CREATE POLICY "Service role can insert competencies"
+  ON public.verified_competencies
+  FOR INSERT
+  TO service_role
+  WITH CHECK (true);
+
+-- Admins can view all competencies
+CREATE POLICY "Admins can view all competencies"
+  ON public.verified_competencies
+  FOR SELECT
+  TO authenticated
+  USING (public.has_role(auth.uid(), 'admin'));
+
+-- Admins can update competencies (e.g., add employer ratings)
+CREATE POLICY "Admins can update competencies"
+  ON public.verified_competencies
+  FOR UPDATE
+  TO authenticated
+  USING (public.has_role(auth.uid(), 'admin'));
+
+-- ============================================================================
 -- SCHEMA ALIGNMENTS: Add Apollo fields to job_matches
 -- ============================================================================
 
@@ -253,8 +317,10 @@ CREATE INDEX IF NOT EXISTS idx_job_matches_apollo ON public.job_matches(apollo_j
 -- SCHEMA ALIGNMENTS: Add webhook fields to company_signals
 -- ============================================================================
 
+-- company_id as UUID to properly reference Apollo webhook payloads
+-- (separate from company_profile_id which is the FK to company_profiles)
 ALTER TABLE public.company_signals
-  ADD COLUMN IF NOT EXISTS company_id TEXT,
+  ADD COLUMN IF NOT EXISTS company_id UUID,
   ADD COLUMN IF NOT EXISTS apollo_webhook_payload JSONB,
   ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pending_scoring',
   ADD COLUMN IF NOT EXISTS project_score INTEGER;
