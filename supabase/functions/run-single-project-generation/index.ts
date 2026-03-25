@@ -308,12 +308,9 @@ serve(async (req) => {
 
     const marketAlignmentScore = calculateMarketAlignmentScore(
       cleaned.tasks,
-      cleaned.deliverables,
-      company.inferred_needs || company.needs || [],
+      outcomes,
       company.job_postings || [],
-      company.technologies_used || [],
-      artifacts,
-      outcomes
+      company.technologies_used || []
     );
 
     // Calculate LO alignment detail with robust error handling
