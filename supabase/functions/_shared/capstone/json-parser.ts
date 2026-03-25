@@ -3,7 +3,7 @@
  * Ported from EduThree — provides safe parsing with proper error handling
  */
 
-import { getCorsHeaders } from '../../cors.ts';
+import { getCorsHeaders } from '../cors.ts';
 
 export interface ParseSuccess<T> {
   success: true;

@@ -100,7 +100,7 @@ export function AdminEmployerLeads() {
 
   if (isLoading) return <div className="space-y-2">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-20" />)}</div>;
 
-  const typedSubmissions = (submissions || []) as EmployerSubmission[];
+  const typedSubmissions = (submissions || []) as unknown as EmployerSubmission[];
   const filtered = typedSubmissions.filter((s) =>
     statusFilter === 'all' || s.status === statusFilter
   );

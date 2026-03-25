@@ -1,5 +1,10 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { withEmailCircuit, CircuitState } from '../_shared/capstone/circuit-breaker.ts';
+import { CircuitBreaker, CircuitState, type CircuitBreakerResult } from '../_shared/capstone/circuit-breaker.ts';
+
+const emailCircuit = new CircuitBreaker({ failureThreshold: 3, resetTimeoutMs: 60000, successThreshold: 1, name: 'email-resend' });
+async function withEmailCircuit<T>(op: () => Promise<T>): Promise<CircuitBreakerResult<T>> {
+  return emailCircuit.execute(op);
+}
 import { safeParseRequestBody } from '../_shared/capstone/json-parser.ts';
 import { getCorsHeaders, handleCorsPreFlight } from '../_shared/cors.ts';
 
