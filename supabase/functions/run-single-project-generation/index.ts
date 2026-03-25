@@ -280,15 +280,16 @@ serve(async (req) => {
     const proposal = await generateProjectProposal(
       company,
       outcomes,
-      artifacts,
+      course.title || 'Capstone Project',
       course.level,
+      artifacts,
       course.weeks,
       course.hrs_per_week
     );
 
     console.log(`✓ Proposal generated: "${proposal.title}"`);
 
-    const { cleaned, issues } = cleanAndValidate(proposal);
+    const { cleaned, issues } = cleanAndValidate(proposal as any as ProjectProposal);
     const scores = await calculateScores(
       cleaned.tasks,
       cleaned.deliverables,
@@ -307,12 +308,9 @@ serve(async (req) => {
 
     const marketAlignmentScore = calculateMarketAlignmentScore(
       cleaned.tasks,
-      cleaned.deliverables,
-      company.inferred_needs || company.needs || [],
+      outcomes,
       company.job_postings || [],
-      company.technologies_used || [],
-      artifacts,
-      outcomes
+      company.technologies_used || []
     );
 
     // Calculate LO alignment detail with robust error handling
@@ -389,7 +387,7 @@ serve(async (req) => {
         project_id: project_id,
         ai_model_version: 'google/gemini-2.5-flash',
         market_alignment_score: marketAlignmentScore,
-        estimated_roi: roiResult.roi,
+        estimated_roi: roiResult.roi_multiplier,
         pricing_breakdown: budgetResult.breakdown,
         lo_alignment_detail: loAlignmentDetail,
         lo_mapping_tasks: cleaned.tasks.map((task, i) => ({

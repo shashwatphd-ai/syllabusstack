@@ -39,7 +39,7 @@ export function useJobMatches() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('job_matches')
         .select('*')
         .eq('student_id', user.id)
@@ -92,7 +92,7 @@ export function useUpdateJobMatchStatus() {
 
   return useMutation({
     mutationFn: async ({ matchId, status }: { matchId: string; status: string }) => {
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from('job_matches')
         .update({ status })
         .eq('id', matchId);

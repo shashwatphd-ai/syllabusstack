@@ -318,7 +318,7 @@ const handler = async (req: Request): Promise<Response> => {
         const postings = apolloJobs?.job_postings || apolloJobs?.organization_job_postings || [];
 
         // Enrich matching records with Apollo data
-        for (const match of topMatches.filter((m: any) => m.company_profile_id === profile.apollo_organization_id || m.company_name === match.company_name)) {
+        for (const matchItem of topMatches.filter((m: any) => m.company_profile_id === profile.apollo_organization_id || m.company_name === profile.name)) {
           for (const posting of postings.slice(0, 3)) {
             // Check if job title overlaps with student skills
             const titleLower = (posting.title || '').toLowerCase();
@@ -329,9 +329,9 @@ const handler = async (req: Request): Promise<Response> => {
             await supabase.from('job_matches').insert({
               student_id: targetStudentId,
               job_title: posting.title,
-              company_name: match.company_name,
-              company_profile_id: match.company_profile_id,
-              match_score: match.match_score * 0.95, // Slightly lower since indirect
+              company_name: matchItem.company_name,
+              company_profile_id: matchItem.company_profile_id,
+              match_score: matchItem.match_score * 0.95, // Slightly lower since indirect
               apollo_job_id: posting.id || null,
               apollo_job_url: posting.url || null,
               apollo_job_payload: posting,

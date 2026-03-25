@@ -143,7 +143,7 @@ Respond with ONLY a valid JSON array (no markdown). Each element:
       const result = await generateText({
         prompt,
         systemPrompt: 'You are a strict evaluator for academic-industry project matching. Return only valid JSON array.',
-        options: { model: MODELS.FAST, temperature: 0.3 },
+        model: MODELS.FAST, temperature: 0.3,
       });
       return result;
     });

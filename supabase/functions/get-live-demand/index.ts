@@ -143,7 +143,7 @@ const handler = async (req: Request): Promise<Response> => {
             location: location || 'US',
           })
           .then(() => {})
-          .catch(err => console.warn(`Failed to cache signal for ${skill}:`, err));
+          .then(() => {}, (err: any) => console.warn(`Failed to cache signal for ${skill}:`, err));
       }
     } catch (err) {
       console.warn('Live Lightcast fallback failed:', err);

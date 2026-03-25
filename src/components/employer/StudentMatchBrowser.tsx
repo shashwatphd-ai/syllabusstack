@@ -41,7 +41,7 @@ export default function StudentMatchBrowser({ employerAccountId }: StudentMatchB
 
       const companyIds = companies.map(c => c.id);
 
-      const { data: jobMatches, error } = await supabase
+      const { data: jobMatches, error } = await (supabase as any)
         .from('job_matches')
         .select('student_id, job_title, company_name, match_score, skill_overlap, status')
         .in('company_profile_id', companyIds)
@@ -52,7 +52,7 @@ export default function StudentMatchBrowser({ employerAccountId }: StudentMatchB
       if (!jobMatches?.length) return [];
 
       // Fetch student names
-      const studentIds = [...new Set(jobMatches.map(m => m.student_id))];
+      const studentIds = [...new Set((jobMatches as any[]).map((m: any) => m.student_id))];
       const { data: profiles } = await supabase
         .from('profiles')
         .select('id, full_name')
@@ -60,7 +60,7 @@ export default function StudentMatchBrowser({ employerAccountId }: StudentMatchB
 
       const nameMap = new Map((profiles || []).map(p => [p.id, p.full_name]));
 
-      return jobMatches.map(m => ({
+      return (jobMatches as any[]).map((m: any) => ({
         student_id: m.student_id,
         student_name: nameMap.get(m.student_id) || 'Student',
         match_score: m.match_score,
