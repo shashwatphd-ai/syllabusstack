@@ -291,7 +291,7 @@ const handler = async (req: Request): Promise<Response> => {
     combinedKeywords,
     onetResult.occupations,
     validated,
-    0.3 // Lower threshold since we already validated
+    0.5 // Moderate threshold — job posting filtering in generation catches the rest
   );
 
   // Re-order validated companies by semantic score
