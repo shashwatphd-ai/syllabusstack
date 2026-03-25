@@ -699,6 +699,7 @@ export type Database = {
       }
       capstone_projects: {
         Row: {
+          algorithm_version: string | null
           assigned_student_id: string | null
           company_profile_id: string | null
           contact: Json | null
@@ -709,11 +710,14 @@ export type Database = {
           feasibility_score: number | null
           final_score: number | null
           generation_batch_id: string | null
+          generation_metadata: Json | null
           id: string
           instructor_course_id: string
           lo_alignment: string | null
           lo_alignment_score: number | null
           majors: string[] | null
+          mutual_benefit_score: number | null
+          pricing_usd: number | null
           skills: string[] | null
           status: string
           tasks: Json | null
@@ -722,6 +726,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          algorithm_version?: string | null
           assigned_student_id?: string | null
           company_profile_id?: string | null
           contact?: Json | null
@@ -732,11 +737,14 @@ export type Database = {
           feasibility_score?: number | null
           final_score?: number | null
           generation_batch_id?: string | null
+          generation_metadata?: Json | null
           id?: string
           instructor_course_id: string
           lo_alignment?: string | null
           lo_alignment_score?: number | null
           majors?: string[] | null
+          mutual_benefit_score?: number | null
+          pricing_usd?: number | null
           skills?: string[] | null
           status?: string
           tasks?: Json | null
@@ -745,6 +753,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          algorithm_version?: string | null
           assigned_student_id?: string | null
           company_profile_id?: string | null
           contact?: Json | null
@@ -755,11 +764,14 @@ export type Database = {
           feasibility_score?: number | null
           final_score?: number | null
           generation_batch_id?: string | null
+          generation_metadata?: Json | null
           id?: string
           instructor_course_id?: string
           lo_alignment?: string | null
           lo_alignment_score?: number | null
           majors?: string[] | null
+          mutual_benefit_score?: number | null
+          pricing_usd?: number | null
           skills?: string[] | null
           status?: string
           tasks?: Json | null
@@ -4160,6 +4172,89 @@ export type Database = {
           {
             foreignKeyName: "project_forms_capstone_project_id_fkey"
             columns: ["capstone_project_id"]
+            isOneToOne: true
+            referencedRelation: "capstone_projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_metadata: {
+        Row: {
+          ai_model_version: string | null
+          algorithm_transparency: Json | null
+          created_at: string
+          discovery_quality: Json | null
+          enhanced_market_intel: Json | null
+          estimated_roi: Json | null
+          id: string
+          lo_alignment_detail: Json | null
+          lo_mapping_deliverables: Json | null
+          lo_mapping_tasks: Json | null
+          market_alignment_score: number | null
+          market_signals_used: Json | null
+          partnership_quality_score: number | null
+          pricing_breakdown: Json | null
+          project_id: string
+          salary_projections: Json | null
+          skill_gap_analysis: Json | null
+          stakeholder_insights: Json | null
+          synergistic_value_index: number | null
+          updated_at: string
+          value_analysis: Json | null
+          verification_checks: Json | null
+        }
+        Insert: {
+          ai_model_version?: string | null
+          algorithm_transparency?: Json | null
+          created_at?: string
+          discovery_quality?: Json | null
+          enhanced_market_intel?: Json | null
+          estimated_roi?: Json | null
+          id?: string
+          lo_alignment_detail?: Json | null
+          lo_mapping_deliverables?: Json | null
+          lo_mapping_tasks?: Json | null
+          market_alignment_score?: number | null
+          market_signals_used?: Json | null
+          partnership_quality_score?: number | null
+          pricing_breakdown?: Json | null
+          project_id: string
+          salary_projections?: Json | null
+          skill_gap_analysis?: Json | null
+          stakeholder_insights?: Json | null
+          synergistic_value_index?: number | null
+          updated_at?: string
+          value_analysis?: Json | null
+          verification_checks?: Json | null
+        }
+        Update: {
+          ai_model_version?: string | null
+          algorithm_transparency?: Json | null
+          created_at?: string
+          discovery_quality?: Json | null
+          enhanced_market_intel?: Json | null
+          estimated_roi?: Json | null
+          id?: string
+          lo_alignment_detail?: Json | null
+          lo_mapping_deliverables?: Json | null
+          lo_mapping_tasks?: Json | null
+          market_alignment_score?: number | null
+          market_signals_used?: Json | null
+          partnership_quality_score?: number | null
+          pricing_breakdown?: Json | null
+          project_id?: string
+          salary_projections?: Json | null
+          skill_gap_analysis?: Json | null
+          stakeholder_insights?: Json | null
+          synergistic_value_index?: number | null
+          updated_at?: string
+          value_analysis?: Json | null
+          verification_checks?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_metadata_project_id_fkey"
+            columns: ["project_id"]
             isOneToOne: true
             referencedRelation: "capstone_projects"
             referencedColumns: ["id"]
