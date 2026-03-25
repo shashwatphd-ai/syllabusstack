@@ -2449,6 +2449,68 @@ export type Database = {
           },
         ]
       }
+      evaluations: {
+        Row: {
+          areas_for_improvement: string[] | null
+          capstone_project_id: string
+          comments: string | null
+          created_at: string
+          evaluator_id: string
+          evaluator_role: string
+          id: string
+          overall_score: number | null
+          recommendation: string | null
+          rubric_scores: Json | null
+          status: string
+          strengths: string[] | null
+          student_id: string | null
+          updated_at: string | null
+          verified_skills: string[] | null
+        }
+        Insert: {
+          areas_for_improvement?: string[] | null
+          capstone_project_id: string
+          comments?: string | null
+          created_at?: string
+          evaluator_id: string
+          evaluator_role: string
+          id?: string
+          overall_score?: number | null
+          recommendation?: string | null
+          rubric_scores?: Json | null
+          status?: string
+          strengths?: string[] | null
+          student_id?: string | null
+          updated_at?: string | null
+          verified_skills?: string[] | null
+        }
+        Update: {
+          areas_for_improvement?: string[] | null
+          capstone_project_id?: string
+          comments?: string | null
+          created_at?: string
+          evaluator_id?: string
+          evaluator_role?: string
+          id?: string
+          overall_score?: number | null
+          recommendation?: string | null
+          rubric_scores?: Json | null
+          status?: string
+          strengths?: string[] | null
+          student_id?: string | null
+          updated_at?: string | null
+          verified_skills?: string[] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "evaluations_capstone_project_id_fkey"
+            columns: ["capstone_project_id"]
+            isOneToOne: false
+            referencedRelation: "capstone_projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       explanation_votes: {
         Row: {
           created_at: string
@@ -3878,6 +3940,91 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: []
+      }
+      partnership_proposals: {
+        Row: {
+          capstone_project_id: string
+          channel: string
+          company_profile_id: string | null
+          created_at: string
+          id: string
+          instructor_course_id: string
+          instructor_id: string
+          message_body: string
+          recipient_email: string | null
+          recipient_name: string | null
+          recipient_title: string | null
+          response_notes: string | null
+          response_received_at: string | null
+          sent_at: string | null
+          status: string
+          subject: string | null
+          template_used: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          capstone_project_id: string
+          channel: string
+          company_profile_id?: string | null
+          created_at?: string
+          id?: string
+          instructor_course_id: string
+          instructor_id: string
+          message_body: string
+          recipient_email?: string | null
+          recipient_name?: string | null
+          recipient_title?: string | null
+          response_notes?: string | null
+          response_received_at?: string | null
+          sent_at?: string | null
+          status?: string
+          subject?: string | null
+          template_used?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          capstone_project_id?: string
+          channel?: string
+          company_profile_id?: string | null
+          created_at?: string
+          id?: string
+          instructor_course_id?: string
+          instructor_id?: string
+          message_body?: string
+          recipient_email?: string | null
+          recipient_name?: string | null
+          recipient_title?: string | null
+          response_notes?: string | null
+          response_received_at?: string | null
+          sent_at?: string | null
+          status?: string
+          subject?: string | null
+          template_used?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "partnership_proposals_capstone_project_id_fkey"
+            columns: ["capstone_project_id"]
+            isOneToOne: false
+            referencedRelation: "capstone_projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "partnership_proposals_company_profile_id_fkey"
+            columns: ["company_profile_id"]
+            isOneToOne: false
+            referencedRelation: "company_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "partnership_proposals_instructor_course_id_fkey"
+            columns: ["instructor_course_id"]
+            isOneToOne: false
+            referencedRelation: "instructor_courses"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       proctored_sessions: {
         Row: {
