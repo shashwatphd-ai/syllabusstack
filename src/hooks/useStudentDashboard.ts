@@ -6,21 +6,13 @@ export interface StudentDashboardMetrics {
   totalApplications: number;
   pendingApplications: number;
   approvedApplications: number;
-  matchedJobs: number;
   verifiedSkills: number;
   availableProjects: number;
 }
 
-export interface RecentCapstoneApplication {
-  id: string;
-  status: string;
-  created_at: string;
-  capstone_project_id: string;
-}
-
 interface StudentDashboardData {
   metrics: StudentDashboardMetrics;
-  recentApplications: RecentCapstoneApplication[];
+  recentApplications: any[];
 }
 
 async function fetchStudentDashboard(userId: string): Promise<StudentDashboardData> {
@@ -32,11 +24,6 @@ async function fetchStudentDashboard(userId: string): Promise<StudentDashboardDa
       .order("created_at", { ascending: false })
       .limit(5),
     supabase
-      .from("job_matches")
-      .select("*", { count: "exact", head: true })
-      .eq("user_id", userId)
-      .eq("status", "active"),
-    supabase
       .from("verified_skills")
       .select("*", { count: "exact", head: true })
       .eq("user_id", userId),
@@ -47,9 +34,8 @@ async function fetchStudentDashboard(userId: string): Promise<StudentDashboardDa
   ]);
 
   const applicationsResult = results[0].status === 'fulfilled' ? results[0].value : { data: [] };
-  const jobCountResult = results[1].status === 'fulfilled' ? results[1].value : { count: 0 };
-  const skillCountResult = results[2].status === 'fulfilled' ? results[2].value : { count: 0 };
-  const projectCountResult = results[3].status === 'fulfilled' ? results[3].value : { count: 0 };
+  const skillCountResult = results[1].status === 'fulfilled' ? results[1].value : { count: 0 };
+  const projectCountResult = results[2].status === 'fulfilled' ? results[2].value : { count: 0 };
 
   const applications = applicationsResult.data || [];
   const pending = applications.filter((a: any) => a.status === "pending").length;
@@ -60,11 +46,10 @@ async function fetchStudentDashboard(userId: string): Promise<StudentDashboardDa
       totalApplications: applications.length,
       pendingApplications: pending,
       approvedApplications: approved,
-      matchedJobs: jobCountResult.count ?? 0,
       verifiedSkills: skillCountResult.count ?? 0,
       availableProjects: projectCountResult.count ?? 0,
     },
-    recentApplications: applications as RecentCapstoneApplication[],
+    recentApplications: applications,
   };
 }
 

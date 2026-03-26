@@ -8,11 +8,12 @@ export const useNewJobMatchCount = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user?.id) return 0;
 
+      // Use the useJobMatches pattern from existing hook
       const { count, error } = await supabase
-        .from("job_matches")
+        .from("career_matches")
         .select("*", { count: "exact", head: true })
         .eq("user_id", user.id)
-        .eq("status", "active");
+        .eq("is_saved", true);
 
       if (error) {
         console.error("Error fetching job match count:", error);
