@@ -293,4 +293,18 @@ CareerPath.tsx / DreamJobs.tsx
 
 ---
 
+## 5. Key Architectural Patterns (syllabusstack)
+
+| Pattern | Where Used | How It Works |
+|---------|-----------|--------------|
+| **Two-Function Split** | Batch slides (`submit-batch-slides` + `process-batch-research`) | Fast function creates placeholders, slow function runs in background to avoid 150s edge fn timeout |
+| **Two-Path Strategy** | Gap analysis (`useAnalysis.ts`) | Fast path: read cached `gap_analyses` from DB. Slow path: call `gap-analysis` edge fn for fresh AI computation. User controls which. |
+| **Realtime Subscriptions** | Lecture slides (`useLectureSlides`) | Subscribes to `postgres_changes` on `lecture_slides` table. Throttled to max 1 invalidation per 5 seconds during batch ops. |
+| **Parallel Queries** | Course progress, recommendations, content suggestions | Uses `Promise.all()` to fetch related data simultaneously (e.g., enrollments + modules + objectives in one shot) |
+| **Background AI Workflows** | Dream job creation (`useDreamJobs`) | Creating a dream job triggers 3 background AI calls in sequence: `analyze-dream-job` -> `gap-analysis` -> `generate-recommendations` |
+| **Atomic RPC** | Primary dream job (`set_primary_dream_job`) | Uses Supabase RPC to atomically unset all primary flags and set one, preventing race conditions |
+| **Supabase Storage** | Syllabus upload (`useProcessSyllabus`) | Uploads PDF to `syllabi` bucket at `{user_id}/{timestamp}-{filename}`, creates 1-hour signed URL, passes URL to edge function |
+
+---
+
 **Next: Phase 3 - AI Prompts, Models & Provider Comparison**
