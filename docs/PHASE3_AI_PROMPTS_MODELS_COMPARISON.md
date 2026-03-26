@@ -264,7 +264,13 @@ Model: `gemini-3-pro-preview` with `thinkingLevel: "high"`, `maxOutputTokens: 65
 
 ### 3C. Prompts ONLY in `projectify-syllabus`
 
-#### Prompt 15: Company Validation Prompt (in company-validation-service.ts)
+#### Prompt 18: Apollo Filter Generation (`apollo-provider.ts` -> `generateFilters`)
+- **Model:** Gemini 2.5 Flash, **Temperature:** 0.1
+- Purpose: Auto-generate Apollo.io search parameters from course context
+- System: `"You are an AI that analyzes course syllabi and generates Apollo.io search filters."`
+- Outputs: locations, keyword tags, job titles, employee ranges for Apollo API
+
+#### Prompt 19: Company Validation Prompt (in company-validation-service.ts)
 - AI validates company-course fit before project generation
 - Uses semantic matching with Gemini embeddings
 - Returns confidence score + rejection reason

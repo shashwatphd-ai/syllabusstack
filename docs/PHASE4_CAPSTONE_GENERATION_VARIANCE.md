@@ -66,6 +66,22 @@ Step 3: generate-capstone-projects (edge fn)
     Output: capstone_projects + project_forms (6 forms) + milestones
 ```
 
+### `projectify-syllabus` has TWO Discovery Pipelines (feature-flagged)
+
+**Legacy pipeline (default):** SOC mapping -> Apollo search -> Gemini embedding similarity -> 4-signal scoring
+**New pipeline (`USE_NEW_PIPELINE=true`):** Lightcast NLP -> O*NET structured -> Apollo precise -> Lightcast skill ID validation -> Multi-factor ranking
+
+New pipeline ranking weights:
+| Factor | Weight |
+|--------|--------|
+| Semantic (Lightcast skill ID overlap) | 40% |
+| Hiring (active job posting count) | 25% |
+| Location (distance from university) | 15% |
+| Size (company size fit) | 10% |
+| Diversity (industry variety) | 10% |
+
+**syllabusstack** uses only the legacy pipeline (ported), with the 4-signal scoring system.
+
 ---
 
 ## 2. Input Data Differences
@@ -274,7 +290,12 @@ capstone_generation_runs:  -- Progress tracking (syllabusstack only)
 - syllabusstack does NOT return these fields
 - Result: projectify projects have richer metadata
 
-### Variance 9: ROI Breakdown
+### Variance 9: Database Insert Strategy
+- projectify: Uses `create_project_atomic` RPC (single transaction for project + forms + metadata)
+- syllabusstack: Sequential inserts (`capstone_projects` -> `project_forms` -> `capstone_generation_runs` update)
+- Result: projectify has atomic consistency guarantee; syllabusstack can have partial inserts on failure
+
+### Variance 10: ROI Breakdown
 - projectify: Simple `budget` + `roi_multiplier`
 - syllabusstack: Full `roi_breakdown` with stakeholder categories, `value_components` array
 - Result: syllabusstack has more detailed financial analysis per project
