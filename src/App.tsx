@@ -79,10 +79,12 @@ import HelpArticlePage from "./pages/HelpArticle";
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
+      <NotificationProvider>
       <TooltipProvider>
         <Toaster />
         <Sonner />
         <AchievementToastProvider />
+        <RealtimeNotificationListener />
         <TourProvider>
         <BrowserRouter>
           <ErrorBoundary>
@@ -187,6 +189,7 @@ const App = () => (
         </BrowserRouter>
         </TourProvider>
       </TooltipProvider>
+      </NotificationProvider>
     </AuthProvider>
   </QueryClientProvider>
 );
