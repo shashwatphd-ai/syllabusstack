@@ -206,7 +206,39 @@ These are server-side functions triggered by cron jobs, webhooks, or other edge 
 
 ---
 
-## 8. Files Referenced in This Report
+## 8. Additional Algorithms (syllabusstack only)
+
+### Weibull Skill Decay Model (gap-analysis)
+Verified skills decay over time using a Weibull survival model:
+```
+survival_probability = 1 - ((days_since_verification / halfLife) ^ shape) ^ scale
+```
+- If survival < 50%: skill flagged for retest
+- Proficiency level downgraded if decayed
+- Blended match score: `(keywordScore * 0.3) + (aiScore * 0.7)`
+
+### Holland Code Career Matching (match-careers)
+Uses Iachan's M Index with position-weighted matching:
+- **Interest Match (40%):** Holland hexagonal adjacency (R↔I, I↔A, A↔S, S↔E, E↔C, C↔R)
+- **Skills Match (40%):** Importance-weighted gap analysis per required skill
+- **Values Match (20%):** Euclidean distance in work values space
+
+### 10-Phase Company Discovery (discover-companies)
+The discovery pipeline is actually 10 phases (not 5 as initially documented):
+1. Fetch course data
+2. SOC code mapping
+3. O*NET occupational enrichment (skills, technologies, occupations)
+4. AI skill extraction from objectives
+5. Build Apollo search parameters
+6. Apollo multi-strategy discovery
+7. Context-aware industry filtering + AI company-course validation
+8. Semantic matching (TF-IDF + adaptive threshold)
+9. 3-stage enrichment + signal scoring (4 parallel signals)
+10. Career page validation (Firecrawl, top 5 only) + inferred needs synthesis
+
+---
+
+## 9. Files Referenced in This Report
 
 All 5 phases reference these key files:
 
