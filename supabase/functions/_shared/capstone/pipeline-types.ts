@@ -189,7 +189,7 @@ export interface MappedOccupation {
 export interface OccupationMappingInput {
   skills: LightcastSkillId[];
   courseTitle: string;
-  courseLevel: string;
+  courseLevel?: string;
 }
 
 export interface OccupationMappingOutput {
@@ -197,4 +197,5 @@ export interface OccupationMappingOutput {
   allDWAs: DetailedWorkActivity[];
   allTechnologies: OccupationTechnology[];
   allIndustries: string[];
+  processingTimeMs?: number;
 }
