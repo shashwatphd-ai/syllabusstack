@@ -739,7 +739,7 @@ const handler = async (req: Request): Promise<Response> => {
 
     for (const company of insertedCompanies) {
       try {
-        const needs = inferCompanyNeedsV2(
+        const needs = await inferCompanyNeedsV2(
           Array.isArray(company.job_postings) ? company.job_postings : [],
           Array.isArray(company.technologies_used) ? company.technologies_used : [],
           company.description || '',
@@ -1147,8 +1147,8 @@ const handler = async (req: Request): Promise<Response> => {
 
   for (const company of insertedCompanies) {
     try {
-      const needs = inferCompanyNeeds(
-        company.job_postings || [],
+      const needs = await inferCompanyNeeds(
+        Array.isArray(company.job_postings) ? company.job_postings : [],
         company.technologies_used || [],
         company.description || '',
         company.funding_stage,
