@@ -513,39 +513,27 @@ const handler = async (req: Request): Promise<Response> => {
         proposal.lo_alignment
       );
 
-      // ── Step 7: Insert capstone project ──
-      const { data: project, error: insertError } = await supabase
-        .from('capstone_projects')
-        .insert({
-          instructor_course_id,
-          company_profile_id: company.id,
-          title: proposal.title,
-          description: proposal.description,
-          tasks: proposal.tasks,
-          deliverables: proposal.deliverables,
-          skills: proposal.skills,
-          tier: proposal.tier,
-          lo_alignment: proposal.lo_alignment,
-          lo_alignment_score: Math.round(loScore * 100) / 100,
-          feasibility_score: Math.round(feasibilityScore * 100) / 100,
-          final_score: Math.round(finalScore * 100) / 100,
-          contact: proposal.contact,
-          equipment: proposal.equipment,
-          majors: proposal.majors,
-          status: 'generated',
-        })
-        .select()
-        .single();
+      // ── Step 7: Atomic insert via RPC ──
+      const projectData = {
+        instructor_course_id,
+        company_profile_id: company.id,
+        title: proposal.title,
+        description: proposal.description,
+        tasks: proposal.tasks,
+        deliverables: proposal.deliverables,
+        skills: proposal.skills,
+        tier: proposal.tier,
+        lo_alignment: proposal.lo_alignment,
+        lo_alignment_score: Math.round(loScore * 100) / 100,
+        feasibility_score: Math.round(feasibilityScore * 100) / 100,
+        final_score: Math.round(finalScore * 100) / 100,
+        contact: proposal.contact,
+        equipment: proposal.equipment,
+        majors: proposal.majors,
+        status: 'generated',
+      };
 
-      if (insertError) {
-        console.error(`   ❌ DB insert failed for ${company.name}:`, insertError);
-        errors.push(`${company.name}: ${insertError.message}`);
-        continue;
-      }
-
-      // ── Step 8: Insert 6-form structured data ──
-      await supabase.from('project_forms').insert({
-        capstone_project_id: project.id,
+      const formsData = {
         form1_project_details: {
           title: proposal.title,
           industry: company.sector,
@@ -594,10 +582,30 @@ const handler = async (req: Request): Promise<Response> => {
           category: company.sector || 'General',
         },
         milestones: generateMilestones(proposal.deliverables, 15),
+      };
+
+      const metadataData = {
+        pricing_usd: budget,
+        roi_multiplier: roi.roi_multiplier,
+        stakeholder_insights: roiBreakdown,
+      };
+
+      const { data: rpcResult, error: rpcError } = await supabase.rpc('create_project_atomic', {
+        p_project_data: projectData,
+        p_forms_data: formsData,
+        p_metadata_data: metadataData,
       });
 
+      if (rpcError) {
+        console.error(`   ❌ Atomic insert failed for ${company.name}:`, rpcError);
+        errors.push(`${company.name}: ${rpcError.message}`);
+        continue;
+      }
+
+      const projectId = rpcResult?.project_id || rpcResult;
+
       results.push({
-        id: project.id,
+        id: projectId,
         title: proposal.title,
         company: company.name,
         lo_score: loScore,

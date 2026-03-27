@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Building2, Loader2, Search, Sparkles, AlertCircle, MapPin, ArrowUpDown, Filter } from 'lucide-react';
+import { Building2, Loader2, Search, Sparkles, AlertCircle, MapPin, ArrowUpDown, Filter, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -13,6 +13,7 @@ import {
   useReEnrichAddresses,
   type CompanyProfile,
 } from '@/hooks/useCapstoneProjects';
+import { useAdminRegenerate } from '@/hooks/useAdminRegenerate';
 import { LocationSetup } from './LocationSetup';
 import { CompanyCard } from './CompanyCard';
 import { CapstoneProjectCard } from './CapstoneProjectCard';
@@ -56,6 +57,7 @@ export function CapstoneProjectsTab({ courseId }: CapstoneProjectsTabProps) {
   const discoverCompanies = useDiscoverCompanies();
   const generateProjects = useGenerateCapstoneProjects();
   const reEnrichAddresses = useReEnrichAddresses();
+  const regenerateProjects = useAdminRegenerate();
 
   const [detailProjectId, setDetailProjectId] = useState<string | null>(null);
   const [assignProjectId, setAssignProjectId] = useState<string | null>(null);
@@ -191,10 +193,18 @@ export function CapstoneProjectsTab({ courseId }: CapstoneProjectsTabProps) {
             <Sparkles className="h-4 w-4" />
             Capstone Projects
           </h3>
-          <Button size="sm" className="gap-2" onClick={() => generateProjects.mutate(courseId)} disabled={generateProjects.isPending || !companies || companies.length === 0}>
-            {generateProjects.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-            {generateProjects.isPending ? 'Generating...' : 'Generate Projects'}
-          </Button>
+          <div className="flex gap-2">
+            {projects && projects.length > 0 && (
+              <Button size="sm" variant="outline" className="gap-2" onClick={() => regenerateProjects.mutate(courseId)} disabled={regenerateProjects.isPending}>
+                {regenerateProjects.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                {regenerateProjects.isPending ? 'Regenerating...' : 'Regenerate'}
+              </Button>
+            )}
+            <Button size="sm" className="gap-2" onClick={() => generateProjects.mutate(courseId)} disabled={generateProjects.isPending || !companies || companies.length === 0}>
+              {generateProjects.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              {generateProjects.isPending ? 'Generating...' : 'Generate Projects'}
+            </Button>
+          </div>
         </div>
 
         {loadingProjects ? (
