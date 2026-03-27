@@ -106,8 +106,10 @@ function filterRelevantSignals(
   console.log(`  🔑 Keywords (${expandedKeywords.size}): ${Array.from(expandedKeywords).slice(0, 12).join(', ')}...`);
 
   // Step 4: Filter job postings by location AND topic relevance
-  const originalJobCount = (company as any).job_postings?.length || 0;
-  const filteredJobs = ((company as any).job_postings || []).filter((job: any) => {
+  const rawJobs = (company as any).job_postings;
+  const jobsArray = Array.isArray(rawJobs) ? rawJobs : [];
+  const originalJobCount = jobsArray.length;
+  const filteredJobs = jobsArray.filter((job: any) => {
     // Location filter (pass if no location data available)
     if (searchLocation) {
       const jobLocation = (job.location || '').toLowerCase();
@@ -136,8 +138,10 @@ function filterRelevantSignals(
   console.log(`  📊 Jobs: ${originalJobCount} total → ${filteredJobs.length} relevant (${Math.round(filteredJobs.length / Math.max(originalJobCount, 1) * 100)}%)`);
 
   // Step 5: Filter technologies by course relevance
-  const originalTechCount = (company.technologies_used || []).length;
-  const filteredTech = (company.technologies_used || []).filter((tech: any) => {
+  const rawTech = company.technologies_used;
+  const techArray = Array.isArray(rawTech) ? rawTech : [];
+  const originalTechCount = techArray.length;
+  const filteredTech = techArray.filter((tech: any) => {
     const techName = typeof tech === 'string' ? tech : (tech?.name || tech?.technology || '');
     const techLower = techName.toLowerCase();
     return Array.from(expandedKeywords).some(keyword =>
@@ -399,10 +403,10 @@ const handler = async (req: Request): Promise<Response> => {
         companyName: company.name,
         companyDescription: company.description || '',
         companySector: company.sector || 'Unknown',
-        companyIndustries: company.industries || [],
-        companyKeywords: company.keywords || [],
-        companyJobPostings: company.job_postings || [],
-        companyTechnologies: company.technologies_used || [],
+        companyIndustries: Array.isArray(company.industries) ? company.industries : [],
+        companyKeywords: Array.isArray(company.keywords) ? company.keywords : [],
+        companyJobPostings: Array.isArray(company.job_postings) ? company.job_postings : [],
+        companyTechnologies: Array.isArray(company.technologies_used) ? company.technologies_used : [],
         courseTitle: course.title,
         courseLevel: course.academic_level || 'undergraduate',
         courseOutcomes: objectives,
@@ -428,10 +432,9 @@ const handler = async (req: Request): Promise<Response> => {
       );
 
       // Skip company if zero relevant job postings AND zero relevant technologies
-      if (
-        (filteredCompany.job_postings || []).length === 0 &&
-        (filteredCompany.technologies_used || []).length === 0
-      ) {
+      const fcJobs = Array.isArray(filteredCompany.job_postings) ? filteredCompany.job_postings : [];
+      const fcTech = Array.isArray(filteredCompany.technologies_used) ? filteredCompany.technologies_used : [];
+      if (fcJobs.length === 0 && fcTech.length === 0) {
         console.log(`   ⚠️ Skipped: No relevant job postings or technologies for "${course.title}"`);
         validationResults[validationResults.length - 1].reason += ' (no relevant signals)';
         continue;
@@ -480,8 +483,8 @@ const handler = async (req: Request): Promise<Response> => {
       const marketScore = calculateMarketAlignmentScore(
         proposal.tasks,
         objectives,
-        filteredCompany.job_postings || [],
-        filteredCompany.technologies_used || [],
+        Array.isArray(filteredCompany.job_postings) ? filteredCompany.job_postings : [],
+        Array.isArray(filteredCompany.technologies_used) ? filteredCompany.technologies_used : [],
         company.inferred_needs || []
       );
 
