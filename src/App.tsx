@@ -45,6 +45,9 @@ import SlideContentEditorPage from "./pages/instructor/SlideContentEditor";
 import SyllabusReviewPage from "./pages/instructor/SyllabusReview";
 import { StudentCourseDetailPage, LearningObjectivePage, AssessmentPage, StudentSlidePage, IdentityVerificationPage, ChallengeSessionPage } from "./pages/student";
 import StudentCapstoneProjects from "./pages/student/StudentCapstoneProjects";
+import UploadSyllabus from "./pages/student/UploadSyllabus";
+import ReviewSyllabus from "./pages/student/ReviewSyllabus";
+import ConfigureDiscovery from "./pages/student/ConfigureDiscovery";
 import StudentJobMatches from "./pages/student/StudentJobMatches";
 import StudentPortfolio from "./pages/student/StudentPortfolio";
 // Admin pages
@@ -152,6 +155,9 @@ const App = () => (
             <Route path="/learn/slides/:slideId" element={<AuthGuard><StudentSlidePage /></AuthGuard>} />
             <Route path="/verify-identity" element={<AuthGuard><IdentityVerificationPage /></AuthGuard>} />
             <Route path="/learn/challenge/:challengeId" element={<AuthGuard><ChallengeSessionPage /></AuthGuard>} />
+            <Route path="/student/upload-syllabus" element={<AuthGuard><UploadSyllabus /></AuthGuard>} />
+            <Route path="/student/review-syllabus/:courseId" element={<AuthGuard><ReviewSyllabus /></AuthGuard>} />
+            <Route path="/student/configure/:courseId" element={<AuthGuard><ConfigureDiscovery /></AuthGuard>} />
             <Route path="/student/capstone-projects" element={<AuthGuard><StudentCapstoneProjects /></AuthGuard>} />
             <Route path="/student/jobs" element={<AuthGuard><StudentJobMatches /></AuthGuard>} />
             <Route path="/student/portfolio" element={<AuthGuard><StudentPortfolio /></AuthGuard>} />
