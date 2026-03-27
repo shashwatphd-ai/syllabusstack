@@ -30,6 +30,8 @@ import {
   VerificationTab,
   EnhancedMarketIntelTab,
 } from './ProjectDetailTabs';
+import { QualityBadge } from './QualityBadge';
+import { ExportPDFButton } from './PrintableProjectView';
 
 interface ProjectReportViewProps {
   projectId: string;
@@ -542,13 +544,17 @@ export function ProjectReportView({ projectId, courseId, open, onOpenChange }: P
         <ResponsiveDialogHeader>
           <div className="flex items-start justify-between gap-3">
             <div>
-              <ResponsiveDialogTitle className="text-lg">{project.title}</ResponsiveDialogTitle>
+              <ResponsiveDialogTitle className="text-lg flex items-center gap-2">
+                {project.title}
+                {project.final_score != null && <QualityBadge score={project.final_score} size="sm" />}
+              </ResponsiveDialogTitle>
               <ResponsiveDialogDescription>
                 {company?.name} · {company?.sector !== 'Unknown' ? company?.sector : company?.industries?.[0] || 'Industry'}
               </ResponsiveDialogDescription>
             </div>
             <div className="flex items-center gap-2 shrink-0">
               {finalScore > 0 && <Badge className="text-sm px-3 py-1">{finalScore}% Match</Badge>}
+              <ExportPDFButton project={project} />
               <Button variant="ghost" size="icon" className="h-8 w-8 print:hidden" onClick={() => window.print()}>
                 <Printer className="h-4 w-4" />
               </Button>
