@@ -1,12 +1,43 @@
-# PRD: Port Quality Features from projectify-syllabus to syllabusstack
+# Production Development Plan: Full Quality Parity — syllabusstack
 
 ## Context
 
-syllabusstack ported capstone project generation from projectify-syllabus but the port was incomplete. Since the original plan was written, **Lovable added 21 new edge functions, 6 new shared services, 2 new API clients, and 3 major DB migrations** — closing many gaps. This updated PRD reflects the current state as of 2026-03-27.
+syllabusstack ported capstone project generation from projectify-syllabus but the port was incomplete. Since the original plan was written, **Lovable added 21 new edge functions, 6 new shared services, 2 new API clients, and 3 major DB migrations** — closing many gaps. This plan reflects the current state as of 2026-03-27.
 
 **Goal:** Achieve full feature parity on quality-impacting features while supporting BOTH the instructor-centric flow (existing) and the student-centric flow (from projectify). Include all external APIs (Lightcast, ESCO, O*NET).
 
 **Constraint:** All AI calls must use syllabusstack's `unified-ai-client.ts` (OpenRouter), NOT Lovable Gateway.
+
+---
+
+## Branch & Merge Strategy
+
+```
+main (production — published on Lovable)
+  └── feature/quality-parity (integration branch — all phases merge here first)
+        ├── feature/qp-phase-1-backend-services
+        ├── feature/qp-phase-2-discovery-pipeline
+        ├── feature/qp-phase-3-validation-rpc
+        ├── feature/qp-phase-4-wire-ui
+        ├── feature/qp-phase-5-student-flow
+        ├── feature/qp-phase-6-project-detail
+        └── feature/qp-phase-7-migrations
+```
+
+**Merge order:** Phase 7 (migrations) → Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5 → Phase 6 → merge `feature/quality-parity` → `main`
+
+**Each phase:** Feature branch → PR to `feature/quality-parity` → review → merge → test integration → next phase
+
+---
+
+## Environment Variables (add to Supabase Edge Function secrets)
+
+```
+LIGHTCAST_CLIENT_ID=<from Lightcast developer portal>
+LIGHTCAST_CLIENT_SECRET=<from Lightcast developer portal>
+USE_NEW_PIPELINE=false  # flip to true after Phase 2 is tested
+```
+ESCO API requires no credentials (free, open).
 
 ---
 
@@ -316,3 +347,168 @@ Phase 7 (DB Migrations) ──should run before Phase 3.2, 5.4──
 **Quick wins (start now):** Phase 3.1 (post-gen validation), Phase 4 (wire existing functions), Phase 6.1 (quality badges), Phase 7 (migrations)
 **Critical path:** Phase 1 → Phase 2 (discovery pipeline upgrade)
 **Total remaining:** ~8 new backend files, 7 new hooks, 4 new pages, 2 new components, 2 migrations
+
+---
+
+## Lovable Prompts (Copy-Paste Ready)
+
+### Phase 7 — Migrations (Run First)
+
+**Prompt 7.1:**
+> Create a new Supabase migration that adds a PL/pgSQL function `create_project_atomic(p_project_data JSONB, p_forms_data JSONB, p_metadata_data JSONB)` that atomically inserts into `capstone_projects`, `project_forms`, and `project_metadata` in a single transaction. If any step fails, the entire transaction rolls back. Return the inserted project ID on success. Reference the existing `capstone_projects`, `project_forms`, and `project_metadata` table schemas. Also add RLS policies allowing authenticated students to SELECT from `capstone_projects` where their `student_id` matches via `capstone_assignments` or `project_applications`. Add an index on `project_applications(student_id, capstone_project_id)`.
+
+### Phase 1 — Backend Services
+
+**Prompt 1.1 (Pipeline Orchestrator + Semantic Validation):**
+> Port two files from projectify-syllabus into syllabusstack. Reference the source repo at `/tmp/projectify-syllabus/`:
+>
+> 1. Port `supabase/functions/_shared/company-discovery-pipeline.ts` → `supabase/functions/_shared/capstone/company-discovery-pipeline.ts`. This is the 5-phase pipeline orchestrator (Skill Extraction → Occupation Mapping → Company Discovery → Semantic Validation → Ranking). Update all imports to use the `capstone/` subdirectory paths. Replace any `fetchWithTimeout()` with the existing `timeout-config.ts` patterns. Replace any Lovable AI Gateway calls with imports from `../unified-ai-client.ts`. Rename the existing `discovery-pipeline.ts` to `discovery-pipeline-legacy.ts` and keep it as fallback. Add a `USE_NEW_PIPELINE` env var check so the new pipeline is opt-in.
+>
+> 2. Port `supabase/functions/_shared/semantic-validation-v2-service.ts` → `supabase/functions/_shared/capstone/semantic-validation-v2-service.ts`. This uses Lightcast skill ID matching for Phase 4 validation. Wire it to use the existing `_shared/embedding-client.ts` for embeddings instead of projectify's `embedding-service.ts`. Wire AI text calls through `../unified-ai-client.ts`.
+
+**Prompt 1.2 (Occupation Services):**
+> Port 5 files from projectify-syllabus `supabase/functions/_shared/` into syllabusstack `supabase/functions/_shared/capstone/`:
+>
+> 1. `occupation-provider-interface.ts` — abstract interface for pluggable occupation providers
+> 2. `onet-structured-service.ts` — structured O*NET data preserving DWAs and technologies as objects (use existing `onet-service.ts` for API auth patterns)
+> 3. `occupation-coordinator.ts` — multi-provider coordinator (ESCO + Skills-ML + O*NET) with weighted scoring
+> 4. `esco-provider.ts` — ESCO European Skills taxonomy provider (free API, no auth)
+> 5. `skills-ml-provider.ts` — local ML-based occupation mapping (no API calls)
+>
+> All files should import from `capstone/` paths. Use the existing `lightcast-client.ts` for any Lightcast calls. Use `timeout-config.ts` for timeouts and `retry-utils.ts` for retries.
+
+**Prompt 1.3 (Circuit Breaker Upgrade):**
+> Upgrade `supabase/functions/_shared/capstone/circuit-breaker.ts` from its current 112-line basic implementation to a full state machine. Reference projectify-syllabus's version at `/tmp/projectify-syllabus/supabase/functions/_shared/circuit-breaker.ts` (425 lines). Add: CircuitState enum (CLOSED/OPEN/HALF_OPEN), named configs (APOLLO_CIRCUIT_CONFIG with 5 failures/60s reset, AI_GATEWAY_CIRCUIT_CONFIG with 3 failures/30s reset), callbacks (onOpen/onClose/onHalfOpen), detailed stats tracking, registry pattern, and helper functions `withApolloCircuit()` and `withAICircuit()`. Keep backward compatibility with existing imports.
+
+**Prompt 1.4 (Semantic Matching + Rate Limit Headers):**
+> 1. Update `supabase/functions/_shared/capstone/semantic-matching-service.ts` to add a hybrid matching mode. Import `embedding-client.ts` from `../_shared/embedding-client.ts` and add an `embeddingBasedMatch()` function alongside the existing TF-IDF. When embeddings are available, use cosine similarity; fall back to TF-IDF keyword matching otherwise. Add an `adaptiveThreshold()` that adjusts based on the average similarity in the batch.
+>
+> 2. Port `rate-limit-headers.ts` from projectify-syllabus `_shared/` to syllabusstack `_shared/capstone/rate-limit-headers.ts`. This provides standard X-RateLimit response headers for edge functions.
+
+### Phase 2 — Discovery Pipeline Upgrade
+
+**Prompt 2.1:**
+> Upgrade `supabase/functions/discover-companies/index.ts` (currently 673 lines) to integrate the new 5-phase pipeline. Behind the `USE_NEW_PIPELINE` env var feature flag, add:
+>
+> - Phase 2b: O*NET occupational enrichment via `_shared/capstone/onet-structured-service.ts`
+> - Phase 6b: Extended AI company-course validation using `_shared/capstone/company-validation-service.ts`
+> - Phase 6c: Semantic validation via `_shared/capstone/semantic-validation-v2-service.ts`
+> - Phase 6d: Multi-factor ranking via `_shared/capstone/company-ranking-service.ts`
+> - Phase 8: 4-signal scoring using the existing `_shared/capstone/signals/` orchestrator (all 5 signals already exist)
+> - Phase 9: Career page validation using existing `_shared/capstone/career-page-validator.ts`
+> - Phase 10: Inferred needs synthesis using existing `_shared/capstone/inferred-needs-service.ts`
+>
+> When `USE_NEW_PIPELINE` is not set or false, keep using the existing `discovery-pipeline-legacy.ts`. Import `rate-limit-headers.ts` and add rate limit response headers. Target ~1200 lines.
+
+### Phase 3 — Post-Generation Validation + Atomic RPC
+
+**Prompt 3.1:**
+> Add post-generation validation to `supabase/functions/generate-capstone-projects/index.ts`:
+>
+> 1. Add a `cleanAndValidate(proposal)` function that: strips markdown (`**`, `*`, backticks), removes week references from deliverables (`/Week \d+/gi`), removes leading numbers/bullets, validates description has >50 words, flags if all skills are generic (communication, leadership, teamwork, etc.)
+>
+> 2. Add a `validateProjectData(proposal, company)` function that checks: description >100 chars, contact has name+email+phone, >=3 skills, >=1 major, email matches regex, no task >20 words, returns `{ cleaned, issues[] }`
+>
+> 3. Add retry logic: wrap the `generateProjectProposal()` call in a retry with exponential backoff (1s, 2s, 4s delays, max 3 attempts) for transient AI failures. Use the existing `retry-utils.ts` `withRetry()`.
+>
+> 4. Wire `create_project_atomic` RPC: Replace the sequential `supabase.from('capstone_projects').insert()` + `supabase.from('project_forms').insert()` with a single `supabase.rpc('create_project_atomic', { p_project_data, p_forms_data, p_metadata_data })` call.
+
+### Phase 4 — Wire Backend Functions to Frontend
+
+**Prompt 4.1 (New Hooks):**
+> Create these React hooks in `src/hooks/` that call existing Supabase edge functions:
+>
+> 1. `useSalaryROI.ts` — `useMutation` calling `salary-roi-calculator` with `{ project_id }`, returns salary projections
+> 2. `useCareerPathway.ts` — `useMutation` calling `career-pathway-mapper` with `{ project_id }`, returns career progression data
+> 3. `useSkillGapAnalysis.ts` — `useMutation` calling `skill-gap-analyzer` with `{ project_id }`, returns covered/gap skills
+> 4. `useProjectValue.ts` — `useMutation` calling `analyze-project-value` with `{ project_id }`, returns stakeholder value
+> 5. `useStudentProjectRecommendations.ts` — `useQuery` calling `student-project-matcher`, returns recommended projects for current student
+> 6. `useAdminRegenerate.ts` — `useMutation` calling `admin-regenerate-projects` with `{ instructor_course_id }`, invalidates capstone queries
+> 7. `useDemandSignals.ts` — `useQuery` calling `get-live-demand` for skills/location demand data
+>
+> Follow the existing pattern in `useCapstoneProjects.ts` for Supabase function invocation, toast notifications, and query invalidation.
+
+**Prompt 4.2 (Wire to UI):**
+> Wire the new hooks to existing UI components:
+>
+> 1. In `src/components/capstone/ProjectDetailTabs.tsx` "Scoring" tab: import `useSalaryROI` and show salary projection card when data loads
+> 2. In `src/components/capstone/ProjectDetailTabs.tsx` "Premium Insights" tab: import `useSkillGapAnalysis` and replace any placeholder with real skill gap visualization
+> 3. In `src/components/capstone/ProjectDetailTabs.tsx` "Value Analysis" tab: import `useProjectValue` and wire the stakeholder ROI breakdown
+> 4. In `src/pages/student/StudentCapstoneProjects.tsx`: import `useStudentProjectRecommendations` and add a "Recommended for You" section above the project list
+> 5. In the instructor course detail capstone tab: add a "Regenerate Projects" button using `useAdminRegenerate`
+> 6. In `src/pages/DemandBoard.tsx`: import `useDemandSignals` and wire to the demand board data display
+
+### Phase 5 — Student Upload Flow
+
+**Prompt 5.1:**
+> Create a student syllabus upload flow with 3 new pages:
+>
+> 1. `src/pages/student/UploadSyllabus.tsx` — PDF upload (max 10MB) with drag-and-drop using `react-dropzone` (already in deps). Auto-detect location from user's email domain via `detect-location` edge function. Show manual location override (city, state, ZIP). On submit, call the existing `useProcessSyllabus` hook. Navigate to ReviewSyllabus on success. Use sessionStorage to persist form data for Android reload recovery.
+>
+> 2. `src/pages/student/ReviewSyllabus.tsx` — Display parsed course data (title, level, weeks, outcomes, artifacts) from the course record. Allow editing fields inline. Show "Generate Projects" CTA button that navigates to ConfigureDiscovery.
+>
+> 3. `src/pages/student/ConfigureDiscovery.tsx` — Form with: target industries (multi-select with suggestions), optional company names, number of teams (1-20 slider). On submit, calls `discover-companies` then `generate-capstone-projects`. Shows progress with polling using GenerationProgressCard pattern from existing capstone components.
+>
+> Add routes to `src/App.tsx`:
+> - `/student/upload-syllabus` (AuthGuard)
+> - `/student/review-syllabus/:courseId` (AuthGuard)
+> - `/student/configure/:courseId` (AuthGuard)
+>
+> Add navigation links from the student dashboard/sidebar.
+
+**Prompt 5.2 (Student Apply):**
+> Add a student "Apply Now" flow for capstone projects:
+>
+> 1. Create `src/components/capstone/StudentApplyButton.tsx` — button that inserts into the existing `project_applications` table with status='pending'. Show "Applied" state if already applied. Use React Query mutation with optimistic update.
+>
+> 2. In `useCapstoneProjects.ts`, add `useApplyToProject()` mutation and `useMyApplications()` query.
+>
+> 3. Add the apply button to the project cards in `StudentCapstoneProjects.tsx` and `StudentCapstoneView.tsx`.
+
+### Phase 6 — Rich Project Detail Enhancements
+
+**Prompt 6.1:**
+> Add quality badges and PDF export to capstone project views:
+>
+> 1. Create `src/components/capstone/QualityBadge.tsx` — displays letter grade (A+ ≥85%, A ≥80%, B+ ≥75%, B ≥70%, C <70%) based on `final_score` from the capstone project. Use shadcn Badge component with color variants (green for A+/A, yellow for B+/B, red for C). Show as a chip on project cards and detail headers.
+>
+> 2. Integrate QualityBadge into `CapstoneProjectCard.tsx` (next to title) and `ProjectDetailTabs.tsx` (in header).
+>
+> 3. Create `src/components/capstone/PrintableProjectView.tsx` — a print-optimized view of the project detail (all 6 forms, scores, company info, deliverables). Use `html2pdf.js` (already in deps) to generate PDF on button click. Add "Export PDF" button to project detail view header.
+
+---
+
+## Production Deployment Checklist
+
+### Pre-Merge to Main
+- [ ] All phase branches merged to `feature/quality-parity`
+- [ ] `npm run build` passes with 0 errors on integration branch
+- [ ] `npm test` — all existing tests pass (310+ tests)
+- [ ] New tests added for: circuit breaker, semantic-validation-v2, create_project_atomic
+- [ ] Manual test: Instructor flow (discover → generate → assign) still works
+- [ ] Manual test: Student upload flow (upload → review → configure → apply) works
+- [ ] Manual test: Project detail tabs all render with real data
+- [ ] Manual test: PDF export generates valid PDF
+- [ ] Environment variables set in Supabase dashboard: `LIGHTCAST_CLIENT_ID`, `LIGHTCAST_CLIENT_SECRET`
+- [ ] `USE_NEW_PIPELINE=false` initially (flip after monitoring)
+
+### Merge to Main (Lovable Production)
+- [ ] Create PR: `feature/quality-parity` → `main`
+- [ ] PR description lists all phases with key changes
+- [ ] Squash merge to keep history clean
+- [ ] Verify Lovable auto-deploys from main
+- [ ] Verify Supabase edge functions deployed (check Function Logs)
+
+### Post-Deployment Monitoring
+- [ ] Monitor Supabase Function Logs for errors in new edge functions
+- [ ] Test discover-companies with legacy pipeline (default)
+- [ ] Flip `USE_NEW_PIPELINE=true` and test new 5-phase pipeline
+- [ ] Monitor Lightcast API usage (1000 calls/day limit)
+- [ ] Monitor ESCO API connectivity
+- [ ] Verify `create_project_atomic` transactions succeed (check for orphaned records)
+- [ ] Verify student RLS policies work (student can see projects, cannot modify)
+
+### Rollback Plan
+- If new pipeline causes issues: Set `USE_NEW_PIPELINE=false` (instant, no deploy)
+- If edge functions fail: Revert Supabase function deployment via dashboard
+- If frontend breaks: Revert merge on main via `git revert`

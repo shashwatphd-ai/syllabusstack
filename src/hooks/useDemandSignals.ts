@@ -1,5 +1,13 @@
-import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+/**
+ * Demand Signals Hooks
+ * - useDemandSignalsEnhanced: Queries demand_signals table directly (filterable)
+ * - useDemandSignals: Calls get-live-demand edge function for real-time data
+ */
+
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
+
+// ─── DB-based demand signals (from Lovable) ─────────────────────────
 
 export interface DemandSignalFull {
   id: string;
@@ -51,3 +59,26 @@ export const useDemandSignalsEnhanced = (filters?: DemandSignalFilters) => {
     staleTime: 1000 * 60 * 5,
   });
 };
+
+// ─── Edge function-based live demand ─────────────────────────────────
+
+interface UseDemandSignalsOptions {
+  skills: string[];
+  location?: string;
+  enabled?: boolean;
+}
+
+export function useDemandSignals({ skills, location, enabled = true }: UseDemandSignalsOptions) {
+  return useQuery({
+    queryKey: ['demand-signals-live', skills, location],
+    queryFn: async () => {
+      const { data, error } = await supabase.functions.invoke('get-live-demand', {
+        body: { skills, location },
+      });
+      if (error) throw error;
+      return data;
+    },
+    enabled: enabled && skills.length > 0,
+    staleTime: 5 * 60 * 1000,
+  });
+}

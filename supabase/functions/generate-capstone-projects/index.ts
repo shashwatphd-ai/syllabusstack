@@ -20,6 +20,7 @@ import { generateProjectProposal } from "../_shared/capstone/generation-service.
 import { calculateLOAlignment, calculateMarketAlignmentScore, generateLOAlignmentDetail } from "../_shared/capstone/alignment-service.ts";
 import { validateCompanyCourseMatch } from "../_shared/capstone/company-validation-service.ts";
 import { calculateApolloEnrichedPricing, calculateApolloEnrichedROI } from "../_shared/capstone/pricing-service.ts";
+import { withRetry } from "../_shared/capstone/retry-utils.ts";
 import type { CompanyInfo } from "../_shared/capstone/types.ts";
 
 // ============================================================================
@@ -158,6 +159,125 @@ function filterRelevantSignals(
     technologies_used: filteredTech,
     buying_intent_signals: filteredIntent,
   } as CompanyInfo;
+}
+
+// ============================================================================
+// POST-GENERATION VALIDATION
+// Cleans AI output (strips markdown artifacts, week references, bullets) and
+// validates proposal data quality. Issues are logged as warnings — they do
+// not reject the proposal.
+// ============================================================================
+
+function cleanAndValidate(proposal: any): { cleaned: any; issues: string[] } {
+  const issues: string[] = [];
+
+  // Strip markdown formatting and leading bullets/numbers from tasks
+  proposal.tasks = (proposal.tasks || []).map((t: string) =>
+    t.replace(/\*\*/g, '')
+     .replace(/\*/g, '')
+     .replace(/`/g, '')
+     .replace(/^- /, '')
+     .replace(/^\d+[\.\)]\s*/, '')
+     .trim()
+  );
+
+  // Strip markdown, week references, and leading bullets/numbers from deliverables
+  proposal.deliverables = (proposal.deliverables || []).map((d: string) =>
+    d.replace(/\(Week \d+[-\d]*\)/gi, '')
+     .replace(/Week \d+[-\d]*:/gi, '')
+     .replace(/\*\*/g, '')
+     .replace(/\*/g, '')
+     .replace(/`/g, '')
+     .replace(/^\d+[\.\)]\s*/, '')
+     .trim()
+  );
+
+  // Trim all top-level string fields
+  if (typeof proposal.title === 'string') proposal.title = proposal.title.trim();
+  if (typeof proposal.description === 'string') proposal.description = proposal.description.trim();
+
+  // Check for placeholder or too-short descriptions
+  const descLower = (proposal.description || '').toLowerCase();
+  if (descLower.includes('ai-generated') ||
+      descLower.includes('tbd') ||
+      (proposal.description || '').split(/\s+/).length < 50) {
+    issues.push('Description contains placeholder text or is too short (<50 words)');
+  }
+
+  // Check if all skills are generic
+  const genericSkills = ['research', 'analysis', 'presentation', 'communication', 'teamwork', 'writing'];
+  const skills = proposal.skills || [];
+  if (skills.length > 0) {
+    const hasOnlyGeneric = skills.every((s: string) =>
+      genericSkills.some(g => s.toLowerCase().includes(g))
+    );
+    if (hasOnlyGeneric) {
+      issues.push('Skills are too generic - need domain-specific skills');
+    }
+  }
+
+  // Flag tasks that are too long (>20 words)
+  const longTasks = (proposal.tasks || []).filter((t: string) => t.split(/\s+/).length > 20);
+  if (longTasks.length > 0) {
+    issues.push(`${longTasks.length} task(s) exceed 20 words`);
+  }
+
+  return { cleaned: proposal, issues };
+}
+
+function validateProjectData(proposal: any, company: any): string[] {
+  const errors: string[] = [];
+
+  // Description length check
+  if (!proposal.description || proposal.description.length < 100) {
+    errors.push('Project description missing or too short (<100 chars)');
+  }
+
+  // Contact completeness
+  if (!proposal.contact?.name || !proposal.contact?.email || !proposal.contact?.phone) {
+    errors.push('Contact information incomplete (need name, email, phone)');
+  }
+
+  // Skills minimum
+  if (!proposal.skills || proposal.skills.length < 3) {
+    errors.push('Insufficient skills listed (need >=3)');
+  }
+
+  // Majors minimum
+  if (!proposal.majors || proposal.majors.length < 1) {
+    errors.push('Preferred majors not specified');
+  }
+
+  // Email format validation
+  const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+  if (proposal.contact?.email && !emailRegex.test(proposal.contact.email)) {
+    errors.push('Invalid email format');
+  }
+
+  // Phone length check
+  if (!proposal.contact?.phone || proposal.contact.phone.length < 10) {
+    errors.push('Phone number missing or too short');
+  }
+
+  // Placeholder language in description
+  const descLower = (proposal.description || '').toLowerCase();
+  if (descLower.includes('placeholder') ||
+      descLower.includes('example') ||
+      descLower.includes('sample')) {
+    errors.push('Description contains placeholder language');
+  }
+
+  // Task count check
+  if ((proposal.tasks || []).length < 4) {
+    errors.push('Too few tasks specified (need >=4)');
+  }
+
+  // Deliverable count check
+  if ((proposal.deliverables || []).length < 3) {
+    errors.push('Too few deliverables specified (need >=3)');
+  }
+
+  return errors;
 }
 
 const handler = async (req: Request): Promise<Response> => {
@@ -315,18 +435,36 @@ const handler = async (req: Request): Promise<Response> => {
         continue;
       }
 
-      // ── Step 2: AI Project Proposal Generation ──
+      // ── Step 2: AI Project Proposal Generation (with retry) ──
       console.log(`   🤖 Generating project proposal...`);
-      const proposal = await generateProjectProposal(
-        filteredCompany,
-        objectives,
-        course.title,
-        course.academic_level || 'undergraduate',
-        course.expected_artifacts || [],
-        15, // weeks
-        10, // hours per week
-        bloomTier
+      const rawProposal = await withRetry(
+        () => generateProjectProposal(
+          filteredCompany,
+          objectives,
+          course.title,
+          course.academic_level || 'undergraduate',
+          course.expected_artifacts || [],
+          15, // weeks
+          10, // hours per week
+          bloomTier
+        ),
+        {
+          maxRetries: 3,
+          baseDelayMs: 1000,
+          operationName: `generate-proposal-${company.name}`,
+        }
       );
+
+      // ── Step 2b: Post-generation validation ──
+      const { cleaned: proposal, issues: cleanIssues } = cleanAndValidate(rawProposal);
+      const validationErrors = validateProjectData(proposal, company);
+
+      if (cleanIssues.length > 0) {
+        console.warn(`   ⚠️ Clean issues for ${company.name}: ${cleanIssues.join('; ')}`);
+      }
+      if (validationErrors.length > 0) {
+        console.warn(`   ⚠️ Validation warnings for ${company.name}: ${validationErrors.join('; ')}`);
+      }
 
       // ── Step 3: LO Alignment Scoring ──
       const loScore = await calculateLOAlignment(

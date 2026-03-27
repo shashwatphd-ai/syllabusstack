@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/collapsible';
 import type { CapstoneProject } from '@/hooks/useCapstoneProjects';
 import { ProjectFeedbackDialog } from './ProjectFeedbackDialog';
+import { QualityBadge } from './QualityBadge';
 
 interface CapstoneProjectCardProps {
   project: CapstoneProject;
@@ -35,7 +36,10 @@ export function CapstoneProjectCard({ project, onAssign, onViewDetail }: Capston
         {/* Header */}
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
-            <h4 className="font-semibold text-sm">{project.title}</h4>
+            <h4 className="font-semibold text-sm flex items-center gap-1.5">
+              {project.title}
+              {project.final_score != null && <QualityBadge score={project.final_score} size="sm" />}
+            </h4>
             {company && (
               <p className="text-xs text-muted-foreground">{company.name} · {company.sector}</p>
             )}

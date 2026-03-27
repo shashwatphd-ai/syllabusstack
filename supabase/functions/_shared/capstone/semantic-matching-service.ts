@@ -8,6 +8,7 @@
  */
 
 import type { OnetOccupation } from './onet-service.ts';
+import { generateBatchEmbeddings, cosineSimilarity } from '../embedding-client.ts';
 
 export interface SemanticMatch {
   companyName: string;
@@ -216,4 +217,89 @@ function tokenize(text: string): Set<string> {
     .split(/\s+/)
     .filter(t => t.length > 2 && !STOP_WORDS.has(t));
   return new Set(tokens);
+}
+
+// ============================================
+// EMBEDDING-BASED MATCHING
+// ============================================
+
+/**
+ * Compute similarity scores between course keywords and company texts
+ * using vector embeddings from the embedding client.
+ */
+export async function embeddingBasedMatch(
+  courseKeywords: string[],
+  companyTexts: string[]
+): Promise<number[]> {
+  const courseText = courseKeywords.join(' ');
+  const allTexts = [courseText, ...companyTexts];
+  const embeddings = await generateBatchEmbeddings(allTexts);
+  const courseEmbedding = embeddings[0];
+
+  return embeddings.slice(1).map(companyEmbedding =>
+    cosineSimilarity(courseEmbedding, companyEmbedding)
+  );
+}
+
+// ============================================
+// HYBRID MATCHING
+// ============================================
+
+/**
+ * Combine TF-IDF keyword overlap with embedding-based similarity.
+ * Falls back to TF-IDF-only if embedding generation fails.
+ */
+export async function hybridMatch(
+  courseKeywords: string[],
+  companyTexts: string[],
+  options?: { embeddingWeight?: number }
+): Promise<number[]> {
+  const embeddingWeight = options?.embeddingWeight ?? 0.6;
+
+  // TF-IDF scores via keyword overlap
+  const courseTokens = new Set<string>();
+  for (const kw of courseKeywords) {
+    tokenize(kw).forEach(t => courseTokens.add(t));
+  }
+
+  const tfidfScores = companyTexts.map(text => {
+    const companyTokens = tokenize(text);
+    return computeKeywordSimilarity(courseTokens, companyTokens);
+  });
+
+  // Attempt embedding-based matching
+  let embeddingScores: number[] | null = null;
+  try {
+    embeddingScores = await embeddingBasedMatch(courseKeywords, companyTexts);
+  } catch (err) {
+    console.warn('[hybridMatch] Embedding matching failed, falling back to TF-IDF only:', err);
+  }
+
+  if (!embeddingScores) {
+    return tfidfScores;
+  }
+
+  // Blend scores
+  return tfidfScores.map((tfidf, i) => {
+    const embedding = embeddingScores![i] ?? 0;
+    return embeddingWeight * embedding + (1 - embeddingWeight) * tfidf;
+  });
+}
+
+// ============================================
+// ADAPTIVE THRESHOLD
+// ============================================
+
+/**
+ * Calculate an adaptive threshold based on the distribution of scores.
+ * Returns mean - 0.5 * stddev, with a minimum of 0.1.
+ */
+export function adaptiveThreshold(scores: number[]): number {
+  if (scores.length === 0) return 0.1;
+
+  const mean = scores.reduce((sum, s) => sum + s, 0) / scores.length;
+  const variance = scores.reduce((sum, s) => sum + (s - mean) ** 2, 0) / scores.length;
+  const stddev = Math.sqrt(variance);
+
+  return Math.max(0.1, mean - 0.5 * stddev);
 }
