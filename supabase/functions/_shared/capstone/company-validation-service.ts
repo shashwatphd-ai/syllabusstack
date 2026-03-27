@@ -114,8 +114,8 @@ async function validateBatch(
   // Build compact company descriptions for the batch prompt
   const companyList = companies.map((c, i) => {
     const desc = (c.description || '').substring(0, 200);
-    const techs = (c.technologies_used || []).slice(0, 5).join(', ');
-    const jobs = (c.job_postings || []).slice(0, 3).map((j: any) => j.title).join(', ');
+    const techs = (Array.isArray(c.technologies_used) ? c.technologies_used : []).slice(0, 5).join(', ');
+    const jobs = (Array.isArray(c.job_postings) ? c.job_postings : []).slice(0, 3).map((j: any) => j.title).join(', ');
     return `${i + 1}. "${c.name}" — Sector: ${c.sector || 'Unknown'} | Desc: ${desc} | Tech: ${techs || 'N/A'} | Jobs: ${jobs || 'None'}`;
   }).join('\n');
 

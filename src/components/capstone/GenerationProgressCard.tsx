@@ -26,15 +26,15 @@ interface GenerationRun {
 }
 
 const PIPELINE_PHASES = [
-  { key: 'skill_extraction', label: 'Skill Extraction' },
+  { key: 'fetch_course', label: 'Course Data' },
   { key: 'soc_mapping', label: 'SOC Mapping' },
   { key: 'onet_mapping', label: 'O*NET Enrichment' },
-  { key: 'fetch_course', label: 'Course Data' },
+  { key: 'skill_extraction', label: 'Skill Extraction' },
   { key: 'discovery', label: 'Company Search' },
   { key: 'filtering', label: 'Industry Filtering' },
-  { key: 'enrichment', label: 'Deep Enrichment' },
   { key: 'validation', label: 'AI Validation' },
   { key: 'semantic_matching', label: 'Semantic Matching' },
+  { key: 'enrichment', label: 'Deep Enrichment' },
   { key: 'signal_scoring', label: 'Signal Scoring' },
 ];
 
