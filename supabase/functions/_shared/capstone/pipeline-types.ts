@@ -170,11 +170,13 @@ export interface DetailedWorkActivity {
   id: string;
   name: string;
   importance: number;
+  level?: number;
 }
 
 export interface OccupationTechnology {
   name: string;
   category?: string;
+  apolloTechnologyUid?: string;
 }
 
 export interface MappedOccupation {
