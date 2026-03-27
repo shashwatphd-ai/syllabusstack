@@ -104,7 +104,8 @@ async function embeddingMatch(jobs: JobPosting[], skills: string[]): Promise<Sig
       signals,
       rawData: { method: 'embedding', avg_similarity, skill_coverage, job_coverage, matchedJobs: matchedJobIndices.length },
     };
-  } catch {
+  } catch (error) {
+    console.warn(`  ⚠️ [Signal 1] Embedding match failed, falling back to keyword: ${error}`);
     return null;
   }
 }

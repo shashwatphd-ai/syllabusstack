@@ -13,7 +13,7 @@ import { withApolloCircuit } from '../circuit-breaker.ts';
 // APOLLO PEOPLE SEARCH INTEGRATION
 // =============================================================================
 
-async function searchDecisionMakers(orgId: string, apolloApiKey: string, domain: string): Promise<any[]> {
+async function searchDecisionMakers(orgId: string, apolloApiKey: string): Promise<any[]> {
   if (!orgId || !apolloApiKey) return [];
 
   try {
@@ -112,7 +112,7 @@ export const ContactQualitySignal: SignalProvider = {
     console.log(`  👤 [Signal 4] Contact quality for ${company.name}`);
 
     // Try live Apollo People Search first
-    const people = await searchDecisionMakers(orgId || '', apolloApiKey || '', domain || '');
+    const people = await searchDecisionMakers(orgId || '', apolloApiKey || '');
 
     if (people.length > 0) {
       // Use live people search results
