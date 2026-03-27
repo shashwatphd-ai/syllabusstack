@@ -11,6 +11,16 @@ export interface InferredNeeds {
   growthAreas: string[];
 }
 
+const GENERIC_WORDS = new Set([
+  'development', 'growth', 'improvement', 'management', 'strategy',
+  'support', 'services', 'solutions', 'optimization', 'enhancement',
+]);
+
+function isGenericNeed(need: string): boolean {
+  const words = need.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+  return words.length > 0 && words.every(w => GENERIC_WORDS.has(w));
+}
+
 /**
  * Synthesize business needs from company data.
  */
@@ -19,7 +29,9 @@ export function inferCompanyNeeds(
   technologies: string[],
   description: string,
   fundingStage?: string,
-  employeeCount?: string
+  employeeCount?: string,
+  companyName?: string,
+  companySector?: string
 ): InferredNeeds {
   const needs: string[] = [];
   const hiringFocus: string[] = [];
@@ -75,13 +87,33 @@ export function inferCompanyNeeds(
     techCapabilities.push(...technologies.slice(0, 10));
 
     if (technologies.some(t => /python|tensorflow|pytorch|machine\s*learning/i.test(t))) {
-      needs.push('AI/ML capability development');
+      needs.push(`AI/ML integration for ${companySector || 'business'} operations`);
     }
     if (technologies.some(t => /aws|azure|gcp|cloud/i.test(t))) {
-      needs.push('Cloud infrastructure and DevOps');
+      needs.push(`${companyName || 'Company'} cloud infrastructure modernization`);
     }
     if (technologies.some(t => /react|angular|vue|next/i.test(t))) {
-      needs.push('Modern web application development');
+      needs.push(`Web platform development for ${companySector || 'enterprise'} users`);
+    }
+  }
+
+  // Description-based needs extraction
+  if (description) {
+    const desc = description.toLowerCase();
+    if (/healthcare|medical/.test(desc)) {
+      needs.push('Healthcare technology compliance and HIPAA readiness');
+    }
+    if (/financial|banking|insurance/.test(desc)) {
+      needs.push('Financial services regulatory technology');
+    }
+    if (/manufacturing|industrial/.test(desc)) {
+      needs.push('Industrial process automation and optimization');
+    }
+    if (/education|university/.test(desc)) {
+      needs.push('Education technology and learning platform development');
+    }
+    if (/retail|e-commerce/.test(desc)) {
+      needs.push('E-commerce and customer experience optimization');
     }
   }
 
@@ -99,9 +131,17 @@ export function inferCompanyNeeds(
     }
   }
 
-  // Deduplicate
+  // Deduplicate and enhance generic needs
+  const deduped = [...new Set(needs)].slice(0, 8);
+  const enhanced = deduped.map(need => {
+    if (isGenericNeed(need) && companySector) {
+      return `${companySector}: ${need}`;
+    }
+    return need;
+  });
+
   return {
-    needs: [...new Set(needs)].slice(0, 8),
+    needs: enhanced,
     hiringFocus: [...new Set(hiringFocus)],
     techCapabilities: [...new Set(techCapabilities)],
     growthAreas: [...new Set(growthAreas)],

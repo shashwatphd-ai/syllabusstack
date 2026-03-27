@@ -40,10 +40,10 @@ export type SignalName =
   | 'contact_quality';
 
 export const SIGNAL_WEIGHTS: Record<SignalName, number> = {
-  job_skills_match: 0.25,
+  job_skills_match: 0.35,
   market_intelligence: 0.25,
-  department_fit: 0.25,
-  contact_quality: 0.25,
+  department_fit: 0.20,
+  contact_quality: 0.20,
 } as const;
 
 // =============================================================================

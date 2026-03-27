@@ -22,7 +22,7 @@ const DOMAIN_TO_DEPT: Record<string, string[]> = {
 
 export const DepartmentFitSignal: SignalProvider = {
   name: 'department_fit' as SignalName,
-  weight: 0.25,
+  weight: 0.20,
 
   async calculate(context: SignalContext): Promise<SignalResult> {
     const { company, syllabusDomain, syllabusSkills } = context;

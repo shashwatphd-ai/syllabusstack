@@ -5,13 +5,14 @@
  */
 
 import type { SignalResult, SignalProvider, SignalContext, SignalName, JobPosting } from '../signal-types.ts';
+import { generateBatchEmbeddings, cosineSimilarity } from '../../embedding-client.ts';
 
 const MAX_JOBS = 15;
 const MAX_SKILLS = 20;
 
 export const JobSkillsSignal: SignalProvider = {
   name: 'job_skills_match' as SignalName,
-  weight: 0.25,
+  weight: 0.35,
 
   async calculate(context: SignalContext): Promise<SignalResult> {
     const { company, syllabusSkills, jobPostings } = context;
@@ -36,9 +37,77 @@ export const JobSkillsSignal: SignalProvider = {
       return { score: 0, confidence: 0, signals: ['No syllabus skills to match'] };
     }
 
-    return calculateKeywordMatch(jobs.slice(0, MAX_JOBS), syllabusSkills.slice(0, MAX_SKILLS));
+    // Try embedding-based matching first
+    const embeddingResult = await embeddingMatch(jobs.slice(0, MAX_JOBS), syllabusSkills.slice(0, MAX_SKILLS));
+    if (embeddingResult) {
+      return embeddingResult;
+    }
+
+    // Fall back to keyword matching, capped at 70
+    const result = calculateKeywordMatch(jobs.slice(0, MAX_JOBS), syllabusSkills.slice(0, MAX_SKILLS));
+    result.score = Math.min(result.score, 70);
+    result.signals.push('Keyword-only match (capped at 70%)');
+    return result;
   },
 };
+
+async function embeddingMatch(jobs: JobPosting[], skills: string[]): Promise<SignalResult | null> {
+  try {
+    const jobTexts = jobs.map(j => `${j.title} ${j.description || ''}`);
+    const skillsText = skills.join(', ');
+    const embeddings = await generateBatchEmbeddings([skillsText, ...jobTexts]);
+
+    const skillsEmbedding = embeddings[0];
+    const similarities: number[] = [];
+    const matchedJobIndices: number[] = [];
+    const matchedSkillsSet = new Set<string>();
+
+    for (let i = 1; i < embeddings.length; i++) {
+      const sim = cosineSimilarity(skillsEmbedding, embeddings[i]);
+      similarities.push(sim);
+      if (sim >= 0.45) {
+        matchedJobIndices.push(i - 1);
+        // Attribute matched skills by checking which skills appear in this job text
+        const jobText = jobTexts[i - 1].toLowerCase();
+        for (const skill of skills) {
+          if (jobText.includes(skill.toLowerCase())) {
+            matchedSkillsSet.add(skill);
+          }
+        }
+      }
+    }
+
+    const matchedSimilarities = similarities.filter(s => s >= 0.45);
+    if (matchedSimilarities.length === 0) {
+      return null;
+    }
+
+    const avg_similarity = matchedSimilarities.reduce((a, b) => a + b, 0) / matchedSimilarities.length;
+    const skill_coverage = matchedSkillsSet.size / skills.length;
+    const job_coverage = matchedJobIndices.length / jobs.length;
+
+    const score = Math.round(
+      avg_similarity * 100 * 0.50 +
+      skill_coverage * 100 * 0.30 +
+      job_coverage * 100 * 0.20
+    );
+
+    const signals: string[] = [
+      `Embedding match: ${matchedJobIndices.length}/${jobs.length} jobs above threshold`,
+      `Avg similarity: ${(avg_similarity * 100).toFixed(1)}%`,
+      `${Math.round(skill_coverage * 100)}% skill coverage, ${Math.round(job_coverage * 100)}% job coverage`,
+    ];
+
+    return {
+      score: Math.min(score, 100),
+      confidence: 0.8,
+      signals,
+      rawData: { method: 'embedding', avg_similarity, skill_coverage, job_coverage, matchedJobs: matchedJobIndices.length },
+    };
+  } catch {
+    return null;
+  }
+}
 
 function calculateKeywordMatch(jobs: JobPosting[], skills: string[]): SignalResult {
   const skillTokens = new Map<string, Set<string>>();
