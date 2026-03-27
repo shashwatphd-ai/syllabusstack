@@ -187,9 +187,9 @@ export function PrintableProjectView({ project, forms }: PrintableProjectViewPro
                     <Phone className="h-3.5 w-3.5 shrink-0" /> {contactPhone}
                   </span>
                 )}
-                {company?.website_url && (
+                {company?.website && (
                   <span className="flex items-center gap-1.5">
-                    <Globe className="h-3.5 w-3.5 shrink-0" /> {company.website_url}
+                    <Globe className="h-3.5 w-3.5 shrink-0" /> {company.website}
                   </span>
                 )}
               </div>

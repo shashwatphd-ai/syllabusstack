@@ -154,3 +154,47 @@ export interface PipelineOutput {
   totalProcessingTimeMs: number;
   error?: string;
 }
+
+// ============================================
+// O*NET STRUCTURED TYPES
+// (Used by onet-structured-service.ts)
+// ============================================
+
+export interface LightcastSkillId {
+  id: string;
+  name: string;
+  confidence?: number;
+}
+
+export interface DetailedWorkActivity {
+  id: string;
+  name: string;
+  importance: number;
+}
+
+export interface OccupationTechnology {
+  name: string;
+  category?: string;
+}
+
+export interface MappedOccupation {
+  socCode: string;
+  title: string;
+  confidence: number;
+  dwas: DetailedWorkActivity[];
+  technologies: OccupationTechnology[];
+  industries: string[];
+}
+
+export interface OccupationMappingInput {
+  skills: LightcastSkillId[];
+  courseTitle: string;
+  courseLevel: string;
+}
+
+export interface OccupationMappingOutput {
+  occupations: MappedOccupation[];
+  allDWAs: DetailedWorkActivity[];
+  allTechnologies: OccupationTechnology[];
+  allIndustries: string[];
+}

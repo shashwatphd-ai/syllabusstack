@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { BookOpen, ArrowLeft, ArrowRight, Loader2 } from 'lucide-react';
+import { BookOpen, ArrowLeft, ArrowRight } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -44,8 +44,13 @@ export default function ReviewSyllabus() {
     );
   }
 
-  const outcomes: string[] = Array.isArray(course.outcomes) ? course.outcomes : [];
-  const artifacts: string[] = Array.isArray(course.artifacts) ? course.artifacts : [];
+  // key_capabilities is JSON (array or object), evidence_types is JSON
+  const capabilities: string[] = Array.isArray(course.key_capabilities)
+    ? course.key_capabilities.map((c: any) => typeof c === 'string' ? c : c?.name || String(c))
+    : [];
+  const evidenceTypes: string[] = Array.isArray(course.evidence_types)
+    ? course.evidence_types.map((e: any) => typeof e === 'string' ? e : e?.name || String(e))
+    : [];
 
   return (
     <div className="container mx-auto p-6 max-w-2xl space-y-6">
@@ -59,45 +64,43 @@ export default function ReviewSyllabus() {
         </p>
       </div>
 
-      {/* Course details */}
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">{course.title || 'Untitled Course'}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          {course.level && (
+          {course.grade && (
             <div>
-              <span className="text-sm font-medium text-muted-foreground">Level</span>
-              <p className="text-sm">{course.level}</p>
+              <span className="text-sm font-medium text-muted-foreground">Grade/Level</span>
+              <p className="text-sm">{course.grade}</p>
             </div>
           )}
-          {course.weeks != null && (
+          {course.credits != null && (
             <div>
-              <span className="text-sm font-medium text-muted-foreground">Duration</span>
-              <p className="text-sm">{course.weeks} weeks</p>
+              <span className="text-sm font-medium text-muted-foreground">Credits</span>
+              <p className="text-sm">{course.credits}</p>
             </div>
           )}
-          {course.description && (
+          {course.capability_text && (
             <div>
               <span className="text-sm font-medium text-muted-foreground">Description</span>
-              <p className="text-sm">{course.description}</p>
+              <p className="text-sm">{course.capability_text}</p>
             </div>
           )}
         </CardContent>
       </Card>
 
-      {/* Learning outcomes */}
-      {outcomes.length > 0 && (
+      {capabilities.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Learning Outcomes</CardTitle>
+            <CardTitle className="text-base">Key Capabilities</CardTitle>
           </CardHeader>
           <CardContent>
             <ul className="space-y-2">
-              {outcomes.map((outcome, i) => (
+              {capabilities.map((cap, i) => (
                 <li key={i} className="text-sm flex items-start gap-2">
                   <span className="text-primary font-medium shrink-0">{i + 1}.</span>
-                  <span>{String(outcome)}</span>
+                  <span>{cap}</span>
                 </li>
               ))}
             </ul>
@@ -105,23 +108,21 @@ export default function ReviewSyllabus() {
         </Card>
       )}
 
-      {/* Artifacts */}
-      {artifacts.length > 0 && (
+      {evidenceTypes.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Artifacts</CardTitle>
+            <CardTitle className="text-base">Evidence Types</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-2">
-              {artifacts.map((artifact, i) => (
-                <Badge key={i} variant="secondary">{String(artifact)}</Badge>
+              {evidenceTypes.map((ev, i) => (
+                <Badge key={i} variant="secondary">{ev}</Badge>
               ))}
             </div>
           </CardContent>
         </Card>
       )}
 
-      {/* Actions */}
       <div className="flex gap-3">
         <Button variant="outline" onClick={() => navigate(-1)} className="gap-1.5">
           <ArrowLeft className="h-4 w-4" />
