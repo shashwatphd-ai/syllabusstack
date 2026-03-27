@@ -63,8 +63,8 @@ import { extractSkills, isLightcastConfigured } from "../_shared/lightcast-clien
 // Rate-limit headers
 import { checkInMemoryRateLimit, getEstimatedRateLimitHeaders } from "../_shared/capstone/rate-limit-headers.ts";
 
-// ── Feature flag ──
-const useNewPipeline = Deno.env.get('USE_NEW_PIPELINE') === 'true';
+// ── Feature flag (defaults to true — new pipeline is now the default) ──
+const useNewPipeline = Deno.env.get('USE_NEW_PIPELINE') !== 'false';
 
 const handler = async (req: Request): Promise<Response> => {
   const corsHeaders = getCorsHeaders(req);
@@ -253,6 +253,32 @@ const handler = async (req: Request): Promise<Response> => {
   console.log(`   Combined keywords: ${combinedKeywords.length}`);
   phaseTimings['skill_extraction'] = Date.now() - phaseStart;
   phasesCompleted.push('skill_extraction');
+
+  // ── Phase 3b: Lightcast Skill Enrichment (if configured) ──
+  // Enhances combinedKeywords with standardized Lightcast skill taxonomy
+  if (isLightcastConfigured()) {
+    try {
+      phaseStart = Date.now();
+      console.log(`\n🔬 PHASE 3b: LIGHTCAST SKILL ENRICHMENT`);
+      const lightcastResult = await extractSkills(combinedKeywords.slice(0, 10).join(', '));
+      if (lightcastResult && lightcastResult.length > 0) {
+        const lightcastNames = lightcastResult.map((s: any) => s.name || s.skill || String(s)).filter(Boolean);
+        const before = combinedKeywords.length;
+        for (const name of lightcastNames) {
+          if (!combinedKeywords.includes(name)) combinedKeywords.push(name);
+        }
+        console.log(`   Lightcast: ${lightcastResult.length} skills extracted, ${combinedKeywords.length - before} new keywords added`);
+        console.log(`   Combined keywords now: ${combinedKeywords.length}`);
+      } else {
+        console.log(`   Lightcast: no additional skills extracted`);
+      }
+      phaseTimings['lightcast_enrichment'] = Date.now() - phaseStart;
+    } catch (e) {
+      console.warn(`   ⚠️ Lightcast enrichment failed (non-fatal): ${e}`);
+    }
+  } else {
+    console.log(`\n🔬 PHASE 3b: LIGHTCAST SKILL ENRICHMENT — skipped (not configured)`);
+  }
 
   // ── Phase 4: Build Apollo Search Parameters ──
   const industryKeywords = getIndustryKeywordsFromSOC(socMappings);
