@@ -168,7 +168,7 @@ serve(async (req) => {
     const courseSkills = new Set<string>();
 
     for (const outcome of courseOutcomes) {
-      const text = typeof outcome === 'string' ? outcome : outcome?.description || outcome?.outcome || '';
+      const text = String(outcome || '');
       extractSkillsFromText(text).forEach(s => courseSkills.add(s));
     }
     console.log(`   📚 Course skills: ${courseSkills.size}`);

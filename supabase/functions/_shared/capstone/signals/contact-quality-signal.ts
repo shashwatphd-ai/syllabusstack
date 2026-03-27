@@ -31,7 +31,7 @@ async function searchDecisionMakers(orgId: string, apolloApiKey: string): Promis
         }),
       }).then(res => res.json())
     );
-    return response.people || [];
+    return response.data?.people || response.people || [];
   } catch (error) {
     console.warn(`  ⚠️ [Signal 4] Apollo People Search error: ${error}`);
     return [];

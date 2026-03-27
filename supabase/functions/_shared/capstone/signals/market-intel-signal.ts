@@ -25,7 +25,7 @@ async function fetchApolloNews(orgId: string, apolloApiKey: string): Promise<any
         },
       }).then(res => res.json())
     );
-    return response.news || [];
+    return response.data?.news || response.news || [];
   } catch (error) {
     console.warn(`  ⚠️ [Signal 2] Apollo News API error: ${error}`);
     return [];

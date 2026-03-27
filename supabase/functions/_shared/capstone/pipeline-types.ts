@@ -182,10 +182,12 @@ export interface OccupationTechnology {
 export interface MappedOccupation {
   socCode: string;
   title: string;
+  description?: string;
   confidence: number;
   dwas: DetailedWorkActivity[];
   technologies: OccupationTechnology[];
   industries: string[];
+  requiredSkillIds?: string[];
 }
 
 export interface OccupationMappingInput {

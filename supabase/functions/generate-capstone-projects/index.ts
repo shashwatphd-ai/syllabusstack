@@ -603,19 +603,51 @@ const handler = async (req: Request): Promise<Response> => {
         stakeholder_insights: roiBreakdown,
       };
 
+      // Try atomic RPC first, fall back to sequential inserts if RPC doesn't exist
+      let projectId: string;
       const { data: rpcResult, error: rpcError } = await supabase.rpc('create_project_atomic', {
         p_project_data: projectData,
         p_forms_data: formsData,
         p_metadata_data: metadataData,
       });
 
-      if (rpcError) {
+      if (rpcError && (rpcError.code === 'PGRST202' || rpcError.message?.includes('Could not find'))) {
+        // RPC not deployed yet — fall back to sequential inserts
+        console.warn(`   ⚠️ create_project_atomic RPC not found, using sequential inserts`);
+
+        const { data: project, error: insertError } = await supabase
+          .from('capstone_projects')
+          .insert(projectData)
+          .select('id')
+          .single();
+
+        if (insertError || !project) {
+          console.error(`   ❌ Project insert failed for ${company.name}:`, insertError);
+          errors.push(`${company.name}: ${insertError?.message || 'Insert failed'}`);
+          continue;
+        }
+
+        projectId = project.id;
+
+        // Insert forms
+        await supabase.from('project_forms').insert({
+          capstone_project_id: projectId,
+          ...formsData,
+        });
+
+        // Insert metadata (non-blocking)
+        await supabase.from('project_metadata').insert({
+          capstone_project_id: projectId,
+          ...metadataData,
+        }).then(() => {}).catch(e => console.warn(`   ⚠️ Metadata insert skipped: ${e}`));
+
+      } else if (rpcError) {
         console.error(`   ❌ Atomic insert failed for ${company.name}:`, rpcError);
         errors.push(`${company.name}: ${rpcError.message}`);
         continue;
+      } else {
+        projectId = rpcResult?.project_id || rpcResult;
       }
-
-      const projectId = rpcResult?.project_id || rpcResult;
 
       results.push({
         id: projectId,
