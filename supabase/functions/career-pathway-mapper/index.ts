@@ -101,10 +101,17 @@ serve(async (req) => {
 
     // Get course learning outcomes for skill context
     const { data: course } = await supabase
-      .from('course_profiles')
-      .select('outcomes, title')
+      .from('instructor_courses')
+      .select('*')
       .eq('id', project.course_id)
       .single();
+
+    const { data: los } = await supabase
+      .from('learning_objectives')
+      .select('text, bloom_level')
+      .eq('instructor_course_id', project.course_id);
+
+    const outcomes = (los || []).map(lo => lo.text);
 
     // Extract all relevant skills - handle company_profiles as object (single relation)
     const projectSkills = Array.isArray(project.skills) ? project.skills : [];

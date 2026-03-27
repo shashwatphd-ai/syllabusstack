@@ -12,8 +12,8 @@ import { getCorsHeaders, handleCorsPreFlight } from "../_shared/cors.ts";
  * - Gaps that require additional learning
  *
  * Uses data from:
- * - course_profiles.outcomes (learning outcomes)
- * - projects.skills (project requirements)
+ * - learning_objectives.text (learning outcomes via instructor_courses)
+ * - capstone_projects.skills (project requirements)
  * - company_profiles.job_postings (real job requirements)
  * - company_profiles.matching_skills (from signal scoring)
  */
@@ -133,23 +133,18 @@ serve(async (req) => {
 
     // Fetch project with related data
     const { data: project, error: projectError } = await supabase
-      .from('projects')
+      .from('capstone_projects')
       .select(`
         *,
-        company_profiles!projects_company_profile_id_fkey (
+        company_profiles (
           job_postings,
           matching_skills,
           technologies_used,
           skill_match_score
-        ),
-        course_profiles!projects_course_id_fkey (
-          outcomes,
-          artifacts,
-          title
         )
       `)
       .eq('id', projectId)
-      .maybeSingle();
+      .single();
 
     if (projectError || !project) {
       console.error('Project fetch error:', projectError);
@@ -159,11 +154,17 @@ serve(async (req) => {
       );
     }
 
+    // Fetch learning objectives for the course
+    const { data: objectives } = await supabase
+      .from('learning_objectives')
+      .select('text')
+      .eq('instructor_course_id', project.instructor_course_id);
+
     console.log(`   📊 Project: ${project.title}`);
     console.log(`   🏢 Company: ${project.company_name}`);
 
     // Extract course skills from learning outcomes
-    const courseOutcomes = project.course_profiles?.outcomes || [];
+    const courseOutcomes = objectives?.map((lo: { text: string }) => lo.text) || [];
     const courseSkills = new Set<string>();
 
     for (const outcome of courseOutcomes) {

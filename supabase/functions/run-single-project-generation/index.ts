@@ -227,7 +227,7 @@ serve(async (req) => {
 
     // Get the project shell
     const { data: project, error: projectError } = await serviceRoleClient
-      .from('projects')
+      .from('capstone_projects')
       .select('*, company_profiles(*)')
       .eq('id', project_id)
       .single();
@@ -238,7 +238,7 @@ serve(async (req) => {
 
     // Get the course
     const { data: course, error: courseError } = await serviceRoleClient
-      .from('course_profiles')
+      .from('instructor_courses')
       .select('*')
       .eq('id', course_id)
       .single();
@@ -247,8 +247,18 @@ serve(async (req) => {
       throw new Error(`Failed to fetch course: ${courseError?.message}`);
     }
 
-    const outcomes = course.outcomes as string[];
-    const artifacts = course.artifacts as string[];
+    // Learning outcomes live in the learning_objectives table
+    const { data: loRows, error: loError } = await serviceRoleClient
+      .from('learning_objectives')
+      .select('description')
+      .eq('instructor_course_id', course_id);
+
+    if (loError) {
+      throw new Error(`Failed to fetch learning objectives: ${loError.message}`);
+    }
+
+    const outcomes = (loRows || []).map((r: any) => r.description) as string[];
+    const artifacts = (course.expected_artifacts || []) as string[];
     const companyProfile = project.company_profiles;
 
     // Build company info from profile
@@ -282,14 +292,16 @@ serve(async (req) => {
     console.log(`🤖 Calling AI to generate proposal for ${company.name}...`);
 
     // Generate the full proposal using AI
+    const weeks = 15;      // syllabusstack default
+    const hrs_per_week = 10; // syllabusstack default
     const proposal = await generateProjectProposal(
       company,
       outcomes,
       course.title || 'Capstone Project',
-      course.level,
+      course.academic_level,
       artifacts,
-      course.weeks,
-      course.hrs_per_week
+      weeks,
+      hrs_per_week
     );
 
     console.log(`✓ Proposal generated: "${proposal.title}"`);
@@ -309,14 +321,14 @@ serve(async (req) => {
       cleaned.tasks,
       cleaned.deliverables,
       outcomes,
-      course.weeks,
+      weeks,
       cleaned.lo_alignment,
       marketAlignmentScore
     );
 
     const budgetResult = calculateApolloEnrichedPricing(
-      course.weeks,
-      course.hrs_per_week,
+      weeks,
+      hrs_per_week,
       3,
       cleaned.tier,
       company
@@ -340,18 +352,18 @@ serve(async (req) => {
       // The project is still 90% good and should become an 'ai_shell'.
     }
 
-    const forms = createForms(company, cleaned, course);
-    const milestones = generateMilestones(course.weeks, cleaned.deliverables);
+    const forms = createForms(company, cleaned, { ...course, weeks, hrs_per_week, level: course.academic_level });
+    const milestones = generateMilestones(weeks, cleaned.deliverables);
 
     // Update the project with full data
     const { error: updateError } = await serviceRoleClient
-      .from('projects')
+      .from('capstone_projects')
       .update({
         title: cleaned.title,
         description: cleaned.description,
         tasks: cleaned.tasks,
         deliverables: cleaned.deliverables,
-        duration_weeks: course.weeks,
+        duration_weeks: weeks,
         team_size: 3,
         tier: cleaned.tier,
         lo_score: scores.lo_score,
@@ -448,7 +460,7 @@ serve(async (req) => {
         );
 
         await serviceRoleClient
-          .from('projects')
+          .from('capstone_projects')
           .update({
             status: 'failed',
             needs_review: true

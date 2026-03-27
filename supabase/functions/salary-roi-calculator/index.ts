@@ -355,23 +355,10 @@ serve(async (req) => {
 
     // Fetch project with company profile (including signal scores)
     const { data: project, error: projectError } = await supabase
-      .from('projects')
-      .select(`
-        *,
-        company_profiles!projects_company_profile_id_fkey (
-          *,
-          skill_match_score,
-          market_signal_score,
-          department_fit_score,
-          contact_quality_score,
-          composite_signal_score,
-          signal_confidence,
-          signal_data
-        ),
-        course_profiles!projects_course_id_fkey (*)
-      `)
+      .from('capstone_projects')
+      .select('*, company_profiles(*)')
       .eq('id', projectId)
-      .maybeSingle();
+      .single();
 
     if (projectError || !project) {
       console.error('Project fetch error:', projectError);
@@ -380,6 +367,19 @@ serve(async (req) => {
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+
+    // Fetch course data from instructor_courses
+    const { data: course } = await supabase
+      .from('instructor_courses')
+      .select('*')
+      .eq('id', project.instructor_course_id)
+      .single();
+
+    // Fetch learning objectives for the course
+    const { data: objectives } = await supabase
+      .from('learning_objectives')
+      .select('text')
+      .eq('instructor_course_id', project.instructor_course_id);
 
     console.log(`   📊 Project: ${project.title}`);
     console.log(`   🏢 Company: ${project.company_name} (${project.sector})`);

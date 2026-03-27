@@ -64,8 +64,8 @@ serve(async (req) => {
       }
 
       const { data: course, error: courseError } = await supabase
-        .from('course_profiles')
-        .select('skills, outcomes, title')
+        .from('instructor_courses')
+        .select('*')
         .eq('id', courseId)
         .single();
 
@@ -73,10 +73,16 @@ serve(async (req) => {
         throw new Error(`Failed to fetch course: ${courseError?.message || 'not found'}`);
       }
 
+      const { data: los } = await supabase
+        .from('learning_objectives')
+        .select('text, bloom_level')
+        .eq('instructor_course_id', courseId);
+
+      const outcomes = (los || []).map(lo => lo.text);
+
       // Extract skills from course
       syllabusSkills = [
-        ...(Array.isArray(course.skills) ? course.skills : []),
-        ...(Array.isArray(course.outcomes) ? course.outcomes : [])
+        ...(Array.isArray(outcomes) ? outcomes : [])
       ].filter((s): s is string => typeof s === 'string');
 
       syllabusDomain = course.title || 'general';
