@@ -114,8 +114,8 @@ async function validateBatch(
   // Build compact company descriptions for the batch prompt
   const companyList = companies.map((c, i) => {
     const desc = (c.description || '').substring(0, 200);
-    const techs = (c.technologies_used || []).slice(0, 5).join(', ');
-    const jobs = (c.job_postings || []).slice(0, 3).map((j: any) => j.title).join(', ');
+    const techs = (Array.isArray(c.technologies_used) ? c.technologies_used : []).slice(0, 5).join(', ');
+    const jobs = (Array.isArray(c.job_postings) ? c.job_postings : []).slice(0, 3).map((j: any) => j.title).join(', ');
     return `${i + 1}. "${c.name}" — Sector: ${c.sector || 'Unknown'} | Desc: ${desc} | Tech: ${techs || 'N/A'} | Jobs: ${jobs || 'None'}`;
   }).join('\n');
 
@@ -152,7 +152,7 @@ Respond with ONLY a valid JSON array (no markdown). Each element:
       console.warn(`  ⚠️ AI circuit breaker open: ${circuitResult.error}`);
       return companies.map(() => ({
         isValid: true,
-        confidence: 0.5,
+        confidence: 0.65,
         reason: 'AI validation unavailable - defaulting to accept',
         skillsOverlap: []
       }));
@@ -164,7 +164,7 @@ Respond with ONLY a valid JSON array (no markdown). Each element:
       console.warn('  ⚠️ Could not parse batch validation response');
       return companies.map(() => ({
         isValid: true,
-        confidence: 0.5,
+        confidence: 0.65,
         reason: 'Could not parse AI response - defaulting to accept',
         skillsOverlap: []
       }));
@@ -182,7 +182,7 @@ Respond with ONLY a valid JSON array (no markdown). Each element:
     while (results.length < companies.length) {
       results.push({
         isValid: true,
-        confidence: 0.5,
+        confidence: 0.65,
         reason: 'Not evaluated - defaulting to accept',
         skillsOverlap: []
       });
@@ -193,7 +193,7 @@ Respond with ONLY a valid JSON array (no markdown). Each element:
     console.error(`  ❌ Batch validation error:`, error);
     return companies.map(() => ({
       isValid: true,
-      confidence: 0.5,
+      confidence: 0.65,
       reason: `Validation error: ${error instanceof Error ? error.message : 'Unknown'}`,
       skillsOverlap: []
     }));
