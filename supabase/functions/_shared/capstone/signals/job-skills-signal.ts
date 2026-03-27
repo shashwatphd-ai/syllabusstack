@@ -21,20 +21,22 @@ export const JobSkillsSignal: SignalProvider = {
     const jobs = extractJobPostings(jobPostings, company);
 
     if (jobs.length === 0) {
-      // Fallback: technology alignment
+      // Fallback: technology alignment + description-based baseline
       const { score, matched } = technologyFallback(company, syllabusSkills);
-      const capped = Math.min(score, 40);
+      // Give a minimum baseline of 15 if company exists (has name/description)
+      const baselineScore = (company.description || company.name) ? 15 : 0;
+      const capped = Math.max(baselineScore, Math.min(score, 40));
       return {
-        score: capped, confidence: score > 0 ? 0.3 : 0,
+        score: capped, confidence: score > 0 ? 0.3 : 0.15,
         signals: score > 0
           ? [`Tech alignment fallback: ${matched.length} skills matched`, `Capped at 40% without job evidence`]
-          : ['No job postings or technology data'],
+          : [`Baseline score (${baselineScore}) — company exists but no job/tech data`],
         rawData: { fallbackMethod: 'technology_alignment', matchedTech: matched },
       };
     }
 
     if (syllabusSkills.length === 0) {
-      return { score: 0, confidence: 0, signals: ['No syllabus skills to match'] };
+      return { score: 10, confidence: 0.1, signals: ['No syllabus skills extracted — baseline score assigned'] };
     }
 
     // Try embedding-based matching first

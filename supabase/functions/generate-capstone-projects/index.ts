@@ -137,6 +137,13 @@ function filterRelevantSignals(
 
   console.log(`  📊 Jobs: ${originalJobCount} total → ${filteredJobs.length} relevant (${Math.round(filteredJobs.length / Math.max(originalJobCount, 1) * 100)}%)`);
 
+  // Fallback: if filtering removed ALL jobs but company had jobs, keep top 3 unfiltered
+  // so the AI still has company context to work with
+  let finalJobs = filteredJobs;
+  if (filteredJobs.length === 0 && jobsArray.length > 0) {
+    finalJobs = jobsArray.slice(0, 3);
+    console.log(`  🔄 Fallback: keeping top ${finalJobs.length} unfiltered jobs (keyword filter was too strict)`);
+  }
   // Step 5: Filter technologies by course relevance
   const rawTech = company.technologies_used;
   const techArray = Array.isArray(rawTech) ? rawTech : [];
@@ -161,8 +168,8 @@ function filterRelevantSignals(
 
   return {
     ...company,
-    job_postings: filteredJobs,
-    technologies_used: filteredTech,
+    job_postings: finalJobs,
+    technologies_used: filteredTech.length > 0 ? filteredTech : techArray.slice(0, 5),
     buying_intent_signals: filteredIntent,
   } as CompanyInfo;
 }
@@ -431,11 +438,12 @@ const handler = async (req: Request): Promise<Response> => {
         objectives
       );
 
-      // Skip company if zero relevant job postings AND zero relevant technologies
+      // Skip company ONLY if no jobs, no tech, AND no description
       const fcJobs = Array.isArray(filteredCompany.job_postings) ? filteredCompany.job_postings : [];
       const fcTech = Array.isArray(filteredCompany.technologies_used) ? filteredCompany.technologies_used : [];
-      if (fcJobs.length === 0 && fcTech.length === 0) {
-        console.log(`   ⚠️ Skipped: No relevant job postings or technologies for "${course.title}"`);
+      const hasDescription = !!(filteredCompany.description && filteredCompany.description.length > 20);
+      if (fcJobs.length === 0 && fcTech.length === 0 && !hasDescription) {
+        console.log(`   ⚠️ Skipped: No relevant signals or description for "${course.title}"`);
         validationResults[validationResults.length - 1].reason += ' (no relevant signals)';
         continue;
       }
