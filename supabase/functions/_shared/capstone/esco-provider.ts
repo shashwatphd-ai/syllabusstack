@@ -13,6 +13,7 @@
  *
  * Ported from projectify-syllabus with capstone-local imports.
  * Uses timeout-config.ts patterns (fetchWithTimeout, HEALTH_CHECK_TIMEOUT_MS).
+ * Uses retry-utils.ts patterns (fetchWithRetry, LIGHT_RETRY_CONFIG) for search resilience.
  */
 
 import {
@@ -26,8 +27,13 @@ import type { ExtractedSkill } from './skill-extraction.ts';
 import {
   fetchWithTimeout,
   API_TIMEOUT_MS,
-  HEALTH_CHECK_TIMEOUT_MS
+  HEALTH_CHECK_TIMEOUT_MS,
+  logTimingSuccess
 } from './timeout-config.ts';
+import {
+  fetchWithRetry,
+  LIGHT_RETRY_CONFIG
+} from './retry-utils.ts';
 
 // ESCO API configuration
 const ESCO_API_BASE = 'https://ec.europa.eu/esco/api';
@@ -127,7 +133,7 @@ export class ESCOProvider implements OccupationProvider {
     console.log(`  [OK] Mapped to ${occupations.length} ESCO occupations`);
     console.log(`  Unmapped skills: ${unmappedSkills.length}`);
     console.log(`  Cache: ${cacheHits} hits, ${apiCalls} API calls`);
-    console.log(`  Processing time: ${processingTimeMs}ms`);
+    logTimingSuccess('ESCO mapSkillsToOccupations', processingTimeMs, API_TIMEOUT_MS * 5);
 
     return {
       occupations,
@@ -170,11 +176,11 @@ export class ESCOProvider implements OccupationProvider {
       return { occupations: cached, apiCalls: 0, cacheHits: 1 };
     }
 
-    // Call ESCO search API with timeout from timeout-config.ts
+    // Call ESCO search API with retry from retry-utils.ts
     const url = `${ESCO_API_BASE}/search?text=${encodeURIComponent(searchQuery)}&type=occupation&language=${ESCO_LANGUAGE}&limit=20`;
 
     try {
-      const response = await fetchWithTimeout(
+      const result = await fetchWithRetry<any>(
         url,
         {
           headers: {
@@ -182,16 +188,16 @@ export class ESCOProvider implements OccupationProvider {
             'User-Agent': 'SyllabusStack/1.0'
           }
         },
-        API_TIMEOUT_MS,
+        LIGHT_RETRY_CONFIG,
         'ESCO Occupation Search'
       );
 
-      if (!response.ok) {
-        throw new Error(`ESCO API error: ${response.status}`);
+      if (!result.success || !result.data) {
+        throw new Error(`ESCO API error: ${result.error || 'unknown'}`);
       }
 
-      const data = await response.json();
-      apiCalls++;
+      apiCalls += result.attempts;
+      const data = result.data;
 
       // Parse results
       if (data._embedded?.results) {
