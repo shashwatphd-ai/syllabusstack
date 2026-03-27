@@ -740,8 +740,8 @@ const handler = async (req: Request): Promise<Response> => {
     for (const company of insertedCompanies) {
       try {
         const needs = inferCompanyNeedsV2(
-          company.job_postings || [],
-          company.technologies_used || [],
+          Array.isArray(company.job_postings) ? company.job_postings : [],
+          Array.isArray(company.technologies_used) ? company.technologies_used : [],
           company.description || '',
           company.funding_stage,
           company.employee_count,
