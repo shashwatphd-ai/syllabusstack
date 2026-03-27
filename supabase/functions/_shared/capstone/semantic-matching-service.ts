@@ -35,20 +35,28 @@ export interface SemanticFilteringResult {
  * Rank companies by keyword-overlap similarity to course skills/occupations.
  * Includes adaptive threshold fallback if too few pass.
  */
+function computeAdaptiveThreshold(scores: number[]): number {
+  if (scores.length === 0) return 0.1;
+  const mean = scores.reduce((a, b) => a + b, 0) / scores.length;
+  const variance = scores.reduce((a, b) => a + (b - mean) ** 2, 0) / scores.length;
+  const stddev = Math.sqrt(variance);
+  return Math.max(0.1, mean - 0.5 * stddev);
+}
+
 export function rankCompaniesBySimilarity(
   courseSkills: string[],
   occupations: OnetOccupation[],
   companies: any[],
-  threshold: number = 0.5
+  minCompanies: number = 5
 ): SemanticFilteringResult {
   const startTime = Date.now();
-  console.log(`\n🧠 [Semantic Matching] Ranking ${companies.length} companies (threshold: ${(threshold * 100).toFixed(0)}%)`);
+  console.log(`\n🧠 [Semantic Matching] Ranking ${companies.length} companies (minCompanies: ${minCompanies})`);
 
   // Build course text tokens
   const courseTokens = buildCourseTokens(courseSkills, occupations);
 
   // Score each company
-  const allMatches: SemanticMatch[] = companies.map(company => {
+  const companiesWithScores: (SemanticMatch & { score: number })[] = companies.map(company => {
     const companyTokens = buildCompanyTokens(company);
     const similarity = computeKeywordSimilarity(courseTokens, companyTokens);
 
@@ -73,6 +81,7 @@ export function rankCompaniesBySimilarity(
     return {
       companyName: company.name,
       similarityScore: boostedScore,
+      score: boostedScore,
       confidence,
       matchingSkills,
       matchingDWAs,
@@ -82,23 +91,42 @@ export function rankCompaniesBySimilarity(
     };
   });
 
+  const allScores = companiesWithScores.map(c => c.score);
+
+  // First pass: adaptive threshold
+  let threshold = computeAdaptiveThreshold(allScores);
+  let filtered = companiesWithScores.filter(c => c.score >= threshold);
+
+  // Retry 1: lower threshold by 0.1
+  if (filtered.length < minCompanies) {
+    threshold = Math.max(0.05, threshold - 0.1);
+    filtered = companiesWithScores.filter(c => c.score >= threshold);
+    console.log(`  ⚠️ Retry 1: lowered threshold to ${(threshold * 100).toFixed(0)}% (${filtered.length} pass)`);
+  }
+
+  // Retry 2: lower again
+  if (filtered.length < minCompanies) {
+    threshold = Math.max(0.01, threshold - 0.1);
+    filtered = companiesWithScores.filter(c => c.score >= threshold);
+    console.log(`  ⚠️ Retry 2: lowered threshold to ${(threshold * 100).toFixed(0)}% (${filtered.length} pass)`);
+  }
+
+  // Final fallback: preserve top N regardless of score
+  if (filtered.length < minCompanies) {
+    companiesWithScores.sort((a, b) => b.score - a.score);
+    filtered = companiesWithScores.slice(0, Math.max(minCompanies, 5));
+    // Mark these with low confidence
+    for (const c of filtered) {
+      c.confidence = 'low';
+    }
+    console.log(`  ⚠️ Final fallback: taking top ${filtered.length} regardless of score`);
+  }
+
+  filtered.sort((a, b) => b.similarityScore - a.similarityScore);
+
+  const allMatches: SemanticMatch[] = companiesWithScores.map(({ score, ...match }) => match);
   allMatches.sort((a, b) => b.similarityScore - a.similarityScore);
-
-  // Adaptive threshold: lower if too few pass
-  let effectiveThreshold = threshold;
-  let matches = allMatches.filter(m => m.similarityScore >= effectiveThreshold);
-
-  if (matches.length < 3 && allMatches.length >= 3) {
-    effectiveThreshold = threshold * 0.6;
-    matches = allMatches.filter(m => m.similarityScore >= effectiveThreshold);
-    console.log(`  ⚠️ Lowered threshold to ${(effectiveThreshold * 100).toFixed(0)}% (${matches.length} pass)`);
-  }
-
-  // Still too few? Take top N
-  if (matches.length < 3 && allMatches.length > 0) {
-    matches = allMatches.slice(0, Math.min(allMatches.length, 5));
-    console.log(`  ⚠️ Taking top ${matches.length} regardless of score`);
-  }
+  const matches: SemanticMatch[] = filtered.map(({ score, ...match }) => match);
 
   const avgSimilarity = allMatches.length > 0
     ? allMatches.reduce((s, m) => s + m.similarityScore, 0) / allMatches.length
@@ -112,7 +140,7 @@ export function rankCompaniesBySimilarity(
     totalCompanies: companies.length,
     filteredCount: allMatches.length - matches.length,
     averageSimilarity: avgSimilarity,
-    threshold: effectiveThreshold,
+    threshold,
     processingTimeMs: Date.now() - startTime,
   };
 }
