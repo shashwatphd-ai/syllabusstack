@@ -152,7 +152,7 @@ Respond with ONLY a valid JSON array (no markdown). Each element:
       console.warn(`  ⚠️ AI circuit breaker open: ${circuitResult.error}`);
       return companies.map(() => ({
         isValid: true,
-        confidence: 0.5,
+        confidence: 0.65,
         reason: 'AI validation unavailable - defaulting to accept',
         skillsOverlap: []
       }));
@@ -164,7 +164,7 @@ Respond with ONLY a valid JSON array (no markdown). Each element:
       console.warn('  ⚠️ Could not parse batch validation response');
       return companies.map(() => ({
         isValid: true,
-        confidence: 0.5,
+        confidence: 0.65,
         reason: 'Could not parse AI response - defaulting to accept',
         skillsOverlap: []
       }));
@@ -182,7 +182,7 @@ Respond with ONLY a valid JSON array (no markdown). Each element:
     while (results.length < companies.length) {
       results.push({
         isValid: true,
-        confidence: 0.5,
+        confidence: 0.65,
         reason: 'Not evaluated - defaulting to accept',
         skillsOverlap: []
       });
@@ -193,7 +193,7 @@ Respond with ONLY a valid JSON array (no markdown). Each element:
     console.error(`  ❌ Batch validation error:`, error);
     return companies.map(() => ({
       isValid: true,
-      confidence: 0.5,
+      confidence: 0.65,
       reason: `Validation error: ${error instanceof Error ? error.message : 'Unknown'}`,
       skillsOverlap: []
     }));
