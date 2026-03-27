@@ -744,7 +744,9 @@ const handler = async (req: Request): Promise<Response> => {
           company.technologies_used || [],
           company.description || '',
           company.funding_stage,
-          company.employee_count
+          company.employee_count,
+          company.name,
+          company.sector || company.industry
         );
 
         if (needs.needs.length > 0) {
@@ -1150,7 +1152,9 @@ const handler = async (req: Request): Promise<Response> => {
         company.technologies_used || [],
         company.description || '',
         company.funding_stage,
-        company.employee_count
+        company.employee_count,
+        company.name,
+        company.sector || company.industry
       );
 
       if (needs.needs.length > 0) {

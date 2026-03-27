@@ -131,7 +131,7 @@ function buildCompositeScore(results: Map<string, SignalResult>, name: string): 
 
   const signalsDetected = {
     hasActiveJobPostings: (js?.score ?? 0) > 30,
-    hasFundingNews: false,
+    hasFundingNews: (mi?.rawData as any)?.hasNewsData === true || (mi?.score ?? 0) > 50,
     hasHiringNews: (mi?.score ?? 0) > 40,
     hasDepartmentGrowth: (df?.score ?? 0) > 50,
     hasTechnologyMatch: (df?.score ?? 0) > 40,
@@ -146,10 +146,10 @@ function buildCompositeScore(results: Map<string, SignalResult>, name: string): 
 
   const lines = [
     `Signal Analysis for ${name}:`,
-    `• Skills: ${components.jobSkillsMatch}/100 (25%)`,
+    `• Skills: ${components.jobSkillsMatch}/100 (35%)`,
     `• Market: ${components.marketIntelligence}/100 (25%)`,
-    `• Dept Fit: ${components.departmentFit}/100 (25%)`,
-    `• Contact: ${components.contactQuality}/100 (25%)`,
+    `• Dept Fit: ${components.departmentFit}/100 (20%)`,
+    `• Contact: ${components.contactQuality}/100 (20%)`,
   ];
 
   return { overall, confidence, components, signalsDetected, breakdown: lines.join('\n'), errors };
