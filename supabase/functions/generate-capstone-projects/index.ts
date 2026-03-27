@@ -147,8 +147,10 @@ function filterRelevantSignals(
 
   console.log(`  💻 Tech: ${originalTechCount} total → ${filteredTech.length} relevant`);
 
-  // Step 6: Filter buying intent signals
-  const filteredIntent = ((company as any).buying_intent_signals || []).filter((signal: any) => {
+  // Step 6: Filter buying intent signals (handle object or array shapes)
+  const rawSignals = (company as any).buying_intent_signals;
+  const signalsArray = Array.isArray(rawSignals) ? rawSignals : [];
+  const filteredIntent = signalsArray.filter((signal: any) => {
     const signalText = JSON.stringify(signal).toLowerCase();
     return Array.from(expandedKeywords).some(keyword => signalText.includes(keyword));
   });
